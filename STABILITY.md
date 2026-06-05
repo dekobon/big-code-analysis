@@ -400,6 +400,14 @@ loose ends that will be tightened at `2.0`:
   shape is SemVer-protected; the changelog `2.0.0` entry carries the
   full key map. (The per-function `cyclomatic` average re-baseline,
   #512, is tracked separately.)
+- Integer-valued metrics serialize as integers and their `Stats`
+  accessors return `u64` rather than `f64` (#530): every count, sum,
+  and min/max, plus Halstead `length`/`vocabulary` and all WMC values.
+  Ratios, averages, ABC `magnitude`, the derived Halstead scores, and
+  MI stay `f64`. This aligns JSON/TOML/YAML/CBOR with CSV (which already
+  emitted integers) and is a SemVer-breaking shape change to both the
+  serialized output and the accessor signatures, so it is reserved for
+  `2.0`. No metric value changes — only its type.
 - `FilesData` and `ConcurrentRunner` are reshaped into a terminal
   file-set processor (#495): `FilesData` drops its `include` /
   `exclude` `GlobSet` fields and becomes `FilesData { paths }` (a

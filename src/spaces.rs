@@ -681,10 +681,10 @@ impl<'a> Source<'a> {
 /// // Each call's `with_only` filters to its requested family — the other
 /// // metric stays at its `Default` (zero) value, confirming options are
 /// // honored per call rather than carried over.
-/// assert!(loc.metrics.loc.ploc() > 0.0);
-/// assert_eq!(loc.metrics.cyclomatic.cyclomatic_sum(), 0.0);
-/// assert!(cyc.metrics.cyclomatic.cyclomatic_sum() > 0.0);
-/// assert_eq!(cyc.metrics.loc.ploc(), 0.0);
+/// assert!(loc.metrics.loc.ploc() > 0);
+/// assert_eq!(loc.metrics.cyclomatic.cyclomatic_sum(), 0);
+/// assert!(cyc.metrics.cyclomatic.cyclomatic_sum() > 0);
+/// assert_eq!(cyc.metrics.loc.ploc(), 0);
 /// ```
 ///
 /// Walk the underlying `tree_sitter::Tree` and then run metrics on the
@@ -1684,7 +1684,10 @@ mod tests {
             sloc >= ploc,
             "sloc ({sloc}) must be >= ploc ({ploc}) for the file-level space"
         );
-        assert!(blank >= 0.0, "blank ({blank}) must be >= 0");
+        // `blank` is `u64`, so non-negativity is type-guaranteed; assert the
+        // real invariant instead — blank lines cannot exceed source lines, so
+        // a saturating-subtraction underflow (#437) cannot inflate the count.
+        assert!(blank <= sloc, "blank ({blank}) must be <= sloc ({sloc})");
         assert_eq!(
             sloc as usize, line_count,
             "sloc ({sloc}) should match the file's line count ({line_count})"
@@ -1734,9 +1737,11 @@ mod tests {
             sloc >= ploc,
             "sloc ({sloc}) must be >= ploc ({ploc}) for the file-level space of {filename:?}",
         );
+        // `blank` is `u64`; non-negativity is type-guaranteed. Assert the
+        // real invariant — blank lines cannot exceed source lines (#437).
         assert!(
-            blank >= 0.0,
-            "blank ({blank}) must be >= 0 for the file-level space of {filename:?}",
+            blank <= sloc,
+            "blank ({blank}) must be <= sloc ({sloc}) for the file-level space of {filename:?}",
         );
     }
 
@@ -2523,16 +2528,16 @@ fn prod(x: i32) -> i32 {
                 "with_only(&[Loc]) must record exactly the Loc bit"
             );
             // LoC populated: the production function span is >= 1 ploc.
-            assert!(pruned.metrics.loc.ploc() >= 1.0);
+            assert!(pruned.metrics.loc.ploc() >= 1);
             // Full run has > 0 cognitive/cyclomatic; pruned must be
             // exactly zero because the compute call is gated off.
-            assert!(full.metrics.cognitive.cognitive_sum() > 0.0);
-            assert_eq!(pruned.metrics.cognitive.cognitive_sum(), 0.0);
-            assert!(full.metrics.cyclomatic.cyclomatic_sum() > 0.0);
-            assert_eq!(pruned.metrics.cyclomatic.cyclomatic_sum(), 0.0);
+            assert!(full.metrics.cognitive.cognitive_sum() > 0);
+            assert_eq!(pruned.metrics.cognitive.cognitive_sum(), 0);
+            assert!(full.metrics.cyclomatic.cyclomatic_sum() > 0);
+            assert_eq!(pruned.metrics.cyclomatic.cyclomatic_sum(), 0);
             // Halstead operators count is at the default (0) — no
             // per-node token text was hashed.
-            assert_eq!(pruned.metrics.halstead.u_operators(), 0.0);
+            assert_eq!(pruned.metrics.halstead.u_operators(), 0);
         }
 
         // Selecting `Mi` alone must auto-add its dependencies
@@ -2558,11 +2563,11 @@ fn prod(x: i32) -> i32 {
             // Cyclomatic sum > 0) so the test would fail if the
             // walker silently skipped the dependency compute.
             assert!(
-                pruned.metrics.loc.ploc() > 0.0,
+                pruned.metrics.loc.ploc() > 0,
                 "Loc must have run (Mi dependency); got ploc=0"
             );
             assert!(
-                pruned.metrics.cyclomatic.cyclomatic_sum() > 0.0,
+                pruned.metrics.cyclomatic.cyclomatic_sum() > 0,
                 "Cyclomatic must have run (Mi dependency); got sum=0"
             );
             // With non-zero inputs feeding the MI formula, the result
@@ -2591,11 +2596,11 @@ fn prod(x: i32) -> i32 {
             // Dependency must actually be computed, not just bit-set:
             // selecting Wmc alone must populate Cyclomatic & Nom.
             assert!(
-                pruned.metrics.cyclomatic.cyclomatic_sum() > 0.0,
+                pruned.metrics.cyclomatic.cyclomatic_sum() > 0,
                 "Cyclomatic must have run (Wmc dependency); got sum=0"
             );
             assert!(
-                pruned.metrics.nom.functions_sum() > 0.0,
+                pruned.metrics.nom.functions_sum() > 0,
                 "Nom must have run (Wmc dependency); got functions_sum=0"
             );
         }
@@ -2615,7 +2620,7 @@ fn prod(x: i32) -> i32 {
             assert!(sel.contains(Metric::Nom), "Cognitive depends on Nom (#428)");
             // Nom must actually run, supplying the divisor.
             assert!(
-                pruned.metrics.nom.total() > 0.0,
+                pruned.metrics.nom.total() > 0,
                 "Nom must have run (Cognitive dependency); got total=0"
             );
             let avg = pruned.metrics.cognitive.cognitive_average();
@@ -2626,7 +2631,7 @@ fn prod(x: i32) -> i32 {
             // The `if`/`else` over one function => cognitive sum == 2
             // => average == 2 (one increment for the `if`, one for the
             // `else` branch).
-            assert_eq!(pruned.metrics.cognitive.cognitive_sum(), 2.0);
+            assert_eq!(pruned.metrics.cognitive.cognitive_sum(), 2);
             assert_eq!(avg, 2.0);
         }
 
@@ -2637,7 +2642,7 @@ fn prod(x: i32) -> i32 {
             assert!(sel.contains(Metric::Exit));
             assert!(sel.contains(Metric::Nom), "Exit depends on Nom (#428)");
             assert!(
-                pruned.metrics.nom.total() > 0.0,
+                pruned.metrics.nom.total() > 0,
                 "Nom must have run (Exit dependency); got total=0"
             );
             let avg = pruned.metrics.nexits.exit_average();
@@ -2647,7 +2652,7 @@ fn prod(x: i32) -> i32 {
             );
             // `prod` has no explicit `return`, so exit_sum == 0 and the
             // guarded divisor (1) keeps the average a finite 0.0.
-            assert_eq!(pruned.metrics.nexits.exit_sum(), 0.0);
+            assert_eq!(pruned.metrics.nexits.exit_sum(), 0);
             assert_eq!(avg, 0.0);
         }
 
@@ -2658,7 +2663,7 @@ fn prod(x: i32) -> i32 {
             assert!(sel.contains(Metric::NArgs));
             assert!(sel.contains(Metric::Nom), "NArgs depends on Nom (#428)");
             assert!(
-                pruned.metrics.nom.total() > 0.0,
+                pruned.metrics.nom.total() > 0,
                 "Nom must have run (NArgs dependency); got total=0"
             );
             let avg = pruned.metrics.nargs.nargs_average();
@@ -2808,7 +2813,7 @@ end
             // the full and Loc-deselected runs (the `unit` flag only
             // feeds Loc, so deselecting Loc cannot move it).
             assert!(
-                full.metrics.cognitive.cognitive_sum() > 0.0,
+                full.metrics.cognitive.cognitive_sum() > 0,
                 "test premise: the source has cognitive complexity (the `if`/`else`)"
             );
             assert_eq!(

@@ -99,57 +99,57 @@ impl Stats {
     /// Returns the number of class public attributes in a space.
     #[inline]
     #[must_use]
-    pub fn class_npa(&self) -> f64 {
-        self.class_npa as f64
+    pub fn class_npa(&self) -> u64 {
+        self.class_npa as u64
     }
 
     /// Returns the number of interface public attributes in a space.
     #[inline]
     #[must_use]
-    pub fn interface_npa(&self) -> f64 {
-        self.interface_npa as f64
+    pub fn interface_npa(&self) -> u64 {
+        self.interface_npa as u64
     }
 
     /// Returns the number of class attributes in a space.
     #[inline]
     #[must_use]
-    pub fn class_na(&self) -> f64 {
-        self.class_na as f64
+    pub fn class_na(&self) -> u64 {
+        self.class_na as u64
     }
 
     /// Returns the number of interface attributes in a space.
     #[inline]
     #[must_use]
-    pub fn interface_na(&self) -> f64 {
-        self.interface_na as f64
+    pub fn interface_na(&self) -> u64 {
+        self.interface_na as u64
     }
 
     /// Returns the number of class public attributes sum in a space.
     #[inline]
     #[must_use]
-    pub fn class_npa_sum(&self) -> f64 {
-        self.class_npa_sum as f64
+    pub fn class_npa_sum(&self) -> u64 {
+        self.class_npa_sum as u64
     }
 
     /// Returns the number of interface public attributes sum in a space.
     #[inline]
     #[must_use]
-    pub fn interface_npa_sum(&self) -> f64 {
-        self.interface_npa_sum as f64
+    pub fn interface_npa_sum(&self) -> u64 {
+        self.interface_npa_sum as u64
     }
 
     /// Returns the number of class attributes sum in a space.
     #[inline]
     #[must_use]
-    pub fn class_na_sum(&self) -> f64 {
-        self.class_na_sum as f64
+    pub fn class_na_sum(&self) -> u64 {
+        self.class_na_sum as u64
     }
 
     /// Returns the number of interface attributes sum in a space.
     #[inline]
     #[must_use]
-    pub fn interface_na_sum(&self) -> f64 {
-        self.interface_na_sum as f64
+    pub fn interface_na_sum(&self) -> u64 {
+        self.interface_na_sum as u64
     }
 
     /// Returns the class `Cda` metric value
@@ -164,7 +164,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn class_cda(&self) -> f64 {
-        accessibility_ratio(self.class_npa_sum(), self.class_na_sum())
+        accessibility_ratio(self.class_npa_sum() as f64, self.class_na_sum() as f64)
     }
 
     /// Returns the interface `Cda` metric value
@@ -184,7 +184,10 @@ impl Stats {
         if self.interface_npa_sum == self.interface_na_sum && self.interface_npa_sum != 0 {
             1.0
         } else {
-            accessibility_ratio(self.interface_npa_sum(), self.interface_na_sum())
+            accessibility_ratio(
+                self.interface_npa_sum() as f64,
+                self.interface_na_sum() as f64,
+            )
         }
     }
 
@@ -200,20 +203,20 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn total_cda(&self) -> f64 {
-        accessibility_ratio(self.total_npa(), self.total_na())
+        accessibility_ratio(self.total_npa() as f64, self.total_na() as f64)
     }
 
     /// Returns the total number of public attributes in a space.
     #[inline]
     #[must_use]
-    pub fn total_npa(&self) -> f64 {
+    pub fn total_npa(&self) -> u64 {
         self.class_npa_sum() + self.interface_npa_sum()
     }
 
     /// Returns the total number of attributes in a space.
     #[inline]
     #[must_use]
-    pub fn total_na(&self) -> f64 {
+    pub fn total_na(&self) -> u64 {
         self.class_na_sum() + self.interface_na_sum()
     }
 
@@ -2021,14 +2024,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 8.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 16.0,
-                  "interface_attributes": 0.0,
+                  "classes": 8,
+                  "interfaces": 0,
+                  "class_attributes": 16,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 8.0,
-                  "total_attributes": 16.0,
+                  "total": 8,
+                  "total_attributes": 16,
                   "cda": 0.5
                 }
                 "#
@@ -2064,14 +2067,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 20.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 40.0,
-                  "interface_attributes": 0.0,
+                  "classes": 20,
+                  "interfaces": 0,
+                  "class_attributes": 40,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 20.0,
-                  "total_attributes": 40.0,
+                  "total": 20,
+                  "total_attributes": 40,
                   "cda": 0.5
                 }
                 "#
@@ -2107,14 +2110,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 20.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 40.0,
-                  "interface_attributes": 0.0,
+                  "classes": 20,
+                  "interfaces": 0,
+                  "class_attributes": 40,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 20.0,
-                  "total_attributes": 40.0,
+                  "total": 20,
+                  "total_attributes": 40,
                   "cda": 0.5
                 }
                 "#
@@ -2150,14 +2153,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 20.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 40.0,
-                  "interface_attributes": 0.0,
+                  "classes": 20,
+                  "interfaces": 0,
+                  "class_attributes": 40,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 20.0,
-                  "total_attributes": 40.0,
+                  "total": 20,
+                  "total_attributes": 40,
                   "cda": 0.5
                 }
                 "#
@@ -2189,14 +2192,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 12.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 24.0,
-                  "interface_attributes": 0.0,
+                  "classes": 12,
+                  "interfaces": 0,
+                  "class_attributes": 24,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 12.0,
-                  "total_attributes": 24.0,
+                  "total": 12,
+                  "total_attributes": 24,
                   "cda": 0.5
                 }
                 "#
@@ -2208,8 +2211,8 @@ mod tests {
     #[test]
     fn groovy_no_attributes() {
         check_metrics::<GroovyParser>("class A { void foo() {} }", "foo.groovy", |metric| {
-            assert_eq!(metric.npa.total_na(), 0.0);
-            assert_eq!(metric.npa.total_npa(), 0.0);
+            assert_eq!(metric.npa.total_na(), 0);
+            assert_eq!(metric.npa.total_npa(), 0);
         });
     }
 
@@ -2224,8 +2227,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 3 total attributes, 2 public
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -2243,8 +2246,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // Both `def` fields parse as FieldDeclarations.
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
             },
         );
     }
@@ -2263,8 +2266,8 @@ mod tests {
             |func_space| {
                 let metric = &func_space.metrics;
                 // Interface fields are implicitly public+static+final.
-                assert_eq!(metric.npa.interface_na_sum(), 2.0);
-                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+                assert_eq!(metric.npa.interface_na_sum(), 2);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
@@ -2273,7 +2276,7 @@ mod tests {
     #[test]
     fn groovy_no_attributes_in_unit_scope() {
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
-            assert_eq!(metric.npa.total_na(), 0.0);
+            assert_eq!(metric.npa.total_na(), 0);
         });
     }
 
@@ -2284,8 +2287,8 @@ mod tests {
             class B { public int b }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -2305,8 +2308,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 5 attributes total, 3 public.
-                assert_eq!(metric.npa.class_na_sum(), 5.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -2323,8 +2326,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -2346,8 +2349,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 6 attributes total, 4 public (regardless of order).
-                assert_eq!(metric.npa.class_na_sum(), 6.0);
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 6);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
             },
         );
     }
@@ -2370,8 +2373,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 3 classes, 3 public attributes.
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -2387,8 +2390,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -2409,8 +2412,8 @@ mod tests {
             |metric| {
                 // outer X has 1 public attr `r`; inner anonymous
                 // has 1 public attr `x` => total 2.
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -2429,8 +2432,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
             },
         );
     }
@@ -2451,8 +2454,8 @@ mod tests {
             }",
             "foo.groovy",
             |func_space| {
-                assert_eq!(func_space.metrics.npa.interface_na_sum(), 2.0);
-                assert_eq!(func_space.metrics.npa.interface_npa_sum(), 2.0);
+                assert_eq!(func_space.metrics.npa.interface_na_sum(), 2);
+                assert_eq!(func_space.metrics.npa.interface_npa_sum(), 2);
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
@@ -2479,14 +2482,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 9.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 18.0,
-                  "interface_attributes": 0.0,
+                  "classes": 9,
+                  "interfaces": 0,
+                  "class_attributes": 18,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 9.0,
-                  "total_attributes": 18.0,
+                  "total": 9,
+                  "total_attributes": 18,
                   "cda": 0.5
                 }
                 "#
@@ -2522,14 +2525,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 10.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 16.0,
-                  "interface_attributes": 0.0,
+                  "classes": 10,
+                  "interfaces": 0,
+                  "class_attributes": 16,
+                  "interface_attributes": 0,
                   "class_cda": 0.625,
                   "interface_cda": 0.0,
-                  "total": 10.0,
-                  "total_attributes": 16.0,
+                  "total": 10,
+                  "total_attributes": 16,
                   "cda": 0.625
                 }
                 "#
@@ -2557,14 +2560,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 6.0,
-                  "interface_attributes": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_attributes": 6,
+                  "interface_attributes": 0,
                   "class_cda": 0.5,
                   "interface_cda": 0.0,
-                  "total": 3.0,
-                  "total_attributes": 6.0,
+                  "total": 3,
+                  "total_attributes": 6,
                   "cda": 0.5
                 }
                 "#
@@ -2591,14 +2594,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 3.0,
-                  "interface_attributes": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_attributes": 3,
+                  "interface_attributes": 0,
                   "class_cda": 1.0,
                   "interface_cda": 0.0,
-                  "total": 3.0,
-                  "total_attributes": 3.0,
+                  "total": 3,
+                  "total_attributes": 3,
                   "cda": 1.0
                 }
                 "#
@@ -2630,14 +2633,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 3.0,
-                  "interface_attributes": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_attributes": 3,
+                  "interface_attributes": 0,
                   "class_cda": 1.0,
                   "interface_cda": 0.0,
-                  "total": 3.0,
-                  "total_attributes": 3.0,
+                  "total": 3,
+                  "total_attributes": 3,
                   "cda": 1.0
                 }
                 "#
@@ -2672,14 +2675,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_attributes": 5.0,
-                  "interface_attributes": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_attributes": 5,
+                  "interface_attributes": 0,
                   "class_cda": 0.6,
                   "interface_cda": 0.0,
-                  "total": 3.0,
-                  "total_attributes": 5.0,
+                  "total": 3,
+                  "total_attributes": 5,
                   "cda": 0.6
                 }
                 "#
@@ -2702,14 +2705,14 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 0.0,
-                  "interfaces": 3.0,
-                  "class_attributes": 0.0,
-                  "interface_attributes": 3.0,
+                  "classes": 0,
+                  "interfaces": 3,
+                  "class_attributes": 0,
+                  "interface_attributes": 3,
                   "class_cda": 0.0,
                   "interface_cda": 1.0,
-                  "total": 3.0,
-                  "total_attributes": 3.0,
+                  "total": 3,
+                  "total_attributes": 3,
                   "cda": 1.0
                 }
                 "#
@@ -2733,8 +2736,8 @@ mod tests {
             "foo.java",
             |metric| {
                 // 1 class space (the enum), 3 total fields, 2 explicit public.
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -2756,8 +2759,8 @@ mod tests {
             |metric| {
                 // Only explicit body fields are counted; the `x` / `y`
                 // record components are not.
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
             },
         );
     }
@@ -2779,8 +2782,8 @@ mod tests {
             }",
             "foo.java",
             |func_space| {
-                assert_eq!(func_space.metrics.npa.interface_na_sum(), 2.0);
-                assert_eq!(func_space.metrics.npa.interface_npa_sum(), 2.0);
+                assert_eq!(func_space.metrics.npa.interface_na_sum(), 2);
+                assert_eq!(func_space.metrics.npa.interface_npa_sum(), 2);
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
@@ -2818,9 +2821,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 8.0);
-                assert_eq!(metric.npa.class_na_sum(), 16.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 8);
+                assert_eq!(metric.npa.class_na_sum(), 16);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2840,9 +2843,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 12.0);
-                assert_eq!(metric.npa.class_na_sum(), 18.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 12);
+                assert_eq!(metric.npa.class_na_sum(), 18);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2860,9 +2863,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
-                assert_eq!(metric.npa.class_na_sum(), 5.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2878,9 +2881,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2897,9 +2900,9 @@ mod tests {
              }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
-                assert_eq!(metric.npa.class_na_sum(), 5.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2915,9 +2918,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2939,9 +2942,9 @@ mod tests {
             |metric| {
                 // Modifiers test: 4 of 7 fields are explicitly `public`. The
                 // visibility-filter split is the spec.
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
-                assert_eq!(metric.npa.class_na_sum(), 7.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 7);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2961,9 +2964,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 5.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -2982,9 +2985,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3002,9 +3005,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3021,9 +3024,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3043,8 +3046,8 @@ mod tests {
             "foo.cs",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
-                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.interface_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -3173,9 +3176,9 @@ mod tests {
             // The property is excluded from the public-count (npa) because
             // `var` is not an explicit `public` modifier, but still
             // contributes to the total-count (na). This split is the spec.
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
-            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.interface_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -3228,9 +3231,9 @@ mod tests {
     #[test]
     fn kotlin_empty_class_no_attributes() {
         check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.interface_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -3246,8 +3249,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3265,8 +3268,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3282,8 +3285,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3301,8 +3304,8 @@ mod tests {
             "foo.kt",
             |metric| {
                 // a, b, d -> public; c -> not an attribute (no val/var)
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3314,8 +3317,8 @@ mod tests {
             "class C(private val a: Int, val b: Int)",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3331,8 +3334,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3354,8 +3357,8 @@ mod tests {
             |metric| {
                 // instance (public) + SCALE (public) = 2 public
                 // SECRET counts toward total na but not npa
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3368,8 +3371,8 @@ mod tests {
             "data class Point(val x: Int, val y: Int)",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3386,8 +3389,8 @@ mod tests {
             "foo.kt",
             |metric| {
                 // DEFAULT, debug -> public; SEED -> not.
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3408,9 +3411,9 @@ mod tests {
             "foo.kt",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
-                assert_eq!(metric.npa.interface_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.interface_na_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -3432,8 +3435,8 @@ mod tests {
             "foo.kt",
             |metric| {
                 // 2 classes total — Outer's 1 + Nested's 2 = 3 attributes
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3450,8 +3453,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3467,8 +3470,8 @@ mod tests {
             class C { val x: Int = 0 }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3488,8 +3491,8 @@ mod tests {
             "foo.kt",
             |metric| {
                 // A: 2 public; B: 1 public + 1 private = 2 total, 1 public
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3505,8 +3508,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3526,8 +3529,8 @@ mod tests {
     #[test]
     fn typescript_empty_class_no_attributes() {
         check_metrics::<TypescriptParser>("class C {}", "foo.ts", |metric| {
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -3543,8 +3546,8 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3563,8 +3566,8 @@ mod tests {
             "foo.ts",
             |metric| {
                 // public + default(public) = 2 npa; total na = 4.
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3582,8 +3585,8 @@ mod tests {
             "foo.ts",
             |metric| {
                 // a (default public) + b (public) = 2 npa; c is private.
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3600,8 +3603,8 @@ mod tests {
             |metric| {
                 // a, b are parameter properties (modifiered); c is a plain
                 // parameter and does NOT count. a is public, b is private.
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3624,8 +3627,8 @@ mod tests {
                 // Properties: a (private), b (readonly→public), c (public),
                 // d (private readonly). e is not a property. na = 4.
                 // npa counts the public ones: b, c. npa = 2.
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3642,8 +3645,8 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3663,8 +3666,8 @@ mod tests {
             |metric| {
                 // a (public) + b (protected) = 2 attrs; npa = 1.
                 // `abstract m()` is a method, not an attribute.
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3681,8 +3684,8 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3704,9 +3707,9 @@ mod tests {
             "foo.ts",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
-                assert_eq!(metric.npa.interface_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.interface_na_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -3724,8 +3727,8 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3743,8 +3746,8 @@ mod tests {
             "foo.ts",
             |metric| {
                 // Only `_x` counts as an attribute (private → not public).
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3761,10 +3764,10 @@ mod tests {
                 let metric = &func_space.metrics;
                 // A: 1 npa / 1 na (public). B: 0 npa / 1 na (private).
                 // I: 1 interface_npa / 1 interface_na.
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.interface_npa_sum(), 1.0);
-                assert_eq!(metric.npa.interface_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.interface_npa_sum(), 1);
+                assert_eq!(metric.npa.interface_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "A", SpaceKind::Class);
                 assert_child_space_kind(&func_space, "B", SpaceKind::Class);
@@ -3792,8 +3795,8 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3805,8 +3808,8 @@ mod tests {
     #[test]
     fn tsx_empty_class_no_attributes() {
         check_metrics::<TsxParser>("class C {}", "foo.tsx", |metric| {
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -3820,8 +3823,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3837,8 +3840,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3852,8 +3855,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3871,8 +3874,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3888,8 +3891,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3906,8 +3909,8 @@ mod tests {
             "foo.tsx",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
-                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.interface_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -3923,8 +3926,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3939,8 +3942,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3955,8 +3958,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3965,8 +3968,8 @@ mod tests {
     #[test]
     fn tsx_generic_class_attributes() {
         check_metrics::<TsxParser>("class Box<T> { value: T; }", "foo.tsx", |metric| {
-            assert_eq!(metric.npa.class_npa_sum(), 1.0);
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+            assert_eq!(metric.npa.class_na_sum(), 1);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -3981,8 +3984,8 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -3997,10 +4000,10 @@ mod tests {
             "foo.tsx",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.interface_npa_sum(), 1.0);
-                assert_eq!(metric.npa.interface_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.interface_npa_sum(), 1);
+                assert_eq!(metric.npa.interface_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "A", SpaceKind::Class);
                 assert_child_space_kind(&func_space, "B", SpaceKind::Class);
@@ -4024,8 +4027,8 @@ mod tests {
             "class A\n  def f\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4035,8 +4038,8 @@ mod tests {
     fn ruby_instance_variable_attribute() {
         // Bare `@x = …` at class scope is one public attribute.
         check_metrics::<RubyParser>("class A\n  @x = 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.npa.class_npa_sum(), 1.0);
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+            assert_eq!(metric.npa.class_na_sum(), 1);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4045,8 +4048,8 @@ mod tests {
     fn ruby_class_variable_attribute() {
         // `@@y = …` at class scope is one attribute.
         check_metrics::<RubyParser>("class A\n  @@y = 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.npa.class_npa_sum(), 1.0);
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
+            assert_eq!(metric.npa.class_na_sum(), 1);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4058,8 +4061,8 @@ mod tests {
             "class A\n  attr_accessor :x, :y, :z\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4071,8 +4074,8 @@ mod tests {
             "class A\n  attr_reader :r1, :r2\n  attr_writer :w\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4084,8 +4087,8 @@ mod tests {
             "class A\n  attr_accessor :x, :y\n  @z = 1\n  @@w = 2\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
+                assert_eq!(metric.npa.class_na_sum(), 4);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4098,8 +4101,8 @@ mod tests {
             "class A\n  attr_accessor :pub\n  private\n  attr_accessor :hidden\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4112,8 +4115,8 @@ mod tests {
             "class A\n  attr_reader :a\n  private\n  attr_reader :b\n  public\n  attr_reader :c\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4128,8 +4131,8 @@ mod tests {
             "class A\n  def init\n    @x = 1\n    @@y = 2\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4143,8 +4146,8 @@ mod tests {
             "module M\n  attr_accessor :x\n  @@m = 1\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4157,8 +4160,8 @@ mod tests {
             "class A < B\n  attr_accessor :x\n  @y = 0\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4174,8 +4177,8 @@ mod tests {
             "foo.rb",
             |metric| {
                 // Only `attr_reader :x` counts.
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4188,8 +4191,8 @@ mod tests {
             "foo.rb",
             |metric| {
                 // A: 1 public attr. B: 0 public, 1 total.
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4210,9 +4213,9 @@ mod tests {
     #[test]
     fn python_empty_class_no_attributes() {
         check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
-            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
+            assert_eq!(metric.npa.interface_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4222,8 +4225,8 @@ mod tests {
         // Two class-level `=` assignments → 2 attributes, all public
         // (Python has no visibility keyword).
         check_metrics::<PythonParser>("class C:\n    x = 1\n    y = 2\n", "foo.py", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 2.0);
-            assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npa.class_npa_sum(), 2);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4236,7 +4239,7 @@ mod tests {
             "class C:\n    x: int\n    y: int = 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4250,8 +4253,8 @@ mod tests {
             "class C:\n    def __init__(self):\n        self.x = 1\n        self.y = 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4266,7 +4269,7 @@ mod tests {
             "class C:\n    def __init__(self, flag):\n        if flag:\n            self.z = 1\n        else:\n            self.z = 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4288,8 +4291,8 @@ mod tests {
             "class C:\n    def __init__(self):\n        self.value = None\n    def reset(self):\n        self.value = 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4303,7 +4306,7 @@ mod tests {
             "class C:\n    def __init__(self):\n        self.x = 1\n        self.y = 2\n        self.z = 3\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4321,7 +4324,7 @@ mod tests {
             "class C:\n    def __init__(self):\n        self.value: int = 1\n    def reset(self):\n        self.value = 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4334,7 +4337,7 @@ mod tests {
             "class C:\n    counter = 0\n    def __init__(self):\n        self.name = 'a'\n        self.value = 1\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4356,7 +4359,7 @@ mod tests {
              \x20           self.z = 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4377,7 +4380,7 @@ mod tests {
              \x20       return 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4388,7 +4391,7 @@ mod tests {
         // `x = 1` at module scope is not a class attribute.
         check_metrics::<PythonParser>("x = 1\ny = 2\nclass C:\n    a = 3\n", "foo.py", |metric| {
             // Only `a = 3` lives in the class space.
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.class_na_sum(), 1);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4409,8 +4412,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // Only self.name; db.* and logger.* are foreign.
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4430,8 +4433,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // a, b, c.
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4451,8 +4454,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // a, b, c — all three, including the nested b and c.
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -4469,8 +4472,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // a, b, c.
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -4491,8 +4494,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // p, q, m, n.
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
             },
         );
     }
@@ -4509,7 +4512,7 @@ mod tests {
             "foo.py",
             |metric| {
                 // Only `a`; the bare local `x` is not an attribute.
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4526,8 +4529,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // x, a, b, p, q.
-                assert_eq!(metric.npa.class_na_sum(), 5.0);
-                assert_eq!(metric.npa.class_npa_sum(), 5.0);
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.class_npa_sum(), 5);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4542,8 +4545,8 @@ mod tests {
             "class C:\n    def __init__(self):\n        self.a = self.b = 1\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4563,8 +4566,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // Only cls.registry; other.thing is foreign.
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4580,7 +4583,7 @@ mod tests {
             "class C:\n    def __init__(self):\n        self.f.g = 1\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4596,8 +4599,8 @@ mod tests {
             "class C:\n    x = 1\n    def __init__(self):\n        self.x = 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4606,10 +4609,10 @@ mod tests {
     #[test]
     fn rust_empty_unit_no_attributes() {
         check_metrics::<RustParser>("", "empty.rs", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
-            assert_eq!(metric.npa.interface_na_sum(), 0.0);
-            assert_eq!(metric.npa.interface_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
+            assert_eq!(metric.npa.interface_na_sum(), 0);
+            assert_eq!(metric.npa.interface_npa_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4622,8 +4625,8 @@ mod tests {
             "struct Foo { pub a: i32, b: String, pub c: bool }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4650,8 +4653,8 @@ mod tests {
              }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 7.0);
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 7);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
             },
         );
     }
@@ -4672,8 +4675,8 @@ mod tests {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -4691,8 +4694,8 @@ mod tests {
             "struct Bar(pub(self) i32, pub(in self) i32, pub(crate) i32, pub u8, String);",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 5.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 5);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -4702,8 +4705,8 @@ mod tests {
         // Tuple-struct field counting is positional. `Bar(pub i32,
         // String)` → 2 fields, 1 public.
         check_metrics::<RustParser>("struct Bar(pub i32, String);", "foo.rs", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 2.0);
-            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            assert_eq!(metric.npa.class_na_sum(), 2);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4712,7 +4715,7 @@ mod tests {
     fn rust_unit_struct_has_no_attributes() {
         // `struct Empty;` is a unit struct (no fields). 0 attributes.
         check_metrics::<RustParser>("struct Empty;", "foo.rs", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4721,7 +4724,7 @@ mod tests {
     fn rust_empty_struct_body_has_no_attributes() {
         // `struct Empty {}` is named-field with zero fields.
         check_metrics::<RustParser>("struct Empty { }", "foo.rs", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4742,8 +4745,8 @@ mod tests {
             |metric| {
                 // The Impl-space class_na is 4; rolled up to Unit
                 // class_na_sum it is also 4 (no struct fields in `Foo;`).
-                assert_eq!(metric.npa.class_na_sum(), 4.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4760,9 +4763,9 @@ mod tests {
             "foo.rs",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npa.interface_na_sum(), 2.0);
-                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.interface_na_sum(), 2);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
             },
@@ -4779,8 +4782,8 @@ mod tests {
              impl Foo { pub const Y: i32 = 2; }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4795,8 +4798,8 @@ mod tests {
             "const PI: f64 = 3.14;\nstatic Q: i32 = 0;\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
-                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4809,7 +4812,7 @@ mod tests {
         // Package-only file declares no struct → npa stays disabled,
         // class_na_sum = 0.
         check_metrics::<GoParser>("package main\n", "empty.go", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4819,7 +4822,7 @@ mod tests {
         // `type Empty struct{}` has an empty FieldDeclarationList →
         // 0 fields → npa stays disabled.
         check_metrics::<GoParser>("package main\ntype Empty struct{}\n", "foo.go", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -4833,8 +4836,8 @@ mod tests {
             "package main\ntype Foo struct { X int; y string; Z float64 }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4850,8 +4853,8 @@ mod tests {
             "package main\ntype Point struct { X, Y int; Z float64 }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4869,8 +4872,8 @@ mod tests {
             "package main\nimport \"io\"\ntype Bar struct { io.Reader; *Foo; n int }\ntype Foo struct {}\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4887,8 +4890,8 @@ mod tests {
             "package main\ntype Foo struct { x int }\ntype Bar struct { a int; b string }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4903,7 +4906,7 @@ mod tests {
             "package main\nvar Counter int\nconst Pi = 3.14\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4926,8 +4929,8 @@ mod tests {
              type T struct { Name string; secret int; A, b int; io.Reader; _ int; Ärger bool }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 7.0);
-                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 7);
+                assert_eq!(metric.npa.class_npa_sum(), 4);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4945,8 +4948,8 @@ mod tests {
             "foo.ex",
             |metric| {
                 // Three keyword pairs → 3 fields, all public.
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -4957,8 +4960,8 @@ mod tests {
             "defmodule User do\n  defstruct [:name, :age, :email]\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
             },
         );
     }
@@ -4969,8 +4972,8 @@ mod tests {
             "defmodule User do\n  defstruct [name: nil, age: 0]\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
             },
         );
     }
@@ -4981,8 +4984,8 @@ mod tests {
             "defmodule Box do\n  defstruct value: nil\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
             },
         );
     }
@@ -4993,8 +4996,8 @@ mod tests {
             "defmodule Foo do\n  def m, do: :ok\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 0.0);
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
             },
         );
     }
@@ -5006,8 +5009,8 @@ mod tests {
         // No code → no class spaces → npa = 0. Establishes the trait
         // is wired and the per-language compute is reachable.
         check_metrics::<CppParser>("", "empty.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -5017,8 +5020,8 @@ mod tests {
         // `class Foo {};` has no fields. Marked as class space (npa
         // becomes visible) but counts stay at 0.
         check_metrics::<CppParser>("class Foo {};", "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -5033,8 +5036,8 @@ mod tests {
             "class Foo { public: int a; int b, c; };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5046,8 +5049,8 @@ mod tests {
         // visibility → `int value_;` counts as 1 attribute but 0 are
         // public. class_na = 1, class_npa = 0.
         check_metrics::<CppParser>("class Foo { int value_; };", "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -5057,8 +5060,8 @@ mod tests {
         // `struct` defaults to public — opposite of `class`. The same
         // field counts once and is public.
         check_metrics::<CppParser>("struct Bar { int value_; };", "foo.cpp", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 1.0);
-            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            assert_eq!(metric.npa.class_na_sum(), 1);
+            assert_eq!(metric.npa.class_npa_sum(), 1);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -5076,8 +5079,8 @@ mod tests {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5099,8 +5102,8 @@ mod tests {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5120,9 +5123,9 @@ mod tests {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 // Struct → all public.
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5138,9 +5141,9 @@ mod tests {
             "class Foo { public: int a; private: int b; };\nstruct Bar { int c; };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
                 // Public: Foo::a (1) + Bar::c (1) = 2.
-                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5151,8 +5154,8 @@ mod tests {
         // Wires up the trait and ensures no spurious attribute counts
         // on an empty file.
         check_metrics::<JavascriptParser>("", "empty.js", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -5161,8 +5164,8 @@ mod tests {
     fn javascript_empty_class_no_attributes() {
         // A class with no body and no fields has zero attributes.
         check_metrics::<JavascriptParser>("class Foo {}", "foo.js", |metric| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
-            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
+            assert_eq!(metric.npa.class_npa_sum(), 0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
@@ -5177,8 +5180,8 @@ mod tests {
             "class Foo { x = 1; y; static z = 2; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5194,8 +5197,8 @@ mod tests {
             "foo.js",
             |metric| {
                 // Only `z = 1` is an attribute.
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5210,8 +5213,8 @@ mod tests {
             "foo.js",
             |metric| {
                 // Only `x = 1` is a true attribute.
-                assert_eq!(metric.npa.class_na_sum(), 1.0);
-                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1);
+                assert_eq!(metric.npa.class_npa_sum(), 1);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5226,8 +5229,8 @@ mod tests {
             "class Foo { a = 1; b = 2; }\nclass Bar { c = 3; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5241,8 +5244,8 @@ mod tests {
             "class Foo { x = 1; y; static z = 2; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 3.0);
-                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -5258,7 +5261,7 @@ mod tests {
     #[test]
     fn empty_class_cda_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
-            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0);
             assert!(!metric.npa.class_cda().is_nan());
             assert!(!metric.npa.total_cda().is_nan());
             assert_eq!(metric.npa.class_cda(), 0.0);
@@ -5277,7 +5280,7 @@ mod tests {
     #[test]
     fn empty_interface_cda_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
-            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            assert_eq!(metric.npa.interface_na_sum(), 0);
             assert!(!metric.npa.interface_cda().is_nan());
             assert_eq!(metric.npa.interface_cda(), 0.0);
         };

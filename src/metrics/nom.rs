@@ -125,31 +125,31 @@ impl Stats {
     /// Counts the number of function definitions in a scope
     #[inline]
     #[must_use]
-    pub fn functions(&self) -> f64 {
+    pub fn functions(&self) -> u64 {
         // Only function definitions are considered, not general declarations
-        self.functions as f64
+        self.functions as u64
     }
 
     /// Counts the number of closures in a scope
     #[inline]
     #[must_use]
-    pub fn closures(&self) -> f64 {
-        self.closures as f64
+    pub fn closures(&self) -> u64 {
+        self.closures as u64
     }
 
     /// Return the sum metric for functions
     #[inline]
     #[must_use]
-    pub fn functions_sum(&self) -> f64 {
+    pub fn functions_sum(&self) -> u64 {
         // Only function definitions are considered, not general declarations
-        self.functions_sum as f64
+        self.functions_sum as u64
     }
 
     /// Return the sum metric for closures
     #[inline]
     #[must_use]
-    pub fn closures_sum(&self) -> f64 {
-        self.closures_sum as f64
+    pub fn closures_sum(&self) -> u64 {
+        self.closures_sum as u64
     }
 
     /// Returns the average number of function definitions over all spaces.
@@ -162,21 +162,21 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn functions_average(&self) -> f64 {
-        crate::metrics::average(self.functions_sum(), self.space_count)
+        crate::metrics::average(self.functions_sum() as f64, self.space_count)
     }
 
     /// Returns the average number of closures over all spaces.
     #[inline]
     #[must_use]
     pub fn closures_average(&self) -> f64 {
-        crate::metrics::average(self.closures_sum(), self.space_count)
+        crate::metrics::average(self.closures_sum() as f64, self.space_count)
     }
 
     /// Returns the average number of function definitions and closures over all spaces.
     #[inline]
     #[must_use]
     pub fn average(&self) -> f64 {
-        crate::metrics::average(self.total(), self.space_count)
+        crate::metrics::average(self.total() as f64, self.space_count)
     }
 
     /// Counts the number of function definitions in a scope.
@@ -186,12 +186,12 @@ impl Stats {
     /// serializes to a meaningful number rather than `1.8446744e19`.
     #[inline]
     #[must_use]
-    pub fn functions_min(&self) -> f64 {
+    pub fn functions_min(&self) -> u64 {
         // Only function definitions are considered, not general declarations
         if self.functions_min == usize::MAX {
-            0.0
+            0
         } else {
-            self.functions_min as f64
+            self.functions_min as u64
         }
     }
 
@@ -200,32 +200,32 @@ impl Stats {
     /// Same `usize::MAX` sentinel collapse as `functions_min`.
     #[inline]
     #[must_use]
-    pub fn closures_min(&self) -> f64 {
+    pub fn closures_min(&self) -> u64 {
         if self.closures_min == usize::MAX {
-            0.0
+            0
         } else {
-            self.closures_min as f64
+            self.closures_min as u64
         }
     }
     /// Counts the number of function definitions in a scope
     #[inline]
     #[must_use]
-    pub fn functions_max(&self) -> f64 {
+    pub fn functions_max(&self) -> u64 {
         // Only function definitions are considered, not general declarations
-        self.functions_max as f64
+        self.functions_max as u64
     }
 
     /// Counts the number of closures in a scope
     #[inline]
     #[must_use]
-    pub fn closures_max(&self) -> f64 {
-        self.closures_max as f64
+    pub fn closures_max(&self) -> u64 {
+        self.closures_max as u64
     }
     /// Returns the total number of function definitions and
     /// closures in a scope
     #[inline]
     #[must_use]
-    pub fn total(&self) -> f64 {
+    pub fn total(&self) -> u64 {
         self.functions_sum() + self.closures_sum()
     }
     #[inline]
@@ -311,8 +311,8 @@ mod tests {
     #[test]
     fn nom_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.functions_min(), 0.0);
-        assert_eq!(stats.closures_min(), 0.0);
+        assert_eq!(stats.functions_min(), 0);
+        assert_eq!(stats.closures_min(), 0);
     }
 
     #[test]
@@ -332,22 +332,23 @@ mod tests {
                 // `PythonCode::is_closure` (widened to accept both
                 // aliased kind_ids in #419); pin the count explicitly
                 // so a regression in the predicate fails loudly.
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.closures_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 1.0,
-                      "functions_average": 0.75,
-                      "closures_average": 0.25,
-                      "total": 4.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 1,
+                  "functions_average": 0.75,
+                  "closures_average": 0.25,
+                  "total": 4,
+                  "average": 1.0,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -364,19 +365,20 @@ mod tests {
                 // Number of spaces = 4
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 1.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.25,
-                      "total": 3.0,
-                      "average": 0.75,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 1,
+                  "functions_average": 0.5,
+                  "closures_average": 0.25,
+                  "total": 3,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -395,19 +397,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -426,19 +429,20 @@ mod tests {
                 // Number of spaces = 4
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 1.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.25,
-                      "total": 3.0,
-                      "average": 0.75,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 1,
+                  "functions_average": 0.5,
+                  "closures_average": 0.25,
+                  "total": 3,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -459,9 +463,9 @@ mod tests {
             |metric| {
                 // 2 functions: `free_fn`, `S::member_fn`.
                 let s = &metric.nom;
-                assert_eq!(s.functions_sum(), 2.0);
-                assert_eq!(s.closures_sum(), 0.0);
-                assert_eq!(s.total(), 2.0);
+                assert_eq!(s.functions_sum(), 2);
+                assert_eq!(s.closures_sum(), 0);
+                assert_eq!(s.total(), 2);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -480,8 +484,8 @@ mod tests {
             "foo.cpp",
             |metric| {
                 let s = &metric.nom;
-                assert_eq!(s.functions_sum(), 2.0);
-                assert_eq!(s.closures_sum(), 0.0);
+                assert_eq!(s.functions_sum(), 2);
+                assert_eq!(s.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -503,8 +507,8 @@ mod tests {
             |metric| {
                 let s = &metric.nom;
                 // 3 functions: S(), ~S(), method.
-                assert_eq!(s.functions_sum(), 3.0);
-                assert_eq!(s.closures_sum(), 0.0);
+                assert_eq!(s.functions_sum(), 3);
+                assert_eq!(s.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -524,8 +528,8 @@ mod tests {
             "foo.cpp",
             |metric| {
                 let s = &metric.nom;
-                assert_eq!(s.functions_sum(), 2.0);
-                assert_eq!(s.closures_sum(), 0.0);
+                assert_eq!(s.functions_sum(), 2);
+                assert_eq!(s.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -542,8 +546,8 @@ mod tests {
             "foo.cpp",
             |metric| {
                 let s = &metric.nom;
-                assert_eq!(s.functions_sum(), 1.0);
-                assert_eq!(s.closures_sum(), 0.0);
+                assert_eq!(s.functions_sum(), 1);
+                assert_eq!(s.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -564,8 +568,8 @@ mod tests {
             "foo.cpp",
             |metric| {
                 let s = &metric.nom;
-                assert_eq!(s.functions_sum(), 2.0);
-                assert_eq!(s.closures_sum(), 0.0);
+                assert_eq!(s.functions_sum(), 2);
+                assert_eq!(s.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -587,9 +591,9 @@ mod tests {
             |metric| {
                 let s = &metric.nom;
                 // 1 enclosing function + 2 closures.
-                assert_eq!(s.functions_sum(), 1.0);
-                assert_eq!(s.closures_sum(), 2.0);
-                assert_eq!(s.total(), 3.0);
+                assert_eq!(s.functions_sum(), 1);
+                assert_eq!(s.closures_sum(), 2);
+                assert_eq!(s.total(), 3);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -618,19 +622,20 @@ mod tests {
                 // closures:  return function ()
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 1.0,
-                      "functions_average": 0.6,
-                      "closures_average": 0.2,
-                      "total": 4.0,
-                      "average": 0.8,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 1,
+                  "functions_average": 0.6,
+                  "closures_average": 0.2,
+                  "total": 4,
+                  "average": 0.8,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -648,19 +653,20 @@ mod tests {
                 // functions: test_safe_mode
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -675,19 +681,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -704,19 +711,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -733,19 +741,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -764,19 +773,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -790,19 +800,20 @@ mod tests {
                 insta::allow_duplicates! {
                     insta::assert_json_snapshot!(
                         metric.nom,
-                        @r###"
-                        {
-                          "functions": 2.0,
-                          "closures": 0.0,
-                          "functions_average": 0.6666666666666666,
-                          "closures_average": 0.0,
-                          "total": 2.0,
-                          "average": 0.6666666666666666,
-                          "functions_min": 0.0,
-                          "functions_max": 1.0,
-                          "closures_min": 0.0,
-                          "closures_max": 0.0
-                        }"###
+                        @r#"
+                    {
+                      "functions": 2,
+                      "closures": 0,
+                      "functions_average": 0.6666666666666666,
+                      "closures_average": 0.0,
+                      "total": 2,
+                      "average": 0.6666666666666666,
+                      "functions_min": 0,
+                      "functions_max": 1,
+                      "closures_min": 0,
+                      "closures_max": 0
+                    }
+                    "#
                     );
                 }
             },
@@ -842,19 +853,20 @@ mod tests {
                 // Number of spaces = 3
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 0.0,
-                      "closures": 2.0,
-                      "functions_average": 0.0,
-                      "closures_average": 0.6666666666666666,
-                      "total": 2.0,
-                      "average": 0.6666666666666666,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 0,
+                  "closures": 2,
+                  "functions_average": 0.0,
+                  "closures_average": 0.6666666666666666,
+                  "total": 2,
+                  "average": 0.6666666666666666,
+                  "functions_min": 0,
+                  "functions_max": 0,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -873,19 +885,20 @@ mod tests {
                 // Closures: material.map
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 1.0,
-                      "functions_average": 0.3333333333333333,
-                      "closures_average": 0.3333333333333333,
-                      "total": 2.0,
-                      "average": 0.6666666666666666,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 1,
+                  "functions_average": 0.3333333333333333,
+                  "closures_average": 0.3333333333333333,
+                  "total": 2,
+                  "average": 0.6666666666666666,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -897,19 +910,20 @@ mod tests {
             // Number of spaces = 2
             insta::assert_json_snapshot!(
                 metric.nom,
-                @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                @r#"
+            {
+              "functions": 1,
+              "closures": 0,
+              "functions_average": 0.5,
+              "closures_average": 0.0,
+              "total": 1,
+              "average": 0.5,
+              "functions_min": 0,
+              "functions_max": 1,
+              "closures_min": 0,
+              "closures_max": 0
+            }
+            "#
             );
         });
     }
@@ -923,19 +937,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 0.0,
-                      "closures": 1.0,
-                      "functions_average": 0.0,
-                      "closures_average": 0.5,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 0,
+                  "closures": 1,
+                  "functions_average": 0.0,
+                  "closures_average": 0.5,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 0,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -952,19 +967,20 @@ mod tests {
                 // Number of spaces = 2
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 0.0,
-                      "closures": 1.0,
-                      "functions_average": 0.0,
-                      "closures_average": 0.5,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 0,
+                  "closures": 1,
+                  "functions_average": 0.0,
+                  "closures_average": 0.5,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 0,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -986,19 +1002,20 @@ mod tests {
                 // Number of spaces = 4
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 2.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 2,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1028,19 +1045,20 @@ mod tests {
                 // Total functions = 6
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 6.0,
-                      "closures": 0.0,
-                      "functions_average": 0.75,
-                      "closures_average": 0.0,
-                      "total": 6.0,
-                      "average": 0.75,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 6,
+                  "closures": 0,
+                  "functions_average": 0.75,
+                  "closures_average": 0.0,
+                  "total": 6,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1060,19 +1078,20 @@ mod tests {
                 // 1 method (Run), 1 lambda, 1 anonymous_method = 1 func + 2 closures.
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 2.0,
-                      "functions_average": 0.2,
-                      "closures_average": 0.4,
-                      "total": 3.0,
-                      "average": 0.6,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 2,
+                  "functions_average": 0.2,
+                  "closures_average": 0.4,
+                  "total": 3,
+                  "average": 0.6,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1094,23 +1113,24 @@ mod tests {
             |metric| {
                 // expected: get + set accessors = 2 functions; the
                 // IndexerDeclaration node no longer opens its own space.
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 2.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 2,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1132,23 +1152,24 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: one implicit getter, no accessor nodes => 1.
-                assert_eq!(metric.nom.functions_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.3333333333333333,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.3333333333333333,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.3333333333333333,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.3333333333333333,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1170,8 +1191,8 @@ mod tests {
             |metric| {
                 // expected: get + set accessors = 2 functions; the
                 // PropertyDeclaration node defers and opens no space (#472).
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
             },
         );
     }
@@ -1188,8 +1209,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: get + set accessors = 2 functions, unchanged.
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
             },
         );
     }
@@ -1211,8 +1232,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: one implicit getter, no accessor nodes => 1.
-                assert_eq!(metric.nom.functions_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
             },
         );
     }
@@ -1229,19 +1250,20 @@ mod tests {
                 // Number of spaces = 4 (file unit + 3 funcs).
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 0.0,
-                      "functions_average": 0.75,
-                      "closures_average": 0.0,
-                      "total": 3.0,
-                      "average": 0.75,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 0,
+                  "functions_average": 0.75,
+                  "closures_average": 0.0,
+                  "total": 3,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1258,19 +1280,20 @@ mod tests {
                 // method_declaration is counted as a function.
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1286,19 +1309,20 @@ mod tests {
                 // func_literal increments closure count, not function count.
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 0.0,
-                      "closures": 1.0,
-                      "functions_average": 0.0,
-                      "closures_average": 0.5,
-                      "total": 1.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 0,
+                  "closures": 1,
+                  "functions_average": 0.0,
+                  "closures_average": 0.5,
+                  "total": 1,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 0,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1320,19 +1344,20 @@ mod tests {
                 // 1 function (f) + 2 closures (inner, deeper).
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 1.0,
-                      "closures": 2.0,
-                      "functions_average": 0.25,
-                      "closures_average": 0.5,
-                      "total": 3.0,
-                      "average": 0.75,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 1,
+                  "closures": 2,
+                  "functions_average": 0.25,
+                  "closures_average": 0.5,
+                  "total": 3,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1364,19 +1389,20 @@ mod tests {
                 // Number of spaces = 8
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 4.0,
-                      "closures": 1.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.125,
-                      "total": 5.0,
-                      "average": 0.625,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 4,
+                  "closures": 1,
+                  "functions_average": 0.5,
+                  "closures_average": 0.125,
+                  "total": 5,
+                  "average": 0.625,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1404,8 +1430,8 @@ mod tests {
                 // only closure here (unlike the prior amaanq grammar
                 // which mis-parsed each method body as a `closure`
                 // node too).
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 1);
             },
         );
     }
@@ -1421,7 +1447,7 @@ mod tests {
             greet('world')",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
             },
         );
     }
@@ -1442,18 +1468,18 @@ mod tests {
                     metric.nom,
                     @r#"
                 {
-                  "functions": 3.0,
-                  "closures": 2.0,
+                  "functions": 3,
+                  "closures": 2,
                   "functions_average": 0.5,
                   "closures_average": 0.3333333333333333,
-                  "total": 5.0,
+                  "total": 5,
                   "average": 0.8333333333333334,
-                  "functions_min": 0.0,
-                  "functions_max": 1.0,
-                  "closures_min": 0.0,
-                  "closures_max": 1.0
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
                 }
-                 "#
+                "#
                 );
             },
         );
@@ -1471,19 +1497,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 0.0,
-                      "functions_average": 0.75,
-                      "closures_average": 0.0,
-                      "total": 3.0,
-                      "average": 0.75,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 0,
+                  "functions_average": 0.75,
+                  "closures_average": 0.0,
+                  "total": 3,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1505,19 +1532,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 0.0,
-                      "functions_average": 0.6,
-                      "closures_average": 0.0,
-                      "total": 3.0,
-                      "average": 0.6,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 0,
+                  "functions_average": 0.6,
+                  "closures_average": 0.0,
+                  "total": 3,
+                  "average": 0.6,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1543,19 +1571,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 1.0,
-                      "functions_average": 0.6,
-                      "closures_average": 0.2,
-                      "total": 4.0,
-                      "average": 0.8,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 1,
+                  "functions_average": 0.6,
+                  "closures_average": 0.2,
+                  "total": 4,
+                  "average": 0.8,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1574,19 +1603,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 2.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 2,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1607,20 +1637,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 2.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 2,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1646,20 +1676,20 @@ end",
             "foo.lua",
             |metric| {
                 // 2 named functions (greet, outer), 2 closures (add, inner)
-                insta::assert_json_snapshot!(metric.nom, @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 2.0,
-                      "functions_average": 0.4,
-                      "closures_average": 0.4,
-                      "total": 4.0,
-                      "average": 0.8,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }
-                    "###);
+                insta::assert_json_snapshot!(metric.nom, @r#"
+                {
+                  "functions": 2,
+                  "closures": 2,
+                  "functions_average": 0.4,
+                  "closures_average": 0.4,
+                  "total": 4,
+                  "average": 0.8,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#);
             },
         );
     }
@@ -1681,19 +1711,19 @@ bar",
                 insta::assert_json_snapshot!(
                     metric.nom,
                     @r#"
-                    {
-                      "functions": 2.0,
-                      "closures": 0.0,
-                      "functions_average": 0.6666666666666666,
-                      "closures_average": 0.0,
-                      "total": 2.0,
-                      "average": 0.6666666666666666,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "#
+                {
+                  "functions": 2,
+                  "closures": 0,
+                  "functions_average": 0.6666666666666666,
+                  "closures_average": 0.0,
+                  "total": 2,
+                  "average": 0.6666666666666666,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1708,8 +1738,8 @@ foo 1
 bar 2 3",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1724,8 +1754,8 @@ bar 2 3",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1740,8 +1770,8 @@ bar 2 3",
          }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1755,8 +1785,8 @@ bar 2 3",
          const h = (x: number): number => x * 2;",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 3.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 3);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1771,8 +1801,8 @@ bar 2 3",
          }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1786,8 +1816,8 @@ bar 2 3",
          const h = (x: number): number => x * 2;",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 3.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 3);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1805,8 +1835,8 @@ g() {
 }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1824,8 +1854,8 @@ outer() {
 }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1842,8 +1872,8 @@ outer() {
          }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1858,8 +1888,8 @@ outer() {
          }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1874,8 +1904,8 @@ outer() {
          })();",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 0.0);
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.closures_sum(), 1);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1890,8 +1920,8 @@ outer() {
          }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1906,8 +1936,8 @@ outer() {
          }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 1.0);
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.nom.closures_sum(), 1);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1932,19 +1962,20 @@ outer() {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 3.0,
-                      "closures": 2.0,
-                      "functions_average": 0.42857142857142855,
-                      "closures_average": 0.2857142857142857,
-                      "total": 5.0,
-                      "average": 0.7142857142857143,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 3,
+                  "closures": 2,
+                  "functions_average": 0.42857142857142855,
+                  "closures_average": 0.2857142857142857,
+                  "total": 5,
+                  "average": 0.7142857142857143,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1966,19 +1997,20 @@ outer() {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nom,
-                    @r###"
-                    {
-                      "functions": 2.0,
-                      "closures": 0.0,
-                      "functions_average": 0.5,
-                      "closures_average": 0.0,
-                      "total": 2.0,
-                      "average": 0.5,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "functions": 2,
+                  "closures": 0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.0,
+                  "total": 2,
+                  "average": 0.5,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1998,8 +2030,8 @@ outer() {
             "defmodule Foo do\n  def public_fn(x), do: x + 1\n  defp private_fn(x), do: x - 1\n  def with_anon do\n    inc = fn x -> x + 1 end\n    dec = fn x -> x - 1 end\n    {inc, dec}\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 0.0);
-                assert_eq!(metric.nom.closures_sum(), 2.0);
+                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.closures_sum(), 2);
             },
         );
     }
@@ -2052,9 +2084,9 @@ outer() {
             "class C\n  def add(a, b)\n    a + b\n  end\n  def mul(a, b)\n    a * b\n  end\n  def self.factory\n    new\n  end\nend\n\n[1, 2, 3].each { |x| puts x }\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 3.0);
-                assert_eq!(metric.nom.closures_sum(), 1.0);
-                assert_eq!(metric.nom.total(), 4.0);
+                assert_eq!(metric.nom.functions_sum(), 3);
+                assert_eq!(metric.nom.closures_sum(), 1);
+                assert_eq!(metric.nom.total(), 4);
             },
         );
     }
@@ -2066,8 +2098,8 @@ outer() {
         // pair as ONE closure, not two (#465). Revert-verified: counting
         // the inner `Block` again yields closures_sum == 2.0.
         check_metrics::<RubyParser>("f = ->(z) { z + 1 }\n", "stabby.rb", |metric| {
-            assert_eq!(metric.nom.functions_sum(), 0.0);
-            assert_eq!(metric.nom.closures_sum(), 1.0);
+            assert_eq!(metric.nom.functions_sum(), 0);
+            assert_eq!(metric.nom.closures_sum(), 1);
         });
     }
 
@@ -2079,7 +2111,7 @@ outer() {
             "f = ->(z) {\n  y = z + 1\n  y * 2\n}\n",
             "stabby_multi.rb",
             |metric| {
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.closures_sum(), 1);
             },
         );
     }
@@ -2089,7 +2121,7 @@ outer() {
         // The `do … end` body form of a stabby lambda parses as a `Lambda`
         // wrapping a `DoBlock`; both must collapse to one closure.
         check_metrics::<RubyParser>("f = ->(z) do\n  z + 1\nend\n", "stabby_do.rb", |metric| {
-            assert_eq!(metric.nom.closures_sum(), 1.0);
+            assert_eq!(metric.nom.closures_sum(), 1);
         });
     }
 
@@ -2103,7 +2135,7 @@ outer() {
             "g = lambda { |z| z + 1 }\nh = proc { |z| z + 1 }\n",
             "keyword.rb",
             |metric| {
-                assert_eq!(metric.nom.closures_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 2);
             },
         );
     }
@@ -2127,9 +2159,9 @@ proc helper { x } {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 3.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
-                assert_eq!(metric.nom.total(), 3.0);
+                assert_eq!(metric.nom.functions_sum(), 3);
+                assert_eq!(metric.nom.closures_sum(), 0);
+                assert_eq!(metric.nom.total(), 3);
             },
         );
     }

@@ -225,14 +225,14 @@ impl Stats {
 
     /// Returns the `Abc` assignments metric value.
     #[must_use]
-    pub fn assignments(&self) -> f64 {
-        self.assignments
+    pub fn assignments(&self) -> u64 {
+        self.assignments as u64
     }
 
     /// Returns the `Abc` assignments sum metric value.
     #[must_use]
-    pub fn assignments_sum(&self) -> f64 {
-        self.assignments_sum
+    pub fn assignments_sum(&self) -> u64 {
+        self.assignments_sum as u64
     }
 
     /// Returns the `Abc` assignments average value.
@@ -241,40 +241,40 @@ impl Stats {
     /// assignments value for the number of spaces.
     #[must_use]
     pub fn assignments_average(&self) -> f64 {
-        crate::metrics::average(self.assignments_sum(), self.space_count)
+        crate::metrics::average(self.assignments_sum() as f64, self.space_count)
     }
 
     /// Returns the `Abc` assignments minimum value.
     ///
     /// Collapses the `f64::MAX` sentinel that `Stats::default()` plants
-    /// into `assignments_min` to `0.0`, so a never-observed space
+    /// into `assignments_min` to `0`, so a never-observed space
     /// serializes to a meaningful number rather than `1.7976931e308`.
     #[allow(clippy::float_cmp)]
     #[must_use]
-    pub fn assignments_min(&self) -> f64 {
+    pub fn assignments_min(&self) -> u64 {
         if self.assignments_min == f64::MAX {
-            0.0
+            0
         } else {
-            self.assignments_min
+            self.assignments_min as u64
         }
     }
 
     /// Returns the `Abc` assignments maximum value.
     #[must_use]
-    pub fn assignments_max(&self) -> f64 {
-        self.assignments_max
+    pub fn assignments_max(&self) -> u64 {
+        self.assignments_max as u64
     }
 
     /// Returns the `Abc` branches metric value.
     #[must_use]
-    pub fn branches(&self) -> f64 {
-        self.branches
+    pub fn branches(&self) -> u64 {
+        self.branches as u64
     }
 
     /// Returns the `Abc` branches sum metric value.
     #[must_use]
-    pub fn branches_sum(&self) -> f64 {
-        self.branches_sum
+    pub fn branches_sum(&self) -> u64 {
+        self.branches_sum as u64
     }
 
     /// Returns the `Abc` branches average value.
@@ -283,7 +283,7 @@ impl Stats {
     /// branches value for the number of spaces.
     #[must_use]
     pub fn branches_average(&self) -> f64 {
-        crate::metrics::average(self.branches_sum(), self.space_count)
+        crate::metrics::average(self.branches_sum() as f64, self.space_count)
     }
 
     /// Returns the `Abc` branches minimum value.
@@ -291,30 +291,30 @@ impl Stats {
     /// Same `f64::MAX` sentinel collapse as `assignments_min`.
     #[allow(clippy::float_cmp)]
     #[must_use]
-    pub fn branches_min(&self) -> f64 {
+    pub fn branches_min(&self) -> u64 {
         if self.branches_min == f64::MAX {
-            0.0
+            0
         } else {
-            self.branches_min
+            self.branches_min as u64
         }
     }
 
     /// Returns the `Abc` branches maximum value.
     #[must_use]
-    pub fn branches_max(&self) -> f64 {
-        self.branches_max
+    pub fn branches_max(&self) -> u64 {
+        self.branches_max as u64
     }
 
     /// Returns the `Abc` conditions metric value.
     #[must_use]
-    pub fn conditions(&self) -> f64 {
-        self.conditions
+    pub fn conditions(&self) -> u64 {
+        self.conditions as u64
     }
 
     /// Returns the `Abc` conditions sum metric value.
     #[must_use]
-    pub fn conditions_sum(&self) -> f64 {
-        self.conditions_sum
+    pub fn conditions_sum(&self) -> u64 {
+        self.conditions_sum as u64
     }
 
     /// Returns the `Abc` conditions average value.
@@ -323,7 +323,7 @@ impl Stats {
     /// conditions value for the number of spaces.
     #[must_use]
     pub fn conditions_average(&self) -> f64 {
-        crate::metrics::average(self.conditions_sum(), self.space_count)
+        crate::metrics::average(self.conditions_sum() as f64, self.space_count)
     }
 
     /// Returns the `Abc` conditions minimum value.
@@ -331,18 +331,18 @@ impl Stats {
     /// Same `f64::MAX` sentinel collapse as `assignments_min`.
     #[allow(clippy::float_cmp)]
     #[must_use]
-    pub fn conditions_min(&self) -> f64 {
+    pub fn conditions_min(&self) -> u64 {
         if self.conditions_min == f64::MAX {
-            0.0
+            0
         } else {
-            self.conditions_min
+            self.conditions_min as u64
         }
     }
 
     /// Returns the `Abc` conditions maximum value.
     #[must_use]
-    pub fn conditions_max(&self) -> f64 {
-        self.conditions_max
+    pub fn conditions_max(&self) -> u64 {
+        self.conditions_max as u64
     }
 
     /// Returns the `Abc` magnitude metric value.
@@ -3814,9 +3814,9 @@ mod tests {
     #[test]
     fn abc_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.assignments_min(), 0.0);
-        assert_eq!(stats.branches_min(), 0.0);
-        assert_eq!(stats.conditions_min(), 0.0);
+        assert_eq!(stats.assignments_min(), 0);
+        assert_eq!(stats.branches_min(), 0);
+        assert_eq!(stats.conditions_min(), 0);
     }
 
     // Regression test for the `EQ` arm guard in `JavaCode::compute`:
@@ -3835,7 +3835,7 @@ mod tests {
             |metric| {
                 // `int x = 0;` adds 1 (Some(Var) branch),
                 // each subsequent `x = N;` adds 1 (None branch).
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
             },
         );
     }
@@ -3854,7 +3854,7 @@ mod tests {
             |metric| {
                 // All three `=` tokens land under a `Const` top, so
                 // assignments should be 0 across all spaces.
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -3884,22 +3884,23 @@ mod tests {
                 // space count: 3 (1 unit, 1 class and 1 method)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 8.0,
-                      "branches": 0.0,
-                      "conditions": 0.0,
-                      "magnitude": 8.0,
-                      "assignments_average": 2.6666666666666665,
-                      "branches_average": 0.0,
-                      "conditions_average": 0.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 4.0,
-                      "branches_min": 0.0,
-                      "branches_max": 0.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 8,
+                  "branches": 0,
+                  "conditions": 0,
+                  "magnitude": 8.0,
+                  "assignments_average": 2.6666666666666665,
+                  "branches_average": 0.0,
+                  "conditions_average": 0.0,
+                  "assignments_min": 0,
+                  "assignments_max": 4,
+                  "branches_min": 0,
+                  "branches_max": 0,
+                  "conditions_min": 0,
+                  "conditions_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3936,22 +3937,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 14.0,
-                      "branches": 3.0,
-                      "conditions": 12.0,
-                      "magnitude": 18.681541692269406,
-                      "assignments_average": 14.0,
-                      "branches_average": 3.0,
-                      "conditions_average": 12.0,
-                      "assignments_min": 14.0,
-                      "assignments_max": 14.0,
-                      "branches_min": 3.0,
-                      "branches_max": 3.0,
-                      "conditions_min": 12.0,
-                      "conditions_max": 12.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 14,
+                  "branches": 3,
+                  "conditions": 12,
+                  "magnitude": 18.681541692269406,
+                  "assignments_average": 14.0,
+                  "branches_average": 3.0,
+                  "conditions_average": 12.0,
+                  "assignments_min": 14,
+                  "assignments_max": 14,
+                  "branches_min": 3,
+                  "branches_max": 3,
+                  "conditions_min": 12,
+                  "conditions_max": 12
+                }
+                "#
                 );
             },
         );
@@ -3983,22 +3985,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 14.0,
-                      "branches": 6.0,
-                      "conditions": 16.0,
-                      "magnitude": 22.090722034374522,
-                      "assignments_average": 14.0,
-                      "branches_average": 6.0,
-                      "conditions_average": 16.0,
-                      "assignments_min": 14.0,
-                      "assignments_max": 14.0,
-                      "branches_min": 6.0,
-                      "branches_max": 6.0,
-                      "conditions_min": 16.0,
-                      "conditions_max": 16.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 14,
+                  "branches": 6,
+                  "conditions": 16,
+                  "magnitude": 22.090722034374522,
+                  "assignments_average": 14.0,
+                  "branches_average": 6.0,
+                  "conditions_average": 16.0,
+                  "assignments_min": 14,
+                  "assignments_max": 14,
+                  "branches_min": 6,
+                  "branches_max": 6,
+                  "conditions_min": 16,
+                  "conditions_max": 16
+                }
+                "#
                 );
             },
         );
@@ -4024,22 +4027,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 14.0,
-                      "conditions": 10.0,
-                      "magnitude": 17.204650534085253,
-                      "assignments_average": 0.0,
-                      "branches_average": 14.0,
-                      "conditions_average": 10.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 14.0,
-                      "branches_max": 14.0,
-                      "conditions_min": 10.0,
-                      "conditions_max": 10.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 14,
+                  "conditions": 10,
+                  "magnitude": 17.204650534085253,
+                  "assignments_average": 0.0,
+                  "branches_average": 14.0,
+                  "conditions_average": 10.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 14,
+                  "branches_max": 14,
+                  "conditions_min": 10,
+                  "conditions_max": 10
+                }
+                "#
                 );
             },
         );
@@ -4081,22 +4085,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 8.0,
-                      "conditions": 22.0,
-                      "magnitude": 23.40939982143925,
-                      "assignments_average": 0.0,
-                      "branches_average": 8.0,
-                      "conditions_average": 22.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 8.0,
-                      "branches_max": 8.0,
-                      "conditions_min": 22.0,
-                      "conditions_max": 22.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 8,
+                  "conditions": 22,
+                  "magnitude": 23.40939982143925,
+                  "assignments_average": 0.0,
+                  "branches_average": 8.0,
+                  "conditions_average": 22.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 8,
+                  "branches_max": 8,
+                  "conditions_min": 22,
+                  "conditions_max": 22
+                }
+                "#
                 );
             },
         );
@@ -4125,22 +4130,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 5.0,
-                      "conditions": 30.0,
-                      "magnitude": 30.4138126514911,
-                      "assignments_average": 0.0,
-                      "branches_average": 5.0,
-                      "conditions_average": 30.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 5.0,
-                      "branches_max": 5.0,
-                      "conditions_min": 30.0,
-                      "conditions_max": 30.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 5,
+                  "conditions": 30,
+                  "magnitude": 30.4138126514911,
+                  "assignments_average": 0.0,
+                  "branches_average": 5.0,
+                  "conditions_average": 30.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 5,
+                  "branches_max": 5,
+                  "conditions_min": 30,
+                  "conditions_max": 30
+                }
+                "#
                 );
             },
         );
@@ -4163,22 +4169,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 2.0,
-                      "conditions": 12.0,
-                      "magnitude": 12.165525060596439,
-                      "assignments_average": 0.0,
-                      "branches_average": 2.0,
-                      "conditions_average": 12.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 2.0,
-                      "branches_max": 2.0,
-                      "conditions_min": 12.0,
-                      "conditions_max": 12.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 2,
+                  "conditions": 12,
+                  "magnitude": 12.165525060596439,
+                  "assignments_average": 0.0,
+                  "branches_average": 2.0,
+                  "conditions_average": 12.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 2,
+                  "branches_max": 2,
+                  "conditions_min": 12,
+                  "conditions_max": 12
+                }
+                "#
                 );
             },
         );
@@ -4217,22 +4224,23 @@ mod tests {
                 // space count: 7 (1 unit, 1 class and 5 methods)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 0.0,
-                      "conditions": 9.0,
-                      "magnitude": 9.0,
-                      "assignments_average": 0.0,
-                      "branches_average": 0.0,
-                      "conditions_average": 1.2857142857142858,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 0.0,
-                      "branches_max": 0.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 0,
+                  "conditions": 9,
+                  "magnitude": 9.0,
+                  "assignments_average": 0.0,
+                  "branches_average": 0.0,
+                  "conditions_average": 1.2857142857142858,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 0,
+                  "conditions_min": 0,
+                  "conditions_max": 3
+                }
+                "#
                 );
             },
         );
@@ -4266,22 +4274,23 @@ mod tests {
                 // space count: 7 (1 unit, 1 class and 5 methods)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 1.0,
-                      "conditions": 0.0,
-                      "magnitude": 1.0,
-                      "assignments_average": 0.0,
-                      "branches_average": 0.14285714285714285,
-                      "conditions_average": 0.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 0.0,
-                      "branches_max": 1.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 1,
+                  "conditions": 0,
+                  "magnitude": 1.0,
+                  "assignments_average": 0.0,
+                  "branches_average": 0.14285714285714285,
+                  "conditions_average": 0.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 1,
+                  "conditions_min": 0,
+                  "conditions_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4311,22 +4320,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 9.0,
-                      "branches": 1.0,
-                      "conditions": 9.0,
-                      "magnitude": 12.767145334803704,
-                      "assignments_average": 9.0,
-                      "branches_average": 1.0,
-                      "conditions_average": 9.0,
-                      "assignments_min": 9.0,
-                      "assignments_max": 9.0,
-                      "branches_min": 1.0,
-                      "branches_max": 1.0,
-                      "conditions_min": 9.0,
-                      "conditions_max": 9.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 9,
+                  "branches": 1,
+                  "conditions": 9,
+                  "magnitude": 12.767145334803704,
+                  "assignments_average": 9.0,
+                  "branches_average": 1.0,
+                  "conditions_average": 9.0,
+                  "assignments_min": 9,
+                  "assignments_max": 9,
+                  "branches_min": 1,
+                  "branches_max": 1,
+                  "conditions_min": 9,
+                  "conditions_max": 9
+                }
+                "#
                 );
             },
         );
@@ -4348,22 +4358,23 @@ mod tests {
                 // space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 10.0,
-                      "branches": 2.0,
-                      "conditions": 8.0,
-                      "magnitude": 12.96148139681572,
-                      "assignments_average": 10.0,
-                      "branches_average": 2.0,
-                      "conditions_average": 8.0,
-                      "assignments_min": 10.0,
-                      "assignments_max": 10.0,
-                      "branches_min": 2.0,
-                      "branches_max": 2.0,
-                      "conditions_min": 8.0,
-                      "conditions_max": 8.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 10,
+                  "branches": 2,
+                  "conditions": 8,
+                  "magnitude": 12.96148139681572,
+                  "assignments_average": 10.0,
+                  "branches_average": 2.0,
+                  "conditions_average": 8.0,
+                  "assignments_min": 10,
+                  "assignments_max": 10,
+                  "branches_min": 2,
+                  "branches_max": 2,
+                  "conditions_min": 8,
+                  "conditions_max": 8
+                }
+                "#
                 );
             },
         );
@@ -4392,22 +4403,23 @@ mod tests {
                 // space count: 5 (1 unit, 1 class and 3 methods)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 8.0,
-                      "branches": 0.0,
-                      "conditions": 6.0,
-                      "magnitude": 10.0,
-                      "assignments_average": 1.6,
-                      "branches_average": 0.0,
-                      "conditions_average": 1.2,
-                      "assignments_min": 0.0,
-                      "assignments_max": 8.0,
-                      "branches_min": 0.0,
-                      "branches_max": 0.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 8,
+                  "branches": 0,
+                  "conditions": 6,
+                  "magnitude": 10.0,
+                  "assignments_average": 1.6,
+                  "branches_average": 0.0,
+                  "conditions_average": 1.2,
+                  "assignments_min": 0,
+                  "assignments_max": 8,
+                  "branches_min": 0,
+                  "branches_max": 0,
+                  "conditions_min": 0,
+                  "conditions_max": 4
+                }
+                "#
                 );
             },
         );
@@ -4434,22 +4446,23 @@ mod tests {
                 //  space count: 1 (1 unit)
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 5.0,
-                      "branches": 4.0,
-                      "conditions": 24.0,
-                      "magnitude": 24.839484696748443,
-                      "assignments_average": 5.0,
-                      "branches_average": 4.0,
-                      "conditions_average": 24.0,
-                      "assignments_min": 5.0,
-                      "assignments_max": 5.0,
-                      "branches_min": 4.0,
-                      "branches_max": 4.0,
-                      "conditions_min": 24.0,
-                      "conditions_max": 24.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 5,
+                  "branches": 4,
+                  "conditions": 24,
+                  "magnitude": 24.839484696748443,
+                  "assignments_average": 5.0,
+                  "branches_average": 4.0,
+                  "conditions_average": 24.0,
+                  "assignments_min": 5,
+                  "assignments_max": 5,
+                  "branches_min": 4,
+                  "branches_max": 4,
+                  "conditions_min": 24,
+                  "conditions_max": 24
+                }
+                "#
                 );
             },
         );
@@ -4467,22 +4480,23 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 3.0,
-                      "branches": 0.0,
-                      "conditions": 0.0,
-                      "magnitude": 3.0,
-                      "assignments_average": 1.5,
-                      "branches_average": 0.0,
-                      "conditions_average": 0.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 3.0,
-                      "branches_min": 0.0,
-                      "branches_max": 0.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 3,
+                  "branches": 0,
+                  "conditions": 0,
+                  "magnitude": 3.0,
+                  "assignments_average": 1.5,
+                  "branches_average": 0.0,
+                  "conditions_average": 0.0,
+                  "assignments_min": 0,
+                  "assignments_max": 3,
+                  "branches_min": 0,
+                  "branches_max": 0,
+                  "conditions_min": 0,
+                  "conditions_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4499,22 +4513,23 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 2.0,
-                      "conditions": 0.0,
-                      "magnitude": 2.0,
-                      "assignments_average": 0.0,
-                      "branches_average": 1.0,
-                      "conditions_average": 0.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 0.0,
-                      "branches_max": 2.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 2,
+                  "conditions": 0,
+                  "magnitude": 2.0,
+                  "assignments_average": 0.0,
+                  "branches_average": 1.0,
+                  "conditions_average": 0.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 2,
+                  "conditions_min": 0,
+                  "conditions_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4544,22 +4559,23 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 0.0,
-                      "branches": 4.0,
-                      "conditions": 4.0,
-                      "magnitude": 5.656854249492381,
-                      "assignments_average": 0.0,
-                      "branches_average": 2.0,
-                      "conditions_average": 2.0,
-                      "assignments_min": 0.0,
-                      "assignments_max": 0.0,
-                      "branches_min": 0.0,
-                      "branches_max": 4.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 0,
+                  "branches": 4,
+                  "conditions": 4,
+                  "magnitude": 5.656854249492381,
+                  "assignments_average": 0.0,
+                  "branches_average": 2.0,
+                  "conditions_average": 2.0,
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 4,
+                  "conditions_min": 0,
+                  "conditions_max": 4
+                }
+                "#
                 );
             },
         );
@@ -4581,22 +4597,23 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
-                    {
-                      "assignments": 2.0,
-                      "branches": 1.0,
-                      "conditions": 1.0,
-                      "magnitude": 2.449489742783178,
-                      "assignments_average": 1.0,
-                      "branches_average": 0.5,
-                      "conditions_average": 0.5,
-                      "assignments_min": 0.0,
-                      "assignments_max": 2.0,
-                      "branches_min": 0.0,
-                      "branches_max": 1.0,
-                      "conditions_min": 0.0,
-                      "conditions_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "assignments": 2,
+                  "branches": 1,
+                  "conditions": 1,
+                  "magnitude": 2.449489742783178,
+                  "assignments_average": 1.0,
+                  "branches_average": 0.5,
+                  "conditions_average": 0.5,
+                  "assignments_min": 0,
+                  "assignments_max": 2,
+                  "branches_min": 0,
+                  "branches_max": 1,
+                  "conditions_min": 0,
+                  "conditions_max": 1
+                }
+                "#
                 );
             },
         );
@@ -4608,9 +4625,9 @@ mod tests {
             // tree-sitter emits ERROR nodes for this malformed source, so no
             // IfStatement, branch, or condition is recognised — all counts are 0.
             // Primary goal: the unwrap-free path does not panic.
-            assert_eq!(metric.abc.assignments(), 0.0);
-            assert_eq!(metric.abc.branches(), 0.0);
-            assert_eq!(metric.abc.conditions(), 0.0);
+            assert_eq!(metric.abc.assignments(), 0);
+            assert_eq!(metric.abc.branches(), 0);
+            assert_eq!(metric.abc.conditions(), 0);
             assert_eq!(metric.abc.magnitude(), 0.0);
         });
     }
@@ -4641,9 +4658,9 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
     }
@@ -4655,9 +4672,9 @@ mod tests {
             "// just a comment, no executable code",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
             },
         );
     }
@@ -4667,9 +4684,9 @@ mod tests {
         // `int x = 1` is a local-variable declaration whose `=` counts
         // as one assignment (matches Java's semantics).
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 1.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 1);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
         });
     }
 
@@ -4691,7 +4708,7 @@ mod tests {
                 // bare assignments (`a = 3`, `b = 4`) each contribute
                 // one assignment via the `EQ` arm; the `+=` / `-=`
                 // each contribute one via the compound-assign arm.
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
             },
         );
     }
@@ -4707,7 +4724,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 2 method invocations + 1 object creation = 3 branches
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
             },
         );
     }
@@ -4723,7 +4740,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // Three relational ops = 3 conditions
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
             },
         );
     }
@@ -4740,7 +4757,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 2 juxt calls = 2 branches.
-                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
             },
         );
     }
@@ -4760,7 +4777,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // try + catch = 2 conditions
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -4774,7 +4791,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // QMARK alone is +1 condition, plus the `>` condition = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -4792,7 +4809,7 @@ mod tests {
             |metric| {
                 // The `=` on `final int CONST = 42` is a constant
                 // initialiser (skipped). Only `field = 0` counts.
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
             },
         );
     }
@@ -4806,7 +4823,7 @@ mod tests {
         // first opening paren — the `=` still fires the assignment
         // arm.
         check_metrics::<GroovyParser>("def x = (((", "foo.groovy", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            assert_eq!(metric.abc.assignments_sum(), 1);
         });
     }
 
@@ -4836,9 +4853,9 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
     }
@@ -4862,9 +4879,9 @@ mod tests {
                 // (one count per identifier in the chain — three
                 // for `||`, three for `&&`, two for the unary chain)
                 // = 8.
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 8);
                 // Three `println a` juxt calls — each is a branch.
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
             },
         );
     }
@@ -4888,10 +4905,10 @@ mod tests {
                 // `while(a)` + `while(b)` each contribute one condition;
                 // the unary `!b` on the do body's right-hand side adds
                 // one more via the assignment-arm inspection = 3.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 // Two assignments to existing variables (`a = false`,
                 // `b = !b`).
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
             },
         );
     }
@@ -4925,9 +4942,9 @@ mod tests {
                 // (the `while` body's `break` is not a branch).
                 // The `int t = …` initializer contributes 1
                 // assignment.
-                assert_eq!(metric.abc.conditions_sum(), 5.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 5);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.assignments_sum(), 1);
             },
         );
     }
@@ -4961,9 +4978,9 @@ mod tests {
                 // BooleanLiteral operand contributes one condition.
                 // Two `return !X` → 2 conditions, no branches, no
                 // assignments.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -4998,9 +5015,9 @@ mod tests {
                 // (+1) + BooleanLiteral true (+1) = 2. For
                 // `false || x`: BooleanLiteral false (+1) +
                 // Identifier x (+1) = 2. Total 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -5022,11 +5039,11 @@ mod tests {
             |metric| {
                 // 3 method invocations (m1, m1, m2) — each fires the
                 // branches arm.
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
                 // Three `!` unaries — `m1(!a)` and the two args of
                 // `m2(!a, !b)` — each contribute one condition via
                 // the ArgumentList inspection.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
             },
         );
     }
@@ -5051,7 +5068,7 @@ mod tests {
                 // `groovy_inspect_container` but the inner
                 // identifier `a` is not in a boolean-context-firing
                 // parent, so no condition is added.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }
@@ -5074,9 +5091,9 @@ mod tests {
             |metric| {
                 // `int i = 0` fires the EQ arm + `i++` fires the
                 // PLUSPLUS arm = 2 assignments.
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
                 // `i < 10` is one condition (the LT arm).
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }
@@ -5094,9 +5111,9 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
             },
         );
     }
@@ -5247,7 +5264,7 @@ mod tests {
             "foo.cs",
             |metric| {
                 // arm `1 =>` (+1) + arm `2 =>` (+1) + `_ =>` discard (+0).
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -5270,7 +5287,7 @@ mod tests {
                 }
             }",
             "foo.cs",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
 
         // Equivalent Java arrow-`switch`: two case arms, no default → 2.
@@ -5281,7 +5298,7 @@ mod tests {
                 }
             }",
             "foo.java",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5311,7 +5328,7 @@ mod tests {
                 }
             }",
             "foo.java",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
         // Arrow `default ->` — shares the same `Default` token.
         check_metrics::<JavaParser>(
@@ -5321,7 +5338,7 @@ mod tests {
                 }
             }",
             "foo.java",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5342,7 +5359,7 @@ mod tests {
                 }
             }",
             "foo.java",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5355,7 +5372,7 @@ mod tests {
                 }
             }",
             "foo.cs",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5368,7 +5385,7 @@ mod tests {
                  switch (x) { case 1: return; case 2: return; default: return; }
              }",
             "foo.cpp",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5381,7 +5398,7 @@ mod tests {
                 }
             }",
             "foo.groovy",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5392,7 +5409,7 @@ mod tests {
                  switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
              }",
             "foo.js",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5403,7 +5420,7 @@ mod tests {
                  switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
              }",
             "foo.ts",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5423,7 +5440,7 @@ mod tests {
                 }
             }",
             "foo.java",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
         check_metrics::<CsharpParser>(
             "class A {
@@ -5432,14 +5449,14 @@ mod tests {
                 }
             }",
             "foo.cs",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
         check_metrics::<CppParser>(
             "void f(int x) {
                  switch (x) { case 1: return; case 2: return; default: return; }
              }",
             "foo.cpp",
-            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -5460,8 +5477,8 @@ mod tests {
                 return;
             }
             // Per-space cyclomatic base is 1; the two case arms add 2.
-            let decisions = space.metrics.cyclomatic.cyclomatic() - 1.0;
-            assert_eq!(decisions, 2.0);
+            let decisions = space.metrics.cyclomatic.cyclomatic() - 1;
+            assert_eq!(decisions, 2);
             assert_eq!(space.metrics.abc.conditions(), decisions);
         }
         check_func_space::<JavaParser, _>(
@@ -5516,8 +5533,8 @@ mod tests {
                         assert_deepest(child);
                         return;
                     }
-                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1.0;
-                    assert_eq!(decisions, 2.0);
+                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1;
+                    assert_eq!(decisions, 2);
                     assert_eq!(space.metrics.abc.conditions(), decisions);
                 }
                 assert_deepest(&space);
@@ -5549,8 +5566,8 @@ mod tests {
                         assert_deepest(child);
                         return;
                     }
-                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1.0;
-                    assert_eq!(decisions, 2.0);
+                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1;
+                    assert_eq!(decisions, 2);
                     assert_eq!(space.metrics.abc.conditions(), decisions);
                 }
                 assert_deepest(&space);
@@ -5572,9 +5589,9 @@ mod tests {
                 // `System.Console.WriteLine(...)` is the only call → 1 branch.
                 // `*_sum()` is what the public JSON serializes as the
                 // headline value (see `impl Serialize for Stats`).
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -5590,9 +5607,9 @@ mod tests {
             "foo.cs",
             |metric| {
                 // `while (x)` contributes 1 condition; `x = false` is 1 assignment.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
     }
@@ -5609,9 +5626,9 @@ mod tests {
             |metric| {
                 // `do { ... } while (x)` contributes 1 condition;
                 // `x = true` is 1 assignment.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
     }
@@ -5649,9 +5666,9 @@ mod tests {
                 // `return !x;` contributes 1 condition (parent doesn't seed
                 // — the unary `!` is the only path that sets the flag).
                 // → 2 conditions total. 1 branch from WriteLine().
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -5682,9 +5699,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -5722,9 +5739,9 @@ mod tests {
             class C { public Task<bool> Check() => null; }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 5.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 5);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 1);
             },
         );
     }
@@ -5742,9 +5759,9 @@ mod tests {
                 // `if (s.StartsWith("x"))` contributes 1 condition
                 // (InvocationExpression) plus 1 branch for the call itself,
                 // plus 1 branch for WriteLine.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -5782,9 +5799,9 @@ mod tests {
                 // → 6 total. The two `System.Console.WriteLine`
                 // calls contribute 2 branches; the `int t = …`
                 // initializer contributes 1 assignment.
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.assignments_sum(), 1);
             },
         );
     }
@@ -5824,9 +5841,9 @@ mod tests {
                 // false) + 1 (Identifier x) = 2. Total 4. Without
                 // the BooleanLiteral arm only the two Identifier
                 // counts would land, giving 2.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.assignments_sum(), 0);
             },
         );
     }
@@ -5904,23 +5921,23 @@ mod tests {
                 // Averages divide by 3 spaces (top-level + class + method).
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
+                    @r#"
                 {
-                  "assignments": 0.0,
-                  "branches": 0.0,
-                  "conditions": 1.0,
+                  "assignments": 0,
+                  "branches": 0,
+                  "conditions": 1,
                   "magnitude": 1.0,
                   "assignments_average": 0.0,
                   "branches_average": 0.0,
                   "conditions_average": 0.3333333333333333,
-                  "assignments_min": 0.0,
-                  "assignments_max": 0.0,
-                  "branches_min": 0.0,
-                  "branches_max": 0.0,
-                  "conditions_min": 0.0,
-                  "conditions_max": 1.0
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 0,
+                  "conditions_min": 0,
+                  "conditions_max": 1
                 }
-                "###
+                "#
                 );
             },
         );
@@ -5943,23 +5960,23 @@ mod tests {
                 // methods).
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
+                    @r#"
                 {
-                  "assignments": 0.0,
-                  "branches": 1.0,
-                  "conditions": 1.0,
+                  "assignments": 0,
+                  "branches": 1,
+                  "conditions": 1,
                   "magnitude": 1.4142135623730951,
                   "assignments_average": 0.0,
                   "branches_average": 0.25,
                   "conditions_average": 0.25,
-                  "assignments_min": 0.0,
-                  "assignments_max": 0.0,
-                  "branches_min": 0.0,
-                  "branches_max": 1.0,
-                  "conditions_min": 0.0,
-                  "conditions_max": 1.0
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 1,
+                  "conditions_min": 0,
+                  "conditions_max": 1
                 }
-                "###
+                "#
                 );
             },
         );
@@ -5983,9 +6000,9 @@ mod tests {
             |metric| {
                 // expected: assignments=0, branches=0,
                 // conditions=1 (the `true` literal as condition).
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
     }
@@ -6007,23 +6024,23 @@ mod tests {
                 // (no condition expression in `for (; ;)`).
                 insta::assert_json_snapshot!(
                     metric.abc,
-                    @r###"
+                    @r#"
                 {
-                  "assignments": 0.0,
-                  "branches": 0.0,
-                  "conditions": 0.0,
+                  "assignments": 0,
+                  "branches": 0,
+                  "conditions": 0,
                   "magnitude": 0.0,
                   "assignments_average": 0.0,
                   "branches_average": 0.0,
                   "conditions_average": 0.0,
-                  "assignments_min": 0.0,
-                  "assignments_max": 0.0,
-                  "branches_min": 0.0,
-                  "branches_max": 0.0,
-                  "conditions_min": 0.0,
-                  "conditions_max": 0.0
+                  "assignments_min": 0,
+                  "assignments_max": 0,
+                  "branches_min": 0,
+                  "branches_max": 0,
+                  "conditions_min": 0,
+                  "conditions_max": 0
                 }
-                "###
+                "#
                 );
             },
         );
@@ -6046,8 +6063,8 @@ mod tests {
     fn csharp_malformed_parenthesized_no_panic() {
         check_metrics::<CsharpParser>("class A { void M() { if (( }) }", "foo.cs", |metric| {
             // Don't panic on malformed source.
-            assert_eq!(metric.abc.assignments(), 0.0);
-            assert_eq!(metric.abc.branches(), 0.0);
+            assert_eq!(metric.abc.assignments(), 0);
+            assert_eq!(metric.abc.branches(), 0);
         });
     }
 
@@ -6066,7 +6083,7 @@ mod tests {
             |metric| {
                 assert_eq!(
                     metric.abc.conditions(),
-                    0.0,
+                    0,
                     "function-pointer-type angle brackets must not count"
                 );
             },
@@ -6106,8 +6123,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.abc.branches_max(), 3.0);
-                assert_eq!(metric.abc.conditions_max(), 0.0);
+                assert_eq!(metric.abc.branches_max(), 3);
+                assert_eq!(metric.abc.conditions_max(), 0);
             },
         );
     }
@@ -6115,9 +6132,9 @@ mod tests {
     #[test]
     fn php_zero_abc() {
         check_metrics::<PhpParser>("<?php\n", "foo.php", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -6313,7 +6330,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6329,8 +6346,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6347,7 +6364,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // m1: `>=` (1). m2: walker unwraps to $x (1).
                 // m3: `&&` walker counts both (2). Sum: 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6388,7 +6405,7 @@ function f(int $a, int $b): int {
              function f() { if (Config::$enabled) { } }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6406,8 +6423,8 @@ function f(int $a, int $b): int {
             "foo.php",
             |metric| {
                 // 1 call (branch) + 1 unary-conditional named argument.
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6427,7 +6444,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6444,7 +6461,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6460,7 +6477,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6472,7 +6489,7 @@ function f(int $a, int $b): int {
             "<?php\nfunction f($a) { return $a && true; }\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6483,9 +6500,9 @@ function f(int $a, int $b): int {
     #[test]
     fn kotlin_empty_class() {
         check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -6502,8 +6519,8 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6519,7 +6536,7 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6541,7 +6558,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // val initialiser suppressed; `a = 1` and `b = 2` count.
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6563,7 +6580,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // var initialiser (+1) plus `a = 1` and `b = 2` (+2).
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6585,7 +6602,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // var declaration (var x = 0): +1
                 // x += 1, x -= 2, x *= 3, x++, --x: +5
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6601,7 +6618,7 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6615,7 +6632,7 @@ function f(int $a, int $b): int {
             fun m(): P = P(1)",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6636,7 +6653,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // Six binary operators: <, >, <=, >=, ==, != → 6 conditions.
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6651,7 +6668,7 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6666,7 +6683,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // condition: > (1) + else (1) = 2
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6687,7 +6704,7 @@ function f(int $a, int $b): int {
                 // Non-`else` WhenEntry arms count; the `else ->` fallback
                 // arm does not (issue #456). Two case arms + zero for the
                 // `else` arm = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6706,7 +6723,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // case `1 ->` (+1) + case `2 ->` (+1) + `else ->` (+0) = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -6724,7 +6741,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // CatchBlock contributes 1 condition.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6741,7 +6758,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // as? (+1) + ?: (+1) = 2 conditions.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6756,7 +6773,7 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 // No comparisons — only generic brackets.
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6776,9 +6793,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // assignments: var counter = 0 (+1), counter += 1 (+1) = 2
                 // branches: println(counter) = 1
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6802,9 +6819,9 @@ function f(int $a, int $b): int {
                 // assignments: var y = x (+1), y += 1 (+1) = 2
                 // branches: 0 (return is not a call)
                 // conditions: y > 0 (+1) = 1
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6820,9 +6837,9 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6843,7 +6860,7 @@ function f(int $a, int $b): int {
                 // Outer: var o = 0 (+1)
                 // Nested: var n = 0 (+1), n += 1 (+1) = 2
                 // total assignments = 3
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6857,9 +6874,9 @@ function f(int $a, int $b): int {
             "data class Point(val x: Int, val y: Int)",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6874,7 +6891,7 @@ function f(int $a, int $b): int {
         // assignment.
         check_metrics::<KotlinParser>("class C(val a: Int = 5)", "foo.kt", |metric| {
             // `val a = 5` → suppressed (Const sentinel).
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -6903,7 +6920,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6921,7 +6938,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6939,7 +6956,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6962,7 +6979,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 8);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6986,7 +7003,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7009,7 +7026,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7030,7 +7047,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7046,7 +7063,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7066,7 +7083,7 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7085,8 +7102,8 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7102,9 +7119,9 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7125,8 +7142,8 @@ function f(int $a, int $b): int {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7149,7 +7166,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // f's initializer + `let z = 0` = 2 assignments; the
                 // parameter properties contribute zero.
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7170,7 +7187,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7187,7 +7204,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7204,7 +7221,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7220,7 +7237,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7241,7 +7258,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7261,7 +7278,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7278,7 +7295,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7290,7 +7307,7 @@ function f(int $a, int $b): int {
             "class C { m(o: unknown): boolean { return o instanceof C; } }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7302,7 +7319,7 @@ function f(int $a, int $b): int {
             "class C<T> { xs: Array<number> = []; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7320,8 +7337,8 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7333,9 +7350,9 @@ function f(int $a, int $b): int {
             "interface I { a(): void; p: string; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7352,8 +7369,8 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7370,7 +7387,7 @@ function f(int $a, int $b): int {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7388,9 +7405,9 @@ function f(int $a, int $b): int {
     #[test]
     fn ruby_zero_abc() {
         check_metrics::<RubyParser>("\n", "foo.rb", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7398,9 +7415,9 @@ function f(int $a, int $b): int {
     #[test]
     fn ruby_simple_assignment() {
         check_metrics::<RubyParser>("def f\n  a = 1\n  b = 2\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 2.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 2);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7414,7 +7431,7 @@ function f(int $a, int $b): int {
             "def f(x)\n  a = 0\n  a += x\n  a -= 1\n  a *= 2\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7424,7 +7441,7 @@ function f(int $a, int $b): int {
     fn ruby_logical_augmented_assignment() {
         // `||=` and `&&=` are also `operator_assignment` nodes.
         check_metrics::<RubyParser>("def f\n  @x ||= 0\n  @x &&= 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 2.0);
+            assert_eq!(metric.abc.assignments_sum(), 2);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7436,7 +7453,7 @@ function f(int $a, int $b): int {
             "def f(obj)\n  foo()\n  obj.bar(1)\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7446,8 +7463,8 @@ function f(int $a, int $b): int {
     fn ruby_super_and_yield_branches() {
         // `super` and `yield` both count as branches (control-pass).
         check_metrics::<RubyParser>("def f\n  super\n  yield\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.abc.branches_sum(), 2.0);
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 2);
+            assert_eq!(metric.abc.assignments_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7457,7 +7474,7 @@ function f(int $a, int $b): int {
         // `attr_accessor` is a `Call3` node and registers as a branch
         // like any method invocation.
         check_metrics::<RubyParser>("class A\n  attr_accessor :x\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.abc.branches_sum(), 1.0);
+            assert_eq!(metric.abc.branches_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7469,7 +7486,7 @@ function f(int $a, int $b): int {
             "def f(a, b)\n  a == b\n  a != b\n  a < b\n  a > b\n  a <= b\n  a >= b\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7482,7 +7499,7 @@ function f(int $a, int $b): int {
             "def f(a, b)\n  a <=> b\n  a === b\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7493,7 +7510,7 @@ function f(int $a, int $b): int {
         // The `?` ternary marker is one condition; the inner `==` is
         // another.
         check_metrics::<RubyParser>("def f(x)\n  x == 0 ? :z : :nz\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.abc.conditions_sum(), 2.0);
+            assert_eq!(metric.abc.conditions_sum(), 2);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7508,7 +7525,7 @@ function f(int $a, int $b): int {
             "foo.rb",
             |metric| {
                 // 2 `when` + 1 `else` = 3 conditions.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7523,7 +7540,7 @@ function f(int $a, int $b): int {
             "foo.rb",
             |metric| {
                 // `>`(1) + `elsif`(1) + `<`(1) + `else`(1) = 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7539,8 +7556,8 @@ function f(int $a, int $b): int {
             "def f\n  begin\n    do_it\n  rescue StandardError => e\n    handle(e)\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7553,14 +7570,14 @@ function f(int $a, int $b): int {
             "class A\n  def f(a, b)\n    sum = a + b\n    if sum > 0 && b == 0\n      foo(sum)\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 // `>`(1) + `==`(1) = 2 conditions. `if` is not a
                 // token; `&&` is `AMPAMP` and is not counted (see
                 // the module-level `Stats` doc-comment for the
                 // cross-language policy; #395, walker tracked in
                 // #403).
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7582,9 +7599,9 @@ function f(int $a, int $b): int {
     #[test]
     fn python_empty_module_zero() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7593,9 +7610,9 @@ function f(int $a, int $b): int {
     fn python_plain_assignments_count() {
         // Three plain `=` assignments → A=3. No branches, no conditions.
         check_metrics::<PythonParser>("x = 1\ny = 2\nz = x\n", "foo.py", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 3.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 3);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7606,7 +7623,7 @@ function f(int $a, int $b): int {
         // `y: int` is a bare annotation (no `=`) — declares a type but
         // binds nothing; it must NOT inflate the assignment count.
         check_metrics::<PythonParser>("x: int = 1\ny: int\n", "foo.py", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            assert_eq!(metric.abc.assignments_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7616,7 +7633,7 @@ function f(int $a, int $b): int {
         // Each augmented op counts once.
         check_metrics::<PythonParser>("x = 0\nx += 1\nx -= 1\nx *= 2\n", "foo.py", |metric| {
             // 1 plain `=` + 3 augmented = 4 assignments.
-            assert_eq!(metric.abc.assignments_sum(), 4.0);
+            assert_eq!(metric.abc.assignments_sum(), 4);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7628,8 +7645,8 @@ function f(int $a, int $b): int {
         check_metrics::<PythonParser>("if (n := 10) > 5:\n    pass\n", "foo.py", |metric| {
             // 1 assignment (walrus) + 1 condition (`> 5` is a
             // ComparisonOperator).
-            assert_eq!(metric.abc.assignments_sum(), 1.0);
-            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            assert_eq!(metric.abc.assignments_sum(), 1);
+            assert_eq!(metric.abc.conditions_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7642,8 +7659,8 @@ function f(int $a, int $b): int {
             "def foo():\n    pass\ndef bar():\n    pass\nclass Baz:\n    pass\nfoo()\nbar()\nBaz()\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.assignments_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7657,9 +7674,9 @@ function f(int $a, int $b): int {
             "def f(x, y):\n    a = x > 0\n    b = x == y\n    c = x is None\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 // 3 plain assignments; the comparisons are operands.
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7670,7 +7687,7 @@ function f(int $a, int $b): int {
         // tree-sitter-python collapses `0 < x < 10` into a single
         // `ComparisonOperator` — one condition, not two.
         check_metrics::<PythonParser>("def f(x):\n    return 0 < x < 10\n", "foo.py", |metric| {
-            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            assert_eq!(metric.abc.conditions_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7690,7 +7707,7 @@ function f(int $a, int $b): int {
             "def f(a, b, c):\n    if a and b or c:\n        pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7708,7 +7725,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // One `NotOperator` -> 1 condition. The `if` itself
                 // is structural and doesn't add an Abc condition.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7720,7 +7737,7 @@ function f(int $a, int $b): int {
     #[test]
     fn python_return_unary_not_counts() {
         check_metrics::<PythonParser>("def f(flag):\n    return not flag\n", "foo.py", |metric| {
-            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            assert_eq!(metric.abc.conditions_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7736,8 +7753,8 @@ function f(int $a, int $b): int {
             |metric| {
                 // 1 Call (log) -> 1 branch.
                 // 1 NotOperator (not ready) -> 1 condition.
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7755,7 +7772,7 @@ function f(int $a, int $b): int {
             "foo.py",
             |metric| {
                 // NotOperator (1) + ComparisonOperator (1) = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7775,7 +7792,7 @@ function f(int $a, int $b): int {
             "foo.py",
             |metric| {
                 // NotOperator (1) + walker on `and` finds `y` (1) = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7792,7 +7809,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // 2 ComparisonOperator (`x > 0`, `x > -1`) + 1
                 // ElifClause + 1 ElseClause = 4 conditions.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7806,7 +7823,7 @@ function f(int $a, int $b): int {
             "def f(c):\n    return 1 if c > 0 else 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7819,7 +7836,7 @@ function f(int $a, int $b): int {
             "def f():\n    try:\n        pass\n    except ValueError:\n        pass\n    finally:\n        pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7836,7 +7853,7 @@ function f(int $a, int $b): int {
             "def f(x):\n    match x:\n        case 1:\n            pass\n        case _:\n            pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7855,7 +7872,7 @@ function f(int $a, int $b): int {
             "def f(x):\n    match x:\n        case 1:\n            pass\n        case _ if x > 0:\n            pass\n        case _:\n            pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7878,9 +7895,9 @@ function f(int $a, int $b): int {
                 // branches: `result.append(item)` is one call → 1
                 // conditions: `item > threshold` is one
                 // ComparisonOperator → 1
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7905,7 +7922,7 @@ function f(int $a, int $b): int {
              \x20       pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7925,7 +7942,7 @@ function f(int $a, int $b): int {
              \x20       break\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7937,7 +7954,7 @@ function f(int $a, int $b): int {
         // True literal. Confirms `True` / `False` are in the walker
         // terminal set.
         check_metrics::<PythonParser>("def f(a):\n    return a and True\n", "foo.py", |metric| {
-            assert_eq!(metric.abc.conditions_sum(), 2.0);
+            assert_eq!(metric.abc.conditions_sum(), 2);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7955,8 +7972,8 @@ function f(int $a, int $b): int {
             |metric| {
                 // ready() is a call (1 branch); await is the
                 // condition (1).
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7972,8 +7989,8 @@ function f(int $a, int $b): int {
         // (and verified intentional) by the code-review pass on
         // Phase 2B.
         check_metrics::<PythonParser>("def f():\n    if foo(): pass\n", "foo.py", |metric| {
-            assert_eq!(metric.abc.branches_sum(), 1.0);
-            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            assert_eq!(metric.abc.branches_sum(), 1);
+            assert_eq!(metric.abc.conditions_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -7994,7 +8011,7 @@ function f(int $a, int $b): int {
              \x20   if a: pass           # +1c (Rule 6 — bare identifier as condition)\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8012,8 +8029,8 @@ function f(int $a, int $b): int {
              \x20   m(not a, not b)     # +1b +2c\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8035,7 +8052,7 @@ function f(int $a, int $b): int {
                 // m2: NotOperator (1).
                 // m3: walker on `and` counts both operands = 2.
                 // Sum: 5.
-                assert_eq!(metric.abc.conditions_sum(), 5.0);
+                assert_eq!(metric.abc.conditions_sum(), 5);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8046,9 +8063,9 @@ function f(int $a, int $b): int {
         // No code at all → A=B=C=0. Establishes the trait is wired up
         // and the per-language compute is reachable.
         check_metrics::<RustParser>("", "empty.rs", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -8065,9 +8082,9 @@ function f(int $a, int $b): int {
             "fn f() { let mut x = 0; x = 5; x += 2; x = 7; }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8087,7 +8104,7 @@ function f(int $a, int $b): int {
             "foo.rs",
             |metric| {
                 // Only `a = 5` (assignment_expression) → A = 1.
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8105,7 +8122,7 @@ function f(int $a, int $b): int {
             "fn f() { let a=1; let b=2; let c=a+b; let mut d=0; d=5; d+=1; }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8122,9 +8139,9 @@ function f(int $a, int $b): int {
             "fn f() { g(); 1.to_string(); String::new(); }\nfn g() {}\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8140,7 +8157,7 @@ function f(int $a, int $b): int {
             "foo.rs",
             |metric| {
                 // Err(()) + Ok(...) + r? → 2 calls + 1 try = 3 branches.
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8154,7 +8171,7 @@ function f(int $a, int $b): int {
             "fn f(a: i32, b: i32) -> bool { a < b || a > b || a <= b || a >= b || a == b || a != b }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8169,7 +8186,7 @@ function f(int $a, int $b): int {
             "fn f() -> Vec<i32> { Vec::<i32>::new() }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8184,7 +8201,7 @@ function f(int $a, int $b): int {
             "fn f(opt: Option<i32>) { if let Some(_v) = opt { } }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8199,8 +8216,8 @@ function f(int $a, int $b): int {
             "fn f(mut it: std::vec::IntoIter<i32>) { while let Some(_y) = it.next() { } }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8218,7 +8235,7 @@ function f(int $a, int $b): int {
             "fn f(x: i32) -> i32 { match x { 0 => 1, n if n > 0 => n, _ => -1, } }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8232,7 +8249,7 @@ function f(int $a, int $b): int {
             "fn f(a: i32, b: i32) -> i32 { if a > b { a } else { b } }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8272,7 +8289,7 @@ function f(int $a, int $b): int {
         // Mirrors the C# fix in #372 (lesson 19) for
         // `MemberAccessExpression`.
         check_metrics::<RustParser>("fn f() { if crate::FLAG { } }\n", "foo.rs", |metric| {
-            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            assert_eq!(metric.abc.conditions_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -8291,8 +8308,8 @@ function f(int $a, int $b): int {
             |metric| {
                 // ready() is a call (1 branch); `ready().await` is
                 // the unary boolean condition (1).
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8329,13 +8346,13 @@ function f(int $a, int $b): int {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
                 // calls: xs.iter(), .next(), Err(()), Ok(...) → 4 calls
                 // plus 1 try (`r?`) → 5 branches.
-                assert_eq!(metric.abc.branches_sum(), 5.0);
+                assert_eq!(metric.abc.branches_sum(), 5);
                 // 1 let_condition + 2 non-wildcard match_arms + 1
                 // comparison (`n > 0`) → 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8357,7 +8374,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8380,7 +8397,7 @@ function f(int $a, int $b): int {
             "foo.rs",
             |metric| {
                 // 4 + 3 + 2 = 9
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8399,7 +8416,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8419,7 +8436,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8440,8 +8457,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8477,7 +8494,7 @@ function f(int $a, int $b): int {
                 //     terminal under the walker → no extra count.
                 //     Total: 2.
                 // Sum: 1 + 1 + 2 + 2 = 6.
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8492,7 +8509,7 @@ function f(int $a, int $b): int {
             "fn f(a: bool) -> bool { a && true }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8505,9 +8522,9 @@ function f(int $a, int $b): int {
         // Package declaration only — no Fitzpatrick events. Confirms the
         // GoCode Abc trait is wired up and emits zero counts.
         check_metrics::<GoParser>("package main\n", "empty.go", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -8524,9 +8541,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // `_ = y` is itself an assignment_statement → +1.
                 // x:= + x=5 + x+=2 + x=7 + x++ + _=y → 6
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8545,7 +8562,7 @@ function f(int $a, int $b): int {
              func f(s string) { g(); var r R = R{}; r.Inc(); _ = len(s) }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8559,7 +8576,7 @@ function f(int $a, int $b): int {
             "package main\nfunc f(a, b int) bool { return a < b || a > b || a <= b || a >= b || a == b || a != b }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8574,8 +8591,8 @@ function f(int $a, int $b): int {
             "package main\nfunc Min[T int | float64](a, b T) T { return a }\nfunc f() { _ = Min[int](1, 2) }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8592,7 +8609,7 @@ function f(int $a, int $b): int {
             "package main\nfunc f(x int) int { switch x { case 1: return 1; case 2: return 2; case 3: return 3; default: return 0 } }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8606,7 +8623,7 @@ function f(int $a, int $b): int {
             "package main\nfunc f(v interface{}) { switch v.(type) { case int: return; case string: return; default: return } }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8620,7 +8637,7 @@ function f(int $a, int $b): int {
             "package main\nfunc f(ch chan int) { select { case <-ch: return; case ch <- 1: return; default: return } }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8634,7 +8651,7 @@ function f(int $a, int $b): int {
             "package main\nfunc f(a, b int) int { if a > b { return a } else { return b } }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8666,9 +8683,9 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8688,7 +8705,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8708,7 +8725,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8740,7 +8757,7 @@ function f(int $a, int $b): int {
                 //   no count; the inner `i < 3` contributes 1 via the
                 //   pre-existing LT/GT arm.
                 // Total: 3.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8762,8 +8779,8 @@ function f(int $a, int $b): int {
                 // `x` bare-identifier condition contributes 1
                 // (Rule 6 — bare boolean identifier in if-condition).
                 // `g()` call contributes 1 branch but no condition.
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8779,7 +8796,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8795,8 +8812,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8817,7 +8834,7 @@ function f(int $a, int $b): int {
                 // M2: walker on `!x` → 1.
                 // M3: `&&` walker counts both → 2.
                 // Sum: 1 + 1 + 2 = 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8832,7 +8849,7 @@ function f(int $a, int $b): int {
             "package p\nfunc F(a bool) bool { return a && true }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8847,9 +8864,9 @@ function f(int $a, int $b): int {
     #[test]
     fn elixir_empty_unit_zero() {
         check_metrics::<ElixirParser>(":ok\n", "foo.ex", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -8863,9 +8880,9 @@ function f(int $a, int $b): int {
     #[test]
     fn elixir_defmodule_is_zero_branches() {
         check_metrics::<ElixirParser>("defmodule Foo do\nend\n", "foo.ex", |metric| {
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -8880,7 +8897,7 @@ function f(int $a, int $b): int {
             "defmodule Foo do\n  def f do\n    x = 1\n    y = x + 1\n    y\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8904,8 +8921,8 @@ function f(int $a, int $b): int {
                 // (which surfaces as a Call wrapping the binary
                 // operator). `def` and `defmodule` are declarative
                 // and excluded. Empirical total: B = 5.
-                assert_eq!(metric.abc.branches_sum(), 5.0);
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 5);
+                assert_eq!(metric.abc.assignments_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8919,7 +8936,7 @@ function f(int $a, int $b): int {
             "defmodule Foo do\n  def f(a, b) do\n    a == b or a != b or a < b or a > b or a <= b or a >= b\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8932,7 +8949,7 @@ function f(int $a, int $b): int {
             "defmodule Foo do\n  def f(a, b) do\n    a === b or a !== b\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8947,7 +8964,7 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 // when (+1) + > (+1) = 2
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8963,7 +8980,7 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 // conditions: case → 1
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8977,7 +8994,7 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 // conditions: cond (+1) + > (+1) = 2
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8992,7 +9009,7 @@ function f(int $a, int $b): int {
             "defmodule Foo do\n  def f(xs) do\n    for x <- xs, do: x * 2\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9010,9 +9027,9 @@ function f(int $a, int $b): int {
             "defmodule Foo do\n  def f do\n    x = 1\n    if x > 0 do\n      side_effect()\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9025,9 +9042,9 @@ function f(int $a, int $b): int {
         // No code → A=B=C=0. Wires up the trait and exercises the
         // per-language compute reachability.
         check_metrics::<CppParser>("", "empty.cpp", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -9043,9 +9060,9 @@ function f(int $a, int $b): int {
             "void f() { int x = 0; x = 5; x += 2; x = 7; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9061,7 +9078,7 @@ function f(int $a, int $b): int {
             "void f() { int x = 0; x++; --x; ++x; x--; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 5.0);
+                assert_eq!(metric.abc.assignments_sum(), 5);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9077,7 +9094,7 @@ function f(int $a, int $b): int {
             "void f() { int a=1; int b=2; int c=a+b; int d=0; d=5; d+=1; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.assignments_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9091,7 +9108,7 @@ function f(int $a, int $b): int {
         // un-initialised declarations contribute zero to A.
         check_metrics::<CppParser>("void f() { int a; a = 5; }", "foo.cpp", |metric| {
             // Only `a = 5` (assignment_expression) → A = 1.
-            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            assert_eq!(metric.abc.assignments_sum(), 1);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -9110,7 +9127,7 @@ function f(int $a, int $b): int {
             "foo.cpp",
             |metric| {
                 // Only `x = 1` (assignment_expression) → A = 1.
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9127,8 +9144,8 @@ function f(int $a, int $b): int {
             "struct S { void m(); }; void g(); void f() { g(); S s; s.m(); auto* p = new int(5); }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.assignments_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9153,7 +9170,7 @@ function f(int $a, int $b): int {
                 // adds the spaceship `<=>` (1) + the outer `== 0`
                 // (1) → 8 total. The six `||` short-circuits add 0
                 // (Fitzpatrick Rule 5; issue #395).
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 8);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9177,7 +9194,7 @@ function f(int $a, int $b): int {
                 // == 1, > 1, < 1; the walker on && and || finds
                 // BinaryExpression operands (not terminal-bool) and
                 // adds nothing. Total: 3.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9192,7 +9209,7 @@ function f(int $a, int $b): int {
             "#include <vector>\nstd::vector<int> f() { return std::vector<int>{}; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9211,7 +9228,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9234,7 +9251,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9249,7 +9266,7 @@ function f(int $a, int $b): int {
             "foo.cpp",
             |metric| {
                 // 1 `try` + 2 `catch` arms = 3.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9294,9 +9311,9 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 7.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.assignments_sum(), 7);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9314,7 +9331,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9331,7 +9348,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9353,7 +9370,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9373,7 +9390,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // `&&` walker counts both operands: `(bool)ptr` (1)
                 // and `ready` (1). Total: 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9394,7 +9411,7 @@ function f(int $a, int $b): int {
              void f() { if (n::flag) { } }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9411,7 +9428,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9426,8 +9443,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9451,7 +9468,7 @@ function f(int $a, int $b): int {
                 //     unary `!`). +1.
                 // m3: x && y → `&&` walker counts both → +2.
                 // Sum: 1 + 1 + 2 = 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9465,7 +9482,7 @@ function f(int $a, int $b): int {
             "bool f(bool a) { return a && true; }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9476,9 +9493,9 @@ function f(int $a, int $b): int {
         // No code → A=B=C=0. Wires up the trait and exercises the
         // per-language compute reachability.
         check_metrics::<JavascriptParser>("", "empty.js", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -9494,9 +9511,9 @@ function f(int $a, int $b): int {
             "function f() { let x = 0; x = 5; x += 2; x = 7; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9514,7 +9531,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // `const PI` suppressed; `let x = 1`, `var y = 2`,
                 // `x = 9` all count → A = 3.
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9530,7 +9547,7 @@ function f(int $a, int $b): int {
             "function f() { let x = 0; x++; --x; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9544,8 +9561,8 @@ function f(int $a, int $b): int {
             "function f() { g(1); new Foo(2); }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9563,7 +9580,7 @@ function f(int $a, int $b): int {
             "function f(a, b) { return a == b && a === b && a != b && a !== b && a < b && a > b && a <= b && a >= b; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 8);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9576,7 +9593,7 @@ function f(int $a, int $b): int {
             "function f(a, b) { return a ?? b; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9598,7 +9615,7 @@ function f(int $a, int $b): int {
             "function f(a) { if (a > 0) {} else {} let x = a ? 1 : 2; switch (x) { case 1: break; default: break; } try { } catch (e) { } }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9612,7 +9629,7 @@ function f(int $a, int $b): int {
             "function f(x) { return x instanceof Foo; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9652,9 +9669,9 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 7.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.assignments_sum(), 7);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 8);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9685,9 +9702,9 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 7.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.assignments_sum(), 7);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 8);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9708,8 +9725,8 @@ function f(int $a, int $b): int {
              async function f() { if (await ready()) { } }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9733,7 +9750,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9750,7 +9767,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9765,8 +9782,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9782,7 +9799,7 @@ function f(int $a, int $b): int {
             |metric| {
                 // m1: 1 (`>=`). m2: 1 (walker unwraps to `x`).
                 // m3: 2 (`&&` walker counts both terminals).
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9799,7 +9816,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9814,8 +9831,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9829,7 +9846,7 @@ function f(int $a, int $b): int {
              function m3(x: boolean, y: boolean): boolean { return x && y; }\n",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9846,7 +9863,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9861,8 +9878,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9876,7 +9893,7 @@ function f(int $a, int $b): int {
              function m3(x: boolean, y: boolean): boolean { return x && y; }\n",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9893,7 +9910,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9908,8 +9925,8 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9923,7 +9940,7 @@ function f(int $a, int $b): int {
              function m3(x, y) { return x && y; }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9941,7 +9958,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9956,7 +9973,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9968,7 +9985,7 @@ function f(int $a, int $b): int {
             "function f(a) { return a && true; }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9984,7 +10001,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9999,7 +10016,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10011,7 +10028,7 @@ function f(int $a, int $b): int {
             "function f(a: boolean): boolean { return a && true; }\n",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10027,7 +10044,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10042,7 +10059,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10054,7 +10071,7 @@ function f(int $a, int $b): int {
             "function f(a: boolean): boolean { return a && true; }\n",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10070,7 +10087,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10085,7 +10102,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10097,7 +10114,7 @@ function f(int $a, int $b): int {
             "function f(a) { return a && true; }\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10110,9 +10127,9 @@ function f(int $a, int $b): int {
         // Empty source produces zero ABC magnitude — pins the trait
         // wiring without exercising any compute branch.
         check_metrics::<PerlParser>("", "empty.pl", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -10130,9 +10147,9 @@ function f(int $a, int $b): int {
             "sub f { my $x = 0; $x = 5; $x += 2; $x .= \"a\"; $x **= 3; }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 5.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 5);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10152,9 +10169,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // shift's `my $a = shift` initialiser contributes one
                 // assignment via the `=` token.
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10171,9 +10188,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // `my $obj = shift` → A=1, B=1 (shift bareword).
                 // `$obj->run($x)` and `$obj->ping` → 2 more branches.
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10209,9 +10226,9 @@ function f(int $a, int $b): int {
                 // then 14 `$r = …` plus there's no `=` in `my $r;`.
                 // Actually: `my $r;` has no `=`; the 14 `$r = …` are
                 // 14 `=` tokens. So A=14, C=14.
-                assert_eq!(metric.abc.assignments_sum(), 14.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 14.0);
+                assert_eq!(metric.abc.assignments_sum(), 14);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 14);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10247,14 +10264,14 @@ function f(int $a, int $b): int {
             "foo.pl",
             |metric| {
                 // 7 `=` tokens (one per reassignment line).
-                assert_eq!(metric.abc.assignments_sum(), 7.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 7);
+                assert_eq!(metric.abc.branches_sum(), 0);
                 // 4 walker-triggered lines × 2 operands + 1 ternary
                 // `?` = 9. The two remaining low-precedence keyword
                 // forms (one of `and`/`or`/`xor`) fall under a
                 // non-binary_expression parent in this grammar
                 // version and contribute zero via the walker.
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10281,9 +10298,9 @@ function f(int $a, int $b): int {
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10299,9 +10316,9 @@ function f(int $a, int $b): int {
             "foo.pl",
             |metric| {
                 // 3 `=` tokens, 0 branches except `shift` bareword.
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10340,9 +10357,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // `my $total = 0` is one `=`; `my $i = 0` is another
                 // `=`; `$total += $i` is one `+=`. Total = 3.
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10364,7 +10381,7 @@ function f(int $a, int $b): int {
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10384,7 +10401,7 @@ function f(int $a, int $b): int {
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10404,7 +10421,7 @@ function f(int $a, int $b): int {
             "sub f { my ($a) = @_; return $a && $b; }\n",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10439,7 +10456,7 @@ function f(int $a, int $b): int {
             "foo.pl",
             |metric| {
                 // 2 + 2 = 4 unary conditions from the two `||`s.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10461,7 +10478,7 @@ function f(int $a, int $b): int {
             "sub f { my ($a) = @_; if ($a) { return 1; } }\n",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10483,8 +10500,8 @@ function f(int $a, int $b): int {
                 // `call($a, $b)` contributes 0 (bare-args don't
                 // count via the Arguments walker — list_kind !=
                 // BinaryExpression).
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10507,7 +10524,7 @@ function f(int $a, int $b): int {
                 //     unary to $x (1).
                 // m3: $x && $y → walker on `&&` counts both (2).
                 // Sum: 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10518,9 +10535,9 @@ function f(int $a, int $b): int {
     #[test]
     fn lua_empty_unit_zero() {
         check_metrics::<LuaParser>("", "empty.lua", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -10542,9 +10559,9 @@ function f(int $a, int $b): int {
              end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10564,9 +10581,9 @@ function f(int $a, int $b): int {
              end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 5.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 5);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10594,11 +10611,11 @@ function f(int $a, int $b): int {
             "foo.lua",
             |metric| {
                 // 8 `r = …` reassignments, plus `local r` (no `=`).
-                assert_eq!(metric.abc.assignments_sum(), 8.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 8);
+                assert_eq!(metric.abc.branches_sum(), 0);
                 // 6 comparisons (+6) + 2 logical lines × 2 walker
                 // operands (+4) = 10.
-                assert_eq!(metric.abc.conditions_sum(), 10.0);
+                assert_eq!(metric.abc.conditions_sum(), 10);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10622,9 +10639,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // Comparisons: `>`, `<` → 2; elseif_statement → 1;
                 // else_statement → 1. C = 4. No branches (no calls).
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10651,9 +10668,9 @@ function f(int $a, int $b): int {
                 // Assignments: `local total = 0` (1), `total = total + i` (1) → 2.
                 // Branches: `do_work(i)` (1), `print(\"done\")` (1) → 2.
                 // Conditions: `==` (1), `else_statement` (1) → 2.
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10672,7 +10689,7 @@ function f(int $a, int $b): int {
              end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 9);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10689,7 +10706,7 @@ function f(int $a, int $b): int {
              end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10700,7 +10717,7 @@ function f(int $a, int $b): int {
         // `a and true` reports 2 conditions: one Identifier, one
         // True keyword literal.
         check_metrics::<LuaParser>("function f(a) return a and true end", "foo.lua", |metric| {
-            assert_eq!(metric.abc.conditions_sum(), 2.0);
+            assert_eq!(metric.abc.conditions_sum(), 2);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -10727,7 +10744,7 @@ function f(int $a, int $b): int {
                 // `a and 2` → `and` walker counts both operands:
                 //   identifier `a` (+1), Number `2` (+1).
                 // Total: 3.
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10744,7 +10761,7 @@ function f(int $a, int $b): int {
              end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10759,8 +10776,8 @@ function f(int $a, int $b): int {
             "function f(a, b) m(a, b); m(not a, not b) end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10787,7 +10804,7 @@ function f(int $a, int $b): int {
                 //     (seeded by the `not`). +1.
                 // m3: x and y → `and` walker counts both → +2.
                 // Sum: 4.
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10798,9 +10815,9 @@ function f(int $a, int $b): int {
     #[test]
     fn tcl_empty_unit_zero() {
         check_metrics::<TclParser>("", "empty.tcl", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 0.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 0);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }
@@ -10820,9 +10837,9 @@ function f(int $a, int $b): int {
                 // 3 `set` invocations → A=3. The inner `expr` is a
                 // sub-command (`command_substitution` + `expr_cmd`),
                 // not a `command` node, so it doesn't add a branch.
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10844,9 +10861,9 @@ function f(int $a, int $b): int {
             |metric| {
                 // `set` (1) + `incr` (1) + `append` (1) + `lappend`
                 // (1) → A=4. No branches, no conditions.
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10866,9 +10883,9 @@ function f(int $a, int $b): int {
             "foo.tcl",
             |metric| {
                 // 3 commands, all branches.
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10899,11 +10916,11 @@ function f(int $a, int $b): int {
             "foo.tcl",
             |metric| {
                 // 10 `set` assignments.
-                assert_eq!(metric.abc.assignments_sum(), 10.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 10);
+                assert_eq!(metric.abc.branches_sum(), 0);
                 // 8 comparisons (+8) + 2 logical lines × 2 walker
                 // operands (+4) = 12.
-                assert_eq!(metric.abc.conditions_sum(), 12.0);
+                assert_eq!(metric.abc.conditions_sum(), 12);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10919,9 +10936,9 @@ function f(int $a, int $b): int {
              }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 1);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10947,9 +10964,9 @@ function f(int $a, int $b): int {
                 // Branches: three `return` commands → 3.
                 // Conditions: `>` (1), `<` (1), `elseif` (1), `else`
                 // (1) → 4.
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 3.0);
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10969,7 +10986,7 @@ function f(int $a, int $b): int {
             "foo.tcl",
             |metric| {
                 // The two `expr` predicates feed the walker: 4 + 3 = 7.
-                assert_eq!(metric.abc.conditions_sum(), 7.0);
+                assert_eq!(metric.abc.conditions_sum(), 7);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -10987,7 +11004,7 @@ function f(int $a, int $b): int {
              }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -11008,7 +11025,7 @@ function f(int $a, int $b): int {
             "proc f {a} { return [expr {$a && 1}] }\n",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -11050,9 +11067,9 @@ function f(int $a, int $b): int {
                 // that predicate re-parses as a `command`, the `<`
                 // is emitted as `simple_word`. Only `<` inside a
                 // real `expr` production becomes `Tcl::LT`.
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
-                assert_eq!(metric.abc.branches_sum(), 5.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 4);
+                assert_eq!(metric.abc.branches_sum(), 5);
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -11062,9 +11079,9 @@ function f(int $a, int $b): int {
     #[test]
     fn irules_abc_set_assignment() {
         check_metrics::<IrulesParser>("when X {\n    set x 1\n}\n", "foo.irule", |metric| {
-            assert_eq!(metric.abc.assignments_sum(), 1.0);
-            assert_eq!(metric.abc.branches_sum(), 0.0);
-            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            assert_eq!(metric.abc.assignments_sum(), 1);
+            assert_eq!(metric.abc.branches_sum(), 0);
+            assert_eq!(metric.abc.conditions_sum(), 0);
         });
     }
 
@@ -11077,8 +11094,8 @@ function f(int $a, int $b): int {
             "when X {\n    incr x\n    append s \"y\"\n    lappend l 1\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
-                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.branches_sum(), 0);
             },
         );
     }
@@ -11090,9 +11107,9 @@ function f(int $a, int $b): int {
             "when X {\n    log local0. hi\n    pool p1\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 0);
             },
         );
     }
@@ -11105,8 +11122,8 @@ function f(int $a, int $b): int {
             "when X {\n    if { $a == 1 } { log local0. hi }\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }
@@ -11120,8 +11137,8 @@ function f(int $a, int $b): int {
             "when X {\n    if { $a contains \"x\" } { log local0. hi }\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }
@@ -11134,8 +11151,8 @@ function f(int $a, int $b): int {
             "when X {\n    if { $a } { set r 1 } elseif { $b } { set r 2 } else { set r 3 }\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 3);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -11148,8 +11165,8 @@ function f(int $a, int $b): int {
             "when X {\n    set y [expr { $a > 0 ? 1 : 0 }]\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -11164,8 +11181,8 @@ function f(int $a, int $b): int {
             "when X {\n    if { !$a && !$b } { log local0. hi }\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -11182,8 +11199,8 @@ function f(int $a, int $b): int {
             "when X {\n    if { $a } { log local0. hi }\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.abc.branches_sum(), 1.0);
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 1);
+                assert_eq!(metric.abc.conditions_sum(), 0);
             },
         );
     }

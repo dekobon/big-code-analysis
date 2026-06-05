@@ -142,14 +142,14 @@ impl Stats {
 
     /// Returns the `Cyclomatic` metric value for the current space.
     #[must_use]
-    pub fn cyclomatic(&self) -> f64 {
-        self.cyclomatic
+    pub fn cyclomatic(&self) -> u64 {
+        self.cyclomatic as u64
     }
 
     /// Returns the sum of standard cyclomatic values across all spaces.
     #[must_use]
-    pub fn cyclomatic_sum(&self) -> f64 {
-        self.cyclomatic_sum
+    pub fn cyclomatic_sum(&self) -> u64 {
+        self.cyclomatic_sum as u64
     }
 
     /// Returns the average standard cyclomatic complexity.
@@ -162,27 +162,27 @@ impl Stats {
     /// file unit and so reported a different — lower — average.
     #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
-        crate::metrics::average(self.cyclomatic_sum(), self.function_spaces)
+        crate::metrics::average(self.cyclomatic_sum() as f64, self.function_spaces)
     }
 
     /// Returns the maximum standard cyclomatic complexity.
     #[must_use]
-    pub fn cyclomatic_max(&self) -> f64 {
-        self.cyclomatic_max
+    pub fn cyclomatic_max(&self) -> u64 {
+        self.cyclomatic_max as u64
     }
 
     /// Returns the minimum standard cyclomatic complexity.
     ///
     /// Collapses the `f64::MAX` sentinel that `Stats::default()` plants
-    /// into `cyclomatic_min` to `0.0`, so a never-observed space
+    /// into `cyclomatic_min` to `0`, so a never-observed space
     /// serializes to a meaningful number rather than `1.7976931e308`.
     #[allow(clippy::float_cmp)]
     #[must_use]
-    pub fn cyclomatic_min(&self) -> f64 {
+    pub fn cyclomatic_min(&self) -> u64 {
         if self.cyclomatic_min == f64::MAX {
-            0.0
+            0
         } else {
-            self.cyclomatic_min
+            self.cyclomatic_min as u64
         }
     }
 
@@ -197,14 +197,14 @@ impl Stats {
     /// containers.  This matches Lizard's `-m` convention, which keys on
     /// the switch keyword rather than the presence of arms.
     #[must_use]
-    pub fn cyclomatic_modified(&self) -> f64 {
-        self.cyclomatic_modified
+    pub fn cyclomatic_modified(&self) -> u64 {
+        self.cyclomatic_modified as u64
     }
 
     /// Returns the sum of modified cyclomatic values across all spaces.
     #[must_use]
-    pub fn cyclomatic_modified_sum(&self) -> f64 {
-        self.cyclomatic_modified_sum
+    pub fn cyclomatic_modified_sum(&self) -> u64 {
+        self.cyclomatic_modified_sum as u64
     }
 
     /// Returns the average modified cyclomatic complexity.
@@ -213,13 +213,13 @@ impl Stats {
     /// the shared `average` helper) as [`Stats::cyclomatic_average`].
     #[must_use]
     pub fn cyclomatic_modified_average(&self) -> f64 {
-        crate::metrics::average(self.cyclomatic_modified_sum(), self.function_spaces)
+        crate::metrics::average(self.cyclomatic_modified_sum() as f64, self.function_spaces)
     }
 
     /// Returns the maximum modified cyclomatic complexity.
     #[must_use]
-    pub fn cyclomatic_modified_max(&self) -> f64 {
-        self.cyclomatic_modified_max
+    pub fn cyclomatic_modified_max(&self) -> u64 {
+        self.cyclomatic_modified_max as u64
     }
 
     /// Returns the minimum modified cyclomatic complexity.
@@ -227,11 +227,11 @@ impl Stats {
     /// Same `f64::MAX` sentinel collapse as `cyclomatic_min`.
     #[allow(clippy::float_cmp)]
     #[must_use]
-    pub fn cyclomatic_modified_min(&self) -> f64 {
+    pub fn cyclomatic_modified_min(&self) -> u64 {
         if self.cyclomatic_modified_min == f64::MAX {
-            0.0
+            0
         } else {
-            self.cyclomatic_modified_min
+            self.cyclomatic_modified_min as u64
         }
     }
 
@@ -1180,8 +1180,8 @@ mod tests {
     #[test]
     fn cyclomatic_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.cyclomatic_min(), 0.0);
-        assert_eq!(stats.cyclomatic_modified_min(), 0.0);
+        assert_eq!(stats.cyclomatic_min(), 0);
+        assert_eq!(stats.cyclomatic_modified_min(), 0);
     }
 
     /// A `Stats::default()` with no function spaces and an unguarded
@@ -1223,7 +1223,7 @@ mod tests {
                 // Sum is over every space's base 1 plus its decisions:
                 // unit(1) + class(1) + f(1 + ternary 1) + g(1 + ternary 1)
                 // = 6.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
                 // Divisor is the two function spaces, not the four total
                 // spaces: 6 / 2 = 3.0 (was 6 / 4 = 1.5 before #512).
                 assert_eq!(metric.cyclomatic.cyclomatic_average(), 3.0);
@@ -1232,9 +1232,9 @@ mod tests {
                 // function/closure count cognitive does.
                 assert_eq!(
                     metric.cyclomatic.cyclomatic_average(),
-                    metric.cyclomatic.cyclomatic_sum() / metric.nom.total()
+                    metric.cyclomatic.cyclomatic_sum() as f64 / metric.nom.total() as f64
                 );
-                assert_eq!(metric.nom.total(), 2.0);
+                assert_eq!(metric.nom.total(), 2);
             },
         );
     }
@@ -1263,12 +1263,12 @@ mod tests {
         .expect("analyze must succeed on a well-formed C# fixture");
 
         let c = &space.metrics.cyclomatic;
-        assert_eq!(c.cyclomatic_sum(), 6.0);
+        assert_eq!(c.cyclomatic_sum(), 6);
         assert_eq!(c.cyclomatic_average(), 3.0);
         assert_eq!(c.cyclomatic_modified_average(), 3.0);
         // Nom was not selected, so its count stays at the zero default —
         // the cyclomatic divisor must not depend on it.
-        assert_eq!(space.metrics.nom.total(), 0.0);
+        assert_eq!(space.metrics.nom.total(), 0);
     }
 
     /// #512 edge case: a Python `lambda` is counted by `nom` (as a
@@ -1290,9 +1290,9 @@ mod tests {
             "p.py",
             |metric| {
                 // sum: unit(1 + lambda's ternary 1) + f(1 + ternary 1) = 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 // nom counts the lambda as a closure, so total == 2 …
-                assert_eq!(metric.nom.total(), 2.0);
+                assert_eq!(metric.nom.total(), 2);
                 // … but only the `def` opens a function space, so the
                 // cyclomatic divisor is 1: 4 / 1 = 4.0, which deliberately
                 // differs from cyclomatic_sum / nom.total() (4 / 2 = 2.0).
@@ -1321,22 +1321,22 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -1364,9 +1364,9 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
     }
@@ -1390,9 +1390,9 @@ mod tests {
             "foo.py",
             |metric| {
                 // fn body has: for(1) + if(1) + for/else(1) = 3 over base 1 -> max = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
     }
@@ -1413,9 +1413,9 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -1439,9 +1439,9 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -1460,9 +1460,9 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
             },
         );
     }
@@ -1482,8 +1482,8 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
             },
         );
     }
@@ -1502,8 +1502,8 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2);
             },
         );
     }
@@ -1524,9 +1524,9 @@ mod tests {
 ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -1546,15 +1546,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 6.0,
+                    "sum": 6,
                     "average": 6.0,
-                    "min": 1.0,
-                    "max": 5.0
+                    "min": 1,
+                    "max": 5
                   }
                 }
                 "#
@@ -1587,15 +1587,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -1636,15 +1636,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -1667,15 +1667,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -1702,15 +1702,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -1738,15 +1738,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -1766,7 +1766,7 @@ mod tests {
              let c: i64 = s.parse()?;
              Ok(a + b + c)
          }";
-    const RUST_TRY_COUNT: f64 = 3.0;
+    const RUST_TRY_COUNT: u64 = 3;
 
     fn rust_cyclomatic_with_try(count_try: bool) -> super::Stats {
         let func_space = crate::analyze(
@@ -1821,8 +1821,8 @@ mod tests {
         );
         // unit(1) + fn(entry 1 + 3*`?` = 4) = 5 standard; modified same
         // shape (no match container here): 1 + 4 = 5.
-        assert_eq!(default_path.cyclomatic_sum(), 5.0);
-        assert_eq!(default_path.cyclomatic_modified_sum(), 5.0);
+        assert_eq!(default_path.cyclomatic_sum(), 5);
+        assert_eq!(default_path.cyclomatic_modified_sum(), 5);
     }
 
     #[test]
@@ -1851,15 +1851,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -1888,15 +1888,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -1927,15 +1927,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -1976,15 +1976,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 7.0,
+                  "sum": 7,
                   "average": 7.0,
-                  "min": 3.0,
-                  "max": 4.0,
+                  "min": 3,
+                  "max": 4,
                   "modified": {
-                    "sum": 7.0,
+                    "sum": 7,
                     "average": 7.0,
-                    "min": 3.0,
-                    "max": 4.0
+                    "min": 3,
+                    "max": 4
                   }
                 }
                 "#
@@ -2029,15 +2029,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 7.0,
+                  "sum": 7,
                   "average": 7.0,
-                  "min": 3.0,
-                  "max": 4.0,
+                  "min": 3,
+                  "max": 4,
                   "modified": {
-                    "sum": 7.0,
+                    "sum": 7,
                     "average": 7.0,
-                    "min": 3.0,
-                    "max": 4.0
+                    "min": 3,
+                    "max": 4
                   }
                 }
                 "#
@@ -2074,15 +2074,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 9.0,
+                  "sum": 9,
                   "average": 4.5,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 9.0,
+                    "sum": 9,
                     "average": 4.5,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -2134,15 +2134,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 11.0,
+                  "sum": 11,
                   "average": 3.6666666666666665,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 10.0,
+                    "sum": 10,
                     "average": 3.3333333333333335,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -2177,15 +2177,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2220,15 +2220,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 9.0,
+                  "sum": 9,
                   "average": 4.5,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 9.0,
+                    "sum": 9,
                     "average": 4.5,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -2279,15 +2279,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 11.0,
+                  "sum": 11,
                   "average": 3.6666666666666665,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 10.0,
+                    "sum": 10,
                     "average": 3.3333333333333335,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -2314,15 +2314,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 2.5,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 2.5,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2351,22 +2351,22 @@ mod tests {
                 // expected: unit(1) + class(1) + fn(base 1 + 3 explicit arms;
                 //           `_ =>` skipped) = sum 6, max 4. modified =
                 //           unit(1) + class(1) + fn(base 1 + switch expr 1) = 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2392,8 +2392,8 @@ mod tests {
             |metric| {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit;
                 //           `_ =>` skipped) = 4, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -2414,8 +2414,8 @@ mod tests {
             |metric| {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit;
                 //           `var _ =>` skipped) = 4, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -2440,8 +2440,8 @@ mod tests {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit +
                 //           1 guarded discard; bare `_ =>` skipped) = 5,
                 //           max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -2468,8 +2468,8 @@ mod tests {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit `1` +
                 //           1 typed-discard `int _`; bare `_ =>` skipped) = 5,
                 //           max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -2495,8 +2495,8 @@ mod tests {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit `1` +
                 //           1 guarded `var _`; bare `_ =>` skipped) = 5,
                 //           max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -2525,15 +2525,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2557,15 +2557,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 7.0,
+                  "sum": 7,
                   "average": 7.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 7.0,
+                    "sum": 7,
                     "average": 7.0,
-                    "min": 1.0,
-                    "max": 5.0
+                    "min": 1,
+                    "max": 5
                   }
                 }
                 "#
@@ -2591,15 +2591,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -2633,15 +2633,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2669,15 +2669,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2698,15 +2698,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 1.0,
-                  "max": 1.0,
+                  "min": 1,
+                  "max": 1,
                   "modified": {
-                    "sum": 2.0,
+                    "sum": 2,
                     "average": 2.0,
-                    "min": 1.0,
-                    "max": 1.0
+                    "min": 1,
+                    "max": 1
                   }
                 }
                 "#
@@ -2732,15 +2732,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2769,15 +2769,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -2800,15 +2800,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2834,15 +2834,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2868,15 +2868,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2908,15 +2908,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2941,15 +2941,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -2975,15 +2975,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3006,15 +3006,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -3038,15 +3038,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 1.0,
-                  "max": 1.0,
+                  "min": 1,
+                  "max": 1,
                   "modified": {
-                    "sum": 2.0,
+                    "sum": 2,
                     "average": 2.0,
-                    "min": 1.0,
-                    "max": 1.0
+                    "min": 1,
+                    "max": 1
                   }
                 }
                 "#
@@ -3099,15 +3099,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 11.0,
+                  "sum": 11,
                   "average": 2.2,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 11.0,
+                    "sum": 11,
                     "average": 2.2,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3137,22 +3137,22 @@ mod tests {
             |metric| {
                 // standard: unit(1) + class(1) + method(1) + do(1) = 4
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 4.0);
-                assert_eq!(s.cyclomatic_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(s.cyclomatic_sum(), 4);
+                assert_eq!(s.cyclomatic_max(), 2);
+                assert_eq!(s.cyclomatic_modified_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3181,22 +3181,22 @@ mod tests {
             |metric| {
                 // standard: unit(1) + class(1) + method(1) + enhanced-for(1) = 4
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 4.0);
-                assert_eq!(s.cyclomatic_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(s.cyclomatic_sum(), 4);
+                assert_eq!(s.cyclomatic_max(), 2);
+                assert_eq!(s.cyclomatic_modified_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3230,7 +3230,7 @@ mod tests {
             |metric| {
                 // Same shape as `java_simple_class`. nspace = 4
                 // (unit, class, 2 methods); branches mirror Java's.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 9.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 9);
             },
         );
     }
@@ -3248,7 +3248,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // unit(1) + fn(1) + if(1) + while(1) = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
     }
@@ -3273,8 +3273,8 @@ mod tests {
                 // standard: unit(1) + fn(1) + 2 cases = 4
                 // modified: unit(1) + fn(1) + switch(1) = 3
                 // (default does NOT add a branch — same as Java/lesson #106)
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
             },
         );
     }
@@ -3292,7 +3292,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // unit(1) + fn(1) + catch(1) = 3
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
             },
         );
     }
@@ -3308,7 +3308,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // unit(1) + && (1) = 2
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
             },
         );
     }
@@ -3324,7 +3324,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // unit(1) + fn(1) + assert(1) = 3
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
             },
         );
     }
@@ -3348,9 +3348,9 @@ mod tests {
             |metric| {
                 // standard: unit(1) + fn(1) + do(1) = 3
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 3.0);
-                assert_eq!(s.cyclomatic_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_sum(), 3);
+                assert_eq!(s.cyclomatic_max(), 2);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
             },
         );
     }
@@ -3373,9 +3373,9 @@ mod tests {
             |metric| {
                 // standard: unit(1) + fn(1) + enhanced-for(1) = 3
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 3.0);
-                assert_eq!(s.cyclomatic_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_sum(), 3);
+                assert_eq!(s.cyclomatic_max(), 2);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
             },
         );
     }
@@ -3389,10 +3389,10 @@ mod tests {
         check_metrics::<GroovyParser>("def read(a){ return a?.b?.c }", "foo.groovy", |metric| {
             // unit(1) + fn(base 1 + ?. 1 + ?. 1) = sum 4, max 3.
             let s = &metric.cyclomatic;
-            assert_eq!(s.cyclomatic_sum(), 4.0);
-            assert_eq!(s.cyclomatic_max(), 3.0);
-            assert_eq!(s.cyclomatic_modified_sum(), 4.0);
-            assert_eq!(s.cyclomatic_modified_max(), 3.0);
+            assert_eq!(s.cyclomatic_sum(), 4);
+            assert_eq!(s.cyclomatic_max(), 3);
+            assert_eq!(s.cyclomatic_modified_sum(), 4);
+            assert_eq!(s.cyclomatic_modified_max(), 3);
         });
     }
 
@@ -3404,10 +3404,10 @@ mod tests {
         check_metrics::<GroovyParser>("def read(a){ return a??.b }", "foo.groovy", |metric| {
             // unit(1) + fn(base 1 + ??. 1) = sum 3, max 2.
             let s = &metric.cyclomatic;
-            assert_eq!(s.cyclomatic_sum(), 3.0);
-            assert_eq!(s.cyclomatic_max(), 2.0);
-            assert_eq!(s.cyclomatic_modified_sum(), 3.0);
-            assert_eq!(s.cyclomatic_modified_max(), 2.0);
+            assert_eq!(s.cyclomatic_sum(), 3);
+            assert_eq!(s.cyclomatic_max(), 2);
+            assert_eq!(s.cyclomatic_modified_sum(), 3);
+            assert_eq!(s.cyclomatic_modified_max(), 2);
         });
     }
 
@@ -3427,15 +3427,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -3457,15 +3457,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -3491,15 +3491,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -3523,15 +3523,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 6.0,
+                    "sum": 6,
                     "average": 6.0,
-                    "min": 1.0,
-                    "max": 5.0
+                    "min": 1,
+                    "max": 5
                   }
                 }
                 "#
@@ -3553,15 +3553,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -3588,21 +3588,21 @@ mod tests {
             "foo.pl",
             |metric| {
                 // unit(1) + fn(entry 1 + 3 assignments = 4) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -3623,15 +3623,15 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#);
@@ -3657,15 +3657,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -3691,15 +3691,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -3732,15 +3732,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -3769,15 +3769,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3810,15 +3810,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -3845,15 +3845,15 @@ mod tests {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3891,21 +3891,21 @@ mod tests {
                 // expected: unit(1) + class(1) + fn(base 1 + if 1 + for 1 +
                 //           2 explicit when arms; else skipped + && 1 +
                 //           catch 1) = sum 9, max 7.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 9.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 7.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 9);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 7);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 9.0,
+                  "sum": 9,
                   "average": 9.0,
-                  "min": 1.0,
-                  "max": 7.0,
+                  "min": 1,
+                  "max": 7,
                   "modified": {
-                    "sum": 8.0,
+                    "sum": 8,
                     "average": 8.0,
-                    "min": 1.0,
-                    "max": 6.0
+                    "min": 1,
+                    "max": 6
                   }
                 }
                 "#
@@ -3931,21 +3931,21 @@ mod tests {
                 // standard: unit(1) + fn(base 1 + 3 explicit when arms;
                 //           else skipped per #282) = 5
                 // modified: unit(1) + fn(1) + WhenExpression(1) = 3
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -3969,8 +3969,8 @@ mod tests {
             "foo.kt",
             |metric| {
                 // expected: unit(1) + fn(base 1 + 1 explicit; else skipped) = 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -3995,8 +3995,8 @@ mod tests {
             "foo.kt",
             |metric| {
                 // expected: unit(1) + fn(base 1 + 3 explicit; else skipped) = 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
     }
@@ -4017,15 +4017,15 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#);
@@ -4053,15 +4053,15 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#);
@@ -4083,15 +4083,15 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#);
@@ -4144,15 +4144,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -4175,8 +4175,8 @@ f() {
             "foo.tcl",
             |metric| {
                 // unit(1) + proc(base 1 + while 1 + if 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4199,8 +4199,8 @@ f() {
             |metric| {
                 // unit(1) + proc(base 1 + if 1 + elseif 1) = sum 4, max 3.
                 // else does NOT add a branch.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4217,8 +4217,8 @@ f() {
             "foo.tcl",
             |metric| {
                 // unit(1) + proc(base 1 + if 1 + && 1 + || 1) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4237,8 +4237,8 @@ f() {
             "foo.tcl",
             |metric| {
                 // unit(1) + proc(base 1 + catch 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4262,15 +4262,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 1.0,
-                  "max": 1.0,
+                  "min": 1,
+                  "max": 1,
                   "modified": {
-                    "sum": 2.0,
+                    "sum": 2,
                     "average": 2.0,
-                    "min": 1.0,
-                    "max": 1.0
+                    "min": 1,
+                    "max": 1
                   }
                 }
                 "#
@@ -4298,10 +4298,10 @@ f() {
                 // unit(1) + proc(base 1 + arm 1 + arm 2) = standard sum 4, max 3.
                 // modified collapses arms to one container: unit(1) +
                 // proc(base 1 + switch 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
             },
         );
     }
@@ -4321,10 +4321,10 @@ f() {
             "foo.tcl",
             |metric| {
                 // unit(1) + proc(base 1 + arm 1 + arm 2) = standard sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
             },
         );
     }
@@ -4342,8 +4342,8 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(base 1 + for 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4361,8 +4361,8 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(base 1 + if 1 + && 1 + || 1) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4380,21 +4380,21 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*?? = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4415,21 +4415,21 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(entry 1 + if 1 + 2*?? = 4) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -4448,21 +4448,21 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*?? = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4481,21 +4481,21 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*?? = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4517,21 +4517,21 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4552,21 +4552,21 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4587,21 +4587,21 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4622,21 +4622,21 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4660,21 +4660,21 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 3 assignments = 4) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -4696,21 +4696,21 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(entry 1 + 3 op= + 1 `??` = 5) = sum 6, max 5.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 5);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 6.0,
+                    "sum": 6,
                     "average": 6.0,
-                    "min": 1.0,
-                    "max": 5.0
+                    "min": 1,
+                    "max": 5
                   }
                 }
                 "#
@@ -4732,21 +4732,21 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(entry 1 + 3 op= + 1 `??` = 5) = sum 6, max 5.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 5);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 6.0,
+                    "sum": 6,
                     "average": 6.0,
-                    "min": 1.0,
-                    "max": 5.0
+                    "min": 1,
+                    "max": 5
                   }
                 }
                 "#
@@ -4768,21 +4768,21 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 3 assignments = 4) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 4.0
+                    "min": 1,
+                    "max": 4
                   }
                 }
                 "#
@@ -4806,8 +4806,8 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(entry 1 + 2*?. = 3) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -4820,8 +4820,8 @@ f() {
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -4838,8 +4838,8 @@ f() {
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -4852,8 +4852,8 @@ f() {
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -4870,8 +4870,8 @@ f() {
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -4884,8 +4884,8 @@ f() {
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -4907,21 +4907,21 @@ f() {
             |metric| {
                 // unit(1) + class(1) + Pick(entry 1 + 2*??= = 3) = sum 5,
                 // max 3 (Pick).
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 5.0,
+                    "sum": 5,
                     "average": 5.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -4943,8 +4943,8 @@ f() {
             "foo.js",
             |metric| {
                 // unit(1) + fn(base 1 + while 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4964,8 +4964,8 @@ f() {
             "foo.sh",
             |metric| {
                 // unit(1) + fn(base 1 + while 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -4986,8 +4986,8 @@ f() {
             |metric| {
                 // standard: unit(1) + fn(base 1 + 2 explicit case_items;
                 //          `*)` skipped per #211) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5013,10 +5013,10 @@ f() {
             |metric| {
                 // standard: unit(1) + fn(base 1 + 1 explicit; `*)` skipped) = 3, max 2.
                 // modified: unit(1) + fn(base 1 + case_stmt 1) = 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5039,8 +5039,8 @@ f() {
                 // standard: unit(1) + fn(base 1 + 1 arm) = 3, max 2.
                 // The `a|*` pattern has TWO `value` fields, so the
                 // bare-wildcard filter (`value_count == 1`) skips it.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -5055,8 +5055,8 @@ f() {
             "foo.sh",
             |metric| {
                 // unit(1) + fn(base 1) = sum 2, max 1.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5075,8 +5075,8 @@ f() {
             "foo.kt",
             |metric| {
                 // unit(1) + fn(base 1 + for 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5095,8 +5095,8 @@ f() {
             "foo.kt",
             |metric| {
                 // unit(1) + fn(base 1 + while 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5111,8 +5111,8 @@ f() {
             "foo.kt",
             |metric| {
                 // unit(1) + fn(base 1 + && 1 + || 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5132,21 +5132,21 @@ f() {
             "foo.kt",
             |metric| {
                 // unit(1) + fn(base 1 + ?: 1 + ?: 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -5167,11 +5167,11 @@ f() {
             "foo.kt",
             |metric| {
                 // unit(1) + fn(base 1 + ?. 1 + ?. 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 // modified mirrors standard: each `?.` is both-metric.
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3);
             },
         );
     }
@@ -5189,8 +5189,8 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(base 1 + for 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5209,8 +5209,8 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(base 1 + while 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5225,8 +5225,8 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(base 1 + && 1 + || 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5245,8 +5245,8 @@ f() {
             "foo.ts",
             |metric| {
                 // unit(1) + fn(base 1 + catch 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5265,8 +5265,8 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(base 1 + for 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5285,8 +5285,8 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(base 1 + while 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5301,8 +5301,8 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(base 1 + && 1 + || 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5321,8 +5321,8 @@ f() {
             "foo.tsx",
             |metric| {
                 // unit(1) + fn(base 1 + catch 1) = sum 3, max 2.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5345,8 +5345,8 @@ f() {
             |metric| {
                 // unit(1) + fn(base 1 + 2 cases) = sum 4, max 3.
                 // default does NOT add a branch.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5368,8 +5368,8 @@ f() {
                 // standard: unit(1) + fn(1) + 2 cases = sum 4, max 3.
                 // modified: unit(1) + fn(1) + switch(1) = sum 3, max 2.
                 // default does NOT add a branch.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5393,15 +5393,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -5423,8 +5423,8 @@ f() {
             "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      2 -> :two\n      _ -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5440,8 +5440,8 @@ f() {
             "foo.ex",
             |metric| {
                 // 4 short-circuit ops + 3 entries (Unit, defmodule, def) = 7.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 7.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 7.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 7);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 7);
             },
         );
     }
@@ -5458,8 +5458,8 @@ f() {
             |metric| {
                 // standard: 3 entries + 1 rescue stab = 4
                 // modified: 3 entries + 1 try Call = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5475,8 +5475,8 @@ f() {
             "foo.ex",
             |metric| {
                 // 1 if Call + 3 entries (Unit, defmodule Class, def Function) = 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5493,8 +5493,8 @@ f() {
             "foo.ex",
             |metric| {
                 // 1 if Call + 3 entries = 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5507,8 +5507,8 @@ f() {
             "defmodule Foo do\n  def f(x) do\n    unless x > 0 do\n      :nonpos\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5522,8 +5522,8 @@ f() {
             "defmodule Foo do\n  def f(xs) do\n    for x <- xs do\n      x * 2\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5541,8 +5541,8 @@ f() {
             "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; _ -> :other end\n    multi.(0)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5558,8 +5558,8 @@ f() {
             |metric| {
                 // standard: 3 entries + 3 stabs = 6
                 // modified: 3 entries + 1 cond Call = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5578,8 +5578,8 @@ f() {
             |metric| {
                 // standard: 3 entries + 2 else-block stabs = 5
                 // modified: 3 entries + 1 with Call = 4
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
     }
@@ -5606,15 +5606,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -5645,8 +5645,8 @@ f() {
                 // standard: unit(1) + fn(1) + 3 cases = sum 5, max 4.
                 // modified: unit(1) + fn(1) + switch(1) = sum 3, max 2.
                 // default does NOT add a branch.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -5667,21 +5667,21 @@ f() {
             "foo.php",
             |metric| {
                 // unit (+1) + function (+1) + ?? (+1) + ??= (+1) = sum 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -5706,11 +5706,11 @@ f() {
             "foo.php",
             |metric| {
                 // unit(1) + fn(base 1 + ?-> 1 + ?-> 1) = sum 4, max 3.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
                 // modified mirrors standard: each `?->` is both-metric.
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3);
             },
         );
     }
@@ -5739,15 +5739,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -5779,15 +5779,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -5807,15 +5807,15 @@ f() {
                 metric.cyclomatic,
                 @r#"
             {
-              "sum": 2.0,
+              "sum": 2,
               "average": 2.0,
-              "min": 1.0,
-              "max": 1.0,
+              "min": 1,
+              "max": 1,
               "modified": {
-                "sum": 3.0,
+                "sum": 3,
                 "average": 3.0,
-                "min": 1.0,
-                "max": 2.0
+                "min": 1,
+                "max": 2
               }
             }
             "#
@@ -5840,22 +5840,22 @@ f() {
                 // standard: unit(1) + fn(1) + 2 for = 4
                 // modified: identical (no switch container, no extra arms)
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 4.0);
-                assert_eq!(s.cyclomatic_max(), 3.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(s.cyclomatic_sum(), 4);
+                assert_eq!(s.cyclomatic_max(), 3);
+                assert_eq!(s.cyclomatic_modified_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -5885,22 +5885,22 @@ f() {
                 // standard: unit(1) + fn(1) + do(1) = 3
                 // modified: identical (no switch, no extra arms)
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 3.0);
-                assert_eq!(s.cyclomatic_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_sum(), 3);
+                assert_eq!(s.cyclomatic_max(), 2);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -5927,22 +5927,22 @@ f() {
             |metric| {
                 // standard: unit(1) + fn(1) + for-range(1) = 3
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 3.0);
-                assert_eq!(s.cyclomatic_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_sum(), 3);
+                assert_eq!(s.cyclomatic_max(), 2);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -5964,22 +5964,22 @@ f() {
             |metric| {
                 // standard: unit(1) + fn(1) + 2 ?: = 4
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 4.0);
-                assert_eq!(s.cyclomatic_max(), 3.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(s.cyclomatic_sum(), 4);
+                assert_eq!(s.cyclomatic_max(), 3);
+                assert_eq!(s.cyclomatic_modified_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -6003,22 +6003,22 @@ f() {
             |metric| {
                 // standard: unit(1) + fn(1) + if(1) + && (2) + || (1) = 6
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 6.0);
-                assert_eq!(s.cyclomatic_max(), 5.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 6.0);
+                assert_eq!(s.cyclomatic_sum(), 6);
+                assert_eq!(s.cyclomatic_max(), 5);
+                assert_eq!(s.cyclomatic_modified_sum(), 6);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 6.0,
+                    "sum": 6,
                     "average": 6.0,
-                    "min": 1.0,
-                    "max": 5.0
+                    "min": 1,
+                    "max": 5
                   }
                 }
                 "#
@@ -6051,22 +6051,22 @@ f() {
                 // standard: unit(1) + fn(1) + 3 cases = 5
                 // modified: unit(1) + fn(1) + 1 switch container = 3
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 5.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_sum(), 5);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
                 assert!(s.cyclomatic_modified_sum() < s.cyclomatic_sum());
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6099,21 +6099,21 @@ f() {
                 // standard: unit(1) + fn(1) + if(1) = 3
                 // goto/label add nothing.
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_sum(), 3.0);
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_sum(), 3);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 1.0,
-                  "max": 2.0,
+                  "min": 1,
+                  "max": 2,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6141,9 +6141,9 @@ f() {
                 // standard sum: unit(1) + fn(1 + 2 arms, _ skipped) = 4
                 // modified sum: unit(1) + fn(1 + 1 MatchExpr)       = 3
                 let s = &metric.cyclomatic;
-                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(s.cyclomatic_modified_min(), 1.0);
-                assert_eq!(s.cyclomatic_modified_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3);
+                assert_eq!(s.cyclomatic_modified_min(), 1);
+                assert_eq!(s.cyclomatic_modified_max(), 2);
                 // #512: divisor is the single function space, not the two
                 // total spaces (unit + fn), so 3 / 1 = 3.0 (was 3 / 2 = 1.5).
                 assert_eq!(s.cyclomatic_modified_average(), 3.0);
@@ -6169,15 +6169,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 1.0,
-                  "max": 1.0,
+                  "min": 1,
+                  "max": 1,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6206,15 +6206,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6241,15 +6241,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6276,15 +6276,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6313,15 +6313,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 5.0,
+                  "sum": 5,
                   "average": 5.0,
-                  "min": 1.0,
-                  "max": 4.0,
+                  "min": 1,
+                  "max": 4,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -6348,15 +6348,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 1.0,
-                  "max": 1.0,
+                  "min": 1,
+                  "max": 1,
                   "modified": {
-                    "sum": 3.0,
+                    "sum": 3,
                     "average": 3.0,
-                    "min": 1.0,
-                    "max": 2.0
+                    "min": 1,
+                    "max": 2
                   }
                 }
                 "#
@@ -6390,15 +6390,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 1.0,
-                  "max": 5.0,
+                  "min": 1,
+                  "max": 5,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -6429,15 +6429,15 @@ f() {
                     metric.cyclomatic,
                     @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 1.0,
-                  "max": 3.0,
+                  "min": 1,
+                  "max": 3,
                   "modified": {
-                    "sum": 4.0,
+                    "sum": 4,
                     "average": 4.0,
-                    "min": 1.0,
-                    "max": 3.0
+                    "min": 1,
+                    "max": 3
                   }
                 }
                 "#
@@ -6454,7 +6454,7 @@ f() {
             "def foo(a)\n  if a > 0\n    while a > 0\n      a -= 1\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -6470,8 +6470,8 @@ f() {
             "def foo(x)\n  case x\n  when 1 then 'one'\n  when 2 then 'two'\n  when 3 then 'three'\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -6486,8 +6486,8 @@ f() {
             "def foo(x)\n  x.positive? ? :pos : :nonpos\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
             },
         );
     }
@@ -6501,7 +6501,7 @@ f() {
             "def foo(a, b, c)\n  a and b or c\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
     }
@@ -6530,21 +6530,21 @@ f() {
             "def classify(x)\n  if x > 0\n    :pos\n  elsif x < 0\n    :neg\n  else\n    :zero\n  end\nend\n",
             "foo.rb",
             |m| {
-                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "ruby");
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3, "ruby");
             },
         );
         check_metrics::<RustParser>(
             "fn classify(x: i32) -> &'static str {\n    if x > 0 { \"pos\" } else if x < 0 { \"neg\" } else { \"zero\" }\n}\n",
             "foo.rs",
             |m| {
-                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "rust");
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3, "rust");
             },
         );
         check_metrics::<JavaParser>(
             "class C {\n    String classify(int x) {\n        if (x > 0) return \"pos\";\n        else if (x < 0) return \"neg\";\n        else return \"zero\";\n    }\n}\n",
             "Foo.java",
             |m| {
-                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "java");
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3, "java");
             },
         );
     }
@@ -6599,18 +6599,18 @@ f() {
             }\n\
         }\n";
         check_metrics::<JavaParser>(JAVA_SRC, "Foo.java", |m| {
-            assert_eq!(m.cyclomatic.cyclomatic_max(), 10.0, "java parity");
+            assert_eq!(m.cyclomatic.cyclomatic_max(), 10, "java parity");
             assert_eq!(
                 m.cyclomatic.cyclomatic_modified_max(),
-                9.0,
+                9,
                 "java modified parity"
             );
         });
         check_metrics::<GroovyParser>(GROOVY_SRC, "foo.groovy", |m| {
-            assert_eq!(m.cyclomatic.cyclomatic_max(), 10.0, "groovy parity");
+            assert_eq!(m.cyclomatic.cyclomatic_max(), 10, "groovy parity");
             assert_eq!(
                 m.cyclomatic.cyclomatic_modified_max(),
-                9.0,
+                9,
                 "groovy modified parity"
             );
         });
@@ -6627,8 +6627,8 @@ f() {
     fn cyclomatic_groovy_assert_arm_300() {
         check_metrics::<GroovyParser>("void check(int x) { assert x > 0 }", "foo.groovy", |m| {
             // unit(1) + fn(1) + assert(1) = 3
-            assert_eq!(m.cyclomatic.cyclomatic_sum(), 3.0, "groovy assert sum");
-            assert_eq!(m.cyclomatic.cyclomatic_max(), 2.0, "groovy assert max");
+            assert_eq!(m.cyclomatic.cyclomatic_sum(), 3, "groovy assert sum");
+            assert_eq!(m.cyclomatic.cyclomatic_max(), 2, "groovy assert max");
             // Assert contributes to BOTH standard and modified CCN, so the
             // fn-level modified score is also base(1) + assert(1) = 2.
             // Without this assertion, a mutation that dropped
@@ -6636,7 +6636,7 @@ f() {
             // would pass.
             assert_eq!(
                 m.cyclomatic.cyclomatic_modified_max(),
-                2.0,
+                2,
                 "groovy assert modified max"
             );
         });
@@ -6656,11 +6656,11 @@ f() {
             "foo.groovy",
             |m| {
                 // unit(1) + fn(1) + two `?:` short-circuits(2) = 4
-                assert_eq!(m.cyclomatic.cyclomatic_sum(), 4.0, "groovy elvis sum");
-                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "groovy elvis max");
+                assert_eq!(m.cyclomatic.cyclomatic_sum(), 4, "groovy elvis sum");
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3, "groovy elvis max");
                 assert_eq!(
                     m.cyclomatic.cyclomatic_modified_max(),
-                    3.0,
+                    3,
                     "groovy elvis modified max"
                 );
             },
@@ -6678,7 +6678,7 @@ f() {
             "def foo\n  parse(x) rescue nil\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
@@ -6693,10 +6693,10 @@ f() {
         check_metrics::<RubyParser>("def read(a); a&.b&.c; end\n", "foo.rb", |metric| {
             // unit(1) + method(base 1 + &. 1 + &. 1) = sum 4, max 3.
             let s = &metric.cyclomatic;
-            assert_eq!(s.cyclomatic_sum(), 4.0);
-            assert_eq!(s.cyclomatic_max(), 3.0);
-            assert_eq!(s.cyclomatic_modified_sum(), 4.0);
-            assert_eq!(s.cyclomatic_modified_max(), 3.0);
+            assert_eq!(s.cyclomatic_sum(), 4);
+            assert_eq!(s.cyclomatic_max(), 3);
+            assert_eq!(s.cyclomatic_modified_sum(), 4);
+            assert_eq!(s.cyclomatic_modified_max(), 3);
         });
     }
 
@@ -6716,9 +6716,9 @@ f() {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -6740,10 +6740,10 @@ f() {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
             },
         );
     }
@@ -6763,9 +6763,9 @@ f() {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4);
             },
         );
     }
@@ -6788,9 +6788,9 @@ f() {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
             },
         );
     }
@@ -6806,9 +6806,9 @@ f() {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }
@@ -6827,9 +6827,9 @@ f() {
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
             },
         );
     }

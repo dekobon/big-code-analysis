@@ -1,4 +1,5 @@
 #![allow(
+    clippy::cast_precision_loss,
     clippy::float_cmp,
     clippy::needless_raw_string_hashes,
     clippy::too_many_lines
@@ -35,7 +36,7 @@ fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
         MetricsOptions::default(),
     )
     .expect("parser produced no FuncSpace for parity fixture");
-    space.metrics.cognitive.cognitive_max()
+    space.metrics.cognitive.cognitive_max() as f64
 }
 
 // A 2-arm switch/match with one explicit arm plus a wildcard /

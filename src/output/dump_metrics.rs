@@ -2,6 +2,10 @@
 // Terminal per-metric dump serializer; the offenders are mechanical-writer
 // aggregation artifacts, not per-function logic complexity.
 
+// `dump_value` takes `f64`; integral `u64` metric accessors are widened with
+// `as f64` at the call sites (#530). Each cast is bounded by its count.
+#![allow(clippy::cast_precision_loss)]
+
 use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
 
 use crate::abc;
@@ -136,7 +140,7 @@ fn dump_cognitive(
 
     let prefix = format!("{prefix}{pref_child}");
 
-    dump_value("sum", stats.cognitive_sum(), &prefix, false, stdout)?;
+    dump_value("sum", stats.cognitive_sum() as f64, &prefix, false, stdout)?;
     dump_value("average", stats.cognitive_average(), &prefix, true, stdout)
 }
 
@@ -156,7 +160,7 @@ fn dump_cyclomatic(
 
     let prefix = format!("{prefix}{pref_child}");
 
-    dump_value("sum", stats.cyclomatic_sum(), &prefix, false, stdout)?;
+    dump_value("sum", stats.cyclomatic_sum() as f64, &prefix, false, stdout)?;
     dump_value("average", stats.cyclomatic_average(), &prefix, true, stdout)
 }
 
@@ -178,22 +182,34 @@ fn dump_halstead(
 
     dump_value(
         "unique_operators",
-        stats.u_operators(),
+        stats.u_operators() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("total_operators", stats.operators(), &prefix, false, stdout)?;
+    dump_value(
+        "total_operators",
+        stats.operators() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
     dump_value(
         "unique_operands",
-        stats.u_operands(),
+        stats.u_operands() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("total_operands", stats.operands(), &prefix, false, stdout)?;
+    dump_value(
+        "total_operands",
+        stats.operands() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
 
-    dump_value("length", stats.length(), &prefix, false, stdout)?;
+    dump_value("length", stats.length() as f64, &prefix, false, stdout)?;
     dump_value(
         "estimated program length",
         stats.estimated_program_length(),
@@ -202,7 +218,13 @@ fn dump_halstead(
         stdout,
     )?;
     dump_value("purity ratio", stats.purity_ratio(), &prefix, false, stdout)?;
-    dump_value("vocabulary", stats.vocabulary(), &prefix, false, stdout)?;
+    dump_value(
+        "vocabulary",
+        stats.vocabulary() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
     dump_value("volume", stats.volume(), &prefix, false, stdout)?;
     dump_value("difficulty", stats.difficulty(), &prefix, false, stdout)?;
     dump_value("level", stats.level(), &prefix, false, stdout)?;
@@ -226,11 +248,11 @@ fn dump_loc(
     writeln!(stdout, "loc")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("sloc", stats.sloc(), &prefix, false, stdout)?;
-    dump_value("ploc", stats.ploc(), &prefix, false, stdout)?;
-    dump_value("lloc", stats.lloc(), &prefix, false, stdout)?;
-    dump_value("cloc", stats.cloc(), &prefix, false, stdout)?;
-    dump_value("blank", stats.blank(), &prefix, true, stdout)
+    dump_value("sloc", stats.sloc() as f64, &prefix, false, stdout)?;
+    dump_value("ploc", stats.ploc() as f64, &prefix, false, stdout)?;
+    dump_value("lloc", stats.lloc() as f64, &prefix, false, stdout)?;
+    dump_value("cloc", stats.cloc() as f64, &prefix, false, stdout)?;
+    dump_value("blank", stats.blank() as f64, &prefix, true, stdout)
 }
 
 fn dump_nom(
@@ -253,9 +275,21 @@ fn dump_nom(
     // space's *immediate* counts, which would not sum to the aggregate
     // `total()` at any parent space (e.g. a Rust file whose functions all
     // live inside `impl`/`mod` would print `functions: 0, total: N`).
-    dump_value("functions", stats.functions_sum(), &prefix, false, stdout)?;
-    dump_value("closures", stats.closures_sum(), &prefix, false, stdout)?;
-    dump_value("total", stats.total(), &prefix, true, stdout)
+    dump_value(
+        "functions",
+        stats.functions_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value(
+        "closures",
+        stats.closures_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total", stats.total() as f64, &prefix, true, stdout)
 }
 
 fn dump_tokens(
@@ -273,10 +307,10 @@ fn dump_tokens(
     writeln!(stdout, "tokens")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("sum", stats.tokens_sum(), &prefix, false, stdout)?;
+    dump_value("sum", stats.tokens_sum() as f64, &prefix, false, stdout)?;
     dump_value("average", stats.tokens_average(), &prefix, false, stdout)?;
-    dump_value("min", stats.tokens_min(), &prefix, false, stdout)?;
-    dump_value("max", stats.tokens_max(), &prefix, true, stdout)
+    dump_value("min", stats.tokens_min() as f64, &prefix, false, stdout)?;
+    dump_value("max", stats.tokens_max() as f64, &prefix, true, stdout)
 }
 
 fn dump_mi(
@@ -323,15 +357,21 @@ fn dump_nargs(
     // Subtree-aggregate counts (`*_sum`), matching the JSON serializer:
     // `total`/`average` are already aggregates, so the per-space
     // `fn_args()`/`closure_args()` would not sum to `total` at a parent.
-    dump_value("function_args", stats.fn_args_sum(), &prefix, false, stdout)?;
     dump_value(
-        "closure_args",
-        stats.closure_args_sum(),
+        "function_args",
+        stats.fn_args_sum() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("total", stats.nargs_total(), &prefix, false, stdout)?;
+    dump_value(
+        "closure_args",
+        stats.closure_args_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total", stats.nargs_total() as f64, &prefix, false, stdout)?;
     dump_value("average", stats.nargs_average(), &prefix, true, stdout)
 }
 
@@ -371,13 +411,25 @@ fn dump_abc(
 
     dump_value(
         "assignments",
-        stats.assignments_sum(),
+        stats.assignments_sum() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("branches", stats.branches_sum(), &prefix, false, stdout)?;
-    dump_value("conditions", stats.conditions_sum(), &prefix, false, stdout)?;
+    dump_value(
+        "branches",
+        stats.branches_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value(
+        "conditions",
+        stats.conditions_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
     dump_value("magnitude", stats.magnitude_sum(), &prefix, true, stdout)
 }
 
@@ -400,15 +452,21 @@ fn dump_wmc(
     writeln!(stdout, "wmc")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("classes", stats.class_wmc_sum(), &prefix, false, stdout)?;
     dump_value(
-        "interfaces",
-        stats.interface_wmc_sum(),
+        "classes",
+        stats.class_wmc_sum() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("total", stats.total_wmc(), &prefix, true, stdout)
+    dump_value(
+        "interfaces",
+        stats.interface_wmc_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total", stats.total_wmc() as f64, &prefix, true, stdout)
 }
 
 fn dump_npm(
@@ -430,15 +488,21 @@ fn dump_npm(
     writeln!(stdout, "npm")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("classes", stats.class_npm_sum(), &prefix, false, stdout)?;
     dump_value(
-        "interfaces",
-        stats.interface_npm_sum(),
+        "classes",
+        stats.class_npm_sum() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("total", stats.total_npm(), &prefix, false, stdout)?;
+    dump_value(
+        "interfaces",
+        stats.interface_npm_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total", stats.total_npm() as f64, &prefix, false, stdout)?;
     dump_value("coa", stats.total_coa(), &prefix, true, stdout)
 }
 
@@ -461,15 +525,21 @@ fn dump_npa(
     writeln!(stdout, "npa")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("classes", stats.class_npa_sum(), &prefix, false, stdout)?;
     dump_value(
-        "interfaces",
-        stats.interface_npa_sum(),
+        "classes",
+        stats.class_npa_sum() as f64,
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("total", stats.total_npa(), &prefix, false, stdout)?;
+    dump_value(
+        "interfaces",
+        stats.interface_npa_sum() as f64,
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total", stats.total_npa() as f64, &prefix, false, stdout)?;
     dump_value("cda", stats.total_cda(), &prefix, true, stdout)
 }
 

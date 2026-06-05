@@ -1,11 +1,10 @@
 ---
 source: src/metrics/cognitive.rs
-assertion_line: 3265
 expression: metric.cognitive
 ---
 {
-  "sum": 3.0,
+  "sum": 3,
   "average": 3.0,
-  "min": 0.0,
-  "max": 3.0
+  "min": 0,
+  "max": 3
 }

@@ -104,39 +104,39 @@ impl Stats {
     /// Returns the total token count across all merged spaces.
     #[inline]
     #[must_use]
-    pub fn tokens_sum(&self) -> f64 {
-        self.tokens_sum as f64
+    pub fn tokens_sum(&self) -> u64 {
+        self.tokens_sum as u64
     }
 
     /// Returns the average tokens per space.
     #[inline]
     #[must_use]
     pub fn tokens_average(&self) -> f64 {
-        crate::metrics::average(self.tokens_sum(), self.space_count)
+        crate::metrics::average(self.tokens_sum() as f64, self.space_count)
     }
 
     /// Returns the smallest single-space token count.
     ///
     /// Diverges intentionally from `nom::Stats::functions_min`, which
     /// surfaces the raw `usize::MAX` sentinel for a never-observed
-    /// space. We collapse the sentinel to `0.0` so a `Stats::default()`
+    /// space. We collapse the sentinel to `0` so a `Stats::default()`
     /// that bypasses the metric pipeline serializes to a meaningful
-    /// number rather than `1.8446744e19`.
+    /// number rather than `18446744073709551615`.
     #[inline]
     #[must_use]
-    pub fn tokens_min(&self) -> f64 {
+    pub fn tokens_min(&self) -> u64 {
         if self.tokens_min == usize::MAX {
-            0.0
+            0
         } else {
-            self.tokens_min as f64
+            self.tokens_min as u64
         }
     }
 
     /// Returns the largest single-space token count.
     #[inline]
     #[must_use]
-    pub fn tokens_max(&self) -> f64 {
-        self.tokens_max as f64
+    pub fn tokens_max(&self) -> u64 {
+        self.tokens_max as u64
     }
 
     #[inline]
@@ -224,8 +224,8 @@ mod tests {
     #[test]
     fn python_tokens_exact_count() {
         check_metrics::<PythonParser>("def foo(x): return x", "foo.py", |metric| {
-            assert_eq!(metric.tokens.tokens_sum(), 8.0);
-            assert!(metric.tokens.tokens_max() >= 7.0);
+            assert_eq!(metric.tokens.tokens_sum(), 8);
+            assert!(metric.tokens.tokens_max() >= 7);
         });
     }
 
@@ -236,7 +236,7 @@ mod tests {
             "def foo(x): return x  # explanation\n# header\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.tokens.tokens_sum(), 8.0);
+                assert_eq!(metric.tokens.tokens_sum(), 8);
             },
         );
     }
@@ -248,7 +248,7 @@ mod tests {
             "\n\n    def foo(x):\n        return x\n\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.tokens.tokens_sum(), 8.0);
+                assert_eq!(metric.tokens.tokens_sum(), 8);
             },
         );
     }
@@ -283,9 +283,9 @@ mod tests {
             "def outer():\n    def inner():\n        return 1\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.tokens.tokens_sum(), 12.0);
-                assert_eq!(metric.tokens.tokens_max(), 7.0);
-                assert_eq!(metric.tokens.tokens_min(), 0.0);
+                assert_eq!(metric.tokens.tokens_sum(), 12);
+                assert_eq!(metric.tokens.tokens_max(), 7);
+                assert_eq!(metric.tokens.tokens_min(), 0);
             },
         );
     }
@@ -300,11 +300,11 @@ mod tests {
             |m| {
                 // Leaves outside the comment:
                 // int, foo, (, int, x, ), {, return, x, ;, } = 11.
-                assert_eq!(m.tokens.tokens_sum(), 11.0);
+                assert_eq!(m.tokens.tokens_sum(), 11);
             },
         );
         check_metrics::<CppParser>("int foo(int x) { return x; }", "foo.cpp", |m| {
-            assert_eq!(m.tokens.tokens_sum(), 11.0);
+            assert_eq!(m.tokens.tokens_sum(), 11);
         });
     }
 
@@ -314,10 +314,10 @@ mod tests {
     #[test]
     fn cpp_tokens_line_comments_excluded() {
         check_metrics::<CppParser>("int x = 1; // a one-line comment\n", "foo.cpp", |m| {
-            assert_eq!(m.tokens.tokens_sum(), 5.0);
+            assert_eq!(m.tokens.tokens_sum(), 5);
         });
         check_metrics::<CppParser>("int x = 1;\n", "foo.cpp", |m| {
-            assert_eq!(m.tokens.tokens_sum(), 5.0);
+            assert_eq!(m.tokens.tokens_sum(), 5);
         });
     }
 
@@ -327,7 +327,7 @@ mod tests {
     fn cpp_tokens_whitespace_excluded() {
         check_metrics::<CppParser>("\n\nint foo(int x) {\n    return x;\n}\n", "foo.cpp", |m| {
             // int, foo, (, int, x, ), {, return, x, ;, } = 11.
-            assert_eq!(m.tokens.tokens_sum(), 11.0);
+            assert_eq!(m.tokens.tokens_sum(), 11);
         });
     }
 
@@ -364,9 +364,9 @@ mod tests {
                 // tokens_max must equal one of the scope sums and be at least the
                 // tokens count of the lambda body (`return 1 ;` plus surrounding
                 // brackets — minimum 7).
-                assert!(m.tokens.tokens_sum() > 0.0, "expected non-zero tokens_sum");
+                assert!(m.tokens.tokens_sum() > 0, "expected non-zero tokens_sum");
                 assert!(
-                    m.tokens.tokens_max() >= 7.0,
+                    m.tokens.tokens_max() >= 7,
                     "expected tokens_max >= 7 (outer scope dominates), got {}",
                     m.tokens.tokens_max(),
                 );
@@ -388,11 +388,11 @@ mod tests {
             "A.java",
             |m| {
                 // class, A, {, void, foo, (, ), {, return, ;, }, } = 12.
-                assert_eq!(m.tokens.tokens_sum(), 12.0);
+                assert_eq!(m.tokens.tokens_sum(), 12);
             },
         );
         check_metrics::<JavaParser>("class A { void foo() { return; } }", "A.java", |m| {
-            assert_eq!(m.tokens.tokens_sum(), 12.0);
+            assert_eq!(m.tokens.tokens_sum(), 12);
         });
     }
 
@@ -406,7 +406,7 @@ mod tests {
                 // class, A, {, void, foo, (, ), {, return, newline,
                 // }, } = 11 tokens (Groovy's newline acts as the
                 // statement terminator that Java spells `;`).
-                assert_eq!(m.tokens.tokens_sum(), 11.0);
+                assert_eq!(m.tokens.tokens_sum(), 11);
             },
         );
     }
@@ -420,11 +420,11 @@ mod tests {
             "foo.rs",
             |m| {
                 // fn, f, (, ), {, let, x, =, 1, ;, } = 11.
-                assert_eq!(m.tokens.tokens_sum(), 11.0);
+                assert_eq!(m.tokens.tokens_sum(), 11);
             },
         );
         check_metrics::<RustParser>("fn f() { let x = 1; }", "foo.rs", |m| {
-            assert_eq!(m.tokens.tokens_sum(), 11.0);
+            assert_eq!(m.tokens.tokens_sum(), 11);
         });
     }
 
@@ -439,119 +439,119 @@ mod tests {
     #[test]
     fn smoke_python() {
         check_metrics::<PythonParser>("x = 1\n", "foo.py", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_rust() {
         check_metrics::<RustParser>("fn f() { let x = 1; }", "foo.rs", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_cpp() {
         check_metrics::<CppParser>("int x = 1;", "foo.cpp", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_java() {
         check_metrics::<JavaParser>("class A { int x = 1; }", "A.java", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_csharp() {
         check_metrics::<CsharpParser>("class A { int X = 1; }", "A.cs", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_javascript() {
         check_metrics::<JavascriptParser>("let x = 1;", "foo.js", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_mozjs() {
         check_metrics::<MozjsParser>("let x = 1;", "foo.js", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_typescript() {
         check_metrics::<TypescriptParser>("const x: number = 1;", "foo.ts", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_tsx() {
         check_metrics::<TsxParser>("const x: number = 1;", "foo.tsx", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_go() {
         check_metrics::<GoParser>("package main\nfunc f() {}", "foo.go", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_kotlin() {
         check_metrics::<KotlinParser>("fun f(): Int = 1", "foo.kt", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_lua() {
         check_metrics::<LuaParser>("local x = 1", "foo.lua", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_bash() {
         check_metrics::<BashParser>("x=1", "foo.sh", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_tcl() {
         check_metrics::<TclParser>("set x 1", "foo.tcl", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_perl() {
         check_metrics::<PerlParser>("my $x = 1;", "foo.pl", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_php() {
         check_metrics::<PhpParser>("<?php $x = 1;", "foo.php", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
     #[test]
     fn smoke_preproc() {
         check_metrics::<PreprocParser>("#define FOO 1\n", "foo.h", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 
@@ -560,7 +560,7 @@ mod tests {
         // Ccomment's grammar parses bare C source; non-comment text
         // produces non-comment leaves.
         check_metrics::<CcommentParser>("int x = 1;", "foo.c", |m| {
-            assert!(m.tokens.tokens_sum() > 0.0);
+            assert!(m.tokens.tokens_sum() > 0);
         });
     }
 }

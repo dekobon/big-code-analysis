@@ -140,7 +140,7 @@ fn metrics_plus_symbol_table_one_parse() {
         }
     });
 
-    assert_eq!(space.metrics.nom.functions_sum(), 3.0);
+    assert_eq!(space.metrics.nom.functions_sum(), 3);
     assert_eq!(functions, ["outer", "inner", "alone"]);
 }
 

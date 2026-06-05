@@ -3,8 +3,8 @@ source: src/metrics/exit.rs
 expression: metric.nexits
 ---
 {
-  "sum": 3.0,
+  "sum": 3,
   "average": 3.0,
-  "min": 0.0,
-  "max": 3.0
+  "min": 0,
+  "max": 3
 }

@@ -40,12 +40,12 @@ use crate::macros::implement_metric_trait;
 use crate::*;
 
 // Collapse the `usize::MAX` sentinel that `*_min` fields are
-// initialised to on `Default` into `0.0`, so a never-observed space
-// serializes to a meaningful number rather than `1.8446744e19`.
+// initialised to on `Default` into `0`, so a never-observed space
+// serializes to a meaningful number rather than `18446744073709551615`.
 // Mirrors `tokens::Stats::tokens_min`'s guard.
 #[inline]
-fn min_or_zero(v: usize) -> f64 {
-    if v == usize::MAX { 0.0 } else { v as f64 }
+fn min_or_zero(v: usize) -> u64 {
+    if v == usize::MAX { 0 } else { v as u64 }
 }
 
 /// The `SLoc` metric suite.
@@ -74,7 +74,7 @@ impl Sloc {
     /// The `SLOC` metric value for this space (source lines, including blanks and comments).
     #[inline]
     #[must_use]
-    pub fn sloc(&self) -> f64 {
+    pub fn sloc(&self) -> u64 {
         // This metric counts the number of lines in a file
         // The if construct is needed to count the line of code that represents
         // the function signature in a function space
@@ -83,22 +83,22 @@ impl Sloc {
         } else {
             (self.end - self.start) + 1
         };
-        sloc as f64
+        sloc as u64
     }
 
     /// The `Sloc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
-    pub fn sloc_min(&self) -> f64 {
+    pub fn sloc_min(&self) -> u64 {
         min_or_zero(self.sloc_min)
     }
 
     /// The `Sloc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn sloc_max(&self) -> f64 {
-        self.sloc_max as f64
+    pub fn sloc_max(&self) -> u64 {
+        self.sloc_max as u64
     }
 
     /// Folds `other` into `self`, updating the min/max accumulators.
@@ -145,25 +145,25 @@ impl Ploc {
     /// The `PLOC` metric value for this space (physical lines of code, excluding blanks and comments).
     #[inline]
     #[must_use]
-    pub fn ploc(&self) -> f64 {
+    pub fn ploc(&self) -> u64 {
         // This metric counts the number of instruction lines in a code
         // https://en.wikipedia.org/wiki/Source_lines_of_code
-        self.lines.len() as f64
+        self.lines.len() as u64
     }
 
     /// The `Ploc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
-    pub fn ploc_min(&self) -> f64 {
+    pub fn ploc_min(&self) -> u64 {
         min_or_zero(self.ploc_min)
     }
 
     /// The `Ploc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn ploc_max(&self) -> f64 {
-        self.ploc_max as f64
+    pub fn ploc_max(&self) -> u64 {
+        self.ploc_max as u64
     }
 
     /// Folds `other` into `self`, unioning the line set and updating min/max.
@@ -228,7 +228,7 @@ impl Cloc {
     /// The `CLOC` metric value for this space (comment lines, standalone + trailing).
     #[inline]
     #[must_use]
-    pub fn cloc(&self) -> f64 {
+    pub fn cloc(&self) -> u64 {
         // Comments are counted regardless of their placement
         // https://en.wikipedia.org/wiki/Source_lines_of_code
         //
@@ -240,22 +240,22 @@ impl Cloc {
         // defensively so a stray overlap cannot inflate the count.
         self.only_comment_line_starts
             .union(&self.code_comment_line_starts)
-            .count() as f64
+            .count() as u64
     }
 
     /// The `Cloc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
-    pub fn cloc_min(&self) -> f64 {
+    pub fn cloc_min(&self) -> u64 {
         min_or_zero(self.cloc_min)
     }
 
     /// The `Cloc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn cloc_max(&self) -> f64 {
-        self.cloc_max as f64
+    pub fn cloc_max(&self) -> u64 {
+        self.cloc_max as u64
     }
 
     /// Folds `other` into `self`, summing comment counts and updating min/max.
@@ -304,25 +304,25 @@ impl Lloc {
     /// The `LLOC` metric value for this space (logical statements).
     #[inline]
     #[must_use]
-    pub fn lloc(&self) -> f64 {
+    pub fn lloc(&self) -> u64 {
         // This metric counts the number of statements in a code
         // https://en.wikipedia.org/wiki/Source_lines_of_code
-        self.logical_lines as f64
+        self.logical_lines as u64
     }
 
     /// The `Lloc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
-    pub fn lloc_min(&self) -> f64 {
+    pub fn lloc_min(&self) -> u64 {
         min_or_zero(self.lloc_min)
     }
 
     /// The `Lloc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn lloc_max(&self) -> f64 {
-        self.lloc_max as f64
+    pub fn lloc_max(&self) -> u64 {
+        self.lloc_max as u64
     }
 
     /// Folds `other` into `self`, summing statement counts and updating min/max.
@@ -473,7 +473,7 @@ impl Stats {
     /// Counts the number of lines in a scope
     #[inline]
     #[must_use]
-    pub fn sloc(&self) -> f64 {
+    pub fn sloc(&self) -> u64 {
         self.sloc.sloc()
     }
 
@@ -482,7 +482,7 @@ impl Stats {
     /// Counts the number of instruction lines in a scope
     #[inline]
     #[must_use]
-    pub fn ploc(&self) -> f64 {
+    pub fn ploc(&self) -> u64 {
         self.ploc.ploc()
     }
 
@@ -491,7 +491,7 @@ impl Stats {
     /// Counts the number of statements in a scope
     #[inline]
     #[must_use]
-    pub fn lloc(&self) -> f64 {
+    pub fn lloc(&self) -> u64 {
         self.lloc.lloc()
     }
 
@@ -500,7 +500,7 @@ impl Stats {
     /// Counts the number of comments in a scope
     #[inline]
     #[must_use]
-    pub fn cloc(&self) -> f64 {
+    pub fn cloc(&self) -> u64 {
         self.cloc.cloc()
     }
 
@@ -509,13 +509,15 @@ impl Stats {
     /// Counts the number of blank lines in a scope
     #[inline]
     #[must_use]
-    pub fn blank(&self) -> f64 {
+    pub fn blank(&self) -> u64 {
         // `sloc - ploc - only_comment_lines` can go negative when a space's
         // physical and comment line attribution overlaps the span row count
-        // (e.g. single-line bodies). Clamp at 0 so the serialized value is
-        // never negative and `blank_min` is not corrupted toward 0 by an
-        // `as usize` saturation at the merge site (#437).
-        (self.sloc() - self.ploc() - self.cloc.only_comment_line_starts.len() as f64).max(0.0)
+        // (e.g. single-line bodies). `saturating_sub` clamps at 0 (matching
+        // the prior `.max(0.0)` on the f64 form) so the serialized value is
+        // never negative (#437).
+        self.sloc()
+            .saturating_sub(self.ploc())
+            .saturating_sub(self.cloc.only_comment_line_starts.len() as u64)
     }
 
     /// The `Sloc` metric average value.
@@ -524,7 +526,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn sloc_average(&self) -> f64 {
-        crate::metrics::average(self.sloc(), self.space_count)
+        crate::metrics::average(self.sloc() as f64, self.space_count)
     }
 
     /// The `Ploc` metric average value.
@@ -533,7 +535,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn ploc_average(&self) -> f64 {
-        crate::metrics::average(self.ploc(), self.space_count)
+        crate::metrics::average(self.ploc() as f64, self.space_count)
     }
 
     /// The `Lloc` metric average value.
@@ -542,7 +544,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn lloc_average(&self) -> f64 {
-        crate::metrics::average(self.lloc(), self.space_count)
+        crate::metrics::average(self.lloc() as f64, self.space_count)
     }
 
     /// The `Cloc` metric average value.
@@ -551,7 +553,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn cloc_average(&self) -> f64 {
-        crate::metrics::average(self.cloc(), self.space_count)
+        crate::metrics::average(self.cloc() as f64, self.space_count)
     }
 
     /// The `Blank` metric average value.
@@ -560,62 +562,62 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn blank_average(&self) -> f64 {
-        crate::metrics::average(self.blank(), self.space_count)
+        crate::metrics::average(self.blank() as f64, self.space_count)
     }
 
     /// The `Sloc` metric minimum value.
     #[inline]
     #[must_use]
-    pub fn sloc_min(&self) -> f64 {
+    pub fn sloc_min(&self) -> u64 {
         self.sloc.sloc_min()
     }
 
     /// The `Sloc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn sloc_max(&self) -> f64 {
+    pub fn sloc_max(&self) -> u64 {
         self.sloc.sloc_max()
     }
 
     /// The `Cloc` metric minimum value.
     #[inline]
     #[must_use]
-    pub fn cloc_min(&self) -> f64 {
+    pub fn cloc_min(&self) -> u64 {
         self.cloc.cloc_min()
     }
 
     /// The `Cloc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn cloc_max(&self) -> f64 {
+    pub fn cloc_max(&self) -> u64 {
         self.cloc.cloc_max()
     }
 
     /// The `Ploc` metric minimum value.
     #[inline]
     #[must_use]
-    pub fn ploc_min(&self) -> f64 {
+    pub fn ploc_min(&self) -> u64 {
         self.ploc.ploc_min()
     }
 
     /// The `Ploc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn ploc_max(&self) -> f64 {
+    pub fn ploc_max(&self) -> u64 {
         self.ploc.ploc_max()
     }
 
     /// The `Lloc` metric minimum value.
     #[inline]
     #[must_use]
-    pub fn lloc_min(&self) -> f64 {
+    pub fn lloc_min(&self) -> u64 {
         self.lloc.lloc_min()
     }
 
     /// The `Lloc` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn lloc_max(&self) -> f64 {
+    pub fn lloc_max(&self) -> u64 {
         self.lloc.lloc_max()
     }
 
@@ -623,15 +625,15 @@ impl Stats {
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
-    pub fn blank_min(&self) -> f64 {
+    pub fn blank_min(&self) -> u64 {
         min_or_zero(self.blank_min)
     }
 
     /// The `Blank` metric maximum value.
     #[inline]
     #[must_use]
-    pub fn blank_max(&self) -> f64 {
-        self.blank_max as f64
+    pub fn blank_max(&self) -> u64 {
+        self.blank_max as u64
     }
 
     #[inline]
@@ -643,8 +645,9 @@ impl Stats {
 
         // Fold this space's own blank value unconditionally so containers
         // participate, matching the sibling metrics' convention (#437).
-        // `blank()` is clamped at 0, so the `as usize` cast cannot saturate
-        // a negative into a spurious 0 here.
+        // `blank()` returns a `u64` already clamped at 0 by `saturating_sub`,
+        // so the widening `as usize` cast is lossless (64-bit) and cannot
+        // introduce a spurious value here.
         self.blank_min = self.blank_min.min(self.blank() as usize);
         self.blank_max = self.blank_max.max(self.blank() as usize);
     }
@@ -1748,11 +1751,11 @@ mod tests {
     #[test]
     fn loc_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.sloc_min(), 0.0);
-        assert_eq!(stats.ploc_min(), 0.0);
-        assert_eq!(stats.lloc_min(), 0.0);
-        assert_eq!(stats.cloc_min(), 0.0);
-        assert_eq!(stats.blank_min(), 0.0);
+        assert_eq!(stats.sloc_min(), 0);
+        assert_eq!(stats.ploc_min(), 0);
+        assert_eq!(stats.lloc_min(), 0);
+        assert_eq!(stats.cloc_min(), 0);
+        assert_eq!(stats.blank_min(), 0);
     }
 
     /// Parses `source` with `PerlParser` and asserts the resulting tree has
@@ -1789,29 +1792,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 1,
+                  "ploc": 1,
+                  "lloc": 1,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 1.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 1,
+                  "sloc_max": 1,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -1831,29 +1835,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 1.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 1.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1874,29 +1879,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 1.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 1.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1905,29 +1911,30 @@ mod tests {
             // Spaces: 2
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 0.0,
-                      "cloc": 1.0,
-                      "blank": 0.0,
-                      "sloc_average": 0.5,
-                      "ploc_average": 0.5,
-                      "lloc_average": 0.0,
-                      "cloc_average": 0.5,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 1.0,
-                      "cloc_max": 1.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 0.0,
-                      "lloc_max": 0.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 0,
+              "cloc": 1,
+              "blank": 0,
+              "sloc_average": 0.5,
+              "ploc_average": 0.5,
+              "lloc_average": 0.0,
+              "cloc_average": 0.5,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 1,
+              "cloc_max": 1,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 0,
+              "lloc_max": 0,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -1947,29 +1954,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 1.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 1.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -1995,29 +2003,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 10.0,
-                      "ploc": 7.0,
-                      "lloc": 6.0,
-                      "cloc": 4.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 3.5,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 10.0,
-                      "sloc_max": 10.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 7.0,
-                      "ploc_max": 7.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 10,
+                  "ploc": 7,
+                  "lloc": 6,
+                  "cloc": 4,
+                  "blank": 1,
+                  "sloc_average": 5.0,
+                  "ploc_average": 3.5,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 10,
+                  "sloc_max": 10,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 7,
+                  "ploc_max": 7,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2042,29 +2051,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 9.0,
-                      "ploc": 7.0,
-                      "lloc": 6.0,
-                      "cloc": 4.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.5,
-                      "ploc_average": 3.5,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 9.0,
-                      "sloc_max": 9.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 7.0,
-                      "ploc_max": 7.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 9,
+                  "ploc": 7,
+                  "lloc": 6,
+                  "cloc": 4,
+                  "blank": 0,
+                  "sloc_average": 4.5,
+                  "ploc_average": 3.5,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 9,
+                  "sloc_max": 9,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 7,
+                  "ploc_max": 7,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2090,29 +2100,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 10.0,
-                      "ploc": 7.0,
-                      "lloc": 6.0,
-                      "cloc": 5.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 3.5,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.5,
-                      "blank_average": 0.5,
-                      "sloc_min": 10.0,
-                      "sloc_max": 10.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 7.0,
-                      "ploc_max": 7.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 10,
+                  "ploc": 7,
+                  "lloc": 6,
+                  "cloc": 5,
+                  "blank": 1,
+                  "sloc_average": 5.0,
+                  "ploc_average": 3.5,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 10,
+                  "sloc_max": 10,
+                  "cloc_min": 5,
+                  "cloc_max": 5,
+                  "ploc_min": 7,
+                  "ploc_max": 7,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2139,29 +2150,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 4.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.5,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 11,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 4,
+                  "blank": 1,
+                  "sloc_average": 5.5,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 11,
+                  "sloc_max": 11,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2188,29 +2200,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 8.0,
-                      "lloc": 1.0,
-                      "cloc": 4.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.5,
-                      "ploc_average": 4.0,
-                      "lloc_average": 0.5,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 11,
+                  "ploc": 8,
+                  "lloc": 1,
+                  "cloc": 4,
+                  "blank": 1,
+                  "sloc_average": 5.5,
+                  "ploc_average": 4.0,
+                  "lloc_average": 0.5,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 11,
+                  "sloc_max": 11,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2237,29 +2250,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 4.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.5,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 11,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 4,
+                  "blank": 1,
+                  "sloc_average": 5.5,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 11,
+                  "sloc_max": 11,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2287,29 +2301,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 12.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 5.0,
-                      "blank": 1.0,
-                      "sloc_average": 6.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.5,
-                      "blank_average": 0.5,
-                      "sloc_min": 12.0,
-                      "sloc_max": 12.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 12,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 5,
+                  "blank": 1,
+                  "sloc_average": 6.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 12,
+                  "sloc_max": 12,
+                  "cloc_min": 5,
+                  "cloc_max": 5,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2338,29 +2353,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 13.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 5.0,
-                      "blank": 1.0,
-                      "sloc_average": 6.5,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.5,
-                      "blank_average": 0.5,
-                      "sloc_min": 13.0,
-                      "sloc_max": 13.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 13,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 5,
+                  "blank": 1,
+                  "sloc_average": 6.5,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 13,
+                  "sloc_max": 13,
+                  "cloc_min": 5,
+                  "cloc_max": 5,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2386,29 +2402,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 10.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 3.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 1.5,
-                      "blank_average": 0.5,
-                      "sloc_min": 10.0,
-                      "sloc_max": 10.0,
-                      "cloc_min": 3.0,
-                      "cloc_max": 3.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 10,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 3,
+                  "blank": 1,
+                  "sloc_average": 5.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 1.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 10,
+                  "sloc_max": 10,
+                  "cloc_min": 3,
+                  "cloc_max": 3,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2436,29 +2453,30 @@ mod tests {
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 12.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 5.0,
-                      "blank": 1.0,
-                      "sloc_average": 6.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.5,
-                      "blank_average": 0.5,
-                      "sloc_min": 12.0,
-                      "sloc_max": 12.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 12,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 5,
+                  "blank": 1,
+                  "sloc_average": 6.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 12,
+                  "sloc_max": 12,
+                  "cloc_min": 5,
+                  "cloc_max": 5,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -2477,29 +2495,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 1.0,
-                      "lloc": 2.0,
-                      "cloc": 5.0,
-                      "blank": 0.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 5.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5,
+                  "ploc": 1,
+                  "lloc": 2,
+                  "cloc": 5,
+                  "blank": 0,
+                  "sloc_average": 5.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 5.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 5,
+                  "cloc_max": 5,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2526,26 +2545,26 @@ mod tests {
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 4.0,
-                  "ploc": 1.0,
-                  "lloc": 1.0,
-                  "cloc": 4.0,
-                  "blank": 0.0,
+                  "sloc": 4,
+                  "ploc": 1,
+                  "lloc": 1,
+                  "cloc": 4,
+                  "blank": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
-                  "sloc_min": 4.0,
-                  "sloc_max": 4.0,
-                  "cloc_min": 4.0,
-                  "cloc_max": 4.0,
-                  "ploc_min": 1.0,
-                  "ploc_max": 1.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 1.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -2571,26 +2590,26 @@ mod tests {
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 4.0,
-                  "ploc": 1.0,
-                  "lloc": 1.0,
-                  "cloc": 4.0,
-                  "blank": 0.0,
+                  "sloc": 4,
+                  "ploc": 1,
+                  "lloc": 1,
+                  "cloc": 4,
+                  "blank": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
-                  "sloc_min": 4.0,
-                  "sloc_max": 4.0,
-                  "cloc_min": 4.0,
-                  "cloc_max": 4.0,
-                  "ploc_min": 1.0,
-                  "ploc_max": 1.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 1.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -2609,29 +2628,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2650,29 +2670,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 5.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 5.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 5.0,
+                  "ploc_average": 5.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2690,29 +2711,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 6.0,
-                      "ploc": 6.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 6.0,
-                      "ploc_average": 6.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 6.0,
-                      "sloc_max": 6.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 6.0,
-                      "ploc_max": 6.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 6,
+                  "ploc": 6,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 6.0,
+                  "ploc_average": 6.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 6,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 6,
+                  "ploc_max": 6,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2728,29 +2750,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 2.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 2.0,
-                      "sloc_max": 2.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 2,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 2.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 2,
+                  "sloc_max": 2,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2769,29 +2792,30 @@ mod tests {
                 // lloc: nsTArray, for, callbacks
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 4.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 4.0,
-                      "ploc_max": 4.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2808,29 +2832,30 @@ mod tests {
                 // lloc: pixel_data, return
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 2.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 2.0,
-                      "sloc_max": 2.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 2,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 2.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 2,
+                  "sloc_max": 2,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2849,29 +2874,30 @@ mod tests {
                 // lloc: for, idx, if, return
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 4.0,
-                      "lloc": 4.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 4.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 4.0,
-                      "ploc_max": 4.0,
-                      "lloc_min": 4.0,
-                      "lloc_max": 4.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 4,
+                  "lloc": 4,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 4.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 4,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2890,29 +2916,30 @@ mod tests {
                 // lloc: while, next, free
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 4.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 4.0,
-                      "ploc_max": 4.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2929,29 +2956,30 @@ mod tests {
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 2.0,
-                      "ploc": 2.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 2.0,
-                      "sloc_max": 2.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 2,
+                  "ploc": 2,
+                  "lloc": 1,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 2.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 2,
+                  "sloc_max": 2,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -2971,35 +2999,36 @@ ORDER BY name
             "foo.py",
             |metric| {
                 // Spaces: 1. Six physical lines, all code, no blanks.
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 6.0,
-                      "ploc": 6.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 6.0,
-                      "ploc_average": 6.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 6.0,
-                      "sloc_max": 6.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 6.0,
-                      "ploc_max": 6.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 6,
+                  "ploc": 6,
+                  "lloc": 1,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 6.0,
+                  "ploc_average": 6.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 6,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 6,
+                  "ploc_max": 6,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3017,10 +3046,10 @@ line two
             "foo.py",
             |metric| {
                 // Spaces: 1. Four physical lines, all code, no blanks.
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -3031,10 +3060,10 @@ line two
         // the issue #415 fix (start == end means no extra rows are inserted).
         check_metrics::<PythonParser>("QUERY = \"SELECT 1\"", "foo.py", |metric| {
             // Spaces: 1.
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
         });
     }
 
@@ -3052,8 +3081,8 @@ line two
             |metric| {
                 // Spaces: 2 (module + function). The three docstring rows are
                 // comment lines, not code or blank lines.
-                assert_eq!(metric.loc.cloc(), 3.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.cloc(), 3);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -3071,29 +3100,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 5.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 5.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 5.0,
+                  "ploc_average": 5.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3105,29 +3135,30 @@ line two
             // Spaces: 1
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 1,
+              "cloc": 0,
+              "blank": 0,
+              "sloc_average": 1.0,
+              "ploc_average": 1.0,
+              "lloc_average": 1.0,
+              "cloc_average": 0.0,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 0,
+              "cloc_max": 0,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 1,
+              "lloc_max": 1,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -3138,29 +3169,30 @@ line two
             // Spaces: 1
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 1,
+              "cloc": 0,
+              "blank": 0,
+              "sloc_average": 1.0,
+              "ploc_average": 1.0,
+              "lloc_average": 1.0,
+              "cloc_average": 0.0,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 0,
+              "cloc_max": 0,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 1,
+              "lloc_max": 1,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -3171,29 +3203,30 @@ line two
             // Spaces: 1
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 1,
+              "cloc": 0,
+              "blank": 0,
+              "sloc_average": 1.0,
+              "ploc_average": 1.0,
+              "lloc_average": 1.0,
+              "cloc_average": 0.0,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 0,
+              "cloc_max": 0,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 1,
+              "lloc_max": 1,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -3204,29 +3237,30 @@ line two
             // Spaces: 1
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 1,
+              "cloc": 0,
+              "blank": 0,
+              "sloc_average": 1.0,
+              "ploc_average": 1.0,
+              "lloc_average": 1.0,
+              "cloc_average": 0.0,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 0,
+              "cloc_max": 0,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 1,
+              "lloc_max": 1,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -3242,29 +3276,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 3.0,
-                      "cloc": 3.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 3.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 3.0,
-                      "cloc_max": 3.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 3,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 3.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 3,
+                  "cloc_max": 3,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3281,29 +3316,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 3.0,
-                      "cloc": 3.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 3.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 3.0,
-                      "cloc_max": 3.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 3,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 3.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 3,
+                  "cloc_max": 3,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3320,29 +3356,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 3.0,
-                      "cloc": 3.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 3.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 3.0,
-                      "cloc_max": 3.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 3,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 3.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 3,
+                  "cloc_max": 3,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3358,29 +3395,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 2.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 2.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 2.0,
-                      "sloc_max": 2.0,
-                      "cloc_min": 2.0,
-                      "cloc_max": 2.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 2,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 2,
+                  "blank": 0,
+                  "sloc_average": 2.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 2,
+                  "sloc_max": 2,
+                  "cloc_min": 2,
+                  "cloc_max": 2,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3396,29 +3434,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 2.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 2.0,
-                      "sloc_max": 2.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 2,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 2.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 2,
+                  "sloc_max": 2,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3437,26 +3476,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 3.0,
-                  "ploc": 3.0,
-                  "lloc": 3.0,
-                  "cloc": 3.0,
-                  "blank": 0.0,
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 3,
+                  "blank": 0,
                   "sloc_average": 1.0,
                   "ploc_average": 1.0,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.0,
-                  "sloc_min": 1.0,
-                  "sloc_max": 3.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 3.0,
-                  "ploc_min": 1.0,
-                  "ploc_max": 3.0,
-                  "lloc_min": 0.0,
-                  "lloc_max": 3.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 1,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 3,
+                  "ploc_min": 1,
+                  "ploc_max": 3,
+                  "lloc_min": 0,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -3478,29 +3517,30 @@ line two
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 6.0,
-                      "ploc": 6.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 1.5,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 6.0,
-                      "sloc_max": 6.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 6.0,
-                      "ploc_max": 6.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 6,
+                  "ploc": 6,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 1.5,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 6,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 6,
+                  "ploc_max": 6,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3530,29 +3570,30 @@ line two
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 16.0,
-                      "ploc": 9.0,
-                      "lloc": 8.0,
-                      "cloc": 7.0,
-                      "blank": 0.0,
-                      "sloc_average": 8.0,
-                      "ploc_average": 4.5,
-                      "lloc_average": 4.0,
-                      "cloc_average": 3.5,
-                      "blank_average": 0.0,
-                      "sloc_min": 16.0,
-                      "sloc_max": 16.0,
-                      "cloc_min": 7.0,
-                      "cloc_max": 7.0,
-                      "ploc_min": 9.0,
-                      "ploc_max": 9.0,
-                      "lloc_min": 8.0,
-                      "lloc_max": 8.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 16,
+                  "ploc": 9,
+                  "lloc": 8,
+                  "cloc": 7,
+                  "blank": 0,
+                  "sloc_average": 8.0,
+                  "ploc_average": 4.5,
+                  "lloc_average": 4.0,
+                  "cloc_average": 3.5,
+                  "blank_average": 0.0,
+                  "sloc_min": 16,
+                  "sloc_max": 16,
+                  "cloc_min": 7,
+                  "cloc_max": 7,
+                  "ploc_min": 9,
+                  "ploc_max": 9,
+                  "lloc_min": 8,
+                  "lloc_max": 8,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3573,26 +3614,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 5.0,
-                  "ploc": 5.0,
-                  "lloc": 6.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 6,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 5.0,
-                  "sloc_max": 5.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 5.0,
-                  "ploc_max": 5.0,
-                  "lloc_min": 5.0,
-                  "lloc_max": 6.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 5,
+                  "lloc_max": 6,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -3615,26 +3656,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 5.0,
-                  "ploc": 5.0,
-                  "lloc": 6.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 6,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 5.0,
-                  "sloc_max": 5.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 5.0,
-                  "ploc_max": 5.0,
-                  "lloc_min": 5.0,
-                  "lloc_max": 6.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 5,
+                  "lloc_max": 6,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -3657,26 +3698,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 6.0,
-                  "ploc": 3.0,
-                  "lloc": 1.0,
-                  "cloc": 1.0,
-                  "blank": 2.0,
+                  "sloc": 6,
+                  "ploc": 3,
+                  "lloc": 1,
+                  "cloc": 1,
+                  "blank": 2,
                   "sloc_average": 3.0,
                   "ploc_average": 1.5,
                   "lloc_average": 0.5,
                   "cloc_average": 0.5,
                   "blank_average": 1.0,
-                  "sloc_min": 5.0,
-                  "sloc_max": 6.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 1.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 3.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 1.0,
-                  "blank_min": 2.0,
-                  "blank_max": 2.0
+                  "sloc_min": 5,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 1,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 2,
+                  "blank_max": 2
                 }
                 "#
                 );
@@ -3695,26 +3736,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 1.0,
-                  "ploc": 1.0,
-                  "lloc": 0.0,
-                  "cloc": 1.0,
-                  "blank": 0.0,
+                  "sloc": 1,
+                  "ploc": 1,
+                  "lloc": 0,
+                  "cloc": 1,
+                  "blank": 0,
                   "sloc_average": 0.5,
                   "ploc_average": 0.5,
                   "lloc_average": 0.0,
                   "cloc_average": 0.5,
                   "blank_average": 0.0,
-                  "sloc_min": 1.0,
-                  "sloc_max": 1.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 1.0,
-                  "ploc_min": 1.0,
-                  "ploc_max": 1.0,
-                  "lloc_min": 0.0,
-                  "lloc_max": 0.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 1,
+                  "sloc_max": 1,
+                  "cloc_min": 0,
+                  "cloc_max": 1,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 0,
+                  "lloc_max": 0,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -3736,29 +3777,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 3.0,
-                      "cloc": 2.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 2.0,
-                      "cloc_max": 2.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 2,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 2,
+                  "cloc_max": 2,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3776,29 +3818,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 2.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 2.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 2.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 2.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 2.0,
-                      "ploc_max": 2.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 2.0,
-                      "blank_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 2,
+                  "sloc_average": 4.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 2.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 2,
+                  "blank_max": 2
+                }
+                "#
                 );
             },
         );
@@ -3815,29 +3858,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3854,29 +3898,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 0.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 0.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 0.0,
-                      "lloc_max": 0.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 0,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 0.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 0,
+                  "lloc_max": 0,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3888,29 +3933,30 @@ line two
             // Spaces: 1
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 1,
+              "cloc": 0,
+              "blank": 0,
+              "sloc_average": 1.0,
+              "ploc_average": 1.0,
+              "lloc_average": 1.0,
+              "cloc_average": 0.0,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 0,
+              "cloc_max": 0,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 1,
+              "lloc_max": 1,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -3926,29 +3972,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -3966,29 +4013,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 4.0,
-                      "lloc": 3.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 4.0,
-                      "ploc_max": 4.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4000,29 +4048,30 @@ line two
             // Spaces: 1
             insta::assert_json_snapshot!(
                 metric.loc,
-                @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                @r#"
+            {
+              "sloc": 1,
+              "ploc": 1,
+              "lloc": 1,
+              "cloc": 0,
+              "blank": 0,
+              "sloc_average": 1.0,
+              "ploc_average": 1.0,
+              "lloc_average": 1.0,
+              "cloc_average": 0.0,
+              "blank_average": 0.0,
+              "sloc_min": 1,
+              "sloc_max": 1,
+              "cloc_min": 0,
+              "cloc_max": 0,
+              "ploc_min": 1,
+              "ploc_max": 1,
+              "lloc_min": 1,
+              "lloc_max": 1,
+              "blank_min": 0,
+              "blank_max": 0
+            }
+            "#
             );
         });
     }
@@ -4038,29 +4087,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 2.0,
-                      "cloc": 2.0,
-                      "blank": 0.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 3.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 3.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 2.0,
-                      "cloc_max": 2.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 2,
+                  "cloc": 2,
+                  "blank": 0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 2,
+                  "cloc_max": 2,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4079,29 +4129,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 4.0,
-                      "lloc": 3.0,
-                      "cloc": 3.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 3.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 3.0,
-                      "cloc_max": 3.0,
-                      "ploc_min": 4.0,
-                      "ploc_max": 4.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 3,
+                  "blank": 0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 3.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 3,
+                  "cloc_max": 3,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4121,29 +4172,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 5.0,
-                      "lloc": 4.0,
-                      "cloc": 4.0,
-                      "blank": 0.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 5.0,
-                      "lloc_average": 4.0,
-                      "cloc_average": 4.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 4.0,
-                      "lloc_max": 4.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 4,
+                  "cloc": 4,
+                  "blank": 0,
+                  "sloc_average": 5.0,
+                  "ploc_average": 5.0,
+                  "lloc_average": 4.0,
+                  "cloc_average": 4.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 4,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4163,29 +4215,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 5.0,
-                      "lloc": 4.0,
-                      "cloc": 4.0,
-                      "blank": 0.0,
-                      "sloc_average": 5.0,
-                      "ploc_average": 5.0,
-                      "lloc_average": 4.0,
-                      "cloc_average": 4.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 4.0,
-                      "lloc_max": 4.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 4,
+                  "cloc": 4,
+                  "blank": 0,
+                  "sloc_average": 5.0,
+                  "ploc_average": 5.0,
+                  "lloc_average": 4.0,
+                  "cloc_average": 4.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 4,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4215,29 +4268,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 16.0,
-                      "ploc": 16.0,
-                      "lloc": 9.0,
-                      "cloc": 9.0,
-                      "blank": 0.0,
-                      "sloc_average": 16.0,
-                      "ploc_average": 16.0,
-                      "lloc_average": 9.0,
-                      "cloc_average": 9.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 16.0,
-                      "sloc_max": 16.0,
-                      "cloc_min": 9.0,
-                      "cloc_max": 9.0,
-                      "ploc_min": 16.0,
-                      "ploc_max": 16.0,
-                      "lloc_min": 9.0,
-                      "lloc_max": 9.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 16,
+                  "ploc": 16,
+                  "lloc": 9,
+                  "cloc": 9,
+                  "blank": 0,
+                  "sloc_average": 16.0,
+                  "ploc_average": 16.0,
+                  "lloc_average": 9.0,
+                  "cloc_average": 9.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 16,
+                  "sloc_max": 16,
+                  "cloc_min": 9,
+                  "cloc_max": 9,
+                  "ploc_min": 16,
+                  "ploc_max": 16,
+                  "lloc_min": 9,
+                  "lloc_max": 9,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4257,29 +4311,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 6.0,
-                      "ploc": 5.0,
-                      "lloc": 5.0,
-                      "cloc": 3.0,
-                      "blank": 1.0,
-                      "sloc_average": 6.0,
-                      "ploc_average": 5.0,
-                      "lloc_average": 5.0,
-                      "cloc_average": 3.0,
-                      "blank_average": 1.0,
-                      "sloc_min": 6.0,
-                      "sloc_max": 6.0,
-                      "cloc_min": 3.0,
-                      "cloc_max": 3.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 5.0,
-                      "lloc_max": 5.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 6,
+                  "ploc": 5,
+                  "lloc": 5,
+                  "cloc": 3,
+                  "blank": 1,
+                  "sloc_average": 6.0,
+                  "ploc_average": 5.0,
+                  "lloc_average": 5.0,
+                  "cloc_average": 3.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 6,
+                  "sloc_max": 6,
+                  "cloc_min": 3,
+                  "cloc_max": 3,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 5,
+                  "lloc_max": 5,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -4300,29 +4355,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 7.0,
-                      "ploc": 7.0,
-                      "lloc": 5.0,
-                      "cloc": 5.0,
-                      "blank": 0.0,
-                      "sloc_average": 7.0,
-                      "ploc_average": 7.0,
-                      "lloc_average": 5.0,
-                      "cloc_average": 5.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 7.0,
-                      "sloc_max": 7.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 7.0,
-                      "ploc_max": 7.0,
-                      "lloc_min": 5.0,
-                      "lloc_max": 5.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 7,
+                  "ploc": 7,
+                  "lloc": 5,
+                  "cloc": 5,
+                  "blank": 0,
+                  "sloc_average": 7.0,
+                  "ploc_average": 7.0,
+                  "lloc_average": 5.0,
+                  "cloc_average": 5.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 7,
+                  "sloc_max": 7,
+                  "cloc_min": 5,
+                  "cloc_max": 5,
+                  "ploc_min": 7,
+                  "ploc_max": 7,
+                  "lloc_min": 5,
+                  "lloc_max": 5,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4348,26 +4404,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 9.0,
-                  "ploc": 9.0,
-                  "lloc": 2.0,
-                  "cloc": 2.0,
-                  "blank": 0.0,
+                  "sloc": 9,
+                  "ploc": 9,
+                  "lloc": 2,
+                  "cloc": 2,
+                  "blank": 0,
                   "sloc_average": 2.25,
                   "ploc_average": 2.25,
                   "lloc_average": 0.5,
                   "cloc_average": 0.5,
                   "blank_average": 0.0,
-                  "sloc_min": 3.0,
-                  "sloc_max": 9.0,
-                  "cloc_min": 1.0,
-                  "cloc_max": 2.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 9.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 3,
+                  "sloc_max": 9,
+                  "cloc_min": 1,
+                  "cloc_max": 2,
+                  "ploc_min": 3,
+                  "ploc_max": 9,
+                  "lloc_min": 1,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -4395,29 +4451,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 11.0,
-                      "lloc": 12.0,
-                      "cloc": 11.0,
-                      "blank": 0.0,
-                      "sloc_average": 11.0,
-                      "ploc_average": 11.0,
-                      "lloc_average": 12.0,
-                      "cloc_average": 11.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 11.0,
-                      "cloc_max": 11.0,
-                      "ploc_min": 11.0,
-                      "ploc_max": 11.0,
-                      "lloc_min": 12.0,
-                      "lloc_max": 12.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 11,
+                  "ploc": 11,
+                  "lloc": 12,
+                  "cloc": 11,
+                  "blank": 0,
+                  "sloc_average": 11.0,
+                  "ploc_average": 11.0,
+                  "lloc_average": 12.0,
+                  "cloc_average": 11.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 11,
+                  "sloc_max": 11,
+                  "cloc_min": 11,
+                  "cloc_max": 11,
+                  "ploc_min": 11,
+                  "ploc_max": 11,
+                  "lloc_min": 12,
+                  "lloc_max": 12,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4432,29 +4489,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 2.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 1,
+                  "ploc": 1,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 1.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 1,
+                  "sloc_max": 1,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#
                 );
             },
         );
@@ -4479,29 +4537,30 @@ line two
                 // Spaces: 1
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 4.0,
-                      "lloc": 3.0,
-                      "cloc": 6.0,
-                      "blank": 1.0,
-                      "sloc_average": 11.0,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 6.0,
-                      "blank_average": 1.0,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 6.0,
-                      "cloc_max": 6.0,
-                      "ploc_min": 4.0,
-                      "ploc_max": 4.0,
-                      "lloc_min": 3.0,
-                      "lloc_max": 3.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 11,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 6,
+                  "blank": 1,
+                  "sloc_average": 11.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 6.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 11,
+                  "sloc_max": 11,
+                  "cloc_min": 6,
+                  "cloc_max": 6,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -4529,26 +4588,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 12.0,
-                  "ploc": 7.0,
-                  "lloc": 2.0,
-                  "cloc": 6.0,
-                  "blank": 1.0,
+                  "sloc": 12,
+                  "ploc": 7,
+                  "lloc": 2,
+                  "cloc": 6,
+                  "blank": 1,
                   "sloc_average": 4.0,
                   "ploc_average": 2.3333333333333335,
                   "lloc_average": 0.6666666666666666,
                   "cloc_average": 2.0,
                   "blank_average": 0.3333333333333333,
-                  "sloc_min": 4.0,
-                  "sloc_max": 12.0,
-                  "cloc_min": 2.0,
-                  "cloc_max": 6.0,
-                  "ploc_min": 4.0,
-                  "ploc_max": 7.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 4,
+                  "sloc_max": 12,
+                  "cloc_min": 2,
+                  "cloc_max": 6,
+                  "ploc_min": 4,
+                  "ploc_max": 7,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4578,26 +4637,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 9.0,
-                  "ploc": 6.0,
-                  "lloc": 2.0,
-                  "cloc": 2.0,
-                  "blank": 1.0,
+                  "sloc": 9,
+                  "ploc": 6,
+                  "lloc": 2,
+                  "cloc": 2,
+                  "blank": 1,
                   "sloc_average": 4.5,
                   "ploc_average": 3.0,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.5,
-                  "sloc_min": 6.0,
-                  "sloc_max": 9.0,
-                  "cloc_min": 1.0,
-                  "cloc_max": 2.0,
-                  "ploc_min": 5.0,
-                  "ploc_max": 6.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 6,
+                  "sloc_max": 9,
+                  "cloc_min": 1,
+                  "cloc_max": 2,
+                  "ploc_min": 5,
+                  "ploc_max": 6,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4622,7 +4681,7 @@ line two
             |metric| {
                 // Expected lloc: for (+1), return (+1), return (+1) = 3.
                 // Without the gate, ShortVarDeclaration would add an extra (+1).
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -4645,26 +4704,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 7.0,
-                  "ploc": 5.0,
-                  "lloc": 2.0,
-                  "cloc": 0.0,
-                  "blank": 2.0,
+                  "sloc": 7,
+                  "ploc": 5,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 2,
                   "sloc_average": 3.5,
                   "ploc_average": 2.5,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
-                  "sloc_min": 5.0,
-                  "sloc_max": 7.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 4.0,
-                  "ploc_max": 5.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 1.0,
-                  "blank_max": 2.0
+                  "sloc_min": 5,
+                  "sloc_max": 7,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 4,
+                  "ploc_max": 5,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 1,
+                  "blank_max": 2
                 }
                 "#
                 );
@@ -4691,26 +4750,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 8.0,
-                  "ploc": 4.0,
-                  "lloc": 1.0,
-                  "cloc": 3.0,
-                  "blank": 1.0,
+                  "sloc": 8,
+                  "ploc": 4,
+                  "lloc": 1,
+                  "cloc": 3,
+                  "blank": 1,
                   "sloc_average": 4.0,
                   "ploc_average": 2.0,
                   "lloc_average": 0.5,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
-                  "sloc_min": 4.0,
-                  "sloc_max": 8.0,
-                  "cloc_min": 1.0,
-                  "cloc_max": 3.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 4.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 1.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 4,
+                  "sloc_max": 8,
+                  "cloc_min": 1,
+                  "cloc_max": 3,
+                  "ploc_min": 3,
+                  "ploc_max": 4,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4736,26 +4795,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 7.0,
-                  "ploc": 4.0,
-                  "lloc": 1.0,
-                  "cloc": 3.0,
-                  "blank": 1.0,
+                  "sloc": 7,
+                  "ploc": 4,
+                  "lloc": 1,
+                  "cloc": 3,
+                  "blank": 1,
                   "sloc_average": 3.5,
                   "ploc_average": 2.0,
                   "lloc_average": 0.5,
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
-                  "sloc_min": 3.0,
-                  "sloc_max": 7.0,
-                  "cloc_min": 1.0,
-                  "cloc_max": 3.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 4.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 1.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 3,
+                  "sloc_max": 7,
+                  "cloc_min": 1,
+                  "cloc_max": 3,
+                  "ploc_min": 3,
+                  "ploc_max": 4,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4785,26 +4844,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 11.0,
-                  "ploc": 10.0,
-                  "lloc": 4.0,
-                  "cloc": 0.0,
-                  "blank": 1.0,
+                  "sloc": 11,
+                  "ploc": 10,
+                  "lloc": 4,
+                  "cloc": 0,
+                  "blank": 1,
                   "sloc_average": 5.5,
                   "ploc_average": 5.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 9.0,
-                  "sloc_max": 11.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 9.0,
-                  "ploc_max": 10.0,
-                  "lloc_min": 4.0,
-                  "lloc_max": 4.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 9,
+                  "sloc_max": 11,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 9,
+                  "ploc_max": 10,
+                  "lloc_min": 4,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4829,26 +4888,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 6.0,
-                  "ploc": 5.0,
-                  "lloc": 2.0,
-                  "cloc": 0.0,
-                  "blank": 1.0,
+                  "sloc": 6,
+                  "ploc": 5,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
                   "sloc_average": 3.0,
                   "ploc_average": 2.5,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 4.0,
-                  "sloc_max": 6.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 4.0,
-                  "ploc_max": 5.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 4,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 4,
+                  "ploc_max": 5,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4877,26 +4936,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 9.0,
-                  "ploc": 8.0,
-                  "lloc": 5.0,
-                  "cloc": 0.0,
-                  "blank": 1.0,
+                  "sloc": 9,
+                  "ploc": 8,
+                  "lloc": 5,
+                  "cloc": 0,
+                  "blank": 1,
                   "sloc_average": 4.5,
                   "ploc_average": 4.0,
                   "lloc_average": 2.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 7.0,
-                  "sloc_max": 9.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 7.0,
-                  "ploc_max": 8.0,
-                  "lloc_min": 5.0,
-                  "lloc_max": 5.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 7,
+                  "sloc_max": 9,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 7,
+                  "ploc_max": 8,
+                  "lloc_min": 5,
+                  "lloc_max": 5,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4925,26 +4984,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 8.0,
-                  "ploc": 7.0,
-                  "lloc": 2.0,
-                  "cloc": 0.0,
-                  "blank": 1.0,
+                  "sloc": 8,
+                  "ploc": 7,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
                   "sloc_average": 4.0,
                   "ploc_average": 3.5,
                   "lloc_average": 1.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 6.0,
-                  "sloc_max": 8.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 6.0,
-                  "ploc_max": 7.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 6,
+                  "sloc_max": 8,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 6,
+                  "ploc_max": 7,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -4971,26 +5030,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 8.0,
-                  "ploc": 7.0,
-                  "lloc": 1.0,
-                  "cloc": 0.0,
-                  "blank": 1.0,
+                  "sloc": 8,
+                  "ploc": 7,
+                  "lloc": 1,
+                  "cloc": 0,
+                  "blank": 1,
                   "sloc_average": 4.0,
                   "ploc_average": 3.5,
                   "lloc_average": 0.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 6.0,
-                  "sloc_max": 8.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 6.0,
-                  "ploc_max": 7.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 1.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 6,
+                  "sloc_max": 8,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 6,
+                  "ploc_max": 7,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -5017,26 +5076,26 @@ line two
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 6.0,
-                  "ploc": 5.0,
-                  "lloc": 2.0,
-                  "cloc": 2.0,
-                  "blank": 1.0,
+                  "sloc": 6,
+                  "ploc": 5,
+                  "lloc": 2,
+                  "cloc": 2,
+                  "blank": 1,
                   "sloc_average": 3.0,
                   "ploc_average": 2.5,
                   "lloc_average": 1.0,
                   "cloc_average": 1.0,
                   "blank_average": 0.5,
-                  "sloc_min": 4.0,
-                  "sloc_max": 6.0,
-                  "cloc_min": 2.0,
-                  "cloc_max": 2.0,
-                  "ploc_min": 4.0,
-                  "ploc_max": 5.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 4,
+                  "sloc_max": 6,
+                  "cloc_min": 2,
+                  "cloc_max": 2,
+                  "ploc_min": 4,
+                  "ploc_max": 5,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -5111,26 +5170,26 @@ my $b = 43;
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 3.0,
-                  "ploc": 2.0,
-                  "lloc": 2.0,
-                  "cloc": 0.0,
-                  "blank": 1.0,
+                  "sloc": 3,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
                   "sloc_average": 3.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
-                  "sloc_min": 3.0,
-                  "sloc_max": 3.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 2.0,
-                  "ploc_max": 2.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 1.0,
-                  "blank_max": 1.0
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 1,
+                  "blank_max": 1
                 }
                 "#);
             },
@@ -5150,10 +5209,10 @@ my $d = 4; # trailing
 my $e = 5;",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5168,11 +5227,11 @@ my $e = 5;",
 my $b = 2;",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -5187,26 +5246,26 @@ my $b = 2;",
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 3.0,
-                  "ploc": 3.0,
-                  "lloc": 2.0,
-                  "cloc": 2.0,
-                  "blank": 0.0,
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 2,
+                  "cloc": 2,
+                  "blank": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 2.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
-                  "sloc_min": 3.0,
-                  "sloc_max": 3.0,
-                  "cloc_min": 2.0,
-                  "cloc_max": 2.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 3.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 2,
+                  "cloc_max": 2,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#);
             },
@@ -5226,26 +5285,26 @@ my $y = 2;",
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 6.0,
-                  "ploc": 2.0,
-                  "lloc": 2.0,
-                  "cloc": 4.0,
-                  "blank": 0.0,
+                  "sloc": 6,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 4,
+                  "blank": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 4.0,
                   "blank_average": 0.0,
-                  "sloc_min": 6.0,
-                  "sloc_max": 6.0,
-                  "cloc_min": 4.0,
-                  "cloc_max": 4.0,
-                  "ploc_min": 2.0,
-                  "ploc_max": 2.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 6,
+                  "sloc_max": 6,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#);
             },
@@ -5262,26 +5321,26 @@ my $c = 3;",
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 3.0,
-                  "ploc": 3.0,
-                  "lloc": 3.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 3.0,
-                  "sloc_max": 3.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 3.0,
-                  "lloc_min": 3.0,
-                  "lloc_max": 3.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#);
             },
@@ -5301,26 +5360,26 @@ while ($n > 0) {
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 6.0,
-                  "ploc": 6.0,
-                  "lloc": 4.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 6,
+                  "ploc": 6,
+                  "lloc": 4,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 6.0,
                   "ploc_average": 6.0,
                   "lloc_average": 4.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 6.0,
-                  "sloc_max": 6.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 6.0,
-                  "ploc_max": 6.0,
-                  "lloc_min": 4.0,
-                  "lloc_max": 4.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 6,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 6,
+                  "ploc_max": 6,
+                  "lloc_min": 4,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#);
             },
@@ -5338,7 +5397,7 @@ while ($n > 0) {
 }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -5353,26 +5412,26 @@ my $x = 1;",
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 3.0,
-                  "ploc": 3.0,
-                  "lloc": 3.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 3.0,
-                  "sloc_max": 3.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 3.0,
-                  "lloc_min": 3.0,
-                  "lloc_max": 3.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#);
             },
@@ -5388,7 +5447,7 @@ my $x = 1;",
             "foo.pl",
             |metric| {
                 // `for_statement_2` (+1) and `print …;` SEMI in block (+1) → 2
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -5402,7 +5461,7 @@ my $x = 1;",
             "foo.pl",
             |metric| {
                 // while_statement (+1) + loop_control_statement (+1) = 2
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -5417,7 +5476,7 @@ my $x = 1;",
 }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -5432,7 +5491,7 @@ my $x = 1;",
 }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -5443,7 +5502,7 @@ my $x = 1;",
         // top level (the SEMI after `};`); the `return 1;` inside the
         // anonymous function block is a second LLOC inside the closure.
         check_metrics::<PerlParser>("my $f = sub { return 1; };", "foo.pl", |metric| {
-            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.lloc(), 2);
         });
     }
 
@@ -5461,7 +5520,7 @@ line3\";",
             |metric| {
                 // PLOC = {row 0, row 2} = 2. Without the gate, row 1 would
                 // also leak in as a leaf-row of the string body.
-                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2);
             },
         );
     }
@@ -5479,7 +5538,7 @@ until ($n == 0) {
             |metric| {
                 // unless_statement (+1) + print SEMI (+1) + until_statement (+1)
                 // + $n-- SEMI (+1) = 4
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -5498,7 +5557,7 @@ my $x = 1;",
             |metric| {
                 // Two top-level statements: the heredoc-using `my $s = …;`
                 // and `my $x = 1;`.
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
         // Independent confirmation that the snippet is a valid heredoc and
@@ -5523,28 +5582,28 @@ my $x = 1;",
             |metric| {
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
-                  "sloc": 3.0,
-                  "ploc": 3.0,
-                  "lloc": 3.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 3,
+                  "ploc": 3,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 3.0,
                   "ploc_average": 3.0,
                   "lloc_average": 3.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 3.0,
-                  "sloc_max": 3.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 3.0,
-                  "lloc_min": 3.0,
-                  "lloc_max": 3.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 3,
+                  "ploc_max": 3,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
-                 "#);
+                "#);
             },
         );
     }
@@ -5557,11 +5616,11 @@ my $x = 1;",
 local y = 2",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5580,10 +5639,10 @@ local d = 4 -- trailing
 local e = 5",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5598,11 +5657,11 @@ local e = 5",
 local y = 2",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -5618,11 +5677,11 @@ local x = 1
 ]]",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 1.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 5.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 1);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 5);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5640,11 +5699,11 @@ local x = 1
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5660,11 +5719,11 @@ end",
 ]]",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5680,11 +5739,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5705,11 +5764,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 9.0);
-                assert_eq!(metric.loc.ploc(), 9.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 9);
+                assert_eq!(metric.loc.ploc(), 9);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5728,11 +5787,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5747,11 +5806,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5766,11 +5825,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5784,11 +5843,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5802,11 +5861,11 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5821,11 +5880,11 @@ repeat
 until i >= 10",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5838,11 +5897,11 @@ until i >= 10",
 local y, z = 2, 3",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5857,11 +5916,11 @@ local y, z = 2, 3",
 local x = 1",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5876,11 +5935,11 @@ local x = 1",
 y, z = 2, 3",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5905,26 +5964,26 @@ y, z = 2, 3",
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 10.0,
-                  "ploc": 6.0,
-                  "lloc": 4.0,
-                  "cloc": 3.0,
-                  "blank": 1.0,
+                  "sloc": 10,
+                  "ploc": 6,
+                  "lloc": 4,
+                  "cloc": 3,
+                  "blank": 1,
                   "sloc_average": 3.3333333333333335,
                   "ploc_average": 2.0,
                   "lloc_average": 1.3333333333333333,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
-                  "sloc_min": 3.0,
-                  "sloc_max": 10.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 3.0,
-                  "ploc_min": 3.0,
-                  "ploc_max": 6.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 4.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 3,
+                  "sloc_max": 10,
+                  "cloc_min": 0,
+                  "cloc_max": 3,
+                  "ploc_min": 3,
+                  "ploc_max": 6,
+                  "lloc_min": 2,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -5949,26 +6008,26 @@ y, z = 2, 3",
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 8.0,
-                  "ploc": 4.0,
-                  "lloc": 2.0,
-                  "cloc": 3.0,
-                  "blank": 1.0,
+                  "sloc": 8,
+                  "ploc": 4,
+                  "lloc": 2,
+                  "cloc": 3,
+                  "blank": 1,
                   "sloc_average": 2.6666666666666665,
                   "ploc_average": 1.3333333333333333,
                   "lloc_average": 0.6666666666666666,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
-                  "sloc_min": 1.0,
-                  "sloc_max": 8.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 3.0,
-                  "ploc_min": 1.0,
-                  "ploc_max": 4.0,
-                  "lloc_min": 0.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 1.0
+                  "sloc_min": 1,
+                  "sloc_max": 8,
+                  "cloc_min": 0,
+                  "cloc_max": 3,
+                  "ploc_min": 1,
+                  "ploc_max": 4,
+                  "lloc_min": 0,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 1
                 }
                 "#
                 );
@@ -5987,11 +6046,11 @@ y, z = 2, 3",
              }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6006,11 +6065,11 @@ y, z = 2, 3",
             int y = 2;",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6024,11 +6083,11 @@ y, z = 2, 3",
              }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6042,11 +6101,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 0.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 0);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6055,11 +6114,11 @@ y, z = 2, 3",
     #[test]
     fn csharp_single_ploc() {
         check_metrics::<CsharpParser>("int x = 1;", "foo.cs", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6072,11 +6131,11 @@ y, z = 2, 3",
              }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6091,11 +6150,11 @@ y, z = 2, 3",
              }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6104,11 +6163,11 @@ y, z = 2, 3",
     #[test]
     fn csharp_single_statement_lloc() {
         check_metrics::<CsharpParser>("int max = 10;", "foo.cs", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6121,11 +6180,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6139,11 +6198,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6158,11 +6217,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6177,11 +6236,11 @@ y, z = 2, 3",
             } while (i < 10);",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6198,11 +6257,11 @@ y, z = 2, 3",
             string s = x switch { 1 => \"one\", _ => \"other\" };",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 8.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 8);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6217,11 +6276,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6239,11 +6298,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6260,11 +6319,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6279,11 +6338,11 @@ y, z = 2, 3",
             System.Console.WriteLine(c);",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6295,11 +6354,11 @@ y, z = 2, 3",
             "if (x > 0) System.Console.WriteLine(x);",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 1.0);
-                assert_eq!(metric.loc.ploc(), 1.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 1);
+                assert_eq!(metric.loc.ploc(), 1);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6321,11 +6380,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 11.0);
-                assert_eq!(metric.loc.ploc(), 11.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 11);
+                assert_eq!(metric.loc.ploc(), 11);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6351,11 +6410,11 @@ y, z = 2, 3",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 11.0);
-                assert_eq!(metric.loc.ploc(), 11.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 11);
+                assert_eq!(metric.loc.ploc(), 11);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6378,26 +6437,26 @@ y, z = 2, 3",
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 8.0,
-                  "ploc": 7.0,
-                  "lloc": 4.0,
-                  "cloc": 1.0,
-                  "blank": 0.0,
+                  "sloc": 8,
+                  "ploc": 7,
+                  "lloc": 4,
+                  "cloc": 1,
+                  "blank": 0,
                   "sloc_average": 4.0,
                   "ploc_average": 3.5,
                   "lloc_average": 2.0,
                   "cloc_average": 0.5,
                   "blank_average": 0.0,
-                  "sloc_min": 7.0,
-                  "sloc_max": 8.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 1.0,
-                  "ploc_min": 7.0,
-                  "ploc_max": 7.0,
-                  "lloc_min": 4.0,
-                  "lloc_max": 4.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 7,
+                  "sloc_max": 8,
+                  "cloc_min": 0,
+                  "cloc_max": 1,
+                  "ploc_min": 7,
+                  "ploc_max": 7,
+                  "lloc_min": 4,
+                  "lloc_max": 4,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -6422,26 +6481,26 @@ y, z = 2, 3",
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 5.0,
-                  "ploc": 5.0,
-                  "lloc": 3.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
+                  "sloc": 5,
+                  "ploc": 5,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
                   "lloc_average": 1.5,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
-                  "sloc_min": 5.0,
-                  "sloc_max": 5.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 5.0,
-                  "ploc_max": 5.0,
-                  "lloc_min": 3.0,
-                  "lloc_max": 3.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 5,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
                 }
                 "#
                 );
@@ -6462,11 +6521,11 @@ f() {
 f",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 3.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 3);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6478,39 +6537,39 @@ f",
     #[test]
     fn python_cloc_crlf_matches_lf() {
         check_metrics::<PythonParser>("# comment\nx = 1", "foo.py", |m| {
-            assert_eq!(m.loc.cloc(), 1.0);
-            assert_eq!(m.loc.ploc(), 1.0);
-            assert_eq!(m.loc.sloc(), 2.0);
-            assert_eq!(m.loc.blank(), 0.0);
+            assert_eq!(m.loc.cloc(), 1);
+            assert_eq!(m.loc.ploc(), 1);
+            assert_eq!(m.loc.sloc(), 2);
+            assert_eq!(m.loc.blank(), 0);
         });
         check_metrics::<PythonParser>("# comment\r\nx = 1", "foo.py", |m| {
-            assert_eq!(m.loc.cloc(), 1.0);
-            assert_eq!(m.loc.ploc(), 1.0);
-            assert_eq!(m.loc.sloc(), 2.0);
-            assert_eq!(m.loc.blank(), 0.0);
+            assert_eq!(m.loc.cloc(), 1);
+            assert_eq!(m.loc.ploc(), 1);
+            assert_eq!(m.loc.sloc(), 2);
+            assert_eq!(m.loc.blank(), 0);
         });
         // Lone-CR (old Mac line endings) is the true canary: without CR normalisation,
         // tree-sitter 0.26.8 only advances its row counter on \n, collapsing all content
         // onto row 0 and producing wrong sloc/cloc metrics.
         check_metrics::<PythonParser>("# comment\rx = 1", "foo.py", |m| {
-            assert_eq!(m.loc.cloc(), 1.0);
-            assert_eq!(m.loc.ploc(), 1.0);
-            assert_eq!(m.loc.sloc(), 2.0);
-            assert_eq!(m.loc.blank(), 0.0);
+            assert_eq!(m.loc.cloc(), 1);
+            assert_eq!(m.loc.ploc(), 1);
+            assert_eq!(m.loc.sloc(), 2);
+            assert_eq!(m.loc.blank(), 0);
         });
     }
 
     #[test]
     fn python_blank_crlf_matches_lf() {
         check_metrics::<PythonParser>("# comment\n\nx = 1", "foo.py", |m| {
-            assert_eq!(m.loc.blank(), 1.0);
+            assert_eq!(m.loc.blank(), 1);
         });
         check_metrics::<PythonParser>("# comment\r\n\r\nx = 1", "foo.py", |m| {
-            assert_eq!(m.loc.blank(), 1.0);
+            assert_eq!(m.loc.blank(), 1);
         });
         // Lone-CR: without normalisation the blank \r line stays on row 0 and is not counted.
         check_metrics::<PythonParser>("# comment\r\rx = 1", "foo.py", |m| {
-            assert_eq!(m.loc.blank(), 1.0);
+            assert_eq!(m.loc.blank(), 1);
         });
     }
 
@@ -6520,16 +6579,16 @@ f",
             "fn f() {\n    // comment\n    let x = 1;\n}",
             "foo.rs",
             |m| {
-                assert_eq!(m.loc.cloc(), 1.0);
-                assert_eq!(m.loc.sloc(), 4.0);
+                assert_eq!(m.loc.cloc(), 1);
+                assert_eq!(m.loc.sloc(), 4);
             },
         );
         check_metrics::<RustParser>(
             "fn f() {\r\n    // comment\r\n    let x = 1;\r\n}",
             "foo.rs",
             |m| {
-                assert_eq!(m.loc.cloc(), 1.0);
-                assert_eq!(m.loc.sloc(), 4.0);
+                assert_eq!(m.loc.cloc(), 1);
+                assert_eq!(m.loc.sloc(), 4);
             },
         );
         // Lone-CR: without normalisation, tree-sitter 0.26.8 only advances its row counter on
@@ -6538,8 +6597,8 @@ f",
             "fn f() {\r    // comment\r    let x = 1;\r}",
             "foo.rs",
             |m| {
-                assert_eq!(m.loc.cloc(), 1.0);
-                assert_eq!(m.loc.sloc(), 4.0);
+                assert_eq!(m.loc.cloc(), 1);
+                assert_eq!(m.loc.sloc(), 4);
             },
         );
     }
@@ -6547,11 +6606,11 @@ f",
     #[test]
     fn tcl_blank() {
         check_metrics::<TclParser>("set x 1\n\nset y 2", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 3.0);
-            assert_eq!(metric.loc.ploc(), 2.0);
-            assert_eq!(metric.loc.lloc(), 2.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 1.0);
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.lloc(), 2);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 1);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6565,10 +6624,10 @@ f",
             "set a 1\nset b 2\n\nset c 3 ;# trailing\nset d 4 ;# trailing\nset e 5",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
             },
         );
     }
@@ -6576,11 +6635,11 @@ f",
     #[test]
     fn tcl_cloc() {
         check_metrics::<TclParser>("# This is a comment\nset x 1", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 2.0);
-            assert_eq!(metric.loc.ploc(), 2.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 1.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 2);
+            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6597,11 +6656,11 @@ f",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6611,11 +6670,11 @@ f",
     fn tcl_no_command_substitution_lloc() {
         // `string toupper` inside [...] is a sub-expression; only `puts` is top-level.
         check_metrics::<TclParser>("puts [string toupper x]", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6623,11 +6682,11 @@ f",
     #[test]
     fn tcl_procedure_lloc() {
         check_metrics::<TclParser>("proc foo {} {\n    puts hello\n}", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 3.0);
-            assert_eq!(metric.loc.ploc(), 3.0);
-            assert_eq!(metric.loc.lloc(), 2.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.lloc(), 2);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6635,11 +6694,11 @@ f",
     #[test]
     fn tcl_if_lloc() {
         check_metrics::<TclParser>("if {1} {\n    puts hello\n}", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 3.0);
-            assert_eq!(metric.loc.ploc(), 3.0);
-            assert_eq!(metric.loc.lloc(), 2.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.lloc(), 2);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6657,11 +6716,11 @@ f",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6673,11 +6732,11 @@ f",
             "while {$x > 0} {\n    set x [expr {$x - 1}]\n}",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6689,11 +6748,11 @@ f",
             "foreach item {a b c} {\n    puts $item\n}",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6702,11 +6761,11 @@ f",
     #[test]
     fn tcl_set_lloc() {
         check_metrics::<TclParser>("set x 42", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6714,11 +6773,11 @@ f",
     #[test]
     fn tcl_global_lloc() {
         check_metrics::<TclParser>("global x", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6737,11 +6796,11 @@ try {
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6753,11 +6812,11 @@ try {
             "namespace eval myns {\n    set x 1\n}",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6766,11 +6825,11 @@ try {
     #[test]
     fn tcl_regexp_lloc() {
         check_metrics::<TclParser>("regexp {^[0-9]+$} $x", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6778,11 +6837,11 @@ try {
     #[test]
     fn tcl_expr_cmd_lloc() {
         check_metrics::<TclParser>("expr {1 + 2}", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6791,11 +6850,11 @@ try {
     fn tcl_no_expr_cmd_substitution_lloc() {
         // `expr` inside [...] is a sub-expression, not a statement; only `set` counts.
         check_metrics::<TclParser>("set x [expr {1 + 2}]", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6810,11 +6869,11 @@ try {
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6823,11 +6882,11 @@ try {
     #[test]
     fn tcl_command_lloc() {
         check_metrics::<TclParser>("puts hello", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -6839,11 +6898,11 @@ try {
             "if {1} {\n    puts yes\n} else {\n    puts no\n}",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6859,7 +6918,7 @@ try {
             |metric| {
                 assert_eq!(
                     metric.loc.lloc(),
-                    4.0,
+                    4,
                     "finally adds 0 lloc; would be 5 if finally counted"
                 );
             },
@@ -6877,11 +6936,11 @@ try {
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6897,11 +6956,11 @@ try {
             "set s \"line one\nline two\nline three\"",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6919,11 +6978,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 1.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6940,11 +6999,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 4);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6960,11 +7019,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6980,11 +7039,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7003,10 +7062,10 @@ try {
 }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7021,11 +7080,11 @@ try {
         };",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7042,11 +7101,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7063,11 +7122,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7085,11 +7144,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7107,11 +7166,11 @@ try {
         }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7129,11 +7188,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 1.0);
-                assert_eq!(metric.loc.blank(), 3.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.blank(), 3);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7149,11 +7208,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7172,10 +7231,10 @@ try {
 }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7193,11 +7252,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7213,11 +7272,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7235,11 +7294,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7257,11 +7316,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7278,11 +7337,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7300,11 +7359,11 @@ try {
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7321,11 +7380,11 @@ EOF
         }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7342,11 +7401,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7363,11 +7422,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 4);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7393,35 +7452,36 @@ EOF
             |metric| {
                 // Anchor the headline integer values; in particular
                 // `blank() > 0` is the contract this test's name advertises.
-                assert_eq!(metric.loc.sloc(), 11.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 11);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.cloc(), 4);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 4.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.5,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 11,
+                  "ploc": 8,
+                  "lloc": 6,
+                  "cloc": 4,
+                  "blank": 1,
+                  "sloc_average": 5.5,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 11,
+                  "sloc_max": 11,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 8,
+                  "ploc_max": 8,
+                  "lloc_min": 6,
+                  "lloc_max": 6,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
                 );
             },
         );
@@ -7441,11 +7501,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -7463,11 +7523,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7485,11 +7545,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7507,11 +7567,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7526,11 +7586,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7546,11 +7606,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7567,11 +7627,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7589,11 +7649,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7609,11 +7669,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7630,11 +7690,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 4);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7653,10 +7713,10 @@ EOF
 }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7674,11 +7734,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7696,11 +7756,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7718,11 +7778,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7740,11 +7800,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7760,11 +7820,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7779,11 +7839,11 @@ EOF
         };",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7801,11 +7861,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7825,11 +7885,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 9.0);
-                assert_eq!(metric.loc.ploc(), 9.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 9);
+                assert_eq!(metric.loc.ploc(), 9);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7847,11 +7907,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7868,11 +7928,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7889,11 +7949,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7909,11 +7969,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7930,11 +7990,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 4);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7953,10 +8013,10 @@ EOF
 }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7974,11 +8034,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7996,11 +8056,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8018,11 +8078,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8040,11 +8100,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8060,11 +8120,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8079,11 +8139,11 @@ EOF
         };",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8103,11 +8163,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 9.0);
-                assert_eq!(metric.loc.ploc(), 9.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 9);
+                assert_eq!(metric.loc.ploc(), 9);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8125,11 +8185,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8146,11 +8206,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8168,11 +8228,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 7.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 7);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8189,11 +8249,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8211,11 +8271,11 @@ $b = 2;
 ",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8234,10 +8294,10 @@ $c = 3; // trailing
 ",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8252,11 +8312,11 @@ $c = 3; // trailing
 $a = 1; // trailing",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 3.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 3);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8271,11 +8331,11 @@ $a = 1; // trailing",
 $a = 1;",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8292,11 +8352,11 @@ $a = 1;",
 $a = 1;",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 4);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8313,11 +8373,11 @@ if ($a > 0) {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8332,11 +8392,11 @@ if ($a > 0) {
 $a = (1 + 2);",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8352,11 +8412,11 @@ function f(): void {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8373,11 +8433,11 @@ if (true):
 endif;",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8397,11 +8457,11 @@ if ($x) {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8425,11 +8485,11 @@ switch ($x) {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 11.0);
-                assert_eq!(metric.loc.ploc(), 11.0);
-                assert_eq!(metric.loc.lloc(), 6.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 11);
+                assert_eq!(metric.loc.ploc(), 11);
+                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8448,11 +8508,11 @@ $a = match ($x) {
 };",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8467,11 +8527,11 @@ $a = match ($x) {
 $x = $y ?? throw new \\Exception('nope');",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8489,11 +8549,11 @@ $f = function (): int {
 };",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8510,11 +8570,11 @@ for ($i = 0; $i < 10; $i++) {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8529,11 +8589,11 @@ foreach ($items as $k => $v) {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8552,11 +8612,11 @@ try {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8575,11 +8635,11 @@ class A {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8595,11 +8655,11 @@ use App\\Bar;
 $a = 1;",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8625,11 +8685,11 @@ class Bar {
 }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 15.0);
-                assert_eq!(metric.loc.ploc(), 12.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 1.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 15);
+                assert_eq!(metric.loc.ploc(), 12);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8644,11 +8704,11 @@ class Bar {
 $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8668,11 +8728,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
 <?php endif; ?>",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8684,11 +8744,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // tree-sitter-php 0.24.2. A regression that re-classified `<?=`
         // would shift PLOC; this test pins the current behavior.
         check_metrics::<PhpParser>("<p><?= $name ?></p>", "foo.php", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.lloc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.lloc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -8700,35 +8760,35 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n\n  def a, do: :a\n\n  def b, do: :b\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(
                     metric.loc,
                     @r#"
                 {
-                  "sloc": 6.0,
-                  "ploc": 4.0,
-                  "lloc": 3.0,
-                  "cloc": 0.0,
-                  "blank": 2.0,
+                  "sloc": 6,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 2,
                   "sloc_average": 1.5,
                   "ploc_average": 1.0,
                   "lloc_average": 0.75,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 1.0,
-                  "sloc_max": 6.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 1.0,
-                  "ploc_max": 4.0,
-                  "lloc_min": 1.0,
-                  "lloc_max": 3.0,
-                  "blank_min": 0.0,
-                  "blank_max": 2.0
+                  "sloc_min": 1,
+                  "sloc_max": 6,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 1,
+                  "ploc_max": 4,
+                  "lloc_min": 1,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 2
                 }
                 "#
                 );
@@ -8744,10 +8804,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f, do: :ok\n\n  def g, do: :ok # trailing\n  def h, do: :ok # trailing\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.blank(), 1);
             },
         );
     }
@@ -8760,7 +8820,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f, do: :ok\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -8773,7 +8833,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "# top\ndefmodule Foo do\n  # body\n  def f, do: :ok # trailing\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 3);
             },
         );
     }
@@ -8788,7 +8848,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def a, do: 1\n  def b, do: 2\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8802,7 +8862,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f do\n    IO.puts(Enum.join([1, 2, 3], \", \"))\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8818,7 +8878,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f(a, b) do\n    IO.puts(a + b)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8832,7 +8892,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f(x) do\n    case x do\n      1 -> :a\n      2 -> :b\n      _ -> :c\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 6);
             },
         );
     }
@@ -8847,7 +8907,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "# leading\ndefmodule Foo do\n  # inside\n  def f, do: :ok\n  # trailing\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -8861,7 +8921,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         check_metrics::<ElixirParser>("defmodule Foo do\n  :ok\nend\n", "foo.ex", |metric| {
             // `:ok` is an `Atom` whose parent is the module-call's
             // `do_block`; that counts. Plus the `defmodule` call.
-            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.lloc(), 2);
         });
     }
 
@@ -8875,7 +8935,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.ex",
             |metric| {
                 // defmodule (1) + def (1) = 2
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -8891,7 +8951,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.ex",
             |metric| {
                 // defmodule + @moduledoc + def = 3
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8908,7 +8968,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def safe do\n    try do\n      do_it()\n    rescue\n      ArgumentError -> :bad\n      RuntimeError -> :worse\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 7);
             },
         );
     }
@@ -8923,7 +8983,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.ex",
             |metric| {
                 // defmodule + def + (a+b+c+d) = 3
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8937,7 +8997,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.ex",
             |metric| {
                 // defmodule + def + the list expression = 3
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8949,7 +9009,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f do\n    %{a: 1, b: 2, c: 3}\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -8967,7 +9027,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def f do\n    add = fn x -> x + 1 end\n    add\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 5);
             },
         );
     }
@@ -8978,7 +9038,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // a blank line must sit BETWEEN code lines to be counted.
         // expected: line 3 is blank → blank = 1.
         check_metrics::<RubyParser>("def foo\n  a = 1\n\n  a + 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.loc.blank(), 1.0);
+            assert_eq!(metric.loc.blank(), 1);
         });
     }
 
@@ -8993,7 +9053,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo  # entry\n  pool = 0\n\n  server = -42  # negative\n\n  ok = false\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.blank(), 2);
             },
         );
     }
@@ -9005,7 +9065,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "# one\n# two\n# three\ndef foo\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 3);
             },
         );
     }
@@ -9019,7 +9079,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo(a)\n  if a\n    a += 1\n  end\n  while a > 0\n    a -= 1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -9034,7 +9094,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo\n  puts 'hello'\n  puts 'world'\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -9047,7 +9107,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo\n  a = 1\n  b = 2\n  c = a + b\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -9063,7 +9123,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo(a)\n  return a if a.nil?\n  a -= 1 while a > 0\n  parse(a) rescue nil\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 5);
             },
         );
     }
@@ -9075,7 +9135,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "module M\n  class C\n    def foo\n    end\n    def bar\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -9089,7 +9149,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo\n  begin\n    risky\n  rescue StandardError\n    nil\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -9102,7 +9162,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def outer\n  def inner\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -9118,7 +9178,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "[1, 2, 3].each do |x|\n  puts x\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 0.0);
+                assert_eq!(metric.loc.lloc(), 0);
             },
         );
     }
@@ -9130,7 +9190,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // calls, and lambda bodies are intentionally not statements
         // in this impl.
         check_metrics::<RubyParser>("add = ->(a, b) {\n  a + b\n}\n", "foo.rb", |metric| {
-            assert_eq!(metric.loc.lloc(), 0.0);
+            assert_eq!(metric.loc.lloc(), 0);
         });
     }
 
@@ -9148,10 +9208,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo\n  msg = <<~TXT\n    one\n    two\n  TXT\n  msg\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 7.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 7);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.blank(), 2);
             },
         );
     }
@@ -9168,7 +9228,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def foo\n  a = 1; b = 2; a + b\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -9178,9 +9238,9 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // PLOC counts physical instruction lines: code-bearing lines
         // only. Comments and blanks are excluded.
         check_metrics::<RubyParser>("# header\n\ndef foo\n  a = 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.loc.ploc(), 3.0);
-            assert_eq!(metric.loc.cloc(), 1.0);
-            assert_eq!(metric.loc.blank(), 1.0);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 1);
+            assert_eq!(metric.loc.blank(), 1);
         });
     }
 
@@ -9201,11 +9261,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def outer():\n    def inner():\n        return 1\n    return inner()\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9220,11 +9280,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def outer():\n    f = lambda x: x + 1\n    return f(2)\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9242,7 +9302,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "def f(x):\n    match x:\n        case 1: return 1\n        case _: return 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9260,12 +9320,12 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         check_metrics::<PythonParser>(
             "def f(x):\n    if x == 1: return 1\n    else: return 0\n",
             "foo.py",
-            |metric| assert_eq!(metric.loc.lloc(), 3.0),
+            |metric| assert_eq!(metric.loc.lloc(), 3),
         );
         check_metrics::<PythonParser>(
             "def f(x):\n    match x:\n        case 1: return 1\n        case _: return 0\n",
             "foo.py",
-            |metric| assert_eq!(metric.loc.lloc(), 3.0),
+            |metric| assert_eq!(metric.loc.lloc(), 3),
         );
     }
 
@@ -9276,7 +9336,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // before #462 the alias fell through to the `_` arm and the file
         // reported only 1.
         check_metrics::<PythonParser>("type Alias = int\nx = 1\n", "foo.py", |metric| {
-            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.lloc(), 2);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -9290,11 +9350,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "class Foo {\n    int bar() {\n        class Local {\n            int v() { return 1; }\n        }\n        return new Local().v();\n    }\n}\n",
             "foo.java",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 8.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 8);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9309,11 +9369,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "class Foo {\n    void bar() {\n        java.util.function.IntUnaryOperator f = x -> x + 1;\n        f.applyAsInt(3);\n    }\n}\n",
             "foo.java",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9324,10 +9384,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // Blank lines + simple statements. Newlines act as the
         // statement terminator; PLOC counts the two declaration lines.
         check_metrics::<GroovyParser>("int x = 1\n\n\nint y = 2", "foo.groovy", |metric| {
-            assert_eq!(metric.loc.sloc(), 4.0);
-            assert_eq!(metric.loc.ploc(), 2.0);
-            assert_eq!(metric.loc.lloc(), 2.0);
-            assert_eq!(metric.loc.blank(), 2.0);
+            assert_eq!(metric.loc.sloc(), 4);
+            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.lloc(), 2);
+            assert_eq!(metric.loc.blank(), 2);
         });
     }
 
@@ -9335,8 +9395,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     fn groovy_no_zero_blank() {
         // A single line with no blanks: blank() == 0.
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
         });
     }
 
@@ -9349,8 +9409,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             int y = 2",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2);
             },
         );
     }
@@ -9365,7 +9425,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // Block comment spans 3 lines → cloc == 3.
-                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 3);
             },
         );
     }
@@ -9379,7 +9439,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             int c = 3",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -9396,7 +9456,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // for-statement (1) + expression-statement `println(i)` (1) = 2
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -9418,7 +9478,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -9438,7 +9498,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // try(1) + risky() expr-stmt(1) + handle() expr-stmt(1) = 3
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -9460,11 +9520,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 // 8 lines of non-comment content: `class A {`, two
                 // `void` headers, two `int … = …` body statements,
                 // three closing braces.
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.ploc(), 8);
+                assert_eq!(metric.loc.cloc(), 0);
                 // Two expression-statement LLOCs (`int x = 1`,
                 // `int y = 2`).
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -9476,8 +9536,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // source line is counted as SLOC even when the parse fails
         // mid-expression.
         check_metrics::<GroovyParser>("def x = (((", "foo.groovy", |metric| {
-            assert_eq!(metric.loc.sloc(), 1.0);
-            assert_eq!(metric.loc.blank(), 0.0);
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.blank(), 0);
         });
     }
 
@@ -9492,9 +9552,9 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             int c = 3",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.blank(), 1.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.blank(), 1);
             },
         );
     }
@@ -9504,8 +9564,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // Mirrors `java_single_ploc`: one non-blank, non-comment
         // line of code => ploc == 1.
         check_metrics::<GroovyParser>("int x = 42", "foo.groovy", |metric| {
-            assert_eq!(metric.loc.ploc(), 1.0);
-            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.ploc(), 1);
+            assert_eq!(metric.loc.cloc(), 0);
         });
     }
 
@@ -9520,8 +9580,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             int d = 4",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -9531,7 +9591,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // A single expression statement contributes one LLOC.
         // Mirrors `java_single_statement_lloc`.
         check_metrics::<GroovyParser>("println 'hi'", "foo.groovy", |metric| {
-            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1);
         });
     }
 
@@ -9548,7 +9608,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // ForStatement(1) + println-expr(1) = 2
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -9564,7 +9624,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // EnhancedForStatement(1) + println(1) = 2
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -9582,7 +9642,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // int i = 0 (1) + while (1) + i++ (1) + println (1) = 4
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -9599,7 +9659,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // int i = 0 (1) + do (1) + i++ (1) = 3
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 3);
             },
         );
     }
@@ -9617,7 +9677,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // for(1) + if(1) + continue(1) + println(1) = 4
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -9635,7 +9695,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.groovy",
             |metric| {
                 // 5 expression-statement lines.
-                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 5);
             },
         );
     }
@@ -9647,7 +9707,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "throw new RuntimeException('bad')",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1);
             },
         );
     }
@@ -9678,8 +9738,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
             },
         );
     }
@@ -9693,11 +9753,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "class Foo {\n    int Bar() {\n        int Inner(int x) { return x + 1; }\n        return Inner(2);\n    }\n}\n",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9711,11 +9771,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "class Foo {\n    void Bar() {\n        System.Func<int, int> f = x => x + 1;\n        f(3);\n    }\n}\n",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9734,11 +9794,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "int bar() {\n    auto f = [](int x) { return x + 1; };\n    return f(2);\n}\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9753,11 +9813,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "function outer() {\n    function inner() {\n        return 1;\n    }\n    return inner();\n}\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9771,11 +9831,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "function outer() {\n    const inner = (x) => x + 1;\n    return inner(2);\n}\n",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9789,11 +9849,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "fun outer() {\n    val f: (Int) -> Int = { x -> x + 1 }\n    f(3)\n}\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9808,11 +9868,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "fun outer() {\n    fun inner(x: Int): Int { return x + 1 }\n    inner(3)\n}\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9827,11 +9887,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "fun outer() {\n    val r = object : Runnable { override fun run() { println(\"hi\") } }\n    r.run()\n}\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9847,11 +9907,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "package main\nfunc outer() int {\n    inner := func(x int) int { return x + 1 }\n    return inner(2)\n}\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9866,11 +9926,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "<?php\nfunction outer() {\n    $f = function ($x) { return $x + 1; };\n    return $f(2);\n}\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9884,11 +9944,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "<?php\nfunction outer() {\n    $f = fn ($x) => $x + 1;\n    return $f(2);\n}\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 5.0);
-                assert_eq!(metric.loc.ploc(), 5.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9903,11 +9963,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "local function outer()\n    local function inner()\n        return 1\n    end\n    return inner()\nend\n",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9923,11 +9983,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "local function outer()\n    local f = function (x) return x + 1 end\n    return f(2)\nend\n",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9945,11 +10005,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "proc outer {} {\n    set f [list x {return [expr {$x + 1}]}]\n    apply $f 2\n}\n",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 4.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9970,11 +10030,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "sub outer {\n    my $f = sub { return $_[0] + 1 };\n    return $f->(2);\n}\n",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -10000,11 +10060,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "sub outer {\n    sub inner { return 1 }\n    return inner();\n}\n",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -10019,11 +10079,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "defmodule Foo do\n  def outer do\n    f = fn x -> x + 1 end\n    f.(2)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 6.0);
-                assert_eq!(metric.loc.lloc(), 5.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 6);
+                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -10058,10 +10118,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                     loc.sloc_min(),
                     loc.sloc()
                 );
-                assert_eq!(loc.sloc_min(), 3.0, "smallest leaf method span");
+                assert_eq!(loc.sloc_min(), 3, "smallest leaf method span");
                 assert_eq!(loc.sloc_max(), loc.sloc(), "largest space is the unit");
                 // The smallest leaf has one statement; min must reflect it.
-                assert_eq!(loc.lloc_min(), 1.0);
+                assert_eq!(loc.lloc_min(), 1);
             },
         );
     }
@@ -10079,9 +10139,9 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 // Spaces: Unit + class C + small() + big().
                 let loc = &metric.loc;
                 assert!(loc.sloc_min() <= loc.sloc());
-                assert_eq!(loc.sloc_min(), 3.0, "smallest leaf method span");
+                assert_eq!(loc.sloc_min(), 3, "smallest leaf method span");
                 assert_eq!(loc.sloc_max(), loc.sloc());
-                assert_eq!(loc.lloc_min(), 1.0);
+                assert_eq!(loc.lloc_min(), 1);
             },
         );
     }
@@ -10098,9 +10158,9 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 // Spaces: Unit + class C + small() + big().
                 let loc = &metric.loc;
                 assert!(loc.sloc_min() <= loc.sloc());
-                assert_eq!(loc.sloc_min(), 2.0, "smallest leaf method span");
+                assert_eq!(loc.sloc_min(), 2, "smallest leaf method span");
                 assert_eq!(loc.sloc_max(), loc.sloc());
-                assert_eq!(loc.lloc_min(), 1.0);
+                assert_eq!(loc.lloc_min(), 1);
             },
         );
     }
@@ -10130,11 +10190,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         stats.cloc.only_comment_line_starts.insert(0);
 
         // Pre-clamp this is 1 - 1 - 1 = -1.
-        assert_eq!(stats.sloc(), 1.0);
-        assert_eq!(stats.ploc(), 1.0);
+        assert_eq!(stats.sloc(), 1);
+        assert_eq!(stats.ploc(), 1);
         assert_eq!(
             stats.blank(),
-            0.0,
+            0,
             "blank() must clamp the negative subtraction to 0"
         );
     }
@@ -10152,7 +10212,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "int f(int /*a*/, int /*b*/) { return 1; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.loc.cloc(), 1.0, "two inline comments => 1 cloc");
+                assert_eq!(metric.loc.cloc(), 1, "two inline comments => 1 cloc");
                 assert!(
                     metric.loc.cloc() <= metric.loc.sloc(),
                     "cloc must not exceed sloc"
@@ -10174,7 +10234,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "fn f(/*a*/ x: i32, /*b*/ y: i32) -> i32 { 1 }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.loc.cloc(), 1.0, "two inline comments => 1 cloc");
+                assert_eq!(metric.loc.cloc(), 1, "two inline comments => 1 cloc");
                 assert!(
                     metric.loc.cloc() <= metric.loc.sloc(),
                     "cloc must not exceed sloc"
@@ -10195,7 +10255,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             |metric| {
                 assert_eq!(
                     metric.loc.cloc(),
-                    3.0,
+                    3,
                     "a 3-line block comment counts 3 comment lines"
                 );
             },
@@ -10215,10 +10275,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         check_metrics::<CppParser>("/*a*/ /*b*/", "foo.cpp", |metric| {
             assert_eq!(
                 metric.loc.cloc(),
-                1.0,
+                1,
                 "two standalone comments on one line => 1 cloc"
             );
-            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.sloc(), 1);
             assert!(
                 metric.loc.cloc() <= metric.loc.sloc(),
                 "cloc must not exceed sloc"
@@ -10234,10 +10294,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         check_metrics::<RustParser>("/*a*/ /*b*/", "foo.rs", |metric| {
             assert_eq!(
                 metric.loc.cloc(),
-                1.0,
+                1,
                 "two standalone comments on one line => 1 cloc"
             );
-            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.sloc(), 1);
             assert!(
                 metric.loc.cloc() <= metric.loc.sloc(),
                 "cloc must not exceed sloc"
@@ -10254,10 +10314,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     #[test]
     fn cloc_standalone_comments_then_code_no_double_count() {
         check_metrics::<CppParser>("/*a*/ /*b*/ /*c*/\nint x = 1;\n", "foo.cpp", |metric| {
-            assert_eq!(metric.loc.sloc(), 2.0);
+            assert_eq!(metric.loc.sloc(), 2);
             assert_eq!(
                 metric.loc.cloc(),
-                1.0,
+                1,
                 "only line 1 carries comments => 1 cloc"
             );
             assert!(
@@ -10276,11 +10336,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "when X {\n\n    set x 1\n\n    set y 2\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 6.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 2.0);
+                assert_eq!(metric.loc.sloc(), 6);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 2);
             },
         );
     }
@@ -10293,10 +10353,10 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "when HTTP_REQUEST {\n    set x 1\n    log local0. $x\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.lloc(), 3);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -10309,8 +10369,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "# a\n# b\n# c\nwhen X { set x 1 }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.cloc(), 3.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.cloc(), 3);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
@@ -10324,7 +10384,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "when X {\n    if { $a } {\n        set x 1\n    }\n    log local0. done\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -10340,7 +10400,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "when X {\n    set y [expr { 1 + 2 }]\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }
@@ -10354,7 +10414,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "when X {\n    switch $h {\n        a { set r 1 }\n        b { set r 2 }\n    }\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4);
             },
         );
     }
@@ -10367,7 +10427,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "proc f { a } {\n    return $a\n}\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2);
             },
         );
     }

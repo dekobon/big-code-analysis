@@ -159,8 +159,8 @@ fn extract_summaries_inner(
             lloc: m.loc.lloc() as usize,
             cloc: m.loc.cloc() as usize,
             tokens: m.tokens.tokens_sum() as usize,
-            cyclomatic: m.cyclomatic.cyclomatic(),
-            cognitive: m.cognitive.cognitive(),
+            cyclomatic: m.cyclomatic.cyclomatic() as f64,
+            cognitive: m.cognitive.cognitive() as f64,
             halstead_volume: m.halstead.volume(),
             halstead_difficulty: m.halstead.difficulty(),
             halstead_effort: m.halstead.effort(),
@@ -173,9 +173,9 @@ fn extract_summaries_inner(
             nexits: m.nexits.exit_sum() as usize,
             nom: m.nom.total() as usize,
             abc: m.abc.magnitude(),
-            wmc: m.wmc.total_wmc(),
-            npa: m.npa.total_npa(),
-            npm: m.npm.total_npm(),
+            wmc: m.wmc.total_wmc() as f64,
+            npa: m.npa.total_npa() as f64,
+            npm: m.npm.total_npm() as f64,
         });
 
         stack.extend(current.spaces.iter().rev());

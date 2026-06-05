@@ -3,14 +3,14 @@ source: src/metrics/halstead.rs
 expression: metric.halstead
 ---
 {
-  "unique_operators": 7.0,
-  "total_operators": 7.0,
-  "unique_operands": 4.0,
-  "total_operands": 5.0,
-  "length": 12.0,
+  "unique_operators": 7,
+  "total_operators": 7,
+  "unique_operands": 4,
+  "total_operands": 5,
+  "length": 12,
   "estimated_program_length": 27.651484454403228,
   "purity_ratio": 2.304290371200269,
-  "vocabulary": 11.0,
+  "vocabulary": 11,
   "volume": 41.51317942364757,
   "difficulty": 4.375,
   "level": 0.22857142857142856,

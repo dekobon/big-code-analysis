@@ -11,6 +11,10 @@
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::enum_glob_use, clippy::unused_self, clippy::wildcard_imports)]
+// `u64` integral metric accessors (Halstead length/vocabulary, cyclomatic
+// sum, sloc/cloc) are widened to `f64` for the MI formulas; the casts are
+// bounded by the counts they came from (#530).
+#![allow(clippy::cast_precision_loss)]
 
 use serde::Serialize;
 use serde::ser::{SerializeStruct, Serializer};
@@ -131,11 +135,11 @@ where
         halstead: &halstead::Stats,
         stats: &mut Stats,
     ) {
-        stats.halstead_length = halstead.length();
-        stats.halstead_vocabulary = halstead.vocabulary();
+        stats.halstead_length = halstead.length() as f64;
+        stats.halstead_vocabulary = halstead.vocabulary() as f64;
         stats.halstead_volume = halstead.volume();
-        stats.cyclomatic = cyclomatic.cyclomatic_sum();
-        stats.sloc = loc.sloc();
+        stats.cyclomatic = cyclomatic.cyclomatic_sum() as f64;
+        stats.sloc = loc.sloc() as f64;
         // The SEI Maintainability Index expects `perCM` as a percentage
         // in [0, 100], not a ratio in [0, 1] — `50·sin(√(2.4·CM))` is
         // nonsensical when CM is two orders of magnitude too small. See
@@ -148,7 +152,7 @@ where
             // `50·sin(√(2.4·CM))` has no clamp of its own, so an
             // out-of-range CM (e.g. cloc > sloc) would distort
             // `mi_sei` by tens of points (issue #461).
-            (loc.cloc() / stats.sloc * 100.0).clamp(0.0, 100.0)
+            (loc.cloc() as f64 / stats.sloc * 100.0).clamp(0.0, 100.0)
         };
     }
 }
@@ -403,8 +407,8 @@ mod tests {
         // cloc = 2 (degenerate), sloc = 1 (single non-unit row) => raw
         // comments_percentage = 200%.
         let loc = loc::Stats::with_cloc_sloc(2, 0);
-        assert_eq!(loc.cloc(), 2.0);
-        assert_eq!(loc.sloc(), 1.0);
+        assert_eq!(loc.cloc(), 2);
+        assert_eq!(loc.sloc(), 1);
 
         let cyclomatic = cyclomatic::Stats::default();
         let halstead = halstead::Stats::default();

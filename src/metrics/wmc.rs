@@ -11,6 +11,14 @@
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+// WMC stores cumulative cyclomatic as `f64` internally but exposes
+// integral `u64` accessors (#530); the `f64 as u64` / `u64 as f64` casts
+// are bounded by the counts they came from.
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 use serde::Serialize;
 use serde::ser::{SerializeStruct, Serializer};
@@ -112,35 +120,35 @@ impl Stats {
     /// Returns the `Wmc` metric value of the classes in a space.
     #[inline]
     #[must_use]
-    pub fn class_wmc(&self) -> f64 {
-        self.class_wmc
+    pub fn class_wmc(&self) -> u64 {
+        self.class_wmc as u64
     }
 
     /// Returns the `Wmc` metric value of the interfaces in a space.
     #[inline]
     #[must_use]
-    pub fn interface_wmc(&self) -> f64 {
-        self.interface_wmc
+    pub fn interface_wmc(&self) -> u64 {
+        self.interface_wmc as u64
     }
 
     /// Returns the sum of the `Wmc` metric values of the classes in a space.
     #[inline]
     #[must_use]
-    pub fn class_wmc_sum(&self) -> f64 {
-        self.class_wmc_sum
+    pub fn class_wmc_sum(&self) -> u64 {
+        self.class_wmc_sum as u64
     }
 
     /// Returns the sum of the `Wmc` metric values of the interfaces in a space.
     #[inline]
     #[must_use]
-    pub fn interface_wmc_sum(&self) -> f64 {
-        self.interface_wmc_sum
+    pub fn interface_wmc_sum(&self) -> u64 {
+        self.interface_wmc_sum as u64
     }
 
     /// Returns the total `Wmc` metric value in a space.
     #[inline]
     #[must_use]
-    pub fn total_wmc(&self) -> f64 {
+    pub fn total_wmc(&self) -> u64 {
         self.class_wmc_sum() + self.interface_wmc_sum()
     }
 
@@ -190,7 +198,7 @@ fn class_interface_compute(
         // (so an ancestor method can subtract a nested class's
         // complexity from its own contribution — see `merge`, #463).
         if let Function | Class | Interface = space_kind {
-            stats.cyclomatic = cyclomatic.cyclomatic_sum();
+            stats.cyclomatic = cyclomatic.cyclomatic_sum() as f64;
         }
     }
 }
@@ -242,7 +250,7 @@ impl Wmc for PhpCode {
             // see `merge`, #463; matters for PHP `AnonymousClass` nested
             // inside a method).
             if let Function | Class | Interface = space_kind {
-                stats.cyclomatic = cyclomatic.cyclomatic_sum();
+                stats.cyclomatic = cyclomatic.cyclomatic_sum() as f64;
             }
         }
     }
@@ -477,12 +485,13 @@ mod tests {
                 // 1 class
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 13.0,
-                      "interfaces": 0.0,
-                      "total": 13.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 13,
+                  "interfaces": 0,
+                  "total": 13
+                }
+                "#
                 );
             },
         );
@@ -515,7 +524,7 @@ mod tests {
                 // m1: entry(1) + if(1) + &&(1) + ||(1) = 4
                 // m2: entry(1) + for(1) + while(1) + ternary(1) = 4
                 // WMC = 4 + 4 = 8
-                assert_eq!(metric.wmc.class_wmc_sum(), 8.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 8);
             },
         );
     }
@@ -523,7 +532,7 @@ mod tests {
     #[test]
     fn groovy_empty_class() {
         check_metrics::<GroovyParser>("class Empty {}", "foo.groovy", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
         });
     }
 
@@ -538,7 +547,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // single method has entry +1 = 1
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
             },
         );
     }
@@ -555,7 +564,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // A.f: 1 + 1 (if) = 2, B.g: 1 → total = 3
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
             },
         );
     }
@@ -579,7 +588,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // abs: 1 + 1 (if) = 2; sign: 1 + 2 (two ifs) = 3 → 5
-                assert_eq!(metric.wmc.class_wmc_sum(), 5.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 5);
             },
         );
     }
@@ -594,7 +603,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
             },
         );
     }
@@ -614,7 +623,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // TopLevelClass(0) + StaticNestedClass(1 = entry only).
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
             },
         );
     }
@@ -637,7 +646,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 3 classes, each with one method => 1 + 1 + 1 = 3.
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
             },
         );
     }
@@ -664,7 +673,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
             },
         );
     }
@@ -692,7 +701,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // Base.m1(1) + Top.m(1) + anonymous.m1(1+for(1)) = 4
-                assert_eq!(metric.wmc.class_wmc_sum(), 4.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 4);
             },
         );
     }
@@ -714,7 +723,7 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // m1(1) + m2(1 + if(1)) = 3
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
             },
         );
     }
@@ -736,8 +745,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // m1(1 + && + ||) + m2(1 + ternary) + m3(1) = 6
-                assert_eq!(metric.wmc.interface_wmc_sum(), 6.0);
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 6);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
             },
         );
     }
@@ -759,8 +768,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // Outer interface: api(1) = 1; Inner class: f(1+if) = 2.
-                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -779,7 +788,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -801,7 +810,7 @@ mod tests {
             }",
             "foo.groovy",
             |func_space| {
-                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0);
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
@@ -839,12 +848,13 @@ mod tests {
                 // 2 classes (3 + 2)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 5.0,
-                      "interfaces": 0.0,
-                      "total": 5.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 5,
+                  "interfaces": 0,
+                  "total": 5
+                }
+                "#
                 );
             },
         );
@@ -865,12 +875,13 @@ mod tests {
                 // 2 classes (0 + 2)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 1.0,
-                      "interfaces": 0.0,
-                      "total": 1.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 1,
+                  "interfaces": 0,
+                  "total": 1
+                }
+                "#
                 );
             },
         );
@@ -933,12 +944,13 @@ mod tests {
                 // 6 classes (2 + 1 + 2 + 1 + 1 + 2)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 9.0,
-                      "interfaces": 0.0,
-                      "total": 9.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 9,
+                  "interfaces": 0,
+                  "total": 9
+                }
+                "#
                 );
             },
         );
@@ -977,15 +989,16 @@ mod tests {
                 // double-attribution (#463; previously the local class's
                 // complexity was double-counted into both scopes, giving an
                 // inflated 7).
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 3.0,
-                      "interfaces": 0.0,
-                      "total": 3.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 3,
+                  "interfaces": 0,
+                  "total": 3
+                }
+                "#
                 );
             },
         );
@@ -1014,12 +1027,13 @@ mod tests {
                 // 2 classes (1 + 3)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 4.0,
-                      "interfaces": 0.0,
-                      "total": 4.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 4,
+                  "interfaces": 0,
+                  "total": 4
+                }
+                "#
                 );
             },
         );
@@ -1062,12 +1076,13 @@ mod tests {
                 // 2 classes (2 + 6)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 8.0,
-                      "interfaces": 0.0,
-                      "total": 8.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 8,
+                  "interfaces": 0,
+                  "total": 8
+                }
+                "#
                 );
             },
         );
@@ -1097,12 +1112,13 @@ mod tests {
                 // 1 class
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 2.0,
-                      "interfaces": 0.0,
-                      "total": 2.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 2,
+                  "interfaces": 0,
+                  "total": 2
+                }
+                "#
                 );
             },
         );
@@ -1125,12 +1141,13 @@ mod tests {
                 // 1 interface
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 0.0,
-                      "interfaces": 6.0,
-                      "total": 6.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 0,
+                  "interfaces": 6,
+                  "total": 6
+                }
+                "#
                 );
             },
         );
@@ -1155,12 +1172,13 @@ mod tests {
                 // 2 interfaces (1 + 2)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 0.0,
-                      "interfaces": 3.0,
-                      "total": 3.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 0,
+                  "interfaces": 3,
+                  "total": 3
+                }
+                "#
                 );
             },
         );
@@ -1189,12 +1207,13 @@ mod tests {
                 // 4 interfaces (1 + 1 + 2 + 1)
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 0.0,
-                      "interfaces": 5.0,
-                      "total": 5.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 0,
+                  "interfaces": 5,
+                  "total": 5
+                }
+                "#
                 );
             },
         );
@@ -1223,12 +1242,13 @@ mod tests {
                 // 1 class 1 interface
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 2.0,
-                      "interfaces": 2.0,
-                      "total": 4.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 2,
+                  "interfaces": 2,
+                  "total": 4
+                }
+                "#
                 );
             },
         );
@@ -1257,12 +1277,13 @@ mod tests {
                 // 1 class 1 interface
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
-                    {
-                      "classes": 2.0,
-                      "interfaces": 2.0,
-                      "total": 4.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 2,
+                  "interfaces": 2,
+                  "total": 4
+                }
+                "#
                 );
             },
         );
@@ -1286,7 +1307,7 @@ mod tests {
             "foo.java",
             |metric| {
                 // 1 enum (class), 1 method with cyclomatic = 2.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -1304,7 +1325,7 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -1330,7 +1351,7 @@ mod tests {
             }",
             "foo.java",
             |func_space| {
-                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0);
                 // Without `AnnotationTypeDeclaration` in `is_func_space`,
                 // the file-level Unit would have zero child spaces here.
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
@@ -1361,8 +1382,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 8.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 8);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1384,8 +1405,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 5.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 5);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1403,8 +1424,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1425,8 +1446,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1447,8 +1468,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1466,8 +1487,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1487,8 +1508,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 4.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 4);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1504,8 +1525,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1527,9 +1548,9 @@ mod tests {
             |metric| {
                 // expected: get (cyclomatic 1) + set (cyclomatic 1) = 2;
                 // no extra entry from the IndexerDeclaration node.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1549,9 +1570,9 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: one implicit getter (cyclomatic 1) = 1.
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1572,9 +1593,9 @@ mod tests {
             |metric| {
                 // expected: get (cyclomatic 1) + set (cyclomatic 1) = 2;
                 // no extra entry from the PropertyDeclaration node (#472).
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
             },
         );
     }
@@ -1593,9 +1614,9 @@ mod tests {
             "foo.cs",
             |metric| {
                 // expected: one implicit getter (cyclomatic 1) = 1.
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
             },
         );
     }
@@ -1609,8 +1630,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1623,8 +1644,8 @@ mod tests {
             public interface I2 { bool GetB(); float GetC(); }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1641,8 +1662,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1659,8 +1680,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1681,8 +1702,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1912,8 +1933,8 @@ mod tests {
     fn kotlin_empty_class() {
         // Empty class — no methods, WMC = 0.
         check_metrics::<KotlinParser>("class Empty {}", "foo.kt", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -1936,8 +1957,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1961,8 +1982,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 5.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 5);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1979,8 +2000,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -1999,8 +2020,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2017,8 +2038,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2037,8 +2058,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2062,8 +2083,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2101,8 +2122,8 @@ mod tests {
                 // `mk` is attributed to the companion space (wmc = 1), and
                 // Holder's roll-up totals get + mk = 2 with no double-count
                 // (the file-level aggregate stays 2, not 3).
-                assert_eq!(companion.metrics.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(holder.metrics.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(companion.metrics.wmc.class_wmc_sum(), 1);
+                assert_eq!(holder.metrics.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -2170,13 +2191,13 @@ mod tests {
                 // space-opening arm folds run/helper back in, lifting it to 3.
                 assert_eq!(
                     get.metrics.nom.functions(),
-                    1.0,
+                    1,
                     "get owns only itself; run/helper are not folded in"
                 );
                 // The anonymous class rolls up both methods' WMC (run +
                 // helper = 2). These two methods are accounted for in the
                 // anonymous space, not double-counted into `get`.
-                assert_eq!(anon.metrics.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(anon.metrics.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -2231,7 +2252,7 @@ mod tests {
                     .filter(|s| s.kind == crate::SpaceKind::Function)
                     .count();
                 assert_eq!(anon_methods, 1, "run attributed to the anonymous class");
-                assert_eq!(anon_classes[0].metrics.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(anon_classes[0].metrics.wmc.class_wmc_sum(), 1);
             },
         );
     }
@@ -2314,10 +2335,10 @@ mod tests {
                     class_children, 0,
                     "Groovy grammar models the body as a closure, not a class"
                 );
-                assert_eq!(m.metrics.nom.functions(), 1.0, "`m` itself, not `run`");
-                let nested_funcs: f64 = m.spaces.iter().map(|s| s.metrics.nom.functions()).sum();
+                assert_eq!(m.metrics.nom.functions(), 1, "`m` itself, not `run`");
+                let nested_funcs: u64 = m.spaces.iter().map(|s| s.metrics.nom.functions()).sum();
                 assert_eq!(
-                    nested_funcs, 1.0,
+                    nested_funcs, 1,
                     "`run` is attributed to the nested closure space"
                 );
             },
@@ -2334,8 +2355,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2353,8 +2374,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2373,8 +2394,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2397,8 +2418,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2418,8 +2439,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2436,8 +2457,8 @@ mod tests {
             ",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2455,8 +2476,8 @@ mod tests {
             ",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2472,8 +2493,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2493,8 +2514,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2512,8 +2533,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2534,7 +2555,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2552,7 +2573,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2573,7 +2594,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2592,7 +2613,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2612,7 +2633,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2628,7 +2649,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2644,8 +2665,8 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2668,7 +2689,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2685,7 +2706,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2704,7 +2725,7 @@ mod tests {
             "foo.ts",
             |metric| {
                 // A: 1 + B: 2 = 3 total.
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2722,7 +2743,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2738,7 +2759,7 @@ mod tests {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2752,7 +2773,7 @@ mod tests {
             "class C { m(): number { return 1; } }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2770,7 +2791,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2788,7 +2809,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2805,7 +2826,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2823,7 +2844,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2838,7 +2859,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2850,8 +2871,8 @@ mod tests {
             "interface I { a(): void; b(): number; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2869,7 +2890,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2885,7 +2906,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2903,7 +2924,7 @@ mod tests {
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2919,7 +2940,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2935,7 +2956,7 @@ mod tests {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2952,8 +2973,8 @@ mod tests {
     fn ruby_no_classes() {
         // File with only a top-level method — no class space, WMC = 0.
         check_metrics::<RubyParser>("def foo\n  1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -2962,7 +2983,7 @@ mod tests {
     fn ruby_empty_class() {
         // Class with no methods → wmc = 0.
         check_metrics::<RubyParser>("class Foo\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -2974,7 +2995,7 @@ mod tests {
             "class A\n  def a\n    1\n  end\n  def b\n    2\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -2987,7 +3008,7 @@ mod tests {
             "class A\n  def f(x)\n    if x > 0\n      1\n    else\n      0\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3000,7 +3021,7 @@ mod tests {
             "class A\n  def f(n)\n    while n > 0\n      n -= 1\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3014,7 +3035,7 @@ mod tests {
             "class A\n  def f\n    1\n  end\n  def self.g\n    2\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3030,7 +3051,7 @@ mod tests {
             |metric| {
                 // Two class spaces: outer A (wmc 0, no methods) and the
                 // singleton class with its single method (wmc 1).
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3044,7 +3065,7 @@ mod tests {
             "foo.rb",
             |metric| {
                 // A: 2 (base + if). B: 1 (base only). Sum = 3.
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3058,7 +3079,7 @@ mod tests {
             "module M\n  def f\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3072,7 +3093,7 @@ mod tests {
             "class A < B\n  def f\n    1\n  end\n  def g\n    2\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3086,7 +3107,7 @@ mod tests {
             "class A\n  def a\n    1\n  end\n  private\n  def b\n    1\n  end\n  protected\n  def c\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3102,7 +3123,7 @@ mod tests {
             "class Calc\n  def add(a, b)\n    if a > 0 && b > 0\n      a + b\n    end\n  end\n  def loop(n)\n    s = 0\n    while n > 0\n      if n.even?\n        s += n\n      end\n      n -= 1\n    end\n    s\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 6);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3122,8 +3143,8 @@ mod tests {
     #[test]
     fn python_empty_class_zero_wmc() {
         check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -3135,7 +3156,7 @@ mod tests {
             "class C:\n    def m(self):\n        return 1\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3148,7 +3169,7 @@ mod tests {
             "class C:\n    def m(self, x):\n        if x > 0:\n            return 1\n        return 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3173,7 +3194,7 @@ mod tests {
              \x20       return None\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 6);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3187,7 +3208,7 @@ mod tests {
             "def f(x):\n    if x:\n        return 1\n    return 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3209,7 +3230,7 @@ mod tests {
              \x20       return 0\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3218,8 +3239,8 @@ mod tests {
     #[test]
     fn rust_empty_unit_zero_wmc() {
         check_metrics::<RustParser>("", "empty.rs", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -3231,7 +3252,7 @@ mod tests {
             "struct Foo;\nimpl Foo { fn m(&self) -> i32 { 1 } }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3249,7 +3270,7 @@ mod tests {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3271,7 +3292,7 @@ mod tests {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 6);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3287,7 +3308,7 @@ mod tests {
              impl Foo { fn m2(&self) {} }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3303,8 +3324,8 @@ mod tests {
             "trait T { fn draw(&self); fn area(&self) -> f64 { 0.0 } }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3319,8 +3340,8 @@ mod tests {
             "fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3346,8 +3367,8 @@ mod tests {
              func (f Foo) N() {}\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3368,16 +3389,17 @@ mod tests {
             "foo.ex",
             |metric| {
                 // m: entry(1) + if(1) = 2; n: entry(1) = 1 → wmc = 3.
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.wmc,
-                    @r###"
+                    @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "total": 3.0
-                }"###
+                  "classes": 3,
+                  "interfaces": 0,
+                  "total": 3
+                }
+                "#
                 );
             },
         );
@@ -3391,7 +3413,7 @@ mod tests {
             |metric| {
                 // Both `def` and `defp` are methods of the class — npm
                 // distinguishes public vs private, wmc does not.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -3403,7 +3425,7 @@ mod tests {
             "foo.ex",
             |metric| {
                 // defmacro is a method; body has entry(1) + if(1) = 2.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -3417,7 +3439,7 @@ mod tests {
             "foo.ex",
             |metric| {
                 // Two clauses, entry(1) each → wmc = 2.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -3429,7 +3451,7 @@ mod tests {
             "foo.ex",
             |metric| {
                 // Outer.o(1) + Inner.i(1) → file-level sum is 2.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
             },
         );
     }
@@ -3451,7 +3473,7 @@ mod tests {
             |metric| {
                 // Only the `defmacro custom_def` itself is a method
                 // of `Foo`. Body cyclomatic: entry(1) → wmc = 1.
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
             },
         );
     }
@@ -3474,7 +3496,7 @@ mod tests {
             |metric| {
                 // Only `defmacro multi` is a method of Foo: entry(1)
                 // → wmc = 1.
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
             },
         );
     }
@@ -3485,8 +3507,8 @@ mod tests {
     fn cpp_empty_unit_zero_wmc() {
         // No code → no class spaces → wmc = 0. Wires up the trait.
         check_metrics::<CppParser>("", "empty.cpp", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -3495,7 +3517,7 @@ mod tests {
     fn cpp_single_method_wmc_one() {
         // One method with no control flow → cyclomatic = 1 → wmc = 1.
         check_metrics::<CppParser>("class Foo { public: void m() {} };", "foo.cpp", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 1);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -3513,7 +3535,7 @@ mod tests {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3533,8 +3555,8 @@ mod tests {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3551,8 +3573,8 @@ mod tests {
             "int free_fn(int x) { if (x > 0) { return 1; } return 0; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3570,7 +3592,7 @@ mod tests {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3584,7 +3606,7 @@ mod tests {
             "class Foo { public: void a() {} };\nstruct Bar { void b() {} };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3593,7 +3615,7 @@ mod tests {
     #[test]
     fn javascript_empty_unit_zero_wmc() {
         check_metrics::<JavascriptParser>("", "empty.js", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 0);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -3603,7 +3625,7 @@ mod tests {
         // Class with a single straight-line method has wmc = 1 (the
         // method's cyclomatic) rolling into the class space.
         check_metrics::<JavascriptParser>("class Foo { a() { return 1; } }", "foo.js", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 1);
             insta::assert_json_snapshot!(metric.wmc);
         });
     }
@@ -3615,7 +3637,7 @@ mod tests {
             "class Foo { a(x) { if (x > 0) return 1; return 0; } }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3630,7 +3652,7 @@ mod tests {
             "foo.js",
             |metric| {
                 // Only the class method contributes.
-                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 1);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3644,7 +3666,7 @@ mod tests {
             "class Foo { a() { return 1; } }\nclass Bar { b() { return 1; } }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -3653,8 +3675,32 @@ mod tests {
     #[test]
     fn mozjs_single_method_wmc_one() {
         check_metrics::<MozjsParser>("class Foo { a() { return 1; } }", "foo.js", |metric| {
-            assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            assert_eq!(metric.wmc.class_wmc_sum(), 1);
             insta::assert_json_snapshot!(metric.wmc);
         });
+    }
+
+    // #530: a method that *contains* a nested class must yield a
+    // non-negative integer `class_wmc_sum`. The nested class is its own
+    // WMC scope (#463), so `Outer.m` (base 1) plus the nested `Inner.n`
+    // (base 1) sum to exactly 2 with no double-attribution and no
+    // negative intermediate. Mirrors `java_local_inner_class`, kept
+    // minimal to pin the `u64` accessor's non-negativity.
+    #[test]
+    fn java_method_with_nested_class_wmc_is_non_negative_integer() {
+        check_metrics::<JavaParser>(
+            "public class Outer {
+                public void m() {
+                    class Inner {
+                        public void n() {}
+                    }
+                }
+            }",
+            "Outer.java",
+            |metric| {
+                let total = metric.wmc.class_wmc_sum();
+                assert_eq!(total, 2, "Outer.m (1) + Inner.n (1) with no double-count");
+            },
+        );
     }
 }

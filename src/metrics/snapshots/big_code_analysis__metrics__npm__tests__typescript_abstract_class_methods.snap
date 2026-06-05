@@ -3,13 +3,13 @@ source: src/metrics/npm.rs
 expression: metric.npm
 ---
 {
-  "classes": 3.0,
-  "interfaces": 0.0,
-  "class_methods": 5.0,
-  "interface_methods": 0.0,
+  "classes": 3,
+  "interfaces": 0,
+  "class_methods": 5,
+  "interface_methods": 0,
   "class_coa": 0.6,
   "interface_coa": 0.0,
-  "total": 3.0,
-  "total_methods": 5.0,
+  "total": 3,
+  "total_methods": 5,
   "coa": 0.6
 }

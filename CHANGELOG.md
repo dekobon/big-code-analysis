@@ -475,6 +475,24 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Integer-valued metrics now serialize as integers instead of
+  floats, and their public `Stats` accessors return `u64` instead of `f64`.
+  Affected: every count, sum, and min/max (cyclomatic, cognitive, exit, nargs,
+  nom, tokens, loc lines, ABC assignments/branches/conditions, npa/npm
+  attribute/method counts), Halstead `length`/`vocabulary` and the four
+  operator/operand counts, and all three WMC values. Ratios, averages, ABC
+  `magnitude`, the derived Halstead scores (`volume`, `difficulty`, `level`,
+  `effort`, `time`, `bugs`, `purity_ratio`, `estimated_program_length`), and the
+  MI scores remain `f64`. JSON/TOML/YAML now emit `"sloc": 5` rather than
+  `"sloc": 5.0`, CBOR encodes these fields as compact integers rather than
+  float64, and CSV output is unchanged (it already rendered integral values
+  without a trailing `.0`). No metric *value* changes — only its type and
+  representation. This is a SemVer-breaking shape change to the serialized
+  output and the library accessor signatures; it is **deferred to the `2.0.0`
+  release** (the release-prep commit moves this entry into the `2.0.0` section).
+  ([#530](https://github.com/dekobon/big-code-analysis/issues/530), part of
+  [#505](https://github.com/dekobon/big-code-analysis/issues/505))
+
 - Internal refactor of the crate-private `Checker` classification trait
   (a `pub(crate)` extension point, not part of the public API or the
   [STABILITY.md](./STABILITY.md) shape contract) so that adding a language

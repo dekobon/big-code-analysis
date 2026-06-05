@@ -119,29 +119,29 @@ impl Stats {
     /// Returns the number of function arguments in a space.
     #[inline]
     #[must_use]
-    pub fn fn_args(&self) -> f64 {
-        self.fn_nargs as f64
+    pub fn fn_args(&self) -> u64 {
+        self.fn_nargs as u64
     }
 
     /// Returns the number of closure arguments in a space.
     #[inline]
     #[must_use]
-    pub fn closure_args(&self) -> f64 {
-        self.closure_nargs as f64
+    pub fn closure_args(&self) -> u64 {
+        self.closure_nargs as u64
     }
 
     /// Returns the number of function arguments sum in a space.
     #[inline]
     #[must_use]
-    pub fn fn_args_sum(&self) -> f64 {
-        self.fn_nargs_sum as f64
+    pub fn fn_args_sum(&self) -> u64 {
+        self.fn_nargs_sum as u64
     }
 
     /// Returns the number of closure arguments sum in a space.
     #[inline]
     #[must_use]
-    pub fn closure_args_sum(&self) -> f64 {
-        self.closure_nargs_sum as f64
+    pub fn closure_args_sum(&self) -> u64 {
+        self.closure_nargs_sum as u64
     }
 
     /// Returns the average number of functions arguments in a space.
@@ -162,7 +162,7 @@ impl Stats {
     /// closure in a space.
     #[inline]
     #[must_use]
-    pub fn nargs_total(&self) -> f64 {
+    pub fn nargs_total(&self) -> u64 {
         self.fn_args_sum() + self.closure_args_sum()
     }
 
@@ -174,7 +174,7 @@ impl Stats {
     #[must_use]
     pub fn nargs_average(&self) -> f64 {
         crate::metrics::average(
-            self.nargs_total(),
+            self.nargs_total() as f64,
             self.total_functions + self.total_closures,
         )
     }
@@ -185,36 +185,36 @@ impl Stats {
     /// serializes to a meaningful number rather than `1.8446744e19`.
     #[inline]
     #[must_use]
-    pub fn fn_args_min(&self) -> f64 {
+    pub fn fn_args_min(&self) -> u64 {
         if self.fn_nargs_min == usize::MAX {
-            0.0
+            0
         } else {
-            self.fn_nargs_min as f64
+            self.fn_nargs_min as u64
         }
     }
     /// Returns the maximum number of function arguments in a space.
     #[inline]
     #[must_use]
-    pub fn fn_args_max(&self) -> f64 {
-        self.fn_nargs_max as f64
+    pub fn fn_args_max(&self) -> u64 {
+        self.fn_nargs_max as u64
     }
     /// Returns the minimum number of closure arguments in a space.
     ///
     /// Same `usize::MAX` sentinel collapse as `fn_args_min`.
     #[inline]
     #[must_use]
-    pub fn closure_args_min(&self) -> f64 {
+    pub fn closure_args_min(&self) -> u64 {
         if self.closure_nargs_min == usize::MAX {
-            0.0
+            0
         } else {
-            self.closure_nargs_min as f64
+            self.closure_nargs_min as u64
         }
     }
     /// Returns the maximum number of closure arguments in a space.
     #[inline]
     #[must_use]
-    pub fn closure_args_max(&self) -> f64 {
-        self.closure_nargs_max as f64
+    pub fn closure_args_max(&self) -> u64 {
+        self.closure_nargs_max as u64
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -502,8 +502,8 @@ mod tests {
     #[test]
     fn nargs_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.fn_args_min(), 0.0);
-        assert_eq!(stats.closure_args_min(), 0.0);
+        assert_eq!(stats.fn_args_min(), 0);
+        assert_eq!(stats.closure_args_min(), 0);
     }
 
     #[test]
@@ -514,16 +514,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 0.0,
+              "function_args": 0,
+              "closure_args": 0,
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
-              "total": 0.0,
+              "total": 0,
               "average": 0.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 0.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 0
             }
             "#
             );
@@ -538,16 +538,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 0.0,
+              "function_args": 0,
+              "closure_args": 0,
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
-              "total": 0.0,
+              "total": 0,
               "average": 0.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 0.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 0
             }
             "#
             );
@@ -562,16 +562,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 0.0,
+              "function_args": 0,
+              "closure_args": 0,
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
-              "total": 0.0,
+              "total": 0,
               "average": 0.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 0.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 0
             }
             "#
             );
@@ -586,16 +586,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 0.0,
+              "function_args": 0,
+              "closure_args": 0,
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
-              "total": 0.0,
+              "total": 0,
               "average": 0.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 0.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 0
             }
             "#
             );
@@ -615,16 +615,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -647,16 +647,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -679,16 +679,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -709,16 +709,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -734,16 +734,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 1.0,
+              "function_args": 0,
+              "closure_args": 1,
               "function_args_average": 0.0,
               "closure_args_average": 1.0,
-              "total": 1.0,
+              "total": 1,
               "average": 1.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 1.0,
-              "closure_args_max": 1.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 1,
+              "closure_args_max": 1
             }
             "#
             );
@@ -758,16 +758,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 1.0,
+              "function_args": 0,
+              "closure_args": 1,
               "function_args_average": 0.0,
               "closure_args_average": 1.0,
-              "total": 1.0,
+              "total": 1,
               "average": 1.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 1.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 1
             }
             "#
             );
@@ -785,16 +785,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 2.0,
+                  "function_args": 0,
+                  "closure_args": 2,
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 2.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 2,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -810,16 +810,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 2.0,
+              "function_args": 0,
+              "closure_args": 2,
               "function_args_average": 0.0,
               "closure_args_average": 2.0,
-              "total": 2.0,
+              "total": 2,
               "average": 2.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 2.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 2
             }
             "#
             );
@@ -842,16 +842,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -872,16 +872,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 5.0,
-                  "closure_args": 0.0,
+                  "function_args": 5,
+                  "closure_args": 0,
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
-                  "total": 5.0,
+                  "total": 5,
                   "average": 2.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -909,16 +909,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -943,16 +943,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 5.0,
-                  "closure_args": 0.0,
+                  "function_args": 5,
+                  "closure_args": 0,
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
-                  "total": 5.0,
+                  "total": 5,
                   "average": 2.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -977,8 +977,8 @@ mod tests {
                 // 3 methods: 0 + 1 + 2 explicit params. The three receiver
                 // forms contribute nothing. sum = 3, max = 2.
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 3.0);
-                assert_eq!(s.fn_args_max(), 2.0);
+                assert_eq!(s.fn_args_sum(), 3);
+                assert_eq!(s.fn_args_max(), 2);
             },
         );
 
@@ -1002,8 +1002,8 @@ mod tests {
                 // Each typed receiver contributes nothing. sum = 2+1+0 = 3,
                 // max = 2 (from method `a`).
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 3.0);
-                assert_eq!(s.fn_args_max(), 2.0);
+                assert_eq!(s.fn_args_sum(), 3);
+                assert_eq!(s.fn_args_max(), 2);
             },
         );
     }
@@ -1028,16 +1028,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1062,16 +1062,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 5.0,
-                  "closure_args": 0.0,
+                  "function_args": 5,
+                  "closure_args": 0,
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
-                  "total": 5.0,
+                  "total": 5,
                   "average": 2.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1095,16 +1095,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1125,16 +1125,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 5.0,
-                  "closure_args": 0.0,
+                  "function_args": 5,
+                  "closure_args": 0,
                   "function_args_average": 2.5,
                   "closure_args_average": 0.0,
-                  "total": 5.0,
+                  "total": 5,
                   "average": 2.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1158,16 +1158,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 2.0,
+                  "function_args": 3,
+                  "closure_args": 2,
                   "function_args_average": 1.5,
                   "closure_args_average": 1.0,
-                  "total": 5.0,
+                  "total": 5,
                   "average": 1.25,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -1193,16 +1193,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 3.0,
+                  "function_args": 3,
+                  "closure_args": 3,
                   "function_args_average": 1.5,
                   "closure_args_average": 1.5,
-                  "total": 6.0,
+                  "total": 6,
                   "average": 1.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -1225,16 +1225,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 3.0,
+                  "function_args": 3,
+                  "closure_args": 3,
                   "function_args_average": 3.0,
                   "closure_args_average": 1.5,
-                  "total": 6.0,
+                  "total": 6,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 3.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 3
                 }
                 "#
                 );
@@ -1255,22 +1255,22 @@ mod tests {
             |metric| {
                 // 1 function, 3 parameters (defaults still count).
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 3.0);
-                assert_eq!(s.fn_args_max(), 3.0);
+                assert_eq!(s.fn_args_sum(), 3);
+                assert_eq!(s.fn_args_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 0.0,
+                  "function_args": 3,
+                  "closure_args": 0,
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
-                  "total": 3.0,
+                  "total": 3,
                   "average": 3.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1292,22 +1292,22 @@ mod tests {
             |metric| {
                 // 1 function, 2 nargs: `fmt` and `...`
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 2.0);
-                assert_eq!(s.fn_args_max(), 2.0);
+                assert_eq!(s.fn_args_sum(), 2);
+                assert_eq!(s.fn_args_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1332,22 +1332,22 @@ mod tests {
             |metric| {
                 // 1 function, 2 nargs: `seed` and `Args... args`
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 2.0);
-                assert_eq!(s.fn_args_max(), 2.0);
+                assert_eq!(s.fn_args_sum(), 2);
+                assert_eq!(s.fn_args_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1372,23 +1372,23 @@ mod tests {
             |metric| {
                 // 1 function (0 args), 1 lambda (2 args: a, b — captures `=, &x` excluded).
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 0.0);
-                assert_eq!(s.closure_args_sum(), 2.0);
-                assert_eq!(s.closure_args_max(), 2.0);
+                assert_eq!(s.fn_args_sum(), 0);
+                assert_eq!(s.closure_args_sum(), 2);
+                assert_eq!(s.closure_args_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 2.0,
+                  "function_args": 0,
+                  "closure_args": 2,
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -1414,22 +1414,22 @@ mod tests {
             |metric| {
                 // 1 member function with 1 explicit parameter `a`.
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 1.0);
-                assert_eq!(s.fn_args_max(), 1.0);
+                assert_eq!(s.fn_args_sum(), 1);
+                assert_eq!(s.fn_args_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 1.0,
-                  "closure_args": 0.0,
+                  "function_args": 1,
+                  "closure_args": 0,
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
-                  "total": 1.0,
+                  "total": 1,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 1.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 1,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1448,16 +1448,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1476,16 +1476,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 0.0,
+                  "function_args": 3,
+                  "closure_args": 0,
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
-                  "total": 3.0,
+                  "total": 3,
                   "average": 3.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1508,16 +1508,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 1.0,
-                  "closure_args": 0.0,
+                  "function_args": 1,
+                  "closure_args": 0,
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
-                  "total": 1.0,
+                  "total": 1,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 1.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 1,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1536,16 +1536,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 1.0,
-                  "closure_args": 0.0,
+                  "function_args": 1,
+                  "closure_args": 0,
                   "function_args_average": 1.0,
                   "closure_args_average": 0.0,
-                  "total": 1.0,
+                  "total": 1,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 1.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 1,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1566,16 +1566,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 0.0,
+                  "function_args": 3,
+                  "closure_args": 0,
                   "function_args_average": 3.0,
                   "closure_args_average": 0.0,
-                  "total": 3.0,
+                  "total": 3,
                   "average": 3.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1595,16 +1595,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 2.0,
+                  "function_args": 0,
+                  "closure_args": 2,
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -1630,16 +1630,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 6.0,
-                  "closure_args": 1.0,
+                  "function_args": 6,
+                  "closure_args": 1,
                   "function_args_average": 2.0,
                   "closure_args_average": 1.0,
-                  "total": 7.0,
+                  "total": 7,
                   "average": 1.75,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 1.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 1
                 }
                 "#
                 );
@@ -1658,22 +1658,22 @@ mod tests {
                 // recognised — symmetric with the other `perl_*` nargs
                 // tests, and would catch a regression that miscounted
                 // `print` (or similar) as a function.
-                assert_eq!(metric.nom.functions_sum(), 0.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1694,22 +1694,22 @@ mod tests {
             }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 1.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1729,22 +1729,22 @@ mod tests {
             };",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 0.0);
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.closures_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1764,22 +1764,22 @@ mod tests {
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1798,22 +1798,22 @@ mod tests {
             }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 1.0);
-                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
+                assert_eq!(metric.nom.closures_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1834,16 +1834,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1865,16 +1865,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1899,16 +1899,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1930,16 +1930,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -1966,8 +1966,8 @@ mod tests {
                 // nothing. Pre-fix, the receivers inflated this to sum = 5
                 // (m:2 + n:2 + r:1), max = 2. After #470: sum = 3, max = 2.
                 let s = &metric.nargs;
-                assert_eq!(s.fn_args_sum(), 3.0);
-                assert_eq!(s.fn_args_max(), 2.0);
+                assert_eq!(s.fn_args_sum(), 3);
+                assert_eq!(s.fn_args_max(), 2);
             },
         );
     }
@@ -1986,16 +1986,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 2.0,
+                  "function_args": 0,
+                  "closure_args": 2,
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -2006,7 +2006,7 @@ mod tests {
     #[test]
     fn groovy_no_functions_and_closures() {
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 0.0);
+            assert_eq!(metric.nargs.nargs_total(), 0);
         });
     }
 
@@ -2020,8 +2020,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 2);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
             },
         );
     }
@@ -2035,7 +2035,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 5.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 5);
             },
         );
     }
@@ -2055,7 +2055,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
             },
         );
     }
@@ -2073,7 +2073,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
             },
         );
     }
@@ -2091,16 +2091,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 0.0,
+                  "function_args": 0,
+                  "closure_args": 0,
                   "function_args_average": 0.0,
                   "closure_args_average": 0.0,
-                  "total": 0.0,
+                  "total": 0,
                   "average": 0.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2122,16 +2122,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2156,16 +2156,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2187,16 +2187,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2218,16 +2218,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 2.0,
+                  "function_args": 0,
+                  "closure_args": 2,
                   "function_args_average": 0.0,
                   "closure_args_average": 2.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -2248,16 +2248,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2278,16 +2278,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 4.0,
-                  "closure_args": 0.0,
+                  "function_args": 4,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 3.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2307,16 +2307,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2331,16 +2331,16 @@ mod tests {
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 2.0,
+              "function_args": 0,
+              "closure_args": 2,
               "function_args_average": 0.0,
               "closure_args_average": 2.0,
-              "total": 2.0,
+              "total": 2,
               "average": 2.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 2.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 2
             }
             "#
             );
@@ -2359,49 +2359,49 @@ mod tests {
     #[test]
     fn javascript_bare_arrow_function() {
         check_metrics::<JavascriptParser>("const f = x => x;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn javascript_async_bare_arrow_function() {
         check_metrics::<JavascriptParser>("const f = async x => x;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn javascript_parenthesized_arrow_function() {
         check_metrics::<JavascriptParser>("const f = (x) => x;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn javascript_multi_parenthesized_arrow_function() {
         check_metrics::<JavascriptParser>("const f = (x, y) => x + y;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 2.0);
+            assert_eq!(metric.nargs.nargs_total(), 2);
         });
     }
 
     #[test]
     fn typescript_bare_arrow_function() {
         check_metrics::<TypescriptParser>("const f = x => x;", "foo.ts", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn typescript_async_bare_arrow_function() {
         check_metrics::<TypescriptParser>("const f = async x => x;", "foo.ts", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn typescript_parenthesized_arrow_function() {
         check_metrics::<TypescriptParser>("const f = (x: number) => x;", "foo.ts", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
@@ -2411,7 +2411,7 @@ mod tests {
             "const f = (x: number, y: number) => x + y;",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nargs.nargs_total(), 2.0);
+                assert_eq!(metric.nargs.nargs_total(), 2);
             },
         );
     }
@@ -2419,21 +2419,21 @@ mod tests {
     #[test]
     fn tsx_bare_arrow_function() {
         check_metrics::<TsxParser>("const f = x => x;", "foo.tsx", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn tsx_async_bare_arrow_function() {
         check_metrics::<TsxParser>("const f = async x => x;", "foo.tsx", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn tsx_parenthesized_arrow_function() {
         check_metrics::<TsxParser>("const f = (x: number) => x;", "foo.tsx", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
@@ -2443,7 +2443,7 @@ mod tests {
             "const f = (x: number, y: number) => x + y;",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nargs.nargs_total(), 2.0);
+                assert_eq!(metric.nargs.nargs_total(), 2);
             },
         );
     }
@@ -2451,28 +2451,28 @@ mod tests {
     #[test]
     fn mozjs_bare_arrow_function() {
         check_metrics::<MozjsParser>("const f = x => x;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn mozjs_async_bare_arrow_function() {
         check_metrics::<MozjsParser>("const f = async x => x;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn mozjs_parenthesized_arrow_function() {
         check_metrics::<MozjsParser>("const f = (x) => x;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 1.0);
+            assert_eq!(metric.nargs.nargs_total(), 1);
         });
     }
 
     #[test]
     fn mozjs_multi_parenthesized_arrow_function() {
         check_metrics::<MozjsParser>("const f = (x, y) => x + y;", "foo.js", |metric| {
-            assert_eq!(metric.nargs.nargs_total(), 2.0);
+            assert_eq!(metric.nargs.nargs_total(), 2);
         });
     }
 
@@ -2489,16 +2489,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 2.0,
+                  "function_args": 2,
+                  "closure_args": 2,
                   "function_args_average": 2.0,
                   "closure_args_average": 2.0,
-                  "total": 4.0,
+                  "total": 4,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -2510,8 +2510,8 @@ mod tests {
     fn lua_no_functions_and_closures() {
         check_metrics::<LuaParser>("local x = 1", "foo.lua", |metric| {
             // No functions or closures: both halves are zero.
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2520,8 +2520,8 @@ mod tests {
     fn lua_single_function() {
         check_metrics::<LuaParser>("function f(a, b) return a + b end", "foo.lua", |metric| {
             // f(a, b) → fn_args_sum 2, no closures.
-            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 2);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2533,8 +2533,8 @@ mod tests {
             "foo.lua",
             |metric| {
                 // Anonymous `function(a, b)` bound via `local` → closure_args_sum 2.
-                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2548,8 +2548,8 @@ function g(x, y, z) return x + y + z end",
             "foo.lua",
             |metric| {
                 // f(a)=1 + g(x,y,z)=3 → fn_args_sum 4.
-                assert_eq!(metric.nargs.fn_args_sum(), 4.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 4);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2560,8 +2560,8 @@ function g(x, y, z) return x + y + z end",
         // `...` is a vararg_expression node and counts as one argument.
         check_metrics::<LuaParser>("function f(a, ...) return a end", "foo.lua", |metric| {
             // a + ... → fn_args_sum 2.
-            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 2);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2575,8 +2575,8 @@ function g(x, y, z) return x + y + z end",
             "foo.lua",
             |metric| {
                 // Only explicit a, b → fn_args_sum 2 (implicit self excluded).
-                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 2);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2586,8 +2586,8 @@ function g(x, y, z) return x + y + z end",
     fn tcl_no_functions() {
         check_metrics::<TclParser>("set x 1", "foo.tcl", |metric| {
             // Bare `set` command, no procs → both halves zero.
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2596,8 +2596,8 @@ function g(x, y, z) return x + y + z end",
     fn tcl_single_function() {
         check_metrics::<TclParser>("proc f {a b} { puts $a }", "foo.tcl", |metric| {
             // proc f {a b} → fn_args_sum 2.
-            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 2);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2606,8 +2606,8 @@ function g(x, y, z) return x + y + z end",
     fn tcl_single_function_no_args() {
         check_metrics::<TclParser>("proc f {} { puts hello }", "foo.tcl", |metric| {
             // proc f {} → empty arg list, fn_args_sum 0.
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2620,8 +2620,8 @@ proc g {x y z} { puts $x }",
             "foo.tcl",
             |metric| {
                 // f(a,b)=2 + g(x,y,z)=3 → fn_args_sum 5.
-                assert_eq!(metric.nargs.fn_args_sum(), 5.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 5);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2637,8 +2637,8 @@ proc g {x y z} { puts $x }",
             "foo.tcl",
             |metric| {
                 // outer(a)=1 + inner(x,y)=2 → fn_args_sum 3.
-                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 3);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2649,8 +2649,8 @@ proc g {x y z} { puts $x }",
         // `args` is the Tcl variadic catch-all; it counts as one argument.
         check_metrics::<TclParser>("proc f {a b args} { puts $a }", "foo.tcl", |metric| {
             // a + b + args → fn_args_sum 3 (variadic is one slot).
-            assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 3);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2665,8 +2665,8 @@ proc g {x y z} { puts $x }",
             "foo.tcl",
             |metric| {
                 // {name World} counts as one slot + greeting → fn_args_sum 2.
-                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 2);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2676,8 +2676,8 @@ proc g {x y z} { puts $x }",
     fn kotlin_zero_args() {
         check_metrics::<KotlinParser>("fun f(): Int { return 42 }", "foo.kt", |metric| {
             // fun f() → empty parameter list, fn_args_sum 0.
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2689,8 +2689,8 @@ proc g {x y z} { puts $x }",
             "foo.kt",
             |metric| {
                 // double(x) → fn_args_sum 1.
-                assert_eq!(metric.nargs.fn_args_sum(), 1.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 1);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2703,8 +2703,8 @@ proc g {x y z} { puts $x }",
             "foo.kt",
             |metric| {
                 // add(a, b, c) → fn_args_sum 3.
-                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 3);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2719,8 +2719,8 @@ proc g {x y z} { puts $x }",
             "foo.kt",
             |metric| {
                 // Defaults still count as parameter slots → fn_args_sum 2.
-                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 2);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2745,8 +2745,8 @@ proc g {x y z} { puts $x }",
                 // Outer fun f() has 0 params; two lambdas counted as closures:
                 // {x, y -> ...} contributes 2, {-> 42} contributes 0 →
                 // closure_args_sum 2 across two closure entries.
-                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2762,8 +2762,8 @@ proc g {x y z} { puts $x }",
             "foo.kt",
             |metric| {
                 // Anonymous fun(x, y) is classified as a closure → closure_args_sum 2.
-                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2776,16 +2776,16 @@ proc g {x y z} { puts $x }",
                 metric.nargs,
                 @r#"
             {
-              "function_args": 0.0,
-              "closure_args": 0.0,
+              "function_args": 0,
+              "closure_args": 0,
               "function_args_average": 0.0,
               "closure_args_average": 0.0,
-              "total": 0.0,
+              "total": 0,
               "average": 0.0,
-              "function_args_min": 0.0,
-              "function_args_max": 0.0,
-              "closure_args_min": 0.0,
-              "closure_args_max": 0.0
+              "function_args_min": 0,
+              "function_args_max": 0,
+              "closure_args_min": 0,
+              "closure_args_max": 0
             }
             "#
             );
@@ -2807,16 +2807,16 @@ proc g {x y z} { puts $x }",
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 2.0,
-                  "closure_args": 0.0,
+                  "function_args": 2,
+                  "closure_args": 0,
                   "function_args_average": 2.0,
                   "closure_args_average": 0.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 2.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2838,16 +2838,16 @@ proc g {x y z} { puts $x }",
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 0.0,
-                  "closure_args": 3.0,
+                  "function_args": 0,
+                  "closure_args": 3,
                   "function_args_average": 0.0,
                   "closure_args_average": 1.5,
-                  "total": 3.0,
+                  "total": 3,
                   "average": 1.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 0.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 2.0
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
                 }
                 "#
                 );
@@ -2868,16 +2868,16 @@ proc g {x y z} { puts $x }",
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 3.0,
-                  "closure_args": 0.0,
+                  "function_args": 3,
+                  "closure_args": 0,
                   "function_args_average": 1.5,
                   "closure_args_average": 0.0,
-                  "total": 3.0,
+                  "total": 3,
                   "average": 1.5,
-                  "function_args_min": 0.0,
-                  "function_args_max": 2.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 0.0
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
                 }
                 "#
                 );
@@ -2904,16 +2904,16 @@ proc g {x y z} { puts $x }",
                     metric.nargs,
                     @r#"
                 {
-                  "function_args": 1.0,
-                  "closure_args": 1.0,
+                  "function_args": 1,
+                  "closure_args": 1,
                   "function_args_average": 1.0,
                   "closure_args_average": 1.0,
-                  "total": 2.0,
+                  "total": 2,
                   "average": 1.0,
-                  "function_args_min": 0.0,
-                  "function_args_max": 1.0,
-                  "closure_args_min": 0.0,
-                  "closure_args_max": 1.0
+                  "function_args_min": 0,
+                  "function_args_max": 1,
+                  "closure_args_min": 0,
+                  "closure_args_max": 1
                 }
                 "#
                 );
@@ -2935,8 +2935,8 @@ proc g {x y z} { puts $x }",
             "defmodule Foo do\n  def add(a, b), do: a + b\n  def use_anon do\n    add2 = fn x, y -> x + y end\n    add2.(1, 2)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
             },
         );
     }
@@ -2944,8 +2944,8 @@ proc g {x y z} { puts $x }",
     #[test]
     fn ruby_no_functions_and_closures() {
         check_metrics::<RubyParser>("a = 42\n", "foo.rb", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -2953,8 +2953,8 @@ proc g {x y z} { puts $x }",
     fn ruby_single_function() {
         // Single method with 3 parameters.
         check_metrics::<RubyParser>("def foo(a, b, c)\n  a + b + c\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 3);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -2963,8 +2963,8 @@ proc g {x y z} { puts $x }",
         // A bare block `[1,2,3].each { |x| ... }` is the only closure
         // here; `each` is a method call so the method-args count is 0.
         check_metrics::<RubyParser>("[1, 2, 3].each { |x| puts x }\n", "foo.rb", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 1.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 1);
         });
     }
 
@@ -2975,8 +2975,8 @@ proc g {x y z} { puts $x }",
             "def add(a, b)\n  a + b\nend\n\ndef neg(x)\n  -x\nend\n\nf = ->(a, b) { a * b }\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 3);
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
             },
         );
     }
@@ -2988,8 +2988,8 @@ proc g {x y z} { puts $x }",
             "def outer(a)\n  def inner(b, c)\n    b + c\n  end\n  inner(a, a)\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 3);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
             },
         );
     }
@@ -3005,8 +3005,8 @@ proc g {x y z} { puts $x }",
             "def f(pos_only, /, normal, *, kw_only): pass",
             "foo.py",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 3);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
             },
         );
     }
@@ -3016,8 +3016,8 @@ proc g {x y z} { puts $x }",
     fn python_positional_separator_only() {
         // 1 function, 2 real parameters: a, b (`/` excluded).
         check_metrics::<PythonParser>("def f(a, b, /): pass", "foo.py", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 2);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -3027,8 +3027,8 @@ proc g {x y z} { puts $x }",
     fn python_keyword_separator_only() {
         // 1 function, 2 real parameters: a, b (`*` excluded).
         check_metrics::<PythonParser>("def f(*, a, b): pass", "foo.py", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 2);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -3038,8 +3038,8 @@ proc g {x y z} { puts $x }",
     fn python_lambda_keyword_separator() {
         // 1 lambda, 2 real parameters: a, b (`*` excluded).
         check_metrics::<PythonParser>("g = lambda a, *, b: a", "foo.py", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 2);
         });
     }
 
@@ -3050,8 +3050,8 @@ proc g {x y z} { puts $x }",
     fn python_args_kwargs_still_counted() {
         // 1 function, 3 parameters: a, *args, **kwargs.
         check_metrics::<PythonParser>("def f(a, *args, **kwargs): pass", "foo.py", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 3.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 3);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -3060,8 +3060,8 @@ proc g {x y z} { puts $x }",
     #[test]
     fn irules_no_functions_and_closures() {
         check_metrics::<IrulesParser>("set x 1\nlog local0. $x\n", "foo.irule", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -3074,10 +3074,10 @@ proc g {x y z} { puts $x }",
             "when HTTP_REQUEST { log local0. \"hit\" }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
-                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0);
                 // The handler is still counted as a function space.
-                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.nom.functions_sum(), 1);
             },
         );
     }
@@ -3086,8 +3086,8 @@ proc g {x y z} { puts $x }",
     #[test]
     fn irules_single_proc() {
         check_metrics::<IrulesParser>("proc f { a b } { return $a }\n", "foo.irule", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 2);
+            assert_eq!(metric.nargs.closure_args_sum(), 0);
         });
     }
 
@@ -3095,7 +3095,7 @@ proc g {x y z} { puts $x }",
     #[test]
     fn irules_proc_no_args() {
         check_metrics::<IrulesParser>("proc f { } { return 1 }\n", "foo.irule", |metric| {
-            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.fn_args_sum(), 0);
         });
     }
 
@@ -3108,7 +3108,7 @@ proc g {x y z} { puts $x }",
             "proc f { a {b 5} c } { return $a }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 3);
             },
         );
     }
@@ -3123,8 +3123,8 @@ when HTTP_REQUEST { log local0. \"hit\" }
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
-                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nargs.fn_args_sum(), 2);
+                assert_eq!(metric.nom.functions_sum(), 2);
             },
         );
     }

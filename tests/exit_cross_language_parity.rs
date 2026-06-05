@@ -1,4 +1,5 @@
 #![allow(
+    clippy::cast_precision_loss,
     clippy::float_cmp,
     clippy::needless_raw_string_hashes,
     clippy::too_many_lines
@@ -30,7 +31,7 @@ fn exit_max(lang: LANG, source: &str, ext: &str) -> f64 {
         MetricsOptions::default(),
     )
     .expect("parser produced no FuncSpace for parity fixture");
-    space.metrics.nexits.exit_max()
+    space.metrics.nexits.exit_max() as f64
 }
 
 #[test]

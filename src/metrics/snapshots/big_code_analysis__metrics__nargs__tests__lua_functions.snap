@@ -3,14 +3,14 @@ source: src/metrics/nargs.rs
 expression: metric.nargs
 ---
 {
-  "function_args": 4.0,
-  "closure_args": 0.0,
+  "function_args": 4,
+  "closure_args": 0,
   "function_args_average": 2.0,
   "closure_args_average": 0.0,
-  "total": 4.0,
+  "total": 4,
   "average": 2.0,
-  "function_args_min": 0.0,
-  "function_args_max": 3.0,
-  "closure_args_min": 0.0,
-  "closure_args_max": 0.0
+  "function_args_min": 0,
+  "function_args_max": 3,
+  "closure_args_min": 0,
+  "closure_args_max": 0
 }

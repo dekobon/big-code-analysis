@@ -3,13 +3,13 @@ source: src/metrics/npa.rs
 expression: metric.npa
 ---
 {
-  "classes": 2.0,
-  "interfaces": 0.0,
-  "class_attributes": 4.0,
-  "interface_attributes": 0.0,
+  "classes": 2,
+  "interfaces": 0,
+  "class_attributes": 4,
+  "interface_attributes": 0,
   "class_cda": 0.5,
   "interface_cda": 0.0,
-  "total": 2.0,
-  "total_attributes": 4.0,
+  "total": 2,
+  "total_attributes": 4,
   "cda": 0.5
 }

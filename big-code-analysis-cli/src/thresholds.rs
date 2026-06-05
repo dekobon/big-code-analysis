@@ -14,7 +14,9 @@
 //! [`Violation`] per `(function, metric)` pair whose value exceeds its
 //! configured limit.
 
-#![allow(clippy::doc_markdown)]
+// Threshold extractors return `f64`; integral `u64` metric accessors are
+// widened with `as f64` (#530), bounded by the count they came from.
+#![allow(clippy::doc_markdown, clippy::cast_precision_loss)]
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -43,15 +45,15 @@ struct MetricExtractor {
 const EXTRACTORS: &[MetricExtractor] = &[
     MetricExtractor {
         name: "cognitive",
-        extract: |m| m.cognitive.cognitive(),
+        extract: |m| m.cognitive.cognitive() as f64,
     },
     MetricExtractor {
         name: "cyclomatic",
-        extract: |m| m.cyclomatic.cyclomatic(),
+        extract: |m| m.cyclomatic.cyclomatic() as f64,
     },
     MetricExtractor {
         name: "cyclomatic.modified",
-        extract: |m| m.cyclomatic.cyclomatic_modified(),
+        extract: |m| m.cyclomatic.cyclomatic_modified() as f64,
     },
     MetricExtractor {
         name: "halstead.volume",
@@ -75,39 +77,39 @@ const EXTRACTORS: &[MetricExtractor] = &[
     },
     MetricExtractor {
         name: "loc.sloc",
-        extract: |m| m.loc.sloc(),
+        extract: |m| m.loc.sloc() as f64,
     },
     MetricExtractor {
         name: "loc.ploc",
-        extract: |m| m.loc.ploc(),
+        extract: |m| m.loc.ploc() as f64,
     },
     MetricExtractor {
         name: "loc.lloc",
-        extract: |m| m.loc.lloc(),
+        extract: |m| m.loc.lloc() as f64,
     },
     MetricExtractor {
         name: "loc.cloc",
-        extract: |m| m.loc.cloc(),
+        extract: |m| m.loc.cloc() as f64,
     },
     MetricExtractor {
         name: "loc.blank",
-        extract: |m| m.loc.blank(),
+        extract: |m| m.loc.blank() as f64,
     },
     MetricExtractor {
         name: "nom",
-        extract: |m| m.nom.total(),
+        extract: |m| m.nom.total() as f64,
     },
     MetricExtractor {
         name: "tokens",
-        extract: |m| m.tokens.tokens_sum(),
+        extract: |m| m.tokens.tokens_sum() as f64,
     },
     MetricExtractor {
         name: "nexits",
-        extract: |m| m.nexits.exit_sum(),
+        extract: |m| m.nexits.exit_sum() as f64,
     },
     MetricExtractor {
         name: "nargs",
-        extract: |m| m.nargs.nargs_total(),
+        extract: |m| m.nargs.nargs_total() as f64,
     },
     MetricExtractor {
         name: "mi.original",
@@ -127,15 +129,15 @@ const EXTRACTORS: &[MetricExtractor] = &[
     },
     MetricExtractor {
         name: "wmc",
-        extract: |m| m.wmc.total_wmc(),
+        extract: |m| m.wmc.total_wmc() as f64,
     },
     MetricExtractor {
         name: "npm",
-        extract: |m| m.npm.total_npm(),
+        extract: |m| m.npm.total_npm() as f64,
     },
     MetricExtractor {
         name: "npa",
-        extract: |m| m.npa.total_npa(),
+        extract: |m| m.npa.total_npa() as f64,
     },
 ];
 

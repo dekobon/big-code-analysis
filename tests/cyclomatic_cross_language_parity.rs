@@ -58,7 +58,7 @@ fn ccn_sum(lang: LANG, source: &str, ext: &str) -> f64 {
         MetricsOptions::default(),
     )
     .expect("parser produced no FuncSpace for parity fixture");
-    space.metrics.cyclomatic.cyclomatic_sum()
+    space.metrics.cyclomatic.cyclomatic_sum() as f64
 }
 
 /// Java requires every function to live inside a class, which the

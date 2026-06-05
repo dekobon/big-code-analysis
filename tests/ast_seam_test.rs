@@ -70,8 +70,8 @@ fn parse_then_metrics_rust_matches_hand_computed_values() {
 
     assert_eq!(space.name.as_deref(), Some("snippet.rs"));
     assert_eq!(space.kind, SpaceKind::Unit);
-    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3.0);
-    assert_eq!(space.metrics.cognitive.cognitive_sum(), 2.0);
+    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
+    assert_eq!(space.metrics.cognitive.cognitive_sum(), 2);
 }
 
 #[cfg(feature = "python")]
@@ -89,8 +89,8 @@ fn parse_then_metrics_python_matches_hand_computed_values() {
         .metrics(MetricsOptions::default())
         .expect("walker succeeds");
 
-    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 4.0);
-    assert_eq!(space.metrics.nom.functions_sum(), 1.0);
+    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 4);
+    assert_eq!(space.metrics.nom.functions_sum(), 1);
 }
 
 #[cfg(feature = "cpp")]
@@ -121,7 +121,7 @@ fn parse_then_metrics_cpp_with_preproc_matches_hand_computed_values() {
     .expect("walker succeeds");
 
     assert_eq!(space.name.as_deref(), Some("foo.c"));
-    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3.0);
+    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
 }
 
 // ----- Reuse: two with_only calls against the same parse -----------------
@@ -144,11 +144,11 @@ fn metrics_can_be_recomputed_with_different_selections() {
     // for the requested family and a `Default` (zero) for the other —
     // confirms `MetricsOptions::with_only` is honored per call rather
     // than carried over from a previous walk.
-    assert!(loc_only.metrics.loc.ploc() > 0.0);
-    assert_eq!(loc_only.metrics.cyclomatic.cyclomatic_sum(), 0.0);
+    assert!(loc_only.metrics.loc.ploc() > 0);
+    assert_eq!(loc_only.metrics.cyclomatic.cyclomatic_sum(), 0);
 
-    assert!(cyc_only.metrics.cyclomatic.cyclomatic_sum() > 0.0);
-    assert_eq!(cyc_only.metrics.loc.ploc(), 0.0);
+    assert!(cyc_only.metrics.cyclomatic.cyclomatic_sum() > 0);
+    assert_eq!(cyc_only.metrics.loc.ploc(), 0);
 }
 
 // ----- Static `Send + Sync` contract -------------------------------------
@@ -216,7 +216,7 @@ fn from_tree_sitter_walks_supplied_tree_not_a_reparse() {
         .metrics(MetricsOptions::default())
         .expect("walker succeeds");
 
-    assert_eq!(space.metrics.nom.functions_sum(), 2.0);
+    assert_eq!(space.metrics.nom.functions_sum(), 2);
 }
 
 #[cfg(feature = "rust")]
@@ -251,7 +251,7 @@ fn from_tree_sitter_adopts_caller_built_tree() {
     // — adoption must produce the same CCN as bytes-based parsing.
     assert_eq!(space.name.as_deref(), Some("foo.rs"));
     assert_eq!(space.kind, SpaceKind::Unit);
-    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3.0);
+    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
 }
 
 // ----- `as_tree_sitter` + `source` are consistent ------------------------

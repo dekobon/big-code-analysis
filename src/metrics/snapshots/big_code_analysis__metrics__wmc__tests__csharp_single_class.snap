@@ -3,7 +3,7 @@ source: src/metrics/wmc.rs
 expression: metric.wmc
 ---
 {
-  "classes": 8.0,
-  "interfaces": 0.0,
-  "total": 8.0
+  "classes": 8,
+  "interfaces": 0,
+  "total": 8
 }

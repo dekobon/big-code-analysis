@@ -110,32 +110,32 @@ impl Stats {
 
     /// Returns the `Cognitive Complexity` metric value
     #[must_use]
-    pub fn cognitive(&self) -> f64 {
-        self.structural as f64
+    pub fn cognitive(&self) -> u64 {
+        self.structural as u64
     }
     /// Returns the `Cognitive Complexity` sum metric value
     #[must_use]
-    pub fn cognitive_sum(&self) -> f64 {
-        self.structural_sum as f64
+    pub fn cognitive_sum(&self) -> u64 {
+        self.structural_sum as u64
     }
 
     /// Returns the `Cognitive Complexity` minimum metric value.
     ///
     /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
-    /// into `structural_min` to `0.0`, so a never-observed space
+    /// into `structural_min` to `0`, so a never-observed space
     /// serializes to a meaningful number rather than `1.8446744e19`.
     #[must_use]
-    pub fn cognitive_min(&self) -> f64 {
+    pub fn cognitive_min(&self) -> u64 {
         if self.structural_min == usize::MAX {
-            0.0
+            0
         } else {
-            self.structural_min as f64
+            self.structural_min as u64
         }
     }
     /// Returns the `Cognitive Complexity` maximum metric value
     #[must_use]
-    pub fn cognitive_max(&self) -> f64 {
-        self.structural_max as f64
+    pub fn cognitive_max(&self) -> u64 {
+        self.structural_max as u64
     }
 
     /// Returns the `Cognitive Complexity` metric average value
@@ -150,7 +150,7 @@ impl Stats {
     /// (#428).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
-        crate::metrics::average(self.cognitive_sum(), self.total_space_functions)
+        crate::metrics::average(self.cognitive_sum() as f64, self.total_space_functions)
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -1793,7 +1793,7 @@ mod tests {
     #[test]
     fn cognitive_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.cognitive_min(), 0.0);
+        assert_eq!(stats.cognitive_min(), 0);
     }
 
     #[test]
@@ -1803,10 +1803,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -1820,10 +1820,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -1837,10 +1837,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -1854,10 +1854,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -1871,10 +1871,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -1893,13 +1893,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -1927,13 +1928,14 @@ mod tests {
                 // C-family switch). cognitive_max = 1.
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -1950,13 +1952,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -1973,13 +1976,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -1999,13 +2003,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2027,13 +2032,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -2061,16 +2067,17 @@ mod tests {
                    return 4",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2095,16 +2102,17 @@ mod tests {
                       return 1",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2127,16 +2135,17 @@ mod tests {
                 return x",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -2156,16 +2165,17 @@ mod tests {
                 return x",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -2185,8 +2195,8 @@ mod tests {
             "foo.py",
             |metric| {
                 // cyclomatic 4 = unit base 1 + for 1 + if 1 + function base 1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
         check_metrics::<PythonParser>(
@@ -2201,8 +2211,8 @@ mod tests {
                 // The explicit loop+if form the comprehension above desugars
                 // to: for +1, nested if +2 = 3 (cognitive), matching f.
                 // cyclomatic 4 matches f as well, confirming agreement.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
     }
@@ -2216,9 +2226,9 @@ mod tests {
                 return [x for x in xs]",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 // cyclomatic 3 = unit base 1 + for 1 + function base 1.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
             },
         );
     }
@@ -2233,9 +2243,9 @@ mod tests {
                 return [a for a in xs for b in ys]",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 // cyclomatic 4 = unit base 1 + for 1 + for 1 + function base 1.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
     }
@@ -2251,9 +2261,9 @@ mod tests {
                 return [x for x in xs if a if b]",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
                 // cyclomatic 5 = unit base 1 + for 1 + if 1 + if 1 + fn base 1.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
             },
         );
     }
@@ -2273,10 +2283,10 @@ mod tests {
                 &format!("def f(xs):\n                return {body}"),
                 "foo.py",
                 |metric| {
-                    assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                    assert_eq!(metric.cognitive.cognitive_sum(), 3);
                     // cyclomatic 4 = unit base 1 + for 1 + if 1 + fn base 1,
                     // identical to the list form, for every variant.
-                    assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                    assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 },
             );
         }
@@ -2297,7 +2307,7 @@ mod tests {
                 return [[y for y in x if y] for x in xs if x]",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 10);
             },
         );
         // The explicit doubly-nested loop+if form it desugars to: for +1,
@@ -2313,7 +2323,7 @@ mod tests {
                 return out",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 10);
             },
         );
     }
@@ -2329,7 +2339,7 @@ mod tests {
                 return [[[z for z in y if z] for y in x if y] for x in xss if x]",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 21.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 21);
             },
         );
         check_metrics::<PythonParser>(
@@ -2345,7 +2355,7 @@ mod tests {
                 return out",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 21.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 21);
             },
         );
     }
@@ -2362,7 +2372,7 @@ mod tests {
                 return [sum(y for y in x if y) for x in xs if x]",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 10);
             },
         );
         check_metrics::<PythonParser>(
@@ -2374,7 +2384,7 @@ mod tests {
                 return out",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 10);
             },
         );
     }
@@ -2393,16 +2403,17 @@ mod tests {
                 return x",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 0.0,
-                      "average": 0.0,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#
                 );
             },
         );
@@ -2424,16 +2435,17 @@ mod tests {
                         cleanup()",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -2454,13 +2466,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2481,13 +2494,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2508,13 +2522,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2535,13 +2550,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2557,13 +2573,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2581,13 +2598,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2602,13 +2620,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2636,13 +2655,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2668,13 +2688,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -2692,13 +2713,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2713,13 +2735,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2737,13 +2760,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2758,13 +2782,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2782,13 +2807,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2809,13 +2835,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2830,13 +2857,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2863,16 +2891,17 @@ mod tests {
              }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2886,16 +2915,17 @@ mod tests {
             |metric| {
                 // Same sum as the negated form above: `!` is not a
                 // boolean-sequence boundary.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2916,13 +2946,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2937,13 +2968,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -2965,13 +2997,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -2986,13 +3019,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -3008,13 +3042,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3032,13 +3067,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3056,13 +3092,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3080,13 +3117,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3105,13 +3143,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3128,13 +3167,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3162,13 +3202,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -3186,13 +3227,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3220,13 +3262,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -3254,13 +3297,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -3282,13 +3326,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -3306,13 +3351,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -3335,13 +3381,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -3361,13 +3408,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -3393,13 +3441,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3426,13 +3475,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3455,13 +3505,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3491,13 +3542,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 7);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 7.0,
-                      "min": 0.0,
-                      "max": 7.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 7,
+                  "average": 7.0,
+                  "min": 0,
+                  "max": 7
+                }
+                "#
                 );
             },
         );
@@ -3523,13 +3575,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3555,13 +3608,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -3586,17 +3640,18 @@ mod tests {
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3614,17 +3669,18 @@ mod tests {
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3642,17 +3698,18 @@ mod tests {
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3670,17 +3727,18 @@ mod tests {
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3709,13 +3767,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -3741,13 +3800,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3773,13 +3833,14 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum() as u32, 6);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -3801,13 +3862,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 7.0,
-                      "min": 0.0,
-                      "max": 7.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 7,
+                  "average": 7.0,
+                  "min": 0,
+                  "max": 7
+                }
+                "#
                 );
             },
         );
@@ -3836,13 +3898,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3865,17 +3928,18 @@ mod tests {
             // expected: 1 (if) + 2 (nested ternary, nesting=1) + 1 (top-level
             // ternary) = 4. max is 4 for the only function.
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -3894,17 +3958,18 @@ mod tests {
             "foo.cpp",
             |metric| {
                 // Single catch clause +1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -3927,17 +3992,18 @@ mod tests {
             "foo.cpp",
             |metric| {
                 // Three catch clauses, each +1 at nesting 0 → 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3958,17 +4024,18 @@ mod tests {
             "foo.cpp",
             |metric| {
                 // for +1, catch +2 (nesting = 1) → 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -3989,17 +4056,18 @@ mod tests {
                 // C++11 range-based `for (auto x : v)` parses as
                 // `for_range_loop`; it is a control-flow construct and
                 // counts the same as a classic `for_statement` → +1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4019,17 +4087,18 @@ mod tests {
             |metric| {
                 // Nested range-fors compound by nesting, matching the
                 // behaviour of nested classic `for` loops: 1 + 2 = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -4050,17 +4119,18 @@ mod tests {
             "foo.c",
             |metric| {
                 // Three nested `for` loops → 1 + 2 + 3 = 6.
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -4080,17 +4150,18 @@ mod tests {
             "foo.c",
             |metric| {
                 // Two nested `while` loops → 1 + 2 = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -4113,17 +4184,18 @@ mod tests {
             "foo.c",
             |metric| {
                 // Only the `if` contributes; recursion is a documented gap.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4147,17 +4219,18 @@ mod tests {
             |metric| {
                 // Two `if` (+1 each) and two `goto` (+1 each) at nesting 0
                 // (the `goto` cost is flat, not multiplied by nesting) → 4.
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -4184,17 +4257,18 @@ mod tests {
             "foo.cpp",
             |metric| {
                 // Single `if` inside lambda at lambda-nesting 1 → +2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -4222,17 +4296,18 @@ mod tests {
              }",
             "foo.c",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4259,17 +4334,18 @@ mod tests {
             "foo.c",
             |metric| {
                 // for +1, switch +2 (nesting = 1) → 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -4292,17 +4368,18 @@ mod tests {
             "foo.c",
             |metric| {
                 // Only the explicit `if` contributes.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4331,13 +4408,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4363,13 +4441,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4386,13 +4465,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -4413,13 +4493,14 @@ mod tests {
                 // 2 functions + 2 lambdas = 4
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 1.25,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 1.25,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -4446,13 +4527,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 9.0,
-                      "average": 9.0,
-                      "min": 0.0,
-                      "max": 9.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 9,
+                  "average": 9.0,
+                  "min": 0,
+                  "max": 9
+                }
+                "#
                 );
             },
         );
@@ -4475,13 +4557,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -4506,13 +4589,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -4525,10 +4609,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -4549,14 +4633,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
+                    @r#"
                 {
-                  "sum": 1.0,
+                  "sum": 1,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 1.0
+                  "min": 0,
+                  "max": 1
                 }
-                "###
+                "#
                 );
             },
         );
@@ -4582,14 +4666,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
+                    @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 0.0,
-                  "max": 3.0
+                  "min": 0,
+                  "max": 3
                 }
-                "###
+                "#
                 );
             },
         );
@@ -4612,13 +4696,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -4645,13 +4730,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4673,13 +4759,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4703,13 +4790,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -4732,17 +4820,18 @@ mod tests {
                 // Java's enhanced-for `for (T x : c)` parses as
                 // `enhanced_for_statement`; it is a control-flow construct
                 // and counts the same as a classic `for_statement` → +1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4764,17 +4853,18 @@ mod tests {
             |metric| {
                 // Nested enhanced-fors compound by nesting, matching the
                 // behaviour of nested classic `for` loops: 1 + 2 = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -4794,17 +4884,18 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -4827,17 +4918,18 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -4866,17 +4958,18 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 11);
+                assert_eq!(metric.cognitive.cognitive_max(), 11);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -4899,17 +4992,18 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 5);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 5.0,
-                      "min": 0.0,
-                      "max": 5.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 0,
+                  "max": 5
+                }
+                "#
                 );
             },
         );
@@ -4922,10 +5016,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -4945,8 +5039,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // Single `if` at nesting 0 → +1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -4970,8 +5064,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // First `if` +1, second `if` +1, `else` +1 → 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -4993,8 +5087,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // Two ifs (+1 each) + two `&&` (+1 each, fresh chain per if) = 4.
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -5021,8 +5115,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // Single `switch` +1; cases / default do not increment.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -5042,8 +5136,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // `switch` expression +1; arms do not increment.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -5065,8 +5159,8 @@ mod tests {
             "foo.cs",
             |metric| {
                 // `if` +1, outer `&&` +1, inner `&&` continues outer span → 2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -5085,17 +5179,18 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -5118,17 +5213,18 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -5151,17 +5247,18 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -5186,17 +5283,18 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -5220,17 +5318,18 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -5241,10 +5340,10 @@ mod tests {
         check_metrics::<PerlParser>("my $a = 42;", "foo.pl", |metric| {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#);
         });
@@ -5260,10 +5359,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 0.0,
+                  "sum": 0,
                   "average": 0.0,
-                  "min": 0.0,
-                  "max": 0.0
+                  "min": 0,
+                  "max": 0
                 }
                 "#);
             },
@@ -5282,10 +5381,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5304,10 +5403,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 0.0,
-                  "max": 3.0
+                  "min": 0,
+                  "max": 3
                 }
                 "#);
             },
@@ -5332,17 +5431,18 @@ mod tests {
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -5363,10 +5463,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5387,10 +5487,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 0.0,
-                  "max": 3.0
+                  "min": 0,
+                  "max": 3
                 }
                 "#);
             },
@@ -5413,10 +5513,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 0.0,
-                  "max": 6.0
+                  "min": 0,
+                  "max": 6
                 }
                 "#);
             },
@@ -5439,10 +5539,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 0.0,
-                  "max": 3.0
+                  "min": 0,
+                  "max": 3
                 }
                 "#);
             },
@@ -5465,12 +5565,12 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 0.0,
-                  "max": 3.0
+                  "min": 0,
+                  "max": 3
                 }
-                 "#);
+                "#);
             },
         );
     }
@@ -5492,10 +5592,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5511,15 +5611,15 @@ mod tests {
         // +1.
         check_metrics::<PerlParser>("sub f { goto LABEL; LABEL: return; }", "foo.pl", |metric| {
             // expected: one `goto` jump (§B2) = +1
-            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 1);
             insta::assert_json_snapshot!(metric.cognitive, @r#"
-                {
-                  "sum": 1.0,
-                  "average": 1.0,
-                  "min": 0.0,
-                  "max": 1.0
-                }
-                "#);
+            {
+              "sum": 1,
+              "average": 1.0,
+              "min": 0,
+              "max": 1
+            }
+            "#);
         });
     }
 
@@ -5539,13 +5639,13 @@ mod tests {
             "foo.pl",
             |metric| {
                 // expected: +1 for-loop, +1 each labeled last/next/redo = 4
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 4.0,
-                  "max": 4.0
+                  "min": 4,
+                  "max": 4
                 }
                 "#);
             },
@@ -5565,13 +5665,13 @@ mod tests {
             "foo.pl",
             |metric| {
                 // expected: only the +1 for-loop; bare jumps add nothing
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 1.0,
+                  "sum": 1,
                   "average": 1.0,
-                  "min": 1.0,
-                  "max": 1.0
+                  "min": 1,
+                  "max": 1
                 }
                 "#);
             },
@@ -5594,13 +5694,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 7.0,
-                      "min": 0.0,
-                      "max": 7.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 7,
+                  "average": 7.0,
+                  "min": 0,
+                  "max": 7
+                }
+                "#
                 );
             },
         );
@@ -5621,13 +5722,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -5653,13 +5755,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -5692,14 +5795,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 14.0,
-                      "average": 14.0,
-                      "min": 0.0,
-                      "max": 14.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 14,
+                  "average": 14.0,
+                  "min": 0,
+                  "max": 14
+                }
+                "#
                 );
             },
         );
@@ -5710,10 +5813,10 @@ mod tests {
         check_metrics::<KotlinParser>("fun main() { val x = 42 }", "foo.kt", |metric| {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#);
         });
@@ -5727,10 +5830,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5753,10 +5856,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 6.0,
+                  "sum": 6,
                   "average": 6.0,
-                  "min": 0.0,
-                  "max": 6.0
+                  "min": 0,
+                  "max": 6
                 }
                 "#);
             },
@@ -5771,10 +5874,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 1.0,
+                  "sum": 1,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 1.0
+                  "min": 0,
+                  "max": 1
                 }
                 "#);
             },
@@ -5795,10 +5898,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 1.0,
+                  "sum": 1,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 1.0
+                  "min": 0,
+                  "max": 1
                 }
                 "#);
             },
@@ -5823,13 +5926,13 @@ mod tests {
             "foo.kt",
             |metric| {
                 // expected: +1 for-loop, +1 each labeled break/continue = 3
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 3.0,
+                  "sum": 3,
                   "average": 3.0,
-                  "min": 0.0,
-                  "max": 3.0
+                  "min": 0,
+                  "max": 3
                 }
                 "#);
             },
@@ -5848,7 +5951,7 @@ mod tests {
         check_metrics::<KotlinParser>("fun f() { lbl@ run { println(1) } }", "foo.kt", |metric| {
             // expected: labeled non-jump is not a structured-control-flow
             // break, so it adds nothing.
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
         });
     }
 
@@ -5866,10 +5969,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 2.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5890,10 +5993,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 4.0,
+                  "sum": 4,
                   "average": 4.0,
-                  "min": 0.0,
-                  "max": 4.0
+                  "min": 0,
+                  "max": 4
                 }
                 "#);
             },
@@ -5908,10 +6011,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5936,10 +6039,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 2.0,
+                  "sum": 2,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 2.0
+                  "min": 0,
+                  "max": 2
                 }
                 "#);
             },
@@ -5953,10 +6056,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -5979,14 +6082,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -6009,14 +6112,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -6040,14 +6143,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6068,14 +6171,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -6098,14 +6201,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6129,14 +6232,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 7.0,
-                      "min": 0.0,
-                      "max": 7.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 7,
+                  "average": 7.0,
+                  "min": 0,
+                  "max": 7
+                }
+                "#
                 );
             },
         );
@@ -6162,10 +6265,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 1.0,
+                  "sum": 1,
                   "average": 1.0,
-                  "min": 0.0,
-                  "max": 1.0
+                  "min": 0,
+                  "max": 1
                 }
                 "#);
             },
@@ -6179,10 +6282,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -6201,13 +6304,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -6229,13 +6333,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6255,13 +6360,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6282,13 +6388,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -6310,13 +6417,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -6342,13 +6450,14 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 5.0,
-                      "min": 0.0,
-                      "max": 5.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 0,
+                  "max": 5
+                }
+                "#
                 );
             },
         );
@@ -6358,8 +6467,8 @@ mod tests {
     fn tcl_no_cognitive() {
         // No proc, no control flow → cognitive complexity is zero everywhere.
         check_metrics::<TclParser>("set x 1", "foo.tcl", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
-            assert_eq!(metric.cognitive.cognitive_max(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            assert_eq!(metric.cognitive.cognitive_max(), 0);
             insta::assert_json_snapshot!(metric.cognitive);
         });
     }
@@ -6375,8 +6484,8 @@ mod tests {
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6398,8 +6507,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // Two ifs (+1 each) + two single-op chains (+1 each) = 4.
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6417,8 +6526,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // if(+1) + &&(+1) + ||(+1) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6438,8 +6547,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // if(+1) + &&(+1) = 2; the `!` operators do not increment.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6459,8 +6568,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // while(+1) + if at depth 1 (+2) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6482,8 +6591,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // while(+1) + foreach at depth 1 (+2) + if at depth 2 (+3) = 6.
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6504,8 +6613,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // catch(+1) + if at depth 1 (+2) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6527,8 +6636,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // if(+1) + elseif(+1) + else(+1) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6547,8 +6656,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // if(+1) + outer &&(+1); inner && continues outer's span → 2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6570,8 +6679,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // if(+1) + &&(+1) + first || (+1) + second || (+1) = 4.
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6592,8 +6701,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // Aggregated: inner proc's `if` at depth 1 contributes 2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6613,8 +6722,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // outer ternary(+1) + while(+1) + inner ternary at depth 1 (+2) = 4.
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6637,8 +6746,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // One switch structure at proc-body nesting 0 → +1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
             },
         );
     }
@@ -6662,8 +6771,8 @@ mod tests {
             "foo.tcl",
             |metric| {
                 // outer switch(+1) + inner switch at nesting 1 (+2) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
             },
         );
     }
@@ -6676,10 +6785,10 @@ mod tests {
                 metric.cognitive,
                 @r#"
             {
-              "sum": 0.0,
+              "sum": 0,
               "average": 0.0,
-              "min": 0.0,
-              "max": 0.0
+              "min": 0,
+              "max": 0
             }
             "#
             );
@@ -6703,13 +6812,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -6733,13 +6843,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -6760,13 +6871,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -6786,13 +6898,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6813,13 +6926,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6842,13 +6956,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -6869,16 +6984,17 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -6896,16 +7012,17 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -6932,13 +7049,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -6959,8 +7077,8 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6974,8 +7092,8 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -6989,8 +7107,8 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7007,8 +7125,8 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7022,8 +7140,8 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7043,8 +7161,8 @@ end",
             "foo.tsx",
             |metric| {
                 // for(+1) + if at depth 1 (+2) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7065,8 +7183,8 @@ end",
             "foo.tsx",
             |metric| {
                 // if(+1) + else-if(+1) + else(+1) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7084,8 +7202,8 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7101,8 +7219,8 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7121,8 +7239,8 @@ end",
              ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7138,8 +7256,8 @@ end",
              ",
             "foo.py",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7159,8 +7277,8 @@ end",
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7179,8 +7297,8 @@ end",
              }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7196,8 +7314,8 @@ end",
              }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7213,8 +7331,8 @@ end",
              }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7230,8 +7348,8 @@ end",
              }",
             "foo.c",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7247,8 +7365,8 @@ end",
              }",
             "foo.c",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7264,8 +7382,8 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7281,8 +7399,8 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7298,8 +7416,8 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7315,8 +7433,8 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7332,8 +7450,8 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7349,8 +7467,8 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7368,17 +7486,18 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -7400,17 +7519,18 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -7425,17 +7545,18 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -7450,17 +7571,18 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -7484,17 +7606,18 @@ end",
              }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -7517,17 +7640,18 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -7553,8 +7677,8 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
             },
         );
     }
@@ -7571,8 +7695,8 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
             },
         );
     }
@@ -7589,8 +7713,8 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
             },
         );
     }
@@ -7614,13 +7738,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -7647,13 +7772,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 5.0,
-                      "min": 0.0,
-                      "max": 5.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 0,
+                  "max": 5
+                }
+                "#
                 );
             },
         );
@@ -7680,13 +7806,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -7704,8 +7831,8 @@ end",
              }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7723,8 +7850,8 @@ end",
              }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7733,7 +7860,7 @@ end",
     #[test]
     fn groovy_no_cognitive() {
         check_metrics::<GroovyParser>("class A { int x = 42 }", "foo.groovy", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
         });
     }
 
@@ -7748,7 +7875,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if = +1
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -7766,7 +7893,7 @@ end",
             "foo.groovy",
             |metric| {
                 // outer if (+1) + inner if (+2 for nesting depth 1) = 3
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
@@ -7790,7 +7917,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if(+1) + else(+1) + else(+1) + else(+1) = 4
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
             },
         );
     }
@@ -7817,7 +7944,7 @@ end",
                 // pays a higher nesting cost). The chain in
                 // `groovy_else_if_chain` produces 4, so this MUST
                 // exceed it.
-                assert!(metric.cognitive.cognitive_sum() > 4.0);
+                assert!(metric.cognitive.cognitive_sum() > 4);
             },
         );
     }
@@ -7832,7 +7959,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if (+1) + boolean sequence (+1) = 2
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
             },
         );
     }
@@ -7847,7 +7974,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if (+1) + && (+1) + || (+1) = 3
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
@@ -7863,7 +7990,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if(+1) + && (+1) = 2
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
             },
         );
     }
@@ -7881,7 +8008,7 @@ end",
             "foo.groovy",
             |metric| {
                 // for(+1) + while inside for(+2) = 3
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
@@ -7896,7 +8023,7 @@ end",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -7914,7 +8041,7 @@ end",
             "foo.groovy",
             |metric| {
                 // catch(+1) = 1
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -7928,7 +8055,7 @@ end",
             "foo.groovy",
             |metric| {
                 // ternary(+1) = 1
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -7950,8 +8077,8 @@ end",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
             },
         );
     }
@@ -7970,8 +8097,8 @@ end",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
             },
         );
     }
@@ -7994,7 +8121,7 @@ end",
             |metric| {
                 // for(+1) + for(+2 nested) + if(+3) + break label(+1)
                 // + if(+3) + continue label(+1) = 11
-                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 11);
             },
         );
     }
@@ -8020,7 +8147,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if(+1) + if(+1) + else(+1) = 3
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
@@ -8042,7 +8169,7 @@ end",
             "foo.groovy",
             |metric| {
                 // for(+1) + if(+2) + if(+2) = 5 (break/continue add 0)
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
             },
         );
     }
@@ -8069,7 +8196,7 @@ end",
             |metric| {
                 // closure(lambda=1) -> if at nesting=1(+2)
                 // -> while at nesting=2(+3) = 5
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
             },
         );
     }
@@ -8097,10 +8224,10 @@ end",
         // for(+1) + if at nesting=1(+2) = 3; no lambda surcharge because
         // the body is a `block`, not a misparsed `Closure`.
         check_metrics::<GroovyParser>(typed, "foo.groovy", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 3);
         });
         check_metrics::<GroovyParser>(untyped, "foo.groovy", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 3);
         });
     }
 
@@ -8125,7 +8252,7 @@ end",
             "foo.groovy",
             |metric| {
                 // for(+1) + if at nesting=1(+2) + else(+1) + else(+1) = 5
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
             },
         );
     }
@@ -8150,7 +8277,7 @@ end",
             "foo.groovy",
             |metric| {
                 // if(+1, nesting=0) + else(+1) + inner if(+2, nesting=1) = 4
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
             },
         );
     }
@@ -8173,7 +8300,7 @@ end",
             |metric| {
                 // if(+1, nesting=0) + outer ternary(+1+1=+2, nesting=1)
                 // + inner ternary(+1+2=+3, nesting=2) = 6
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
             },
         );
     }
@@ -8197,13 +8324,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -8230,13 +8358,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 5.0,
-                      "min": 0.0,
-                      "max": 5.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 0,
+                  "max": 5
+                }
+                "#
                 );
             },
         );
@@ -8263,13 +8392,14 @@ end",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 4.0,
-                      "min": 0.0,
-                      "max": 4.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 0,
+                  "max": 4
+                }
+                "#
                 );
             },
         );
@@ -8287,8 +8417,8 @@ end",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8306,8 +8436,8 @@ end",
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8322,8 +8452,8 @@ end",
                  (a && b) || (c && d)  // +1(&&) +1(||) +1(&&) = 3",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8338,8 +8468,8 @@ end",
                  a || (b && c && d)  // +1(||) +1(&&) = 2",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8357,17 +8487,18 @@ end",
             "fun pick(a: String?, b: String?, c: String): String = a ?: b ?: c // +1 (Elvis chain)",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -8388,17 +8519,18 @@ end",
              }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -8415,8 +8547,8 @@ end",
             }",
             "foo.go",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8433,8 +8565,8 @@ end",
             }",
             "foo.go",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8452,8 +8584,8 @@ end",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8471,8 +8603,8 @@ end",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8490,8 +8622,8 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8509,8 +8641,8 @@ end",
 end",
             "foo.lua",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8529,8 +8661,8 @@ end",
              }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
+                assert_eq!(metric.cognitive.cognitive_max(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8550,8 +8682,8 @@ end",
              }",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8560,8 +8692,8 @@ end",
     #[test]
     fn php_no_cognitive() {
         check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
-            assert_eq!(metric.cognitive.cognitive_max(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
+            assert_eq!(metric.cognitive.cognitive_max(), 0);
             insta::assert_json_snapshot!(metric.cognitive);
         });
     }
@@ -8578,8 +8710,8 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8611,17 +8743,18 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -8641,17 +8774,18 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 1.0,
-                      "average": 1.0,
-                      "min": 0.0,
-                      "max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
                 );
             },
         );
@@ -8673,17 +8807,18 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 6.0,
-                      "min": 0.0,
-                      "max": 6.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 6,
+                  "average": 6.0,
+                  "min": 0,
+                  "max": 6
+                }
+                "#
                 );
             },
         );
@@ -8701,8 +8836,8 @@ end",
             "foo.php",
             |metric| {
                 // Chain of identical && collapses to a single +1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8719,8 +8854,8 @@ end",
             "foo.php",
             |metric| {
                 // && chain (+1) + switch to || (+1) = 2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8739,8 +8874,8 @@ end",
             "foo.php",
             |metric| {
                 // Outer && (+1); inner && continues outer's span → 1.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8762,8 +8897,8 @@ end",
             "foo.php",
             |metric| {
                 // for(+1) + if at depth 1 (+2) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8787,8 +8922,8 @@ end",
             "foo.php",
             |metric| {
                 // for(+1) + while at depth 1 (+2) + if at depth 2 (+3) = 6.
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8814,8 +8949,8 @@ end",
             "foo.php",
             |metric| {
                 // for(+1) + first if at depth 1 (+2) + second if at depth 1 (+2) = 5.
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 5);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8838,8 +8973,8 @@ end",
             "foo.php",
             |metric| {
                 // if(+1) + goto(+1) = 2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8867,8 +9002,8 @@ end",
             |metric| {
                 // for(+1) + while at depth 1 (+2) + if at depth 2 (+3) = 6;
                 // `break 2` adds +0.
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
+                assert_eq!(metric.cognitive.cognitive_max(), 6);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8883,15 +9018,15 @@ end",
             "defmodule Foo do\n  def f(x) do\n    x\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r#"
                 {
-                  "sum": 0.0,
+                  "sum": 0,
                   "average": 0.0,
-                  "min": 0.0,
-                  "max": 0.0
+                  "min": 0,
+                  "max": 0
                 }
                 "#
                 );
@@ -8907,7 +9042,7 @@ end",
             "defmodule Foo do\n  def f(x) do\n    if x > 0 do\n      :pos\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8922,7 +9057,7 @@ end",
             "foo.ex",
             |metric| {
                 // expected: if (+1) + else (+1) = 2
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8938,7 +9073,7 @@ end",
             "foo.ex",
             |metric| {
                 // expected: case +1 (one nesting bump on the container)
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8953,7 +9088,7 @@ end",
             "foo.ex",
             |metric| {
                 // expected: cond +1
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8968,7 +9103,7 @@ end",
             "foo.ex",
             |metric| {
                 // expected: outer if (+1) + nested if (+2 because nesting=1)
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8985,7 +9120,7 @@ end",
             "foo.ex",
             |metric| {
                 // expected: rescue (+1) + catch (+1) = 2
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9001,7 +9136,7 @@ end",
             "foo.ex",
             |metric| {
                 // expected: if (+1) + && (+1) + || (+1) = 3
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9020,7 +9155,7 @@ end",
             |metric| {
                 // expected: 0 — Enum.reduce is a function call, not
                 // syntactic control flow; the `fn` body has no decisions.
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9037,7 +9172,7 @@ end",
             "defmodule Foo do\n  def fact(0), do: 1\n  def fact(n), do: n * fact(n - 1)\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9059,8 +9194,8 @@ end",
             "foo.php",
             |metric| {
                 // `match` is treated like `switch`: a single +1 for the construct.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9069,7 +9204,7 @@ end",
     #[test]
     fn ruby_no_cognitive() {
         check_metrics::<RubyParser>("a = 42\n", "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
             insta::assert_json_snapshot!(metric.cognitive);
         });
     }
@@ -9078,7 +9213,7 @@ end",
     fn ruby_simple_function() {
         // A function body with no branching scores zero cognitive.
         check_metrics::<RubyParser>("def foo\n  a = 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
             insta::assert_json_snapshot!(metric.cognitive);
         });
     }
@@ -9087,7 +9222,7 @@ end",
     fn ruby_1_level_nesting() {
         // Single `if` inside a function: +1.
         check_metrics::<RubyParser>("def foo\n  if a\n    b\n  end\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 1);
             insta::assert_json_snapshot!(metric.cognitive);
         });
     }
@@ -9099,7 +9234,7 @@ end",
             "def foo\n  if a\n    if b\n      c\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9113,7 +9248,7 @@ end",
             "def foo\n  if a && b && c\n    d\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9126,7 +9261,7 @@ end",
             "def foo\n  if a && b || c\n    d\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9140,7 +9275,7 @@ end",
             "def foo\n  if !a\n    b\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9156,7 +9291,7 @@ end",
             "def foo\n  while a\n    break\n    next\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9173,7 +9308,7 @@ end",
             "foo.rb",
             |metric| {
                 // while(+1) + redo(+1) + rescue(+1) + retry(+1) = 4.
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9196,7 +9331,7 @@ end",
             "def foo\n  if a\n    1\n  elsif b\n    2\n  elsif c\n    3\n  else\n    4\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -9204,7 +9339,7 @@ end",
             "def foo\n  if a\n    if b\n      if c\n        1\n      end\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
             },
         );
     }
@@ -9221,18 +9356,18 @@ end",
         let case_with_else = "case x\nwhen 1 then 1\nelse 0\nend\n";
         let case_without_else = "case x\nwhen 1 then 1\nwhen 2 then 2\nend\n";
         check_metrics::<RubyParser>(case_with_else, "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 1);
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
-              "sum": 1.0,
+              "sum": 1,
               "average": 1.0,
-              "min": 1.0,
-              "max": 1.0
+              "min": 1,
+              "max": 1
             }
             "#);
         });
         check_metrics::<RubyParser>(case_without_else, "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 1);
         });
     }
 
@@ -9244,20 +9379,20 @@ end",
         // must all report cognitive == 1 on the equivalent two-branch
         // construct (one match arm + the default arm).
         check_metrics::<RubyParser>("case x\nwhen 1 then 1\nelse 0\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 1);
         });
         check_metrics::<KotlinParser>(
             "fun f(x: Int): Int {\n    return when (x) {\n        1 -> 1\n        else -> 0\n    }\n}\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
         check_metrics::<JavaParser>(
             "class C {\n  int f(int x) {\n    switch (x) {\n      case 1: return 1;\n      default: return 0;\n    }\n  }\n}\n",
             "foo.java",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -9268,7 +9403,7 @@ end",
         // is *not* switch-like (its parent is the `if`/`elsif` clause, not a
         // `case`), so it must still add +1. `if`(+1) + `else`(+1) = 2.
         check_metrics::<RubyParser>("if a\n  1\nelse\n  2\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 2);
         });
         // `begin`/`rescue`/`else` is the no-exception branch, mirroring
         // Python `try`/`except`/`else` (+1), not a switch default. The
@@ -9277,7 +9412,7 @@ end",
             "begin\n  foo\nrescue\n  bar\nelse\n  baz\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
             },
         );
     }
@@ -9302,17 +9437,18 @@ end",
             |metric| {
                 // outer for(+1) + inner for(+2) + if(+3) + continue outer(+1)
                 // + if(+3) + break outer(+1) = 11.
-                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 11);
+                assert_eq!(metric.cognitive.cognitive_max(), 11);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -9333,17 +9469,18 @@ end",
             "foo.js",
             |metric| {
                 // for(+1) + if(+2) + if(+2) = 5.
-                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 5);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 5.0,
-                      "min": 0.0,
-                      "max": 5.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 0,
+                  "max": 5
+                }
+                "#
                 );
             },
         );
@@ -9365,17 +9502,18 @@ end",
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 11);
+                assert_eq!(metric.cognitive.cognitive_max(), 11);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 11.0,
-                      "min": 0.0,
-                      "max": 11.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 11,
+                  "average": 11.0,
+                  "min": 0,
+                  "max": 11
+                }
+                "#
                 );
             },
         );
@@ -9396,17 +9534,18 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -9424,17 +9563,18 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -9452,17 +9592,18 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -9481,17 +9622,18 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 3.0,
-                      "min": 0.0,
-                      "max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
                 );
             },
         );
@@ -9514,17 +9656,18 @@ end",
             "foo.cs",
             |metric| {
                 // Outer `??` chain (+1) + `??=` (+1) = 2 at function max.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -9545,17 +9688,18 @@ end",
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 2.0,
-                      "min": 0.0,
-                      "max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
                 );
             },
         );
@@ -9565,7 +9709,7 @@ end",
     #[test]
     fn irules_no_cognitive() {
         check_metrics::<IrulesParser>("when X { set a 1 }\n", "foo.irule", |metric| {
-            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            assert_eq!(metric.cognitive.cognitive_sum(), 0);
         });
     }
 
@@ -9576,7 +9720,7 @@ end",
             "when X { if { $a } { log local0. \"hi\" } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
             },
         );
     }
@@ -9589,7 +9733,7 @@ end",
             "when X { if { $a && $b && $c } { log local0. \"hi\" } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
             },
         );
     }
@@ -9602,7 +9746,7 @@ end",
             "when X { if { $a && $b || $c } { log local0. \"hi\" } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
@@ -9615,7 +9759,7 @@ end",
             "when X { if { !$a && !$b } { log local0. \"hi\" } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
             },
         );
     }
@@ -9627,7 +9771,7 @@ end",
             "when X { while { $a } { if { $b } { log local0. \"hi\" } } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }
@@ -9639,7 +9783,7 @@ end",
             "when X { while { $a } { if { $b } { foreach z $l { log local0. \"hi\" } } } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 6);
             },
         );
     }
@@ -9663,11 +9807,11 @@ end",
         // values rather than restating constants.
         let chain_cog = Cell::new(-1.0);
         crate::tools::check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
-            chain_cog.set(fs.metrics.cognitive.cognitive_sum());
+            chain_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
         let nested_cog = Cell::new(-1.0);
         crate::tools::check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
-            nested_cog.set(fs.metrics.cognitive.cognitive_sum());
+            nested_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
 
         assert_eq!(chain_cog.get(), 4.0);
@@ -9688,7 +9832,7 @@ end",
             "when X { if { $a } { switch $h { a { log local0. \"a\" } b { log local0. \"b\" } } } }\n",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
         );
     }

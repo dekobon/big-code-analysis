@@ -100,57 +100,57 @@ impl Stats {
     /// Returns the number of class public methods in a space.
     #[inline]
     #[must_use]
-    pub fn class_npm(&self) -> f64 {
-        self.class_npm as f64
+    pub fn class_npm(&self) -> u64 {
+        self.class_npm as u64
     }
 
     /// Returns the number of interface public methods in a space.
     #[inline]
     #[must_use]
-    pub fn interface_npm(&self) -> f64 {
-        self.interface_npm as f64
+    pub fn interface_npm(&self) -> u64 {
+        self.interface_npm as u64
     }
 
     /// Returns the number of class methods in a space.
     #[inline]
     #[must_use]
-    pub fn class_nm(&self) -> f64 {
-        self.class_nm as f64
+    pub fn class_nm(&self) -> u64 {
+        self.class_nm as u64
     }
 
     /// Returns the number of interface methods in a space.
     #[inline]
     #[must_use]
-    pub fn interface_nm(&self) -> f64 {
-        self.interface_nm as f64
+    pub fn interface_nm(&self) -> u64 {
+        self.interface_nm as u64
     }
 
     /// Returns the number of class public methods sum in a space.
     #[inline]
     #[must_use]
-    pub fn class_npm_sum(&self) -> f64 {
-        self.class_npm_sum as f64
+    pub fn class_npm_sum(&self) -> u64 {
+        self.class_npm_sum as u64
     }
 
     /// Returns the number of interface public methods sum in a space.
     #[inline]
     #[must_use]
-    pub fn interface_npm_sum(&self) -> f64 {
-        self.interface_npm_sum as f64
+    pub fn interface_npm_sum(&self) -> u64 {
+        self.interface_npm_sum as u64
     }
 
     /// Returns the number of class methods sum in a space.
     #[inline]
     #[must_use]
-    pub fn class_nm_sum(&self) -> f64 {
-        self.class_nm_sum as f64
+    pub fn class_nm_sum(&self) -> u64 {
+        self.class_nm_sum as u64
     }
 
     /// Returns the number of interface methods sum in a space.
     #[inline]
     #[must_use]
-    pub fn interface_nm_sum(&self) -> f64 {
-        self.interface_nm_sum as f64
+    pub fn interface_nm_sum(&self) -> u64 {
+        self.interface_nm_sum as u64
     }
 
     /// Returns the class `Coa` metric value
@@ -165,7 +165,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn class_coa(&self) -> f64 {
-        accessibility_ratio(self.class_npm_sum(), self.class_nm_sum())
+        accessibility_ratio(self.class_npm_sum() as f64, self.class_nm_sum() as f64)
     }
 
     /// Returns the interface `Coa` metric value
@@ -185,7 +185,10 @@ impl Stats {
         if self.interface_npm_sum == self.interface_nm_sum && self.interface_npm_sum != 0 {
             1.0
         } else {
-            accessibility_ratio(self.interface_npm_sum(), self.interface_nm_sum())
+            accessibility_ratio(
+                self.interface_npm_sum() as f64,
+                self.interface_nm_sum() as f64,
+            )
         }
     }
 
@@ -201,20 +204,20 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn total_coa(&self) -> f64 {
-        accessibility_ratio(self.total_npm(), self.total_nm())
+        accessibility_ratio(self.total_npm() as f64, self.total_nm() as f64)
     }
 
     /// Returns the total number of public methods in a space.
     #[inline]
     #[must_use]
-    pub fn total_npm(&self) -> f64 {
+    pub fn total_npm(&self) -> u64 {
         self.class_npm_sum() + self.interface_npm_sum()
     }
 
     /// Returns the total number of methods in a space.
     #[inline]
     #[must_use]
-    pub fn total_nm(&self) -> f64 {
+    pub fn total_nm(&self) -> u64 {
         self.class_nm_sum() + self.interface_nm_sum()
     }
 
@@ -1065,14 +1068,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 1.0,
-                  "interfaces": 0.0,
-                  "class_methods": 4.0,
-                  "interface_methods": 0.0,
+                  "classes": 1,
+                  "interfaces": 0,
+                  "class_methods": 4,
+                  "interface_methods": 0,
                   "class_coa": 0.25,
                   "interface_coa": 0.0,
-                  "total": 1.0,
-                  "total_methods": 4.0,
+                  "total": 1,
+                  "total_methods": 4,
                   "coa": 0.25
                 }
                 "#
@@ -1084,7 +1087,7 @@ mod tests {
     #[test]
     fn groovy_no_methods() {
         check_metrics::<GroovyParser>("class A { int x = 1 }", "foo.groovy", |metric| {
-            assert_eq!(metric.npm.total_nm(), 0.0);
+            assert_eq!(metric.npm.total_nm(), 0);
         });
     }
 
@@ -1098,8 +1101,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -1121,8 +1124,8 @@ mod tests {
             |func_space| {
                 let metric = &func_space.metrics;
                 // Interface methods are implicitly public.
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
@@ -1140,8 +1143,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -1166,8 +1169,8 @@ mod tests {
             }",
             "foo.groovy",
             |func_space| {
-                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2.0);
-                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2.0);
+                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2);
+                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2);
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
@@ -1185,8 +1188,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 4 constructors total, 1 public
-                assert_eq!(metric.npm.class_nm_sum(), 4.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -1194,7 +1197,7 @@ mod tests {
     #[test]
     fn groovy_no_methods_in_unit_scope() {
         check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
-            assert_eq!(metric.npm.total_nm(), 0.0);
+            assert_eq!(metric.npm.total_nm(), 0);
         });
     }
 
@@ -1205,8 +1208,8 @@ mod tests {
             class B { public void b() {} }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -1228,8 +1231,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 6 methods, 4 public.
-                assert_eq!(metric.npm.class_nm_sum(), 6.0);
-                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+                assert_eq!(metric.npm.class_nm_sum(), 6);
+                assert_eq!(metric.npm.class_npm_sum(), 4);
             },
         );
     }
@@ -1245,8 +1248,8 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -1270,8 +1273,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 8 methods, 5 public.
-                assert_eq!(metric.npm.class_nm_sum(), 8.0);
-                assert_eq!(metric.npm.class_npm_sum(), 5.0);
+                assert_eq!(metric.npm.class_nm_sum(), 8);
+                assert_eq!(metric.npm.class_npm_sum(), 5);
             },
         );
     }
@@ -1294,8 +1297,8 @@ mod tests {
             "foo.groovy",
             |metric| {
                 // 3 classes, 3 public methods (one per class).
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
             },
         );
     }
@@ -1316,8 +1319,8 @@ mod tests {
             |metric| {
                 // Inner anonymous: 2 methods (run + helper), 1 public
                 // (run). Outer X has no methods.
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -1348,12 +1351,12 @@ mod tests {
             |func_space| {
                 let metric = &func_space.metrics;
                 // Interfaces: 3 total methods (a, b, c), all 3 public.
-                assert_eq!(metric.npm.interface_nm_sum(), 3.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 3.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 3);
+                assert_eq!(metric.npm.interface_npm_sum(), 3);
                 // Class Z: 5 methods, 3 public (a, b, c — d, e are
                 // package-private).
-                assert_eq!(metric.npm.class_nm_sum(), 5.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 5);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 assert_child_space_kind(&func_space, "X", SpaceKind::Interface);
                 assert_child_space_kind(&func_space, "Y", SpaceKind::Interface);
                 assert_child_space_kind(&func_space, "Z", SpaceKind::Class);
@@ -1388,14 +1391,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 8.0,
-                  "interfaces": 0.0,
-                  "class_methods": 16.0,
-                  "interface_methods": 0.0,
+                  "classes": 8,
+                  "interfaces": 0,
+                  "class_methods": 16,
+                  "interface_methods": 0,
                   "class_coa": 0.5,
                   "interface_coa": 0.0,
-                  "total": 8.0,
-                  "total_methods": 16.0,
+                  "total": 8,
+                  "total_methods": 16,
                   "coa": 0.5
                 }
                 "#
@@ -1431,14 +1434,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 8.0,
-                  "interfaces": 0.0,
-                  "class_methods": 16.0,
-                  "interface_methods": 0.0,
+                  "classes": 8,
+                  "interfaces": 0,
+                  "class_methods": 16,
+                  "interface_methods": 0,
                   "class_coa": 0.5,
                   "interface_coa": 0.0,
-                  "total": 8.0,
-                  "total_methods": 16.0,
+                  "total": 8,
+                  "total_methods": 16,
                   "coa": 0.5
                 }
                 "#
@@ -1470,14 +1473,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 6.0,
-                  "interfaces": 0.0,
-                  "class_methods": 12.0,
-                  "interface_methods": 0.0,
+                  "classes": 6,
+                  "interfaces": 0,
+                  "class_methods": 12,
+                  "interface_methods": 0,
                   "class_coa": 0.5,
                   "interface_coa": 0.0,
-                  "total": 6.0,
-                  "total_methods": 12.0,
+                  "total": 6,
+                  "total_methods": 12,
                   "coa": 0.5
                 }
                 "#
@@ -1507,14 +1510,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 5.0,
-                  "interfaces": 0.0,
-                  "class_methods": 10.0,
-                  "interface_methods": 0.0,
+                  "classes": 5,
+                  "interfaces": 0,
+                  "class_methods": 10,
+                  "interface_methods": 0,
                   "class_coa": 0.5,
                   "interface_coa": 0.0,
-                  "total": 5.0,
-                  "total_methods": 10.0,
+                  "total": 5,
+                  "total_methods": 10,
                   "coa": 0.5
                 }
                 "#
@@ -1546,14 +1549,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 6.0,
-                  "interfaces": 0.0,
-                  "class_methods": 12.0,
-                  "interface_methods": 0.0,
+                  "classes": 6,
+                  "interfaces": 0,
+                  "class_methods": 12,
+                  "interface_methods": 0,
                   "class_coa": 0.5,
                   "interface_coa": 0.0,
-                  "total": 6.0,
-                  "total_methods": 12.0,
+                  "total": 6,
+                  "total_methods": 12,
                   "coa": 0.5
                 }
                 "#
@@ -1581,14 +1584,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_methods": 6.0,
-                  "interface_methods": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_methods": 6,
+                  "interface_methods": 0,
                   "class_coa": 0.5,
                   "interface_coa": 0.0,
-                  "total": 3.0,
-                  "total_methods": 6.0,
+                  "total": 3,
+                  "total_methods": 6,
                   "coa": 0.5
                 }
                 "#
@@ -1615,14 +1618,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_methods": 3.0,
-                  "interface_methods": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_methods": 3,
+                  "interface_methods": 0,
                   "class_coa": 1.0,
                   "interface_coa": 0.0,
-                  "total": 3.0,
-                  "total_methods": 3.0,
+                  "total": 3,
+                  "total_methods": 3,
                   "coa": 1.0
                 }
                 "#
@@ -1651,14 +1654,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_methods": 3.0,
-                  "interface_methods": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_methods": 3,
+                  "interface_methods": 0,
                   "class_coa": 1.0,
                   "interface_coa": 0.0,
-                  "total": 3.0,
-                  "total_methods": 3.0,
+                  "total": 3,
+                  "total_methods": 3,
                   "coa": 1.0
                 }
                 "#
@@ -1694,14 +1697,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 0.0,
-                  "class_methods": 5.0,
-                  "interface_methods": 0.0,
+                  "classes": 3,
+                  "interfaces": 0,
+                  "class_methods": 5,
+                  "interface_methods": 0,
                   "class_coa": 0.6,
                   "interface_coa": 0.0,
-                  "total": 3.0,
-                  "total_methods": 5.0,
+                  "total": 3,
+                  "total_methods": 5,
                   "coa": 0.6
                 }
                 "#
@@ -1724,14 +1727,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 0.0,
-                  "interfaces": 3.0,
-                  "class_methods": 0.0,
-                  "interface_methods": 3.0,
+                  "classes": 0,
+                  "interfaces": 3,
+                  "class_methods": 0,
+                  "interface_methods": 3,
                   "class_coa": 0.0,
                   "interface_coa": 1.0,
-                  "total": 3.0,
-                  "total_methods": 3.0,
+                  "total": 3,
+                  "total_methods": 3,
                   "coa": 1.0
                 }
                 "#
@@ -1753,8 +1756,8 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -1774,8 +1777,8 @@ mod tests {
                 // and `ConstructorDeclaration`, so the body contributes
                 // one method (`sum`) plus one explicit constructor
                 // (`Point()`) = 2 total, both annotated `public`.
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -1798,8 +1801,8 @@ mod tests {
             }",
             "foo.java",
             |func_space| {
-                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2.0);
-                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2.0);
+                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2);
+                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2);
                 assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
@@ -1831,14 +1834,14 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3.0,
-                  "interfaces": 3.0,
-                  "class_methods": 5.0,
-                  "interface_methods": 3.0,
+                  "classes": 3,
+                  "interfaces": 3,
+                  "class_methods": 5,
+                  "interface_methods": 3,
                   "class_coa": 0.6,
                   "interface_coa": 1.0,
-                  "total": 6.0,
-                  "total_methods": 8.0,
+                  "total": 6,
+                  "total_methods": 8,
                   "coa": 0.75
                 }
                 "#
@@ -2001,8 +2004,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0, "Local must not leak");
-                assert_eq!(metric.npm.class_npm_sum(), 1.0, "only Outer is public");
+                assert_eq!(metric.npm.class_nm_sum(), 2, "Local must not leak");
+                assert_eq!(metric.npm.class_npm_sum(), 1, "only Outer is public");
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2177,9 +2180,9 @@ mod tests {
     #[test]
     fn kotlin_empty_class_no_methods() {
         check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -2195,8 +2198,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2212,8 +2215,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2229,8 +2232,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2249,8 +2252,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2270,8 +2273,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2288,8 +2291,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2304,8 +2307,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2321,9 +2324,9 @@ mod tests {
             "foo.kt",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -2342,8 +2345,8 @@ mod tests {
             "foo.kt",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -2365,8 +2368,8 @@ mod tests {
                 // Base: 1 method (public).
                 // Sub: 2 methods — override (public, no visibility modifier
                 //   so default public) + private secret.
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2384,8 +2387,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2402,8 +2405,8 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2419,8 +2422,8 @@ class C {
 }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2437,8 +2440,8 @@ class C {
 }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2460,8 +2463,8 @@ class C {
             "foo.kt",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "Outer", SpaceKind::Interface);
                 let outer = func_space
@@ -2490,8 +2493,8 @@ class C {
             "foo.kt",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.interface_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "Outer", SpaceKind::Class);
                 let outer = func_space
@@ -2515,8 +2518,8 @@ class C {
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2540,8 +2543,8 @@ class C {
     #[test]
     fn typescript_empty_class_no_methods() {
         check_metrics::<TypescriptParser>("class C {}", "foo.ts", |metric| {
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -2556,8 +2559,8 @@ class C {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2575,8 +2578,8 @@ class C {
             "foo.ts",
             |metric| {
                 // public + default-public = 2 npm; 4 nm.
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2593,8 +2596,8 @@ class C {
             "foo.ts",
             |metric| {
                 // a (default public) + b (public) = 2 npm.
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2610,8 +2613,8 @@ class C {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2629,8 +2632,8 @@ class C {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2648,8 +2651,8 @@ class C {
             "foo.ts",
             |metric| {
                 // 2 methods (arrow public, secret private). 1 field.
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2667,8 +2670,8 @@ class C {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2690,8 +2693,8 @@ class C {
             |metric| {
                 // a (default public abstract), b (public), m (public) = 3 npm.
                 // c (protected), n (private) demoted. Total nm = 5.
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
-                assert_eq!(metric.npm.class_nm_sum(), 5.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
+                assert_eq!(metric.npm.class_nm_sum(), 5);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2709,9 +2712,9 @@ class C {
             "foo.ts",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -2728,8 +2731,8 @@ class C {
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2744,10 +2747,10 @@ class C {
             "foo.ts",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
-                assert_eq!(metric.npm.interface_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.interface_npm_sum(), 1);
+                assert_eq!(metric.npm.interface_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "A", SpaceKind::Class);
                 assert_child_space_kind(&func_space, "B", SpaceKind::Class);
@@ -2761,8 +2764,8 @@ class C {
     #[test]
     fn tsx_empty_class_no_methods() {
         check_metrics::<TsxParser>("class C {}", "foo.tsx", |metric| {
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -2776,8 +2779,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2793,8 +2796,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2809,8 +2812,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2825,8 +2828,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2842,8 +2845,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2858,8 +2861,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2875,8 +2878,8 @@ class C {
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2893,8 +2896,8 @@ class C {
             "foo.tsx",
             |metric| {
                 // a (default public) + m (public) = 2 npm; 3 nm.
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2910,8 +2913,8 @@ class C {
             "foo.tsx",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
@@ -2924,8 +2927,8 @@ class C {
             "class Box<T> { value: T; set(v: T): void { this.value = v; } }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2940,10 +2943,10 @@ class C {
             "foo.tsx",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
-                assert_eq!(metric.npm.interface_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.interface_npm_sum(), 1);
+                assert_eq!(metric.npm.interface_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "A", SpaceKind::Class);
                 assert_child_space_kind(&func_space, "B", SpaceKind::Class);
@@ -2963,8 +2966,8 @@ class C {
     #[test]
     fn ruby_no_class_methods() {
         check_metrics::<RubyParser>("def foo\n  1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -2976,8 +2979,8 @@ class C {
             "class A\n  def f\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -2990,8 +2993,8 @@ class C {
             "class A\n  private\n  def f\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3003,8 +3006,8 @@ class C {
             "class A\n  protected\n  def f\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3019,8 +3022,8 @@ class C {
             "class A\n  def a\n    1\n  end\n  private\n  def b\n    1\n  end\n  public\n  def c\n    1\n  end\n  protected\n  def d\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3033,8 +3036,8 @@ class C {
             "class A\n  def self.f\n    1\n  end\n  def g\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3048,8 +3051,8 @@ class C {
             "class A\n  class << self\n    def s\n      1\n    end\n    def t\n      2\n    end\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3064,8 +3067,8 @@ class C {
             "class A\n  def y\n    1\n  end\n  private :y\n  def z\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3078,8 +3081,8 @@ class C {
             "foo.rb",
             |metric| {
                 // A: 1 public method. B: 0 public, 2 total. Sum = 1/3.
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3093,8 +3096,8 @@ class C {
             "module M\n  def f\n    1\n  end\n  def g\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 0.0);
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.class_npm_sum(), 0);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3107,8 +3110,8 @@ class C {
             "class A < B\n  def f\n    1\n  end\n  def g\n    1\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3123,8 +3126,8 @@ class C {
             "foo.rb",
             |metric| {
                 // A: 0 public, B: 1 public.
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3133,8 +3136,8 @@ class C {
     #[test]
     fn ruby_empty_class_no_methods() {
         check_metrics::<RubyParser>("class Empty\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3154,8 +3157,8 @@ class C {
     #[test]
     fn python_empty_class_no_methods() {
         check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3173,8 +3176,8 @@ class C {
              \x20       pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3198,7 +3201,7 @@ class C {
              \x20       return 3\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3212,7 +3215,7 @@ class C {
             "class C:\n    async def m(self):\n        return 1\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3231,7 +3234,7 @@ class C {
              \x20           pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3246,7 +3249,7 @@ class C {
             "foo.py",
             |metric| {
                 // Only `C.m` is a class method.
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3266,8 +3269,8 @@ class C {
              \x20       return True\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3276,10 +3279,10 @@ class C {
     #[test]
     fn rust_empty_unit_no_methods() {
         check_metrics::<RustParser>("", "empty.rs", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
-            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
-            assert_eq!(metric.npm.interface_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0);
+            assert_eq!(metric.npm.interface_npm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3297,8 +3300,8 @@ class C {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3326,8 +3329,8 @@ class C {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 7.0);
-                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+                assert_eq!(metric.npm.class_nm_sum(), 7);
+                assert_eq!(metric.npm.class_npm_sum(), 4);
             },
         );
     }
@@ -3348,9 +3351,9 @@ class C {
             "foo.rs",
             |func_space| {
                 let metric = &func_space.metrics;
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
             },
@@ -3363,8 +3366,8 @@ class C {
         // Unit space stays disabled (no class/interface), so the
         // method count is zero.
         check_metrics::<RustParser>("fn f() {}\nfn g() {}\n", "foo.rs", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3378,8 +3381,8 @@ class C {
              impl Foo { fn m2(&self) {} }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3402,8 +3405,8 @@ class C {
                 let metric = &func_space.metrics;
                 // Trait body: 1 signature method → interface_nm = 1.
                 // Impl body: 1 fn `draw` → class_nm = 1.
-                assert_eq!(metric.npm.interface_nm_sum(), 1.0);
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 1);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
                 assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
             },
@@ -3416,7 +3419,7 @@ class C {
     fn go_empty_unit_no_methods() {
         // No receiver methods → npm stays disabled, class_nm_sum = 0.
         check_metrics::<GoParser>("package main\n", "empty.go", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3433,8 +3436,8 @@ class C {
              func (f Foo) doY() {}\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3449,7 +3452,7 @@ class C {
             "package main\nfunc g() {}\nfunc h(x int) int { return x }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3469,7 +3472,7 @@ class C {
              func (b *Bar) M3() {}\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3495,9 +3498,9 @@ class C {
             "package main\ntype RC interface { Read() error; Close() error }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3514,9 +3517,9 @@ class C {
             "package main\ntype I interface { Foo(); bar(); Ünic() }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.interface_nm_sum(), 3.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 3);
+                assert_eq!(metric.npm.interface_npm_sum(), 2);
+                assert_eq!(metric.npm.class_nm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3534,7 +3537,7 @@ class C {
              func (f *Foo) Get() int { return 0 }\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3555,8 +3558,8 @@ class C {
              func (t *T) Ärger() {}\n",
             "foo.go",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3573,8 +3576,8 @@ class C {
             "foo.ex",
             |metric| {
                 // 3 methods, 2 public.
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -3586,8 +3589,8 @@ class C {
             "foo.ex",
             |metric| {
                 // defmacro = public method, defmacrop = private method.
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -3599,8 +3602,8 @@ class C {
             "defmodule Foo do\n  def f(0), do: :zero\n  def f(_), do: :other\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -3612,8 +3615,8 @@ class C {
             "foo.ex",
             |metric| {
                 // Two classes, one public method each.
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }
@@ -3631,8 +3634,8 @@ class C {
                 // inner `def unquote(name)` is wrapped in `quote` so
                 // it does not lexically appear as a direct child of
                 // the defmodule do_block).
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -3651,8 +3654,8 @@ class C {
             "foo.ex",
             |metric| {
                 // Only `defmacro multi` is a method (and public).
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
             },
         );
     }
@@ -3663,8 +3666,8 @@ class C {
     fn cpp_empty_unit_no_methods() {
         // No code → no class spaces → npm = 0.
         check_metrics::<CppParser>("", "empty.cpp", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3680,8 +3683,8 @@ class C {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3701,8 +3704,8 @@ class C {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3720,8 +3723,8 @@ class C {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3739,8 +3742,8 @@ class C {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3752,8 +3755,8 @@ class C {
         // toward npm. The Unit space is not marked as a class space,
         // so npm stays at zero.
         check_metrics::<CppParser>("void free_fn() {}\n", "foo.cpp", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3771,8 +3774,8 @@ class C {
              };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3787,8 +3790,8 @@ class C {
              struct Bar { void c(); };",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3797,8 +3800,8 @@ class C {
     #[test]
     fn javascript_empty_unit_no_methods() {
         check_metrics::<JavascriptParser>("", "empty.js", |metric| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
-            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
+            assert_eq!(metric.npm.class_npm_sum(), 0);
             insta::assert_json_snapshot!(metric.npm);
         });
     }
@@ -3817,8 +3820,8 @@ class C {
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 4.0);
-                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npm.class_npm_sum(), 4);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3834,8 +3837,8 @@ class C {
             "foo.js",
             |metric| {
                 // x + y are methods; z is an attribute.
-                assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3850,8 +3853,8 @@ class C {
             "foo.js",
             |metric| {
                 // Only `h` is a method.
-                assert_eq!(metric.npm.class_nm_sum(), 1.0);
-                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1);
+                assert_eq!(metric.npm.class_npm_sum(), 1);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3865,8 +3868,8 @@ class C {
             "class Foo { a() {} b() {} }\nclass Bar { c() {} }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 3.0);
-                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 3);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3884,8 +3887,8 @@ class C {
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 4.0);
-                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+                assert_eq!(metric.npm.class_nm_sum(), 4);
+                assert_eq!(metric.npm.class_npm_sum(), 4);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3901,7 +3904,7 @@ class C {
     #[test]
     fn empty_class_coa_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
-            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0);
             assert!(!metric.npm.class_coa().is_nan());
             assert!(!metric.npm.total_coa().is_nan());
             assert_eq!(metric.npm.class_coa(), 0.0);
@@ -3920,7 +3923,7 @@ class C {
     #[test]
     fn empty_interface_coa_is_zero_not_nan() {
         let assert_zero = |metric: crate::CodeMetrics| {
-            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0);
             assert!(!metric.npm.interface_coa().is_nan());
             assert_eq!(metric.npm.interface_coa(), 0.0);
         };
