@@ -148,14 +148,14 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn fn_args_average(&self) -> f64 {
-        self.fn_nargs_sum as f64 / self.total_functions.max(1) as f64
+        crate::metrics::average(self.fn_nargs_sum as f64, self.total_functions)
     }
 
     /// Returns the average number of closures arguments in a space.
     #[inline]
     #[must_use]
     pub fn closure_args_average(&self) -> f64 {
-        self.closure_nargs_sum as f64 / self.total_closures.max(1) as f64
+        crate::metrics::average(self.closure_nargs_sum as f64, self.total_closures)
     }
 
     /// Returns the total number of arguments of each function and
@@ -173,7 +173,10 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn nargs_average(&self) -> f64 {
-        self.nargs_total() / (self.total_functions + self.total_closures).max(1) as f64
+        crate::metrics::average(
+            self.nargs_total(),
+            self.total_functions + self.total_closures,
+        )
     }
     /// Returns the minimum number of function arguments in a space.
     ///

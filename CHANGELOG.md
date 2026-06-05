@@ -475,6 +475,40 @@ for historical reference.
 
 ### Changed
 
+- Unified the "average over a count" divisor convention and its
+  divide-by-zero guard across the metric suite, and **re-baselined the
+  cyclomatic averages** as part of the `2.0` re-baseline
+  ([#512](https://github.com/dekobon/big-code-analysis/issues/512),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
+  - A single shared `average(sum, count)` helper now applies the `.max(1)`
+    divisor guard (added for
+    [#428](https://github.com/dekobon/big-code-analysis/issues/428)) for
+    every metric average instead of repeating it per call site. This
+    removes the former reliance on a counter that merely defaulted to `1`
+    for `cyclomatic`, `nom`, and the previously-unguarded per-space
+    averages (`loc`, `abc`, `tokens`). Behaviour-preserving for every
+    metric except `cyclomatic` (below): the guarded divisor is identical
+    whenever the count is already non-zero.
+  - **Metric values change for `cyclomatic.average` and
+    `cyclomatic.modified.average` only.** They are now **per function**:
+    the divisor is the number of function/closure *spaces* in the subtree
+    — the per-function convention `cognitive` / `exit` / `nargs` use —
+    rather than the previous per-space count (which also divided by
+    classes, structs, and the file unit and so reported a smaller
+    average). Files with classes/structs/units see a larger average.
+    `cyclomatic.sum` / `min` / `max` and every other metric — including
+    the Maintainability Index and WMC, which consume the cyclomatic
+    *sum* — are unchanged. (The divisor counts the spaces that each carry
+    a cyclomatic value, so it matches `cognitive`'s function/closure count
+    wherever every closure opens its own space; a closure form that opens
+    no space, such as a Python `lambda`, is counted by `cognitive` but not
+    as a separate cyclomatic divisor unit.)
+  - The divisor is sourced from the space kind during finalization, not
+    from the `Nom` metric, so a `cyclomatic`-only metric selection still
+    divides per function without pulling a `nom` block into the output.
+  - `nom`'s own averages stay **per space** (it is the count metric;
+    a per-function divisor would be circular).
+
 - `get_ops`, `metrics_from_tree`, and the doc-hidden
   `operands_and_operators` are now `#[deprecated]` in favour of the
   explicit-name `Ast` seams (`Ast::ops`, `Ast::from_tree_sitter`), which
