@@ -256,7 +256,7 @@ impl<'a> Node<'a> {
         Some(node)
     }
 
-    pub(crate) fn count_specific_ancestors<T: crate::ParserTrait>(
+    pub(crate) fn count_specific_ancestors<C: Checker>(
         &self,
         check: fn(&Node) -> bool,
         stop: fn(&Node) -> bool,
@@ -267,7 +267,7 @@ impl<'a> Node<'a> {
             if stop(&parent) {
                 break;
             }
-            if check(&parent) && !T::Checker::is_else_if(&parent) {
+            if check(&parent) && !C::is_else_if(&parent) {
                 count += 1;
             }
             node = parent;

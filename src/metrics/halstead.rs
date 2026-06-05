@@ -379,7 +379,7 @@ fn compute_halstead<'a, T: Getter + Checker>(
 ) {
     match T::get_op_type_with_code(node, code) {
         HalsteadType::Operator => {
-            if T::is_primitive(node.kind_id()) {
+            if T::is_primitive(node) {
                 // Store primitive-type operators by text so distinct
                 // primitives (e.g. `int` vs `double`) that share a
                 // single kind_id are counted separately in n1/N1.

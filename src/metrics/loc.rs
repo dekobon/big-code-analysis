@@ -1011,7 +1011,7 @@ impl Loc for CppCode {
                 stats.lloc.logical_lines += 1;
             }
             Declaration => {
-                if node.count_specific_ancestors::<CppParser>(
+                if node.count_specific_ancestors::<CppCode>(
                     |node| {
                         matches!(
                             node.kind_id().into(),
@@ -1061,7 +1061,7 @@ impl Loc for JavaCode {
                 stats.lloc.logical_lines += 1;
             }
             LocalVariableDeclaration => {
-                if node.count_specific_ancestors::<JavaParser>(
+                if node.count_specific_ancestors::<JavaCode>(
                     |node| node.kind_id() == ForStatement,
                     |node| node.kind_id() == Block,
                 ) == 0
@@ -1123,7 +1123,7 @@ impl Loc for GroovyCode {
                 stats.lloc.logical_lines += 1;
             }
             LocalVariableDeclaration => {
-                if node.count_specific_ancestors::<GroovyParser>(
+                if node.count_specific_ancestors::<GroovyCode>(
                     |node| node.kind_id() == ForStatement,
                     |node| node.kind_id() == Block,
                 ) == 0
@@ -1163,7 +1163,7 @@ impl Loc for CsharpCode {
                 // Variable declarations inside a `for_statement` init/condition/update
                 // (e.g. `for (int i = 0; i < n; i++)`) shouldn't bump LLOC; the
                 // surrounding `for_statement` already counts.
-                if node.count_specific_ancestors::<CsharpParser>(
+                if node.count_specific_ancestors::<CsharpCode>(
                     |n| n.kind_id() == ForStatement,
                     |n| n.kind_id() == Block,
                 ) == 0
@@ -1219,7 +1219,7 @@ impl Loc for GoCode {
                 // for-clause init or update slot (e.g. `for i := 0; i < n; i++`);
                 // the surrounding `for_statement` already counts as one
                 // logical line.
-                if node.count_specific_ancestors::<GoParser>(
+                if node.count_specific_ancestors::<GoCode>(
                     |n| n.kind_id() == G::ForClause,
                     |n| n.kind_id() == G::Block,
                 ) == 0

@@ -43,13 +43,15 @@ static RE: OnceLock<Regex> = OnceLock::new();
 // patterns and `$extra` into the trailing `|| …` disjunct.
 macro_rules! js_ancestor_walk {
     (
-        $parser:ident,
         $node:ident,
         [$($up:ident)|+],
         [$($stop:ident)|+],
         $extra:expr $(,)?
     ) => {
-        $node.count_specific_ancestors::<$parser>(
+        // `Self` is the enclosing `impl Checker for <Lang>Code` type, so
+        // the ancestor walk's `is_else_if` filter is bound directly to the
+        // language's own `Checker` (no `ParserTrait` round-trip).
+        $node.count_specific_ancestors::<Self>(
             |node| matches!(node.kind_id().into(), $($up)|+),
             |node| matches!(node.kind_id().into(), $($stop)|+),
         ) > 0
@@ -58,9 +60,8 @@ macro_rules! js_ancestor_walk {
 }
 
 macro_rules! check_if_func {
-    ($parser: ident, $node: ident) => {
+    ($node: ident) => {
         js_ancestor_walk!(
-            $parser,
             $node,
             [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
             [StatementBlock | ReturnStatement | NewExpression | Arguments],
@@ -70,9 +71,8 @@ macro_rules! check_if_func {
 }
 
 macro_rules! check_if_arrow_func {
-    ($parser: ident, $node: ident) => {
+    ($node: ident) => {
         js_ancestor_walk!(
-            $parser,
             $node,
             [VariableDeclarator | AssignmentExpression | LabeledStatement],
             [StatementBlock | ReturnStatement | NewExpression | CallExpression],
@@ -82,39 +82,39 @@ macro_rules! check_if_arrow_func {
 }
 
 macro_rules! is_js_func {
-    ($parser: ident, $node: ident) => {
+    ($node: ident) => {
         match $node.kind_id().into() {
             FunctionDeclaration | MethodDefinition => true,
-            FunctionExpression => check_if_func!($parser, $node),
-            ArrowFunction => check_if_arrow_func!($parser, $node),
+            FunctionExpression => check_if_func!($node),
+            ArrowFunction => check_if_arrow_func!($node),
             _ => false,
         }
     };
 }
 
 macro_rules! is_js_closure {
-    ($parser: ident, $node: ident) => {
+    ($node: ident) => {
         match $node.kind_id().into() {
             GeneratorFunction | GeneratorFunctionDeclaration => true,
-            FunctionExpression => !check_if_func!($parser, $node),
-            ArrowFunction => !check_if_arrow_func!($parser, $node),
+            FunctionExpression => !check_if_func!($node),
+            ArrowFunction => !check_if_arrow_func!($node),
             _ => false,
         }
     };
 }
 
 macro_rules! is_js_func_and_closure_checker {
-    ($parser: ident, $language: ident) => {
+    ($language: ident) => {
         #[inline]
         fn is_func(node: &Node) -> bool {
             use $language::*;
-            is_js_func!($parser, node)
+            is_js_func!(node)
         }
 
         #[inline]
         fn is_closure(node: &Node) -> bool {
             use $language::*;
-            is_js_closure!($parser, node)
+            is_js_closure!(node)
         }
     };
 }
@@ -164,18 +164,58 @@ fn get_aho_corasick_match(code: &[u8]) -> bool {
         .is_match(code)
 }
 
+/// Per-language AST classification predicates the metric walkers use to
+/// recognize comments, function spaces, calls, strings, branches, and so
+/// on by node kind.
+///
+/// Every predicate defaults to `false` — "this node is never of that
+/// category." A language implements only the predicates its grammar
+/// actually expresses; categories it lacks fall through to the default,
+/// so adding a language no longer requires copy-pasting `-> false` stubs.
+/// The flip side is that the compiler cannot flag a forgotten override, so
+/// each language's per-metric tests are the safety net for completeness.
 #[doc(hidden)]
 pub trait Checker {
-    fn is_comment(_: &Node) -> bool;
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool;
-    fn is_func_space(_: &Node) -> bool;
-    fn is_func(_: &Node) -> bool;
-    fn is_closure(_: &Node) -> bool;
-    fn is_call(_: &Node) -> bool;
-    fn is_non_arg(_: &Node) -> bool;
-    fn is_string(_: &Node) -> bool;
-    fn is_else_if(_: &Node) -> bool;
-    fn is_primitive(_id: u16) -> bool;
+    #[inline]
+    fn is_comment(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+    #[inline]
+    fn is_func_space(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_func(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_closure(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_call(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_non_arg(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_string(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_else_if(_: &Node) -> bool {
+        false
+    }
+    #[inline]
+    fn is_primitive(_node: &Node) -> bool {
+        false
+    }
 
     fn is_error(node: &Node) -> bool {
         node.has_error()
@@ -235,39 +275,7 @@ impl Checker for PreprocCode {
         node.kind_id() == Preproc::Comment
     }
 
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
-    }
-
-    fn is_func_space(_: &Node) -> bool {
-        false
-    }
-
-    fn is_func(_: &Node) -> bool {
-        false
-    }
-
-    fn is_closure(_: &Node) -> bool {
-        false
-    }
-
-    fn is_call(_: &Node) -> bool {
-        false
-    }
-
-    fn is_non_arg(_: &Node) -> bool {
-        false
-    }
-
     impl_simple_is_string!(Preproc, StringLiteral, RawStringLiteral);
-
-    fn is_else_if(_: &Node) -> bool {
-        false
-    }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for CcommentCode {
@@ -279,35 +287,7 @@ impl Checker for CcommentCode {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }
 
-    fn is_func_space(_: &Node) -> bool {
-        false
-    }
-
-    fn is_func(_: &Node) -> bool {
-        false
-    }
-
-    fn is_closure(_: &Node) -> bool {
-        false
-    }
-
-    fn is_call(_: &Node) -> bool {
-        false
-    }
-
-    fn is_non_arg(_: &Node) -> bool {
-        false
-    }
-
     impl_simple_is_string!(Ccomment, StringLiteral, RawStringLiteral);
-
-    fn is_else_if(_: &Node) -> bool {
-        false
-    }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for CppCode {
@@ -382,8 +362,8 @@ impl Checker for CppCode {
     }
 
     #[inline]
-    fn is_primitive(id: u16) -> bool {
-        id == Cpp::PrimitiveType
+    fn is_primitive(node: &Node) -> bool {
+        node.kind_id() == Cpp::PrimitiveType
     }
 }
 
@@ -480,10 +460,6 @@ impl Checker for PythonCode {
                         .is_some_and(|gp| gp.kind_id() == Python::ElseClause)
             })
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 /// Returns the `class_body` child of a Java `object_creation_expression`
@@ -500,10 +476,6 @@ pub(crate) fn java_anonymous_class_body<'a>(node: &Node<'a>) -> Option<Node<'a>>
 impl Checker for JavaCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Java::LineComment || node.kind_id() == Java::BlockComment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     // `EnumDeclaration`, `RecordDeclaration`, and `AnnotationTypeDeclaration`
@@ -573,10 +545,6 @@ impl Checker for JavaCode {
                 .previous_sibling()
                 .is_some_and(|prev| prev.kind_id() == Java::Else)
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 /// Counts the `accessor_declaration` children (`get` / `set` / `init`) of a C#
@@ -614,10 +582,6 @@ pub(crate) fn csharp_member_has_accessors(node: &Node) -> bool {
 impl Checker for CsharpCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Csharp::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     // A bodied indexer (`this[int i] { get; set; }`) or property
@@ -713,23 +677,19 @@ impl Checker for CsharpCode {
     }
 
     #[inline]
-    fn is_primitive(id: u16) -> bool {
+    fn is_primitive(node: &Node) -> bool {
         // Without this, every `PredefinedType` keyword (`int`, `string`,
         // `bool`, `object`, …) collapses into a single Halstead operator
         // because they share one `kind_id`. Returning `true` here routes
         // them through the lexeme-keyed `primitive_operators` map so
         // distinct keywords count as distinct operators (issue #286).
-        id == Csharp::PredefinedType as u16
+        node.kind_id() == Csharp::PredefinedType as u16
     }
 }
 
 impl Checker for MozjsCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Mozjs::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -747,7 +707,7 @@ impl Checker for MozjsCode {
         )
     }
 
-    is_js_func_and_closure_checker!(MozjsParser, Mozjs);
+    is_js_func_and_closure_checker!(Mozjs);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Mozjs::CallExpression
@@ -772,19 +732,11 @@ impl Checker for MozjsCode {
         }
         false
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for JavascriptCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Javascript::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -802,7 +754,7 @@ impl Checker for JavascriptCode {
         )
     }
 
-    is_js_func_and_closure_checker!(JavascriptParser, Javascript);
+    is_js_func_and_closure_checker!(Javascript);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Javascript::CallExpression
@@ -824,19 +776,11 @@ impl Checker for JavascriptCode {
                 .parent()
                 .is_some_and(|p| p.kind_id() == Javascript::ElseClause)
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for TypescriptCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Typescript::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -856,7 +800,7 @@ impl Checker for TypescriptCode {
         )
     }
 
-    is_js_func_and_closure_checker!(TypescriptParser, Typescript);
+    is_js_func_and_closure_checker!(Typescript);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Typescript::CallExpression
@@ -883,18 +827,14 @@ impl Checker for TypescriptCode {
     }
 
     #[inline]
-    fn is_primitive(id: u16) -> bool {
-        id == Typescript::PredefinedType
+    fn is_primitive(node: &Node) -> bool {
+        node.kind_id() == Typescript::PredefinedType
     }
 }
 
 impl Checker for TsxCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Tsx::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -914,7 +854,7 @@ impl Checker for TsxCode {
         )
     }
 
-    is_js_func_and_closure_checker!(TsxParser, Tsx);
+    is_js_func_and_closure_checker!(Tsx);
 
     fn is_call(node: &Node) -> bool {
         node.kind_id() == Tsx::CallExpression
@@ -937,8 +877,8 @@ impl Checker for TsxCode {
     }
 
     #[inline]
-    fn is_primitive(id: u16) -> bool {
-        id == Tsx::PredefinedType
+    fn is_primitive(node: &Node) -> bool {
+        node.kind_id() == Tsx::PredefinedType
     }
 }
 
@@ -1085,9 +1025,9 @@ impl Checker for RustCode {
     }
 
     #[inline]
-    fn is_primitive(id: u16) -> bool {
+    fn is_primitive(node: &Node) -> bool {
         matches!(
-            id.into(),
+            node.kind_id().into(),
             Rust::PrimitiveType
                 | Rust::PrimitiveType2
                 | Rust::PrimitiveType3
@@ -1136,10 +1076,6 @@ impl Checker for GoCode {
         node.kind_id() == Go::Comment
     }
 
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
-    }
-
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
@@ -1175,10 +1111,6 @@ impl Checker for GoCode {
                 .parent()
                 .is_some_and(|p| p.kind_id() == Go::IfStatement)
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for KotlinCode {
@@ -1187,10 +1119,6 @@ impl Checker for KotlinCode {
             node.kind_id().into(),
             Kotlin::LineComment | Kotlin::BlockComment
         )
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1240,19 +1168,11 @@ impl Checker for KotlinCode {
                 .previous_sibling()
                 .is_some_and(|prev| prev.kind_id() == Kotlin::Else)
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for PerlCode {
     fn is_comment(node: &Node) -> bool {
         matches!(node.kind_id().into(), Perl::Comments | Perl::PodStatement)
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1319,19 +1239,11 @@ impl Checker for PerlCode {
         // `if`), so the clause node itself is the else-if.
         node.kind_id() == Perl::ElsifClause
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for LuaCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Lua::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1378,19 +1290,11 @@ impl Checker for LuaCode {
         // second if_statement inside the outer one (as Go does).
         node.kind_id() == Lua::ElseifStatement
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for BashCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Bash::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1402,10 +1306,6 @@ impl Checker for BashCode {
 
     fn is_func(node: &Node) -> bool {
         node.kind_id() == Bash::FunctionDefinition
-    }
-
-    fn is_closure(_node: &Node) -> bool {
-        false
     }
 
     fn is_call(node: &Node) -> bool {
@@ -1438,19 +1338,11 @@ impl Checker for BashCode {
     fn is_else_if(node: &Node) -> bool {
         node.kind_id() == Bash::ElifClause
     }
-
-    fn is_primitive(_id: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for TclCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Tcl::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1482,19 +1374,11 @@ impl Checker for TclCode {
         // Tcl grammar has a dedicated `elseif` named node, not a nested `if`.
         node.kind_id() == Tcl::Elseif
     }
-
-    fn is_primitive(_: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for IrulesCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Irules::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     // iRules code is dominated by `when EVENT { … }` event handlers; real
@@ -1556,19 +1440,11 @@ impl Checker for IrulesCode {
         // the clause, so it is intentionally excluded here.
         node.kind_id() == Irules::Elseif
     }
-
-    fn is_primitive(_: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for PhpCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Php::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1649,19 +1525,11 @@ impl Checker for PhpCode {
             Php::ElseIfClause | Php::ElseIfClause2
         )
     }
-
-    fn is_primitive(_: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for ElixirCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Elixir::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     // Elixir has no syntactic function-definition node: `def`/`defp` /
@@ -1765,19 +1633,11 @@ impl Checker for ElixirCode {
     fn is_else_if(_: &Node) -> bool {
         false
     }
-
-    fn is_primitive(_: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for RubyCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Ruby::Comment
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1862,10 +1722,6 @@ impl Checker for RubyCode {
     fn is_else_if(node: &Node) -> bool {
         node.kind_id() == Ruby::Elsif
     }
-
-    fn is_primitive(_: u16) -> bool {
-        false
-    }
 }
 
 impl Checker for GroovyCode {
@@ -1874,10 +1730,6 @@ impl Checker for GroovyCode {
             node.kind_id().into(),
             Groovy::LineComment | Groovy::BlockComment
         )
-    }
-
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
-        false
     }
 
     // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,
@@ -1945,10 +1797,6 @@ impl Checker for GroovyCode {
             && node
                 .previous_sibling()
                 .is_some_and(|prev| prev.kind_id() == Groovy::Else)
-    }
-
-    fn is_primitive(_: u16) -> bool {
-        false
     }
 }
 

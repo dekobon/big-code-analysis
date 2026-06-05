@@ -420,18 +420,17 @@ fn python_comprehension_clause_nesting(
 /// (`expression_list`, `if`/`for`/`while`) up to the nearest lambda.
 fn python_apply_boolean_operator(node: &Node, stats: &mut Stats) {
     use Python::*;
-    if node.count_specific_ancestors::<PythonParser>(
+    if node.count_specific_ancestors::<PythonCode>(
         |node| node.kind_id() == BooleanOperator,
         python_is_lambda,
     ) == 0
     {
-        stats.structural +=
-            node.count_specific_ancestors::<PythonParser>(python_is_lambda, |node| {
-                matches!(
-                    node.kind_id().into(),
-                    ExpressionList | IfStatement | ForStatement | WhileStatement
-                )
-            });
+        stats.structural += node.count_specific_ancestors::<PythonCode>(python_is_lambda, |node| {
+            matches!(
+                node.kind_id().into(),
+                ExpressionList | IfStatement | ForStatement | WhileStatement
+            )
+        });
     }
     compute_booleans(node, stats, And, Or);
 }

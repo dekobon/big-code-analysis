@@ -475,6 +475,22 @@ for historical reference.
 
 ### Changed
 
+- Internal refactor of the crate-private `Checker` classification trait
+  (a `pub(crate)` extension point, not part of the public API or the
+  [STABILITY.md](./STABILITY.md) shape contract) so that adding a language
+  no longer means copy-pasting `-> false` stubs. The ten predicates
+  (`is_comment`, `is_useful_comment`, `is_func_space`, `is_func`,
+  `is_closure`, `is_call`, `is_non_arg`, `is_string`, `is_else_if`,
+  `is_primitive`) now carry `-> false` defaults, so a language implements
+  only the categories its grammar expresses (~150 boilerplate lines removed
+  across the 22 impls). `is_primitive` now takes `&Node` instead of a bare
+  `u16`, matching every other predicate and removing the "two same-typed
+  primitives" footgun, and `Node::count_specific_ancestors` is bound on
+  `Checker` rather than the full `ParserTrait`. No public-API or
+  metric-output change — this is internal plumbing only and the serialized
+  metrics are byte-identical
+  ([#520](https://github.com/dekobon/big-code-analysis/issues/520),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
 - The `bca` line-range flags are now **scoped to the `dump` and `find`
   subcommands** instead of being `global`, and gain descriptive long
   names: `--line-start` / `--line-end` (canonical) with `--ls` / `--le`
