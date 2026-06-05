@@ -475,6 +475,27 @@ for historical reference.
 
 ### Changed
 
+- `bca-web` REST routes are now versioned under a `/v1` prefix
+  (`/v1/ast`, `/v1/comment`, `/v1/metrics`, `/v1/function`, `/v1/ping`).
+  The original unprefixed paths remain available as **deprecated
+  aliases** for one release cycle and resolve to the same handlers, so
+  existing clients keep working; new clients should adopt the `/v1`
+  paths. The known-endpoint set is no longer mirrored in a
+  hand-maintained `GUARDED_POST_PATHS` constant — each resource carries
+  its own `default_service`, so a request that reaches a known endpoint
+  but matches no route is answered with a diagnostic `415`/`405` by the
+  resource itself (a new endpoint can never silently regress to a
+  bodyless `404`), and a genuinely unknown URL falls through to the
+  app-level `404`. A side effect: `POST /ping` now returns `405` (was a
+  bodyless `404`). Additionally, errors are no longer signalled inside a
+  `200` body: the metrics endpoint's `spaces` field is now a
+  non-optional `FuncSpace` (a successful response is byte-identical to
+  before), and metric-computation / AST-construction failures now return
+  `500 Internal Server Error` with an error body rather than `200` with
+  `spaces`/`root` = `null`
+  ([#517](https://github.com/dekobon/big-code-analysis/issues/517),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
+
 - `bca-web` now logs server-side events via `tracing` instead of
   unstructured `eprintln!`: parse failures at `error!` and parse timeouts
   at `warn!`, each with a structured `payload_id` field taken from the

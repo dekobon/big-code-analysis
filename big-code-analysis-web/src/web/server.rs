@@ -65,6 +65,23 @@ const PARSE_TIMEOUT: &str = "Parse timed out";
 const PARSE_POOL_SATURATED: &str = "parse pool saturated";
 const PAYLOAD_TOO_LARGE: &str = "Request body exceeds the maximum allowed size";
 
+/// Error body emitted when AST construction yields no root node.
+///
+/// Defensive: `build` only returns `None` in a degenerate case the
+/// current grammars never reach for a parsed root, so this `500` is
+/// unreachable today (hence no integration test drives it). It exists
+/// so a future walker change cannot silently regress to the old
+/// `200`-with-`root: null` body (issue #517).
+const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
+/// Error body emitted when metric computation fails for a parsed source.
+///
+/// Defensive, like [`AST_BUILD_FAILED`]: `metrics_with_options` does not
+/// error for the web crate today (every `MetricsError` variant is either
+/// reserved or guarded against by the `all-languages` feature pin), so
+/// this `500` is unreachable today and exists to keep failures off the
+/// `200` path if that changes (issue #517).
+const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
+
 /// Default parse timeout used by [`run`].
 pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
 
@@ -205,7 +222,17 @@ async fn ast_parser(
             action::<AstCallback>(language, buf, Path::new(""), None, cfg).expect(FEATURES_PINNED)
         })
         .await?;
-        Ok(HttpResponse::Ok().json(result))
+        // `root == None` previously surfaced as a `200` carrying
+        // `root: null` (an error signalled inside a success body); map it
+        // to an explicit `500` with an error body instead (issue #517).
+        if result.root.is_some() {
+            Ok(HttpResponse::Ok().json(result))
+        } else {
+            Ok(HttpResponse::InternalServerError().json(Error {
+                id: result.id,
+                error: AST_BUILD_FAILED,
+            }))
+        }
     } else {
         Ok(HttpResponse::NotFound().json(Error {
             id: payload.id,
@@ -289,12 +316,20 @@ async fn metrics_json(
         // request payload and chain `.with_exclude_tests(...)` here.
         let payload_id = payload.id.clone();
         let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
-        let result = run_parse(&config, &payload_id, move || {
+        let response = run_parse(&config, &payload_id, move || {
             action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
-        Ok(HttpResponse::Ok().json(result))
+        // `None` means metric computation failed: answer with an explicit
+        // `500` instead of the former `200`-with-`spaces: null` (issue #517).
+        match response {
+            Some(resp) => Ok(HttpResponse::Ok().json(resp)),
+            None => Ok(HttpResponse::InternalServerError().json(Error {
+                id: payload_id,
+                error: METRICS_FAILED,
+            })),
+        }
     } else {
         Ok(HttpResponse::NotFound().json(Error {
             id: payload.id,
@@ -320,12 +355,20 @@ async fn metrics_plain(
         });
         // Same `exclude_tests` rationale as the JSON variant above.
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
-        let result = run_parse(&config, "", move || {
+        let response = run_parse(&config, "", move || {
             action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
-        Ok(HttpResponse::Ok().json(result))
+        // Same error mapping as the JSON variant (issue #517); the plain
+        // endpoint reports failure as a `text/plain` body to match its
+        // invalid-language response.
+        match response {
+            Some(resp) => Ok(HttpResponse::Ok().json(resp)),
+            None => Ok(HttpResponse::InternalServerError()
+                .append_header((http::header::CONTENT_TYPE, "text/plain"))
+                .body(format!("error: {METRICS_FAILED}"))),
+        }
     } else {
         Ok(HttpResponse::NotFound()
             .append_header((http::header::CONTENT_TYPE, "text/plain"))
@@ -415,12 +458,6 @@ pub async fn run(host: &str, port: u16, n_threads: usize) -> std::io::Result<()>
     run_with_timeout(host, port, n_threads, DEFAULT_PARSE_TIMEOUT_SECS).await
 }
 
-/// Paths served by a content-type-guarded `POST` route.
-///
-/// Used by the default service to distinguish a content-type mismatch
-/// (`415`) on a real endpoint from a genuinely unknown URL (`404`).
-const GUARDED_POST_PATHS: [&str; 4] = ["/ast", "/comment", "/metrics", "/function"];
-
 /// Matches a request whose `Content-Type` media type *essence*
 /// (type/subtype) equals `expected`, ignoring parameters such as
 /// `; charset=utf-8` and ASCII case.
@@ -448,71 +485,91 @@ fn octet_guard() -> impl guard::Guard {
     guard::fn_guard(|ctx| content_type_essence_matches(ctx, &mime::APPLICATION_OCTET_STREAM))
 }
 
-/// Registers every `bca-web` route plus the diagnostic default service.
+/// Registers every `bca-web` endpoint into `cfg`.
 ///
-/// Shared by [`run_with_timeout`] and the integration tests so both
-/// exercise the same content-type guards.
-fn configure_routes(cfg: &mut web::ServiceConfig) {
+/// Each content-type-guarded `POST` resource and the `GET`-only `/ping`
+/// resource carry their *own* `default_service`, so a request that
+/// reaches a known resource but matches none of its routes (wrong
+/// `Content-Type` or wrong method) is answered with a diagnostic
+/// `415`/`405` *by the resource itself*. This is the route table acting
+/// as its own source of truth: there is no parallel path constant to
+/// keep in sync (the former `GUARDED_POST_PATHS`), so a newly added
+/// endpoint can never silently regress to a bodyless `404` (#515).
+/// A URL matching no resource at all falls through to the app-level
+/// default service in [`configure_routes`], which answers `404`.
+///
+/// Shared by the root registration (the deprecated unprefixed aliases)
+/// and the `/v1` scope, so both expose identical routing.
+fn register_endpoints(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/ast")
-            .guard(json_guard())
-            .route(web::post().to(ast_parser)),
+            .route(web::post().guard(json_guard()).to(ast_parser))
+            .default_service(web::route().to(guarded_post_fallback)),
     )
     .service(
         web::resource("/comment")
-            .guard(json_guard())
-            .route(web::post().to(comment_removal_json)),
-    )
-    .service(
-        web::resource("/comment")
-            .guard(octet_guard())
-            .route(web::post().to(comment_removal_plain)),
+            .route(web::post().guard(json_guard()).to(comment_removal_json))
+            .route(web::post().guard(octet_guard()).to(comment_removal_plain))
+            .default_service(web::route().to(guarded_post_fallback)),
     )
     .service(
         web::resource("/metrics")
-            .guard(json_guard())
-            .route(web::post().to(metrics_json)),
-    )
-    .service(
-        web::resource("/metrics")
-            .guard(octet_guard())
-            .route(web::post().to(metrics_plain)),
+            .route(web::post().guard(json_guard()).to(metrics_json))
+            .route(web::post().guard(octet_guard()).to(metrics_plain))
+            .default_service(web::route().to(guarded_post_fallback)),
     )
     .service(
         web::resource("/function")
-            .guard(json_guard())
-            .route(web::post().to(function_json)),
+            .route(web::post().guard(json_guard()).to(function_json))
+            .route(web::post().guard(octet_guard()).to(function_plain))
+            .default_service(web::route().to(guarded_post_fallback)),
     )
     .service(
-        web::resource("/function")
-            .guard(octet_guard())
-            .route(web::post().to(function_plain)),
-    )
-    .service(web::resource("/ping").route(web::get().to(ping)))
-    .default_service(web::route().to(unmatched_route));
+        web::resource("/ping")
+            .route(web::get().to(ping))
+            .default_service(web::route().to(ping_method_not_allowed)),
+    );
 }
 
-/// Fallback handler for requests that match no guarded route.
+/// Registers the versioned (`/v1/...`) routes plus, for one deprecation
+/// cycle, the original unprefixed paths as aliases (issue #517).
 ///
-/// For a known endpoint, distinguishes *why* it fell through: a wrong
-/// HTTP method gets `405 Method Not Allowed` (these endpoints are
-/// `POST`-only), while a `POST` carrying the wrong/missing
-/// `Content-Type` gets a diagnostic `415 Unsupported Media Type`. A URL
-/// that is not a known endpoint gets a plain `404`, so a content-type
-/// problem, a method problem, and a wrong URL are each distinguishable.
-async fn unmatched_route(req: actix_web::HttpRequest) -> HttpResponse {
-    if GUARDED_POST_PATHS.contains(&req.path()) {
-        if req.method() == actix_web::http::Method::POST {
-            HttpResponse::UnsupportedMediaType().body(
-                "Unsupported or missing Content-Type. Send 'application/json' \
-                 or 'application/octet-stream' (a charset parameter is allowed).",
-            )
-        } else {
-            HttpResponse::MethodNotAllowed().body("Method not allowed. This endpoint accepts POST.")
-        }
+/// Shared by [`run_with_timeout`] and the integration tests so both
+/// exercise the same routing, content-type guards, and per-resource
+/// fallbacks. The app-level default service answers `404` for any URL
+/// that matches no registered resource under either prefix.
+fn configure_routes(cfg: &mut web::ServiceConfig) {
+    // Deprecated unprefixed aliases, kept for one release cycle.
+    register_endpoints(cfg);
+    cfg.service(web::scope("/v1").configure(register_endpoints))
+        .default_service(web::route().to(not_found));
+}
+
+/// Resource-level fallback for the content-type-guarded `POST` endpoints.
+///
+/// Reached when a request hits a known endpoint but matches none of its
+/// routes: a `POST` carrying an unsupported/missing `Content-Type` gets a
+/// diagnostic `415`, any other method gets `405` (these endpoints are
+/// `POST`-only).
+async fn guarded_post_fallback(req: actix_web::HttpRequest) -> HttpResponse {
+    if req.method() == http::Method::POST {
+        HttpResponse::UnsupportedMediaType().body(
+            "Unsupported or missing Content-Type. Send 'application/json' \
+             or 'application/octet-stream' (a charset parameter is allowed).",
+        )
     } else {
-        HttpResponse::NotFound().body("Not found")
+        HttpResponse::MethodNotAllowed().body("Method not allowed. This endpoint accepts POST.")
     }
+}
+
+/// Resource-level fallback for `/ping`, which only accepts `GET`.
+async fn ping_method_not_allowed() -> HttpResponse {
+    HttpResponse::MethodNotAllowed().body("Method not allowed. This endpoint accepts GET.")
+}
+
+/// App-level fallback for URLs that match no registered resource.
+async fn not_found() -> HttpResponse {
+    HttpResponse::NotFound().body("Not found")
 }
 
 /// Runs an HTTP server with a configurable parse timeout.

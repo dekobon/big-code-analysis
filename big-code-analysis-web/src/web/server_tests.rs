@@ -1332,3 +1332,207 @@ async fn test_web_wrong_method_on_known_endpoint_yields_405() {
         "405 body should name the accepted method"
     );
 }
+
+// --- /v1 versioned routes + deprecated unprefixed aliases (issue #517) ---
+//
+// Built via the production `configure_routes`, so both the `/v1` scope and
+// the unprefixed aliases run through the real route table, content-type
+// guards, and per-resource `default_service` fallbacks.
+
+#[actix_rt::test]
+async fn test_web_v1_ast_matches_unprefixed_alias() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    let payload = ast_request_body().to_string();
+    let post_json = |uri: &'static str| {
+        test::TestRequest::post()
+            .uri(uri)
+            .insert_header(ContentType::json())
+            .set_payload(payload.clone())
+            .to_request()
+    };
+
+    let v1_resp = test::call_service(&app, post_json("/v1/ast")).await;
+    assert_eq!(v1_resp.status(), StatusCode::OK);
+    let v1_body: Value = serde_json::from_slice(&test::read_body(v1_resp).await).unwrap();
+
+    let alias_resp = test::call_service(&app, post_json("/ast")).await;
+    assert_eq!(alias_resp.status(), StatusCode::OK);
+    let alias_body: Value = serde_json::from_slice(&test::read_body(alias_resp).await).unwrap();
+
+    // The versioned route and the deprecated alias must be byte-identical.
+    assert_eq!(v1_body, alias_body);
+    assert_eq!(v1_body["root"]["Type"], json!("translation_unit"));
+}
+
+#[actix_rt::test]
+async fn test_web_v1_post_endpoints_return_200() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // file_name selects the language; bodies are minimal but valid. The
+    // distinct `id` per case lets us confirm the handler actually ran and
+    // echoed our request, not just that *some* 200 was produced.
+    let cases = [
+        (
+            "/v1/metrics",
+            json!({"id": "id-metrics", "file_name": "a.c", "code": "int x = 1;", "unit": false}),
+        ),
+        (
+            "/v1/comment",
+            json!({"id": "id-comment", "file_name": "a.c", "code": "int x = 1; // hi"}),
+        ),
+        (
+            "/v1/function",
+            json!({"id": "id-function", "file_name": "a.c", "code": "int f() { return 0; }"}),
+        ),
+    ];
+    for (uri, body) in cases {
+        let expected_id = body["id"].clone();
+        let req = test::TestRequest::post()
+            .uri(uri)
+            .insert_header(ContentType::json())
+            .set_payload(body.to_string())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK, "{uri} should return 200");
+        let parsed: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        assert_eq!(
+            parsed["id"], expected_id,
+            "{uri} should echo the request id"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_v1_metrics_spaces_is_present_object() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // `spaces` is now a non-optional `FuncSpace` (#517): a successful
+    // response carries the unit-space object directly, never `null`.
+    let req = test::TestRequest::post()
+        .uri("/v1/metrics")
+        .insert_header(ContentType::json())
+        .set_payload(
+            json!({"id": "m", "file_name": "a.c", "code": "int x = 1;", "unit": false}).to_string(),
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert_eq!(body["spaces"]["kind"], json!("unit"));
+}
+
+#[actix_rt::test]
+async fn test_web_v1_ping_works_and_unprefixed_alias_too() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    for uri in ["/v1/ping", "/ping"] {
+        let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK, "GET {uri} should return 200");
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_post_to_ping_yields_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // `/ping` is GET-only; its own `default_service` answers a method
+    // error (not the 415 a content-type-guarded POST endpoint gives, nor
+    // the bodyless 404 the pre-#517 path constant produced for `/ping`).
+    for uri in ["/ping", "/v1/ping"] {
+        let resp = test::call_service(&app, test::TestRequest::post().uri(uri).to_request()).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::METHOD_NOT_ALLOWED,
+            "POST {uri} should return 405"
+        );
+        let body = test::read_body(resp).await;
+        assert!(
+            String::from_utf8_lossy(&body).contains("GET"),
+            "405 body should name the accepted method"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_v1_unknown_url_still_404() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/v1/does-not-exist")
+        .insert_header(ContentType::json())
+        .set_payload("{}")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[actix_rt::test]
+async fn test_web_v1_wrong_content_type_yields_415() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/v1/metrics")
+        .insert_header(("content-type", "text/plain"))
+        .set_payload("int x = 1;")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+}
+
+#[actix_rt::test]
+async fn test_web_v1_wrong_method_yields_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/v1/metrics").to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("POST"),
+        "405 body should name the accepted method"
+    );
+}

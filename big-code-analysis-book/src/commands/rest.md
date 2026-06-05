@@ -22,6 +22,31 @@ bca-web --host 127.0.0.1 --port 9090
 - `--port` specifies the port to be used (default is 8080).
 - `-j` specifies the number of parallel jobs (optional).
 
+## API Versioning
+
+All endpoints are mounted under a `/v1` prefix (for example
+`/v1/metrics`). The original unprefixed paths (`/metrics`, `/comment`,
+`/function`, `/ast`, `/ping`) remain available as **deprecated aliases**
+for one release cycle and resolve to the same handlers; new clients
+should use the `/v1` paths. The examples below use the versioned form.
+
+## Error responses
+
+Errors are reported with an HTTP status code, not inside a `200` body:
+
+- `404 Not Found` — the `file_name` extension maps to no supported
+  language (JSON endpoints return an `{ "id", "error" }` body; the
+  raw/octet-stream endpoints return a `text/plain` `error: …` body), or
+  the URL matches no endpoint.
+- `415 Unsupported Media Type` — a known `POST` endpoint received a
+  `Content-Type` that is neither `application/json` nor
+  `application/octet-stream` (a `charset` parameter is allowed).
+- `405 Method Not Allowed` — a known endpoint was called with the wrong
+  HTTP method (the analysis endpoints are `POST`-only; `/ping` is `GET`).
+- `413 Payload Too Large` — the request body exceeded the server limit.
+- `500 Internal Server Error` — metric computation or AST construction
+  failed for an otherwise-valid request.
+
 ## Endpoints
 
 ### 1. Ping the Server
@@ -31,7 +56,7 @@ Use this endpoint to check if the server is running.
 **Request:**
 
 ```http
-GET http://127.0.0.1:8080/ping
+GET http://127.0.0.1:8080/v1/ping
 ```
 
 **Response:**
@@ -39,7 +64,7 @@ GET http://127.0.0.1:8080/ping
 - Status Code: `200 OK`
 - Body: empty.
 
-Use `curl -sf http://127.0.0.1:8080/ping && echo ok` to script a
+Use `curl -sf http://127.0.0.1:8080/v1/ping && echo ok` to script a
 liveness check — `-f` makes curl exit non-zero on any HTTP error.
 
 ### 2. Remove Comments
@@ -52,7 +77,7 @@ envelope.
 **Request:**
 
 ```http
-POST http://127.0.0.1:8080/comment
+POST http://127.0.0.1:8080/v1/comment
 ```
 
 **Payload:**
@@ -91,7 +116,7 @@ This endpoint retrieves the spans of functions in the provided source code.
 **Request:**
 
 ```http
-POST http://127.0.0.1:8080/function
+POST http://127.0.0.1:8080/v1/function
 ```
 
 **Payload:**
@@ -134,7 +159,7 @@ This endpoint computes various metrics for the provided source code.
 **Request:**
 
 ```http
-POST http://127.0.0.1:8080/metrics
+POST http://127.0.0.1:8080/v1/metrics
 ```
 
 **Payload:**
@@ -143,7 +168,7 @@ POST http://127.0.0.1:8080/metrics
 {
   "id": "unique-id",
   "file_name": "filename.ext",
-  "code": "source code for metrics"
+  "code": "source code for metrics",
   "unit": false
 }
 ```

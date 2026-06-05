@@ -3,7 +3,6 @@
 // aggregation artifacts, not per-function logic complexity.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
 use std::path::PathBuf;
 
 #[allow(deprecated)]
@@ -32,9 +31,7 @@ pub struct WebMetricsResponse {
     /// Source code programming language.
     pub language: String,
     /// Metrics for every space contained in the requested source code.
-    ///
-    /// If `None`, an error occurred processing the request.
-    pub spaces: Option<FuncSpace>,
+    pub spaces: FuncSpace,
 }
 
 /// Source code information.
@@ -101,14 +98,13 @@ impl WebMetricsCfg {
 pub struct WebMetricsCallback;
 
 impl Callback for WebMetricsCallback {
-    type Res = Value;
+    /// `None` signals that metric computation failed; the HTTP handler
+    /// maps it to a `5xx` status (issue #517) rather than the former
+    /// `200`-with-`spaces: null` body.
+    type Res = Option<WebMetricsResponse>;
     type Cfg = WebMetricsCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        // The REST schema carries `spaces: Option<FuncSpace>` — keeping
-        // it `Option` is explicitly out of scope of #253 (parallels the
-        // `AstResponse.root` decision). Collapse `MetricsError` into
-        // `None` here so the REST wire format is unchanged.
         // The web crate has a `ParserTrait` in hand (driven by the
         // shared `action` callback dispatch), not raw bytes, so the
         // path-positional `metrics_with_options` shim is still the
@@ -116,7 +112,7 @@ impl Callback for WebMetricsCallback {
         // `analyze(Source { ... }, ...)`; the parser-trait flavour
         // remains until issue #256 reshapes the parser surface.
         #[allow(deprecated)]
-        let spaces = metrics_with_options(
+        metrics_with_options(
             parser,
             &cfg.path,
             MetricsOptions::default().with_exclude_tests(cfg.exclude_tests),
@@ -126,14 +122,11 @@ impl Callback for WebMetricsCallback {
             if cfg.unit {
                 s.spaces.clear();
             }
-            s
-        });
-
-        serde_json::to_value(WebMetricsResponse {
-            id: cfg.id,
-            language: cfg.language,
-            spaces,
+            WebMetricsResponse {
+                id: cfg.id,
+                language: cfg.language,
+                spaces: s,
+            }
         })
-        .expect("WebMetricsResponse has a static, infallible Serialize impl")
     }
 }

@@ -6,7 +6,9 @@ plugin, CI worker, or web app) that should not pay the cost of
 spawning the CLI per file.
 
 For the full endpoint reference, see [Rest API](../commands/rest.md).
-The recipes below show practical end-to-end calls with `curl`.
+The recipes below show practical end-to-end calls with `curl`. Every
+endpoint is mounted under the `/v1` prefix; the old unprefixed paths
+still work as deprecated aliases for one release cycle.
 
 ## Start the server
 
@@ -17,7 +19,7 @@ bca-web --host 127.0.0.1 --port 8080 -j "$(nproc)"
 Verify it's up:
 
 ```bash
-curl -sf http://127.0.0.1:8080/ping && echo "ok"
+curl -sf http://127.0.0.1:8080/v1/ping && echo "ok"
 # => ok
 ```
 
@@ -27,7 +29,7 @@ success and non-zero on any HTTP error, which is what scripts want.
 ## Compute metrics for an inline snippet
 
 ```bash
-curl -s http://127.0.0.1:8080/metrics \
+curl -s http://127.0.0.1:8080/v1/metrics \
     -H 'Content-Type: application/json' \
     -d '{
           "id": "snippet-1",
@@ -53,7 +55,7 @@ jq -nc \
     --arg file_name "src/lib.rs" \
     --rawfile code src/lib.rs \
     '{id: $id, file_name: $file_name, code: $code, unit: false}' \
-  | curl -s http://127.0.0.1:8080/metrics \
+  | curl -s http://127.0.0.1:8080/v1/metrics \
       -H 'Content-Type: application/json' \
       --data-binary @- \
   | jq '.spaces.metrics.cyclomatic, .spaces.metrics.cognitive'
@@ -78,7 +80,7 @@ by `Content-Type`:
 Octet-stream form (recommended for one-off shell use):
 
 ```bash
-curl -s "http://127.0.0.1:8080/comment?file_name=demo.py" \
+curl -s "http://127.0.0.1:8080/v1/comment?file_name=demo.py" \
     -H 'Content-Type: application/octet-stream' \
     --data-binary $'# leading comment\nprint("hi")  # trailing'
 # => print("hi")
@@ -88,7 +90,7 @@ JSON form (use when your client speaks JSON natively). Decode the
 byte array with `jq … | implode` for ASCII / UTF-8 source:
 
 ```bash
-curl -s http://127.0.0.1:8080/comment \
+curl -s http://127.0.0.1:8080/v1/comment \
     -H 'Content-Type: application/json' \
     -d '{
           "id": "strip-1",
@@ -106,7 +108,7 @@ multiplexes many requests can correlate them.
 The endpoint is `/function` (singular):
 
 ```bash
-curl -s http://127.0.0.1:8080/function \
+curl -s http://127.0.0.1:8080/v1/function \
     -H 'Content-Type: application/json' \
     -d '{
           "id": "spans-1",
@@ -133,7 +135,7 @@ SERVER_PID=$!
 trap 'kill "$SERVER_PID"' EXIT
 
 # Wait for it to come up.
-until curl -sf http://127.0.0.1:8080/ping >/dev/null; do sleep 0.1; done
+until curl -sf http://127.0.0.1:8080/v1/ping >/dev/null; do sleep 0.1; done
 
 # … run your analysis calls here …
 ```
