@@ -143,12 +143,14 @@ impl Stats {
     /// This value is computed dividing the `Cognitive Complexity` value
     /// for the total number of functions/closures in a space.
     ///
-    /// The divisor is guarded with `.max(1)` so a space with no
-    /// counted functions (or one where `Nom` was not selected)
-    /// degrades to `sum / 1` instead of producing `inf`/`NaN` (#428).
+    /// The per-function divisor (shared with `cyclomatic`/`exit`/`nargs`,
+    /// #512) is guarded with `.max(1)` via the shared `average` helper, so
+    /// a space with no counted functions (or one where `Nom` was not
+    /// selected) degrades to `sum / 1` instead of producing `inf`/`NaN`
+    /// (#428).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
-        self.cognitive_sum() / self.total_space_functions.max(1) as f64
+        crate::metrics::average(self.cognitive_sum(), self.total_space_functions)
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {

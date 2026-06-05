@@ -36,7 +36,24 @@ use crate::*;
 pub struct Stats {
     cyclomatic_sum: f64,
     cyclomatic: f64,
-    n: usize,
+    /// Number of function/closure spaces in this subtree, used as the
+    /// per-function divisor for the cyclomatic averages.
+    ///
+    /// Seeded to `1` for a [`SpaceKind::Function`][crate::SpaceKind]
+    /// space and `0` otherwise (see [`Stats::note_function_space`]), then
+    /// summed across child spaces in [`Stats::merge`]. This is the
+    /// per-function divisor convention shared with `cognitive`/`exit`/
+    /// `nargs`, sourced independently of whether the `Nom` metric was
+    /// selected (#512).
+    ///
+    /// It counts the function/closure *spaces* — the spaces that each
+    /// contribute a base cyclomatic value to the sum — so it equals
+    /// `nom.total()` wherever every function and closure opens its own
+    /// space (the common case). The known exception is a closure form
+    /// that opens no space, such as a Python `lambda`: `nom` counts it
+    /// but it folds its decisions into the enclosing space, so
+    /// `function_spaces` does not count it as a separate divisor unit.
+    function_spaces: usize,
     cyclomatic_max: f64,
     cyclomatic_min: f64,
     cyclomatic_modified_sum: f64,
@@ -50,7 +67,7 @@ impl Default for Stats {
         Self {
             cyclomatic_sum: 0.,
             cyclomatic: 1.,
-            n: 1,
+            function_spaces: 0,
             cyclomatic_max: 0.,
             cyclomatic_min: f64::MAX,
             cyclomatic_modified_sum: 0.,
@@ -112,7 +129,7 @@ impl Stats {
         self.cyclomatic_max = self.cyclomatic_max.max(other.cyclomatic_max);
         self.cyclomatic_min = self.cyclomatic_min.min(other.cyclomatic_min);
         self.cyclomatic_sum += other.cyclomatic_sum;
-        self.n += other.n;
+        self.function_spaces += other.function_spaces;
 
         self.cyclomatic_modified_max = self
             .cyclomatic_modified_max
@@ -136,9 +153,16 @@ impl Stats {
     }
 
     /// Returns the average standard cyclomatic complexity.
+    ///
+    /// The divisor is the number of function/closure spaces in the
+    /// subtree (`function_spaces`), guarded with `.max(1)` via the shared
+    /// `average` helper. This is the per-function convention shared with
+    /// `cognitive`/`exit`/`nargs`; before #512 the divisor was the
+    /// per-space count `n`, which also counted classes, structs, and the
+    /// file unit and so reported a different — lower — average.
     #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
-        self.cyclomatic_sum() / self.n as f64
+        crate::metrics::average(self.cyclomatic_sum(), self.function_spaces)
     }
 
     /// Returns the maximum standard cyclomatic complexity.
@@ -184,9 +208,12 @@ impl Stats {
     }
 
     /// Returns the average modified cyclomatic complexity.
+    ///
+    /// Uses the same per-function divisor (`function_spaces`, guarded by
+    /// the shared `average` helper) as [`Stats::cyclomatic_average`].
     #[must_use]
     pub fn cyclomatic_modified_average(&self) -> f64 {
-        self.cyclomatic_modified_sum() / self.n as f64
+        crate::metrics::average(self.cyclomatic_modified_sum(), self.function_spaces)
     }
 
     /// Returns the maximum modified cyclomatic complexity.
@@ -206,6 +233,20 @@ impl Stats {
         } else {
             self.cyclomatic_modified_min
         }
+    }
+
+    /// Marks this space as a function/closure space, seeding the
+    /// per-function divisor (`function_spaces`) with `1`.
+    ///
+    /// Called once at space construction for every
+    /// [`SpaceKind::Function`][crate::SpaceKind] space; non-function
+    /// spaces leave the seed at its `0` default. [`Stats::merge`] then
+    /// sums the seeds so each space's `function_spaces` reflects the
+    /// function/closure count of its whole subtree — independently of
+    /// the `Nom` metric (#512).
+    #[inline]
+    pub(crate) fn note_function_space(&mut self) {
+        self.function_spaces = 1;
     }
 
     #[inline]
@@ -1143,6 +1184,123 @@ mod tests {
         assert_eq!(stats.cyclomatic_modified_min(), 0.0);
     }
 
+    /// A `Stats::default()` with no function spaces and an unguarded
+    /// divisor would divide by zero. The shared `average` helper guards
+    /// the divisor with `.max(1)`, so a function-less aggregate yields a
+    /// finite `0.0` rather than `NaN` (#512 — the guard `cognitive`/
+    /// `exit`/`nargs` already had, now applied to cyclomatic too).
+    #[test]
+    fn cyclomatic_no_function_spaces_average_is_finite() {
+        let stats = Stats::default();
+        assert_eq!(stats.cyclomatic_average(), 0.0);
+        assert_eq!(stats.cyclomatic_modified_average(), 0.0);
+    }
+
+    /// #512: the cyclomatic average divisor is now the per-function count
+    /// (`function_spaces`), reconciled with the `cognitive`/`exit`/`nargs`
+    /// convention, *not* the per-space count `n` it used before. For a
+    /// file with one class holding two methods the spaces are
+    /// `{unit, class, method, method}` (4) but only the two methods are
+    /// functions, so the divisor is 2.
+    ///
+    /// Here every function/closure opens its own space, so
+    /// `function_spaces == nom.total()` and
+    /// `cyclomatic_average == cyclomatic_sum / nom.total()` — the same
+    /// denominator `cognitive_average` divides by. (That equality can
+    /// break for closure forms that open no space, e.g. Python lambdas —
+    /// see `cyclomatic_python_lambda_divisor_excludes_spaceless_closure`.)
+    /// Before #512 the divisor was 4 (every space, base 1 each) and the
+    /// averages were two-thirds of these values (`6 / 4 == 1.5`).
+    #[test]
+    fn cyclomatic_average_is_per_function_512() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                 int f(int x) { return x > 0 ? 1 : 2; }
+                 int g(int x) { return x > 0 ? 1 : 2; }
+             }",
+            "foo.cs",
+            |metric| {
+                // Sum is over every space's base 1 plus its decisions:
+                // unit(1) + class(1) + f(1 + ternary 1) + g(1 + ternary 1)
+                // = 6.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
+                // Divisor is the two function spaces, not the four total
+                // spaces: 6 / 2 = 3.0 (was 6 / 4 = 1.5 before #512).
+                assert_eq!(metric.cyclomatic.cyclomatic_average(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_average(), 3.0);
+                // Reconciliation invariant: cyclomatic divides by the same
+                // function/closure count cognitive does.
+                assert_eq!(
+                    metric.cyclomatic.cyclomatic_average(),
+                    metric.cyclomatic.cyclomatic_sum() / metric.nom.total()
+                );
+                assert_eq!(metric.nom.total(), 2.0);
+            },
+        );
+    }
+
+    /// #512: the per-function divisor is sourced from the space kind, not
+    /// from the `Nom` metric, so selecting `cyclomatic` *alone* (which
+    /// does not pull `Nom` in via the metric-selection dependency graph)
+    /// still divides by the function count. This guards the load-bearing
+    /// "one selected metric emits exactly that metric" contract: coupling
+    /// cyclomatic to `nom` to obtain the divisor would have leaked a
+    /// `nom` block into a cyclomatic-only selection.
+    ///
+    /// `nom.total()` is `0.0` here (Nom was never computed) yet the
+    /// average is still the correct per-function `6 / 2 == 3.0` — proof
+    /// the divisor does not read `nom`.
+    #[test]
+    fn cyclomatic_average_per_function_without_nom_512() {
+        let space = crate::analyze(
+            crate::Source::new(
+                crate::LANG::Csharp,
+                b"class A {\n  int f(int x) { return x > 0 ? 1 : 2; }\n  int g(int x) { return x > 0 ? 1 : 2; }\n}",
+            )
+            .with_name(Some("foo.cs".to_owned())),
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Cyclomatic]),
+        )
+        .expect("analyze must succeed on a well-formed C# fixture");
+
+        let c = &space.metrics.cyclomatic;
+        assert_eq!(c.cyclomatic_sum(), 6.0);
+        assert_eq!(c.cyclomatic_average(), 3.0);
+        assert_eq!(c.cyclomatic_modified_average(), 3.0);
+        // Nom was not selected, so its count stays at the zero default —
+        // the cyclomatic divisor must not depend on it.
+        assert_eq!(space.metrics.nom.total(), 0.0);
+    }
+
+    /// #512 edge case: a Python `lambda` is counted by `nom` (as a
+    /// closure) but opens **no** function space — it folds its decisions
+    /// into the enclosing space. So `function_spaces` counts only the
+    /// spaces that actually carry a cyclomatic value (here the single
+    /// `def`), and the cyclomatic divisor is `1`, not `nom.total()`'s `2`.
+    ///
+    /// This documents that the per-function reconciliation with
+    /// `cognitive` is exact only where every function/closure opens its
+    /// own space; for spaceless closures `function_spaces` is the divisor
+    /// that matches the spaces contributing to `cyclomatic_sum`. The
+    /// behaviour is intentional, not a bug — pinning it so a future change
+    /// to lambda space-handling is a deliberate, visible decision.
+    #[test]
+    fn cyclomatic_python_lambda_divisor_excludes_spaceless_closure() {
+        check_metrics::<PythonParser>(
+            "def f(x):\n    return x if x > 0 else -x\ng = lambda y: y if y else 0\n",
+            "p.py",
+            |metric| {
+                // sum: unit(1 + lambda's ternary 1) + f(1 + ternary 1) = 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                // nom counts the lambda as a closure, so total == 2 …
+                assert_eq!(metric.nom.total(), 2.0);
+                // … but only the `def` opens a function space, so the
+                // cyclomatic divisor is 1: 4 / 1 = 4.0, which deliberately
+                // differs from cyclomatic_sum / nom.total() (4 / 2 = 2.0).
+                assert_eq!(metric.cyclomatic.cyclomatic_average(), 4.0);
+            },
+        );
+    }
+
     /// A plain `if/else` must not be credited
     /// as a loop-`else`. The `Else` arm of `impl Cyclomatic for
     /// PythonCode` previously fired for every `else_clause` because
@@ -1168,19 +1326,20 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1385,19 +1544,20 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 6.0,
-                        "average": 3.0,
-                        "min": 1.0,
-                        "max": 5.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 6.0,
+                    "average": 6.0,
+                    "min": 1.0,
+                    "max": 5.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1425,19 +1585,20 @@ mod tests {
                 // function space alone holds 1 decision -> max = 2
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1473,19 +1634,20 @@ mod tests {
                 //         + 1 (`if` keyword in the guard) = 4.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1503,19 +1665,20 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1540,12 +1703,12 @@ mod tests {
                     @r#"
                 {
                   "sum": 5.0,
-                  "average": 2.5,
+                  "average": 5.0,
                   "min": 1.0,
                   "max": 4.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
@@ -1573,19 +1736,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1685,19 +1849,20 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1721,19 +1886,20 @@ mod tests {
                 // modified: unit(1) + fn(1) + switch(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1759,19 +1925,20 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1807,19 +1974,20 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 3.5,
-                      "min": 3.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 7.0,
-                        "average": 3.5,
-                        "min": 3.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 7.0,
+                  "average": 7.0,
+                  "min": 3.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 7.0,
+                    "average": 7.0,
+                    "min": 3.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1859,19 +2027,20 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 3.5,
-                      "min": 3.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 7.0,
-                        "average": 3.5,
-                        "min": 3.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 7.0,
+                  "average": 7.0,
+                  "min": 3.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 7.0,
+                    "average": 7.0,
+                    "min": 3.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1903,19 +2072,20 @@ mod tests {
                 // nspace = 4 (unit, class and 2 methods)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 9.0,
-                      "average": 2.25,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 9.0,
-                        "average": 2.25,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 9.0,
+                  "average": 4.5,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 9.0,
+                    "average": 4.5,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -1962,19 +2132,20 @@ mod tests {
                 // nspace = 5 (unit, class and 3 methods)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 2.2,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 10.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 11.0,
+                  "average": 3.6666666666666665,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 10.0,
+                    "average": 3.3333333333333335,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2004,19 +2175,20 @@ mod tests {
                 // modified: unit(1) + class(1) + fn(1) + switch(1) = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 1.6666666666666667,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 1.3333333333333333,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2046,19 +2218,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 9.0,
-                      "average": 2.25,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 9.0,
-                        "average": 2.25,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 9.0,
+                  "average": 4.5,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 9.0,
+                    "average": 4.5,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2104,19 +2277,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 2.2,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 10.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 11.0,
+                  "average": 3.6666666666666665,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 10.0,
+                    "average": 3.3333333333333335,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2138,19 +2312,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 1.25,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 1.25,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 2.5,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 2.5,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2181,19 +2356,20 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 1.3333333333333333,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2347,19 +2523,20 @@ mod tests {
                 // modified: unit(1) + class(1) + fn(1) + switch(1) = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 1.6666666666666667,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 1.3333333333333333,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2378,19 +2555,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 7.0,
-                      "average": 2.3333333333333335,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 7.0,
-                        "average": 2.3333333333333335,
-                        "min": 1.0,
-                        "max": 5.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 7.0,
+                  "average": 7.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 7.0,
+                    "average": 7.0,
+                    "min": 1.0,
+                    "max": 5.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2411,19 +2589,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2452,19 +2631,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2487,19 +2667,20 @@ mod tests {
                 // modified: unit(1) + fn(1) + switch(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2515,19 +2696,20 @@ mod tests {
                 // nspace = 2 (file unit + func), each base 1.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 1.0,
-                      "max": 1.0,
-                      "modified": {
-                        "sum": 2.0,
-                        "average": 1.0,
-                        "min": 1.0,
-                        "max": 1.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 1.0,
+                  "modified": {
+                    "sum": 2.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 1.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2548,19 +2730,20 @@ mod tests {
                 // not counted again.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2584,19 +2767,20 @@ mod tests {
                 // if contributes +1.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2614,19 +2798,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2647,19 +2832,20 @@ mod tests {
                 // for_statement contributes.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2680,19 +2866,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2719,19 +2906,20 @@ mod tests {
                 // modified: unit(1) + fn(1) + switch(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2751,19 +2939,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2784,19 +2973,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2814,19 +3004,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2845,19 +3036,20 @@ mod tests {
                 // defer_statement and go_statement are not branches.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 1.0,
-                      "max": 1.0,
-                      "modified": {
-                        "sum": 2.0,
-                        "average": 1.0,
-                        "min": 1.0,
-                        "max": 1.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 1.0,
+                  "modified": {
+                    "sum": 2.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 1.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2905,19 +3097,20 @@ mod tests {
                 // re-count of any method.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 11.0,
-                      "average": 1.2222222222222223,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 11.0,
-                        "average": 1.2222222222222223,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 11.0,
+                  "average": 2.2,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 11.0,
+                    "average": 2.2,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2949,19 +3142,20 @@ mod tests {
                 assert_eq!(s.cyclomatic_modified_sum(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 1.3333333333333333,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 1.3333333333333333,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -2992,19 +3186,20 @@ mod tests {
                 assert_eq!(s.cyclomatic_modified_sum(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 1.3333333333333333,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 1.3333333333333333,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3233,12 +3428,12 @@ mod tests {
                     @r#"
                 {
                   "sum": 4.0,
-                  "average": 2.0,
+                  "average": 4.0,
                   "min": 1.0,
                   "max": 3.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
@@ -3263,12 +3458,12 @@ mod tests {
                     @r#"
                 {
                   "sum": 4.0,
-                  "average": 2.0,
+                  "average": 4.0,
                   "min": 1.0,
                   "max": 3.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
@@ -3297,12 +3492,12 @@ mod tests {
                     @r#"
                 {
                   "sum": 4.0,
-                  "average": 2.0,
+                  "average": 4.0,
                   "min": 1.0,
                   "max": 3.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
@@ -3329,12 +3524,12 @@ mod tests {
                     @r#"
                 {
                   "sum": 6.0,
-                  "average": 3.0,
+                  "average": 6.0,
                   "min": 1.0,
                   "max": 5.0,
                   "modified": {
                     "sum": 6.0,
-                    "average": 3.0,
+                    "average": 6.0,
                     "min": 1.0,
                     "max": 5.0
                   }
@@ -3359,12 +3554,12 @@ mod tests {
                     @r#"
                 {
                   "sum": 4.0,
-                  "average": 2.0,
+                  "average": 4.0,
                   "min": 1.0,
                   "max": 3.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
@@ -3397,19 +3592,20 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3428,12 +3624,12 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 3.0,
-                  "average": 1.5,
+                  "average": 3.0,
                   "min": 1.0,
                   "max": 2.0,
                   "modified": {
                     "sum": 3.0,
-                    "average": 1.5,
+                    "average": 3.0,
                     "min": 1.0,
                     "max": 2.0
                   }
@@ -3462,17 +3658,17 @@ mod tests {
                     @r#"
                 {
                   "sum": 4.0,
-                  "average": 2.0,
+                  "average": 4.0,
                   "min": 1.0,
                   "max": 3.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
                 }
-                 "#
+                "#
                 );
             },
         );
@@ -3493,19 +3689,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3533,19 +3730,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3569,19 +3767,20 @@ mod tests {
                 // modified: unit(1) + fn(1) + switch(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3609,19 +3808,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3643,19 +3843,20 @@ mod tests {
                 // modified: unit(1) + fn(1) + switch(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3694,20 +3895,20 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 7.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 9.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 7.0,
-                      "modified": {
-                        "sum": 8.0,
-                        "average": 2.6666666666666665,
-                        "min": 1.0,
-                        "max": 6.0
-                      }
-                    }
-                    "###
+                    @r#"
+                {
+                  "sum": 9.0,
+                  "average": 9.0,
+                  "min": 1.0,
+                  "max": 7.0,
+                  "modified": {
+                    "sum": 8.0,
+                    "average": 8.0,
+                    "min": 1.0,
+                    "max": 6.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3734,19 +3935,20 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -3813,20 +4015,20 @@ mod tests {
 end",
             "foo.lua",
             |metric| {
-                insta::assert_json_snapshot!(metric.cyclomatic, @r###"
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 4.0,
-                  "average": 2.0,
+                  "average": 4.0,
                   "min": 1.0,
                   "max": 3.0,
                   "modified": {
                     "sum": 4.0,
-                    "average": 2.0,
+                    "average": 4.0,
                     "min": 1.0,
                     "max": 3.0
                   }
                 }
-                "###);
+                "#);
             },
         );
     }
@@ -3849,20 +4051,20 @@ end",
 end",
             "foo.lua",
             |metric| {
-                insta::assert_json_snapshot!(metric.cyclomatic, @r###"
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 5.0,
-                  "average": 2.5,
+                  "average": 5.0,
                   "min": 1.0,
                   "max": 4.0,
                   "modified": {
                     "sum": 5.0,
-                    "average": 2.5,
+                    "average": 5.0,
                     "min": 1.0,
                     "max": 4.0
                   }
                 }
-                "###);
+                "#);
             },
         );
     }
@@ -3879,20 +4081,20 @@ end",
 end",
             "foo.lua",
             |metric| {
-                insta::assert_json_snapshot!(metric.cyclomatic, @r###"
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 5.0,
-                  "average": 2.5,
+                  "average": 5.0,
                   "min": 1.0,
                   "max": 4.0,
                   "modified": {
                     "sum": 5.0,
-                    "average": 2.5,
+                    "average": 5.0,
                     "min": 1.0,
                     "max": 4.0
                   }
                 }
-                "###);
+                "#);
             },
         );
     }
@@ -3940,19 +4142,20 @@ f() {
                 // modified: unit(1) + fn(1) + case_stmt(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4058,19 +4261,19 @@ f() {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r#"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 1.0,
-                      "max": 1.0,
-                      "modified": {
-                        "sum": 2.0,
-                        "average": 1.0,
-                        "min": 1.0,
-                        "max": 1.0
-                      }
-                    }
-                    "#
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 1.0,
+                  "modified": {
+                    "sum": 2.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 1.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4181,19 +4384,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4215,19 +4419,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4247,19 +4452,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4279,19 +4485,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4314,19 +4521,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4348,19 +4556,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4382,19 +4591,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4416,19 +4626,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4453,19 +4664,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4488,19 +4700,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 5.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 6.0,
-                        "average": 3.0,
-                        "min": 1.0,
-                        "max": 5.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 6.0,
+                    "average": 6.0,
+                    "min": 1.0,
+                    "max": 5.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4523,19 +4736,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 5.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 6.0,
-                        "average": 3.0,
-                        "min": 1.0,
-                        "max": 5.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 6.0,
+                    "average": 6.0,
+                    "min": 1.0,
+                    "max": 5.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4558,19 +4772,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 2.5,
-                        "min": 1.0,
-                        "max": 4.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4696,19 +4911,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 1.6666666666666667,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 5.0,
-                        "average": 1.6666666666666667,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -4920,19 +5136,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5174,19 +5391,20 @@ f() {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5386,19 +5604,20 @@ f() {
                 // Default arm contributes 0.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5452,19 +5671,20 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5517,19 +5737,20 @@ f() {
                 // modified: unit(1) + fn(1) + 2 switches = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5556,19 +5777,20 @@ f() {
                 // modified: unit(1) + fn(1) + 2 matches  = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5583,19 +5805,20 @@ f() {
             // modified: unit(1) + fn(1) + 1 switch   = 3
             insta::assert_json_snapshot!(
                 metric.cyclomatic,
-                @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 1.0,
-                      "max": 1.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                @r#"
+            {
+              "sum": 2.0,
+              "average": 2.0,
+              "min": 1.0,
+              "max": 1.0,
+              "modified": {
+                "sum": 3.0,
+                "average": 3.0,
+                "min": 1.0,
+                "max": 2.0
+              }
+            }
+            "#
             );
         });
     }
@@ -5622,19 +5845,20 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5666,19 +5890,20 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5707,19 +5932,20 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5743,19 +5969,20 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5781,19 +6008,20 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 6.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 6.0,
-                        "average": 3.0,
-                        "min": 1.0,
-                        "max": 5.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 6.0,
+                    "average": 6.0,
+                    "min": 1.0,
+                    "max": 5.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5828,19 +6056,20 @@ f() {
                 assert!(s.cyclomatic_modified_sum() < s.cyclomatic_sum());
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5874,19 +6103,20 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 3.0,
-                      "average": 1.5,
-                      "min": 1.0,
-                      "max": 2.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5914,7 +6144,9 @@ f() {
                 assert_eq!(s.cyclomatic_modified_sum(), 3.0);
                 assert_eq!(s.cyclomatic_modified_min(), 1.0);
                 assert_eq!(s.cyclomatic_modified_max(), 2.0);
-                assert_eq!(s.cyclomatic_modified_average(), 1.5);
+                // #512: divisor is the single function space, not the two
+                // total spaces (unit + fn), so 3 / 1 = 3.0 (was 3 / 2 = 1.5).
+                assert_eq!(s.cyclomatic_modified_average(), 3.0);
                 assert!(s.cyclomatic_modified_sum() <= s.cyclomatic_sum());
             },
         );
@@ -5935,19 +6167,20 @@ f() {
                 // modified: unit(1) + fn(1) + MatchExpr(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 1.0,
-                      "max": 1.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 1.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -5971,19 +6204,20 @@ f() {
                 // modified: unit(1) + fn(1) + MatchExpr(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -6005,19 +6239,20 @@ f() {
                 // modified: unit(1) + fn(1) + MatchExpr(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -6039,19 +6274,20 @@ f() {
                 // modified: unit(1) + fn(1) + MatchExpr(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -6075,19 +6311,20 @@ f() {
                 // modified: unit(1) + fn(1 + MatchExpr(1) + if_kw(1)) = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 5.0,
-                      "average": 2.5,
-                      "min": 1.0,
-                      "max": 4.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -6109,19 +6346,20 @@ f() {
                 // modified: unit(1) + fn(1) + case_stmt(1) = 3
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 2.0,
-                      "average": 1.0,
-                      "min": 1.0,
-                      "max": 1.0,
-                      "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
-                        "min": 1.0,
-                        "max": 2.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 1.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -6150,19 +6388,20 @@ f() {
                 // modified: unit(1) + fn(1) + 2 case_stmts = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 6.0,
-                      "average": 3.0,
-                      "min": 1.0,
-                      "max": 5.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 1.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );
@@ -6188,19 +6427,20 @@ f() {
                 // modified: unit(1) + fn(1) + 2 MatchExpr(+2) = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
-                    @r###"
-                    {
-                      "sum": 4.0,
-                      "average": 2.0,
-                      "min": 1.0,
-                      "max": 3.0,
-                      "modified": {
-                        "sum": 4.0,
-                        "average": 2.0,
-                        "min": 1.0,
-                        "max": 3.0
-                      }
-                    }"###
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 1.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
                 );
             },
         );

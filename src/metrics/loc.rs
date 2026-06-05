@@ -524,7 +524,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn sloc_average(&self) -> f64 {
-        self.sloc() / self.space_count as f64
+        crate::metrics::average(self.sloc(), self.space_count)
     }
 
     /// The `Ploc` metric average value.
@@ -533,7 +533,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn ploc_average(&self) -> f64 {
-        self.ploc() / self.space_count as f64
+        crate::metrics::average(self.ploc(), self.space_count)
     }
 
     /// The `Lloc` metric average value.
@@ -542,7 +542,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn lloc_average(&self) -> f64 {
-        self.lloc() / self.space_count as f64
+        crate::metrics::average(self.lloc(), self.space_count)
     }
 
     /// The `Cloc` metric average value.
@@ -551,7 +551,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn cloc_average(&self) -> f64 {
-        self.cloc() / self.space_count as f64
+        crate::metrics::average(self.cloc(), self.space_count)
     }
 
     /// The `Blank` metric average value.
@@ -560,7 +560,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn blank_average(&self) -> f64 {
-        self.blank() / self.space_count as f64
+        crate::metrics::average(self.blank(), self.space_count)
     }
 
     /// The `Sloc` metric minimum value.

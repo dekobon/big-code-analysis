@@ -162,21 +162,21 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn functions_average(&self) -> f64 {
-        self.functions_sum() / self.space_count.max(1) as f64
+        crate::metrics::average(self.functions_sum(), self.space_count)
     }
 
     /// Returns the average number of closures over all spaces.
     #[inline]
     #[must_use]
     pub fn closures_average(&self) -> f64 {
-        self.closures_sum() / self.space_count.max(1) as f64
+        crate::metrics::average(self.closures_sum(), self.space_count)
     }
 
     /// Returns the average number of function definitions and closures over all spaces.
     #[inline]
     #[must_use]
     pub fn average(&self) -> f64 {
-        self.total() / self.space_count.max(1) as f64
+        crate::metrics::average(self.total(), self.space_count)
     }
 
     /// Counts the number of function definitions in a scope.

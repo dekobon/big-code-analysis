@@ -112,7 +112,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn tokens_average(&self) -> f64 {
-        self.tokens_sum() / self.space_count as f64
+        crate::metrics::average(self.tokens_sum(), self.space_count)
     }
 
     /// Returns the smallest single-space token count.

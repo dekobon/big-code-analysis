@@ -241,7 +241,7 @@ impl Stats {
     /// assignments value for the number of spaces.
     #[must_use]
     pub fn assignments_average(&self) -> f64 {
-        self.assignments_sum() / self.space_count as f64
+        crate::metrics::average(self.assignments_sum(), self.space_count)
     }
 
     /// Returns the `Abc` assignments minimum value.
@@ -283,7 +283,7 @@ impl Stats {
     /// branches value for the number of spaces.
     #[must_use]
     pub fn branches_average(&self) -> f64 {
-        self.branches_sum() / self.space_count as f64
+        crate::metrics::average(self.branches_sum(), self.space_count)
     }
 
     /// Returns the `Abc` branches minimum value.
@@ -323,7 +323,7 @@ impl Stats {
     /// conditions value for the number of spaces.
     #[must_use]
     pub fn conditions_average(&self) -> f64 {
-        self.conditions_sum() / self.space_count as f64
+        crate::metrics::average(self.conditions_sum(), self.space_count)
     }
 
     /// Returns the `Abc` conditions minimum value.
