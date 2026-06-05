@@ -3,6 +3,7 @@ enums/target
 *~
 .claude/settings.local.json
 .claude/settings.json
+.claude/scheduled_tasks.lock
 .claude/worktrees/
 .mcp.json
 .serena/
