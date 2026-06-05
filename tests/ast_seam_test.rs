@@ -432,11 +432,30 @@ fn assert_ops_parity(lang: LANG, source: &[u8], file: &str) {
         .ops()
         .expect("walker succeeds");
 
+    // Anchor first: both paths now route through the same `ops_inner`
+    // core, so `assert_ops_walk_eq` alone would pass vacuously if the walk
+    // produced an empty `Ops` on both sides (empty == empty). Every
+    // fixture contains a `+`, so require it to surface somewhere in the
+    // tree before trusting the equality — this catches an empty-walk
+    // regression that the parity comparison is structurally blind to.
+    assert!(
+        ops_tree_contains_operator(&seam, "+"),
+        "walk must produce the `+` operator; got an empty/degenerate Ops"
+    );
     assert_ops_walk_eq(&legacy, &seam);
     // Both express the same name here (UTF-8 path), but only the seam
     // promises it was carried, not lossily derived.
     assert_eq!(seam.name.as_deref(), Some(file));
     assert!(!seam.name_was_lossy);
+}
+
+// Does `op` appear as an operator anywhere in the `Ops` tree? Operators
+// live on whichever space owns them, so a fixture's operator may sit in a
+// nested function space rather than the file-level `Ops`.
+#[cfg(any(feature = "rust", feature = "python", feature = "cpp"))]
+fn ops_tree_contains_operator(ops: &big_code_analysis::Ops, op: &str) -> bool {
+    ops.operators.iter().any(|o| o == op)
+        || ops.spaces.iter().any(|s| ops_tree_contains_operator(s, op))
 }
 
 #[cfg(feature = "rust")]
@@ -506,4 +525,12 @@ fn ops_from_tree_sitter_carries_explicit_name() {
         .expect("walker succeeds");
     assert_eq!(ops.name.as_deref(), Some("from-tree.rs"));
     assert!(!ops.name_was_lossy);
+    // Anchor: the walk actually ran over the adopted tree (`from_tree_sitter`
+    // is the only ops path exercised here, not via the `Ast::parse` parity
+    // tests), so guard against a named-but-empty `Ops`. The `+` sits in the
+    // function space for this fixture.
+    assert!(
+        ops_tree_contains_operator(&ops, "+"),
+        "walk must run over the adopted tree"
+    );
 }
