@@ -103,7 +103,13 @@ fn output_flag_writes_diff_to_file_and_stdout_stays_empty() {
         written.contains("## cyclomatic"),
         "file content missing diff body: {written}"
     );
-    assert!(written.contains("src/work.rs"), "file content: {written}");
+    // The report echoes the path as the upstream metrics output recorded
+    // it, which uses the platform separator (`src\work.rs` on Windows),
+    // so normalize before matching the Unix-style relative path.
+    assert!(
+        written.replace('\\', "/").contains("src/work.rs"),
+        "file content: {written}"
+    );
 }
 
 #[test]
