@@ -11,8 +11,8 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
+use crate::count::NodeTypeFilters;
 use crate::node::Node;
 
 use crate::error::MetricsError;
@@ -76,7 +76,7 @@ pub struct FindCfg {
     /// Path to the file containing the code
     pub path: PathBuf,
     /// Types of nodes to find
-    pub filters: Arc<[String]>,
+    pub filters: NodeTypeFilters,
     /// The first line of code considered in the search
     ///
     /// If `None`, the search starts from the
@@ -99,7 +99,7 @@ impl Callback for Find {
     type Cfg = FindCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        if let Ok(good) = find(parser, &cfg.filters)
+        if let Ok(good) = find(parser, cfg.filters.as_slice())
             && !good.is_empty()
         {
             println!("In file {}", cfg.path.display());

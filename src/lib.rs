@@ -258,7 +258,7 @@ pub use crate::comment_rm::{CommentRm, CommentRmCfg, rm_comments};
 
 // --- Per-function metric callbacks (CLI surface) ---
 mod count;
-pub use crate::count::{Count, CountCfg, count};
+pub use crate::count::{Count, CountCfg, CountCollector, NodeTypeFilters, count};
 
 mod find;
 pub use crate::find::{Find, FindCfg, find};

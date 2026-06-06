@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 
-use big_code_analysis::{Count, PreprocResults, SuppressionPolicy};
+use big_code_analysis::{CountCollector, PreprocResults, SuppressionPolicy};
 use big_code_analysis::{fix_includes, write_file};
 
 use crate::baseline::{self, Coverage};
@@ -1633,17 +1633,17 @@ fn run_command_find(globals: GlobalOpts, args: FindArgs, preproc: Option<Arc<Pre
 }
 
 fn run_command_count(globals: GlobalOpts, args: NodesArgs, preproc: Option<Arc<PreprocResults>>) {
-    let count_lock = Arc::new(Mutex::new(Count::default()));
+    let collector = CountCollector::new();
     let cfg = Config {
-        count_lock: Some(count_lock.clone()),
+        count_lock: Some(collector.clone()),
         ..Config::new(Action::Count(args.nodes.into()), &globals, preproc)
     };
     run_walk(globals, cfg);
 
-    let count = Arc::try_unwrap(count_lock)
-        .expect("all worker threads have joined; Arc refcount is 1")
-        .into_inner()
-        .expect("mutex not poisoned");
+    // All worker threads have joined, so the collector's `Arc` refcount
+    // is back to one; `into_count` recovers the tally (degrading rather
+    // than panicking if a worker poisoned the inner mutex, issue #445).
+    let count = collector.into_count();
     println!("{count}");
 }
 

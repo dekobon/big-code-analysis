@@ -27,8 +27,8 @@ use std::sync::atomic::Ordering;
 
 use big_code_analysis::{
     CommentRm, CommentRmCfg, Count, CountCfg, Dump, DumpCfg, Find, FindCfg, Function, FunctionCfg,
-    Metrics, MetricsCfg, OpsCfg, OpsCode, PreprocParser, PreprocResults, SuppressionScan, action,
-    guess_language, is_generated, preprocess, read_file_with_eol,
+    Metrics, MetricsCfg, NodeTypeFilters, OpsCfg, OpsCode, PreprocParser, PreprocResults,
+    SuppressionScan, action, guess_language, is_generated, preprocess, read_file_with_eol,
 };
 use big_code_analysis::{LANG, ParserTrait};
 #[allow(deprecated)]
@@ -242,7 +242,7 @@ fn dispatch_find(
 ) -> std::io::Result<()> {
     let find_cfg = FindCfg {
         path: path.clone(),
-        filters: Arc::clone(filters),
+        filters: NodeTypeFilters::new(filters),
         line_start: cfg.line_start,
         line_end: cfg.line_end,
     };
@@ -263,7 +263,7 @@ fn dispatch_count(
         .clone()
         .expect("Count handler initializes count_lock before dispatch");
     let count_cfg = CountCfg {
-        filters: Arc::clone(filters),
+        filters: NodeTypeFilters::new(filters),
         stats,
     };
     action::<Count>(language, source, &path, pr, count_cfg).expect(FEATURES_PINNED)

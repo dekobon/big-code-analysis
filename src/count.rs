@@ -68,9 +68,112 @@ pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
 #[derive(Debug)]
 pub struct CountCfg {
     /// Types of nodes to count
-    pub filters: Arc<[String]>,
-    /// Number of nodes of a certain type counted by each thread
-    pub stats: Arc<Mutex<Count>>,
+    pub filters: NodeTypeFilters,
+    /// Shared tally accumulated across every worker
+    pub stats: CountCollector,
+}
+
+/// Opaque, owned set of tree-sitter node-type names to match against.
+///
+/// Wraps the node-type patterns behind a newtype so neither
+/// [`CountCfg`] nor [`crate::FindCfg`] exposes the `Arc<[String]>`
+/// reference-counted representation in its public signature. A
+/// borrowed `&[String]` field is impossible here: [`CountCfg`] /
+/// [`crate::FindCfg`] are handed to
+/// [`crate::ConcurrentRunner::run`], whose `Config: 'static` bound
+/// (it wraps the config in an `Arc` shared across worker threads)
+/// forbids a borrow tied to the caller's stack. The owned `Arc<[…]>`
+/// keeps cloning cheap while staying `'static + Send + Sync`.
+#[derive(Debug, Clone)]
+pub struct NodeTypeFilters(Arc<[String]>);
+
+impl NodeTypeFilters {
+    /// Builds a filter set from the given node-type patterns.
+    #[must_use]
+    pub fn new(filters: &[String]) -> Self {
+        Self(Arc::from(filters))
+    }
+
+    /// Borrows the node-type patterns as a slice for the internal
+    /// `parser.filters(&…)` call.
+    #[must_use]
+    pub fn as_slice(&self) -> &[String] {
+        &self.0
+    }
+}
+
+impl From<Vec<String>> for NodeTypeFilters {
+    fn from(filters: Vec<String>) -> Self {
+        Self(Arc::from(filters))
+    }
+}
+
+impl From<&[String]> for NodeTypeFilters {
+    fn from(filters: &[String]) -> Self {
+        Self::new(filters)
+    }
+}
+
+/// Opaque, shareable collector that accumulates a [`Count`] across the
+/// worker threads of a [`crate::ConcurrentRunner`] walk.
+///
+/// Wraps the shared `Arc<Mutex<Count>>` behind a newtype so [`CountCfg`]
+/// does not expose the synchronization machinery in its public
+/// signature. [`Clone`] is a cheap reference-count bump, so each worker
+/// can hold its own handle to the same tally while the config still
+/// satisfies the `'static + Send + Sync` bound of
+/// [`crate::ConcurrentRunner`]. Recover the final tally with
+/// [`CountCollector::into_count`] once every worker has joined.
+#[derive(Debug, Clone)]
+pub struct CountCollector(Arc<Mutex<Count>>);
+
+impl CountCollector {
+    /// Creates an empty collector.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(Count::default())))
+    }
+
+    /// Creates a collector seeded with an existing tally.
+    #[must_use]
+    pub fn with_count(count: Count) -> Self {
+        Self(Arc::new(Mutex::new(count)))
+    }
+
+    /// Consumes the collector, returning the accumulated [`Count`].
+    ///
+    /// Call this only after every worker sharing a clone of this
+    /// collector has joined, so the underlying `Arc` reference count is
+    /// back to one. Degrades rather than panics in the unlikely event
+    /// that a worker panicked mid-update and poisoned the inner mutex
+    /// (issue #445): the recovered guard still holds the fully-applied
+    /// tally because the aggregation is two monotonically-incremented
+    /// counters. If the `Arc` is unexpectedly still shared (a worker
+    /// failed to join), falls back to a clone of the current tally
+    /// rather than panicking.
+    #[must_use]
+    pub fn into_count(self) -> Count {
+        match Arc::try_unwrap(self.0) {
+            Ok(mutex) => mutex
+                .into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            Err(shared) => {
+                let guard = shared
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                Count {
+                    good: guard.good,
+                    total: guard.total,
+                }
+            }
+        }
+    }
+}
+
+impl Default for CountCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Count of different types of nodes in a code.
@@ -87,16 +190,17 @@ impl Callback for Count {
     type Cfg = CountCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        let (good, total) = count(parser, &cfg.filters);
+        let (good, total) = count(parser, cfg.filters.as_slice());
         // The aggregation is two monotonically-incremented counters, so a
         // peer worker that panicked mid-update leaves at worst a slightly
         // low tally — never an unsafe state. Recover the poisoned guard
         // (issue #445) so one panicked worker does not cascade into a
         // pool-wide abort the way an `.unwrap()` would, and clear the
-        // poison so later peers and the CLI's final `into_inner()`
-        // (`run_command_count`) also degrade rather than panic.
-        let mut results = cfg.stats.lock().unwrap_or_else(|poisoned| {
-            cfg.stats.clear_poison();
+        // poison so later peers and the collector's final
+        // `into_count()` also degrade rather than panic.
+        let stats = &cfg.stats.0;
+        let mut results = stats.lock().unwrap_or_else(|poisoned| {
+            stats.clear_poison();
             poisoned.into_inner()
         });
         results.good += good;
@@ -158,8 +262,8 @@ mod tests {
         let source = b"fn main() { let _ = 1; }".to_vec();
         let parser = RustParser::new(source, &PathBuf::from("poisoned.rs"), None);
         let cfg = CountCfg {
-            filters: Arc::from(Vec::<String>::new()),
-            stats: stats.clone(),
+            filters: NodeTypeFilters::new(&[]),
+            stats: CountCollector(stats.clone()),
         };
 
         let result = Count::call(cfg, &parser);
@@ -168,8 +272,9 @@ mod tests {
             "poisoned stats mutex should degrade to Ok(()), not panic"
         );
 
-        // The recovery clears the poison so later peers and the CLI's
-        // final `into_inner()` see a usable, fully-applied tally.
+        // The recovery clears the poison so later peers and the
+        // collector's final `into_count()` see a usable, fully-applied
+        // tally.
         assert!(
             !stats.is_poisoned(),
             "recovery should clear the poison flag"
@@ -179,5 +284,65 @@ mod tests {
             recovered.total > 0,
             "the surviving worker's counts must still be applied"
         );
+    }
+
+    // `into_count` must surface the tally accumulated by every worker
+    // sharing a clone of the collector, after they have all joined.
+    #[test]
+    fn into_count_returns_accumulated_tally() {
+        let collector = CountCollector::new();
+
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let worker = collector.clone();
+            handles.push(thread::spawn(move || {
+                let mut guard = worker.0.lock().expect("fresh mutex is unpoisoned");
+                guard.good += 1;
+                guard.total += 10;
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("worker thread must not panic");
+        }
+
+        let count = collector.into_count();
+        assert_eq!(count.good, 4, "every worker's good count must be summed");
+        assert_eq!(count.total, 40, "every worker's total count must be summed");
+    }
+
+    // `into_count` degrades to the recovered tally when the inner mutex
+    // is poisoned, mirroring the #445 invariant for the extraction side.
+    #[test]
+    fn into_count_degrades_on_poisoned_mutex() {
+        let collector = CountCollector::with_count(Count { good: 3, total: 7 });
+
+        let poisoner = collector.clone();
+        let handle = thread::spawn(move || {
+            let _guard = poisoner.0.lock().expect("fresh mutex is unpoisoned");
+            panic!("intentional panic to poison the collector mutex");
+        });
+        assert!(
+            handle.join().is_err(),
+            "poisoner thread should have panicked"
+        );
+
+        let count = collector.into_count();
+        assert_eq!(count.good, 3, "poison recovery must preserve the tally");
+        assert_eq!(count.total, 7, "poison recovery must preserve the tally");
+    }
+
+    // `NodeTypeFilters` round-trips the patterns it was built from.
+    #[test]
+    fn node_type_filters_round_trip() {
+        let patterns = vec!["function".to_owned(), "if_statement".to_owned()];
+
+        let filters = NodeTypeFilters::new(&patterns);
+        assert_eq!(filters.as_slice(), patterns.as_slice());
+
+        let from_vec = NodeTypeFilters::from(patterns.clone());
+        assert_eq!(from_vec.as_slice(), patterns.as_slice());
+
+        let from_slice = NodeTypeFilters::from(patterns.as_slice());
+        assert_eq!(from_slice.as_slice(), patterns.as_slice());
     }
 }

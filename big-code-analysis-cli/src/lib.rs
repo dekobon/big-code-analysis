@@ -83,7 +83,7 @@ use thresholds::{
 
 use big_code_analysis::LANG;
 use big_code_analysis::{
-    ConcurrentRunner, Count, FilesData, MetricsOptions, PreprocResults, SuppressionPolicy,
+    ConcurrentRunner, CountCollector, FilesData, MetricsOptions, PreprocResults, SuppressionPolicy,
 };
 use big_code_analysis::{get_from_ext, read_file};
 
@@ -1078,7 +1078,7 @@ struct Config {
     line_end: Option<usize>,
     preproc_lock: Option<Arc<Mutex<PreprocResults>>>,
     preproc: Option<Arc<PreprocResults>>,
-    count_lock: Option<Arc<Mutex<Count>>>,
+    count_lock: Option<CountCollector>,
     /// Sender for streaming `FunctionSummary` records when running `report`.
     /// Wrapped in `Mutex` because `mpsc::Sender` is `Send` but not `Sync`.
     markdown_tx: Option<Mutex<std::sync::mpsc::Sender<FunctionSummary>>>,
