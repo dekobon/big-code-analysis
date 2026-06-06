@@ -19,9 +19,17 @@
 //! e.g. a route that emits an empty SARIF run even when offenders
 //! were found.)
 
+// The cross-format round-trip tests (#543) compare integer-valued
+// metrics that serde emits as f64 (`loc.sloc == 1.0`,
+// `cyclomatic.sum == 3.0`). Small integers are represented exactly in
+// f64, so exact equality is the intended assertion — float-magnitude
+// metrics are deliberately not compared.
+#![allow(clippy::float_cmp)]
+
 use assert_cmd::Command;
 use big_code_analysis::CSV_HEADER;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 mod common;
@@ -254,4 +262,235 @@ fn cli_check_code_climate_output_matches_gitlab_shape() {
         !out.starts_with('\u{FEFF}'),
         "code-climate output must not start with a BOM",
     );
+}
+
+// --- TOML / YAML / CBOR round-trip smoke tests (issue #543) ---------------
+//
+// These three formats had no validity / round-trip coverage, so a shape
+// regression (e.g. a serde rename, a struct-field reorder that makes TOML
+// emit an array-of-tables before a scalar, or a CBOR routing bug) would
+// ship silently. Each test emits the format for the same Rust fixture,
+// parses the bytes back into the format's own `Value` type, asserts the
+// top-level `FuncSpace` keys survive, and checks that an integer-valued
+// metric round-trips to the same number JSON produced. A final test pins
+// cross-format agreement so no single serializer can drift on its own.
+//
+// The numbers compared are integer-valued metrics (`loc.sloc`,
+// `cyclomatic.sum`) that serde emits as f64; exact f64 equality is safe
+// here because small integers are represented exactly. Float-magnitude
+// metrics (volume / effort) are deliberately avoided per the bit-brittle
+// guidance in AGENTS.md.
+
+/// Metric value JSON emits for the representative fixture at
+/// `metrics.<group>.<key>`. Both are integer-valued floats, so exact
+/// equality survives a serde round-trip through every format.
+const SLOC_KEY: (&str, &str) = ("loc", "sloc");
+const CYCLOMATIC_KEY: (&str, &str) = ("cyclomatic", "sum");
+
+/// Top-level `FuncSpace` keys every serializer must preserve.
+const STRUCTURAL_KEYS: &[&str] = &["name", "kind", "spaces", "metrics"];
+
+/// Run `bca metrics -O <format> -o <outdir>` and return the single
+/// emitted file's bytes. Output filenames mirror the (path-cleaned)
+/// input path under `outdir`, so rather than reconstruct the production
+/// `handle_path` mapping we walk `outdir` for the one file with
+/// `extension`. CBOR has no stdout path, so this file route is the only
+/// way to smoke it.
+fn run_metrics_to_file(
+    dir: &TempDir,
+    format: &str,
+    fixture_path: &str,
+    extension: &str,
+) -> Vec<u8> {
+    let out_dir = TempDir::new().expect("create metrics output dir");
+    cli(dir)
+        .args([
+            "--paths",
+            fixture_path,
+            "metrics",
+            "-O",
+            format,
+            "-o",
+            out_dir.path().to_str().expect("outdir path is utf-8"),
+        ])
+        .assert()
+        .success();
+    let file = find_single_file_with_extension(out_dir.path(), extension);
+    std::fs::read(&file).expect("read emitted metrics file")
+}
+
+/// Recursively collect the single file under `root` whose name ends in
+/// `extension`. Panics if zero or more than one match, so a routing
+/// regression that emits the wrong (or no) file fails loudly.
+fn find_single_file_with_extension(root: &std::path::Path, extension: &str) -> PathBuf {
+    let mut matches = Vec::new();
+    collect_files_with_extension(root, extension, &mut matches);
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected exactly one *{extension} file under {}, found {matches:?}",
+        root.display(),
+    );
+    matches.pop().expect("one match present")
+}
+
+fn collect_files_with_extension(dir: &std::path::Path, extension: &str, out: &mut Vec<PathBuf>) {
+    let entries = std::fs::read_dir(dir).expect("read output dir");
+    for entry in entries {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            collect_files_with_extension(&path, extension, out);
+        } else if path.to_str().is_some_and(|name| name.ends_with(extension)) {
+            out.push(path);
+        }
+    }
+}
+
+/// The JSON value of `metrics.<group>.<key>` for the fixture, used as the
+/// cross-format reference. JSON is already covered by the lib-crate
+/// writer tests, so it is the trusted baseline here.
+fn json_metric(dir: &TempDir, fixture: &str, key: (&str, &str)) -> f64 {
+    let out = run_metrics(dir, "json", fixture);
+    let doc: serde_json::Value = serde_json::from_str(&out).expect("metrics JSON parses");
+    doc["metrics"][key.0][key.1]
+        .as_f64()
+        .expect("JSON metric is a number")
+}
+
+#[test]
+fn cli_metrics_yaml_round_trips() {
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+    let out = run_metrics(&dir, "yaml", &fixture);
+
+    let doc: serde_yaml::Value = serde_yaml::from_str(&out).expect("metrics YAML parses");
+    let map = doc.as_mapping().expect("YAML root is a mapping");
+    for key in STRUCTURAL_KEYS {
+        assert!(
+            map.contains_key(serde_yaml::Value::String((*key).to_string())),
+            "YAML output missing top-level key {key:?}; doc was:\n{out}",
+        );
+    }
+
+    let sloc = doc["metrics"][SLOC_KEY.0][SLOC_KEY.1]
+        .as_f64()
+        .expect("YAML loc.sloc is a number");
+    assert_eq!(
+        sloc,
+        json_metric(&dir, &fixture, SLOC_KEY),
+        "YAML loc.sloc diverged from JSON",
+    );
+}
+
+#[test]
+fn cli_metrics_toml_round_trips() {
+    // This is the test the issue calls out: `FuncSpace` interleaves the
+    // array-of-tables `spaces` ahead of the `metrics` table, so a naive
+    // TOML emitter would emit a table after an array-of-tables and
+    // `toml::from_str` would reject it (`ValueAfterTable`). Parsing the
+    // emitted document back without error pins that the document stays
+    // valid TOML regardless of struct field order.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+    let out = run_metrics(&dir, "toml", &fixture);
+
+    let doc: toml::Value = toml::from_str(&out).unwrap_or_else(|e| {
+        panic!("metrics TOML failed to parse ({e}); doc was:\n{out}");
+    });
+    let table = doc.as_table().expect("TOML root is a table");
+    for key in STRUCTURAL_KEYS {
+        assert!(
+            table.contains_key(*key),
+            "TOML output missing top-level key {key:?}; doc was:\n{out}",
+        );
+    }
+
+    let sloc = doc["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1]
+        .as_float()
+        .expect("TOML cyclomatic.sum is a float");
+    assert_eq!(
+        sloc,
+        json_metric(&dir, &fixture, CYCLOMATIC_KEY),
+        "TOML cyclomatic.sum diverged from JSON",
+    );
+}
+
+#[test]
+fn cli_metrics_cbor_round_trips() {
+    // CBOR errors on stdout (it is binary), so it is emitted to a file
+    // and read back. Round-trip through `serde_cbor::Value` and assert
+    // the same structural keys + numeric fidelity as the text formats.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+    let bytes = run_metrics_to_file(&dir, "cbor", &fixture, ".cbor");
+
+    let doc: serde_cbor::Value =
+        serde_cbor::from_slice(&bytes).expect("metrics CBOR parses into a Value");
+    let serde_cbor::Value::Map(map) = &doc else {
+        panic!("CBOR root is not a map: {doc:?}");
+    };
+    for key in STRUCTURAL_KEYS {
+        assert!(
+            map.contains_key(&serde_cbor::Value::Text((*key).to_string())),
+            "CBOR output missing top-level key {key:?}",
+        );
+    }
+
+    let sloc = cbor_metric(&doc, SLOC_KEY).expect("CBOR loc.sloc present and numeric");
+    assert_eq!(
+        sloc,
+        json_metric(&dir, &fixture, SLOC_KEY),
+        "CBOR loc.sloc diverged from JSON",
+    );
+}
+
+#[test]
+fn cli_metrics_all_formats_agree_on_metric() {
+    // Cross-format guard: the same integer-valued metric must be equal
+    // across JSON, YAML, TOML, and CBOR for one tree. A serializer that
+    // drifts on its own (a rename, a unit conversion, a rounding bug)
+    // breaks this even if its own round-trip test still passes.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+
+    let json = json_metric(&dir, &fixture, CYCLOMATIC_KEY);
+
+    let yaml_out = run_metrics(&dir, "yaml", &fixture);
+    let yaml: serde_yaml::Value = serde_yaml::from_str(&yaml_out).expect("YAML parses");
+    let yaml = yaml["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1]
+        .as_f64()
+        .expect("YAML metric is numeric");
+
+    let toml_out = run_metrics(&dir, "toml", &fixture);
+    let toml: toml::Value = toml::from_str(&toml_out).expect("TOML parses");
+    let toml = toml["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1]
+        .as_float()
+        .expect("TOML metric is a float");
+
+    let cbor_bytes = run_metrics_to_file(&dir, "cbor", &fixture, ".cbor");
+    let cbor_doc: serde_cbor::Value = serde_cbor::from_slice(&cbor_bytes).expect("CBOR parses");
+    let cbor = cbor_metric(&cbor_doc, CYCLOMATIC_KEY).expect("CBOR metric is numeric");
+
+    assert_eq!(json, yaml, "JSON vs YAML cyclomatic.sum");
+    assert_eq!(json, toml, "JSON vs TOML cyclomatic.sum");
+    assert_eq!(json, cbor, "JSON vs CBOR cyclomatic.sum");
+}
+
+/// Extract `metrics.<group>.<key>` from a parsed CBOR document as f64.
+/// `serde_cbor::Value` has no string-indexing sugar, so the map walk is
+/// explicit; numeric metrics serialize as `Float`.
+fn cbor_metric(doc: &serde_cbor::Value, key: (&str, &str)) -> Option<f64> {
+    let metrics = cbor_get(doc, "metrics")?;
+    let group = cbor_get(metrics, key.0)?;
+    match cbor_get(group, key.1)? {
+        serde_cbor::Value::Float(f) => Some(*f),
+        _ => None,
+    }
+}
+
+fn cbor_get<'a>(value: &'a serde_cbor::Value, key: &str) -> Option<&'a serde_cbor::Value> {
+    let serde_cbor::Value::Map(map) = value else {
+        return None;
+    };
+    map.get(&serde_cbor::Value::Text(key.to_string()))
 }
