@@ -18,13 +18,25 @@ really a caller bug.
 
 ## Canonical names
 
-The full set is available as a tuple:
+The full set is available as a tuple of `MetricName` members. Each
+member is a `StrEnum`, so it *is* a `str` — `"halstead" in
+bca.METRIC_NAMES` works, and `bca.MetricName.HALSTEAD == "halstead"`
+is `True`. Pass either a plain string or a member to `metrics=`:
 
 ```python
 import big_code_analysis as bca
+from big_code_analysis import MetricName
 
 assert "halstead" in bca.METRIC_NAMES
+assert bca.MetricName.HALSTEAD == "halstead"
+
+# Either spelling works in `metrics=`:
+selection = [MetricName.CYCLOMATIC, "cognitive"]
 ```
+
+The members are generated from the same `Metric` table the CLI and
+JSON output use, so the values never drift from the slugs you see in
+`bca metrics --output-format json`.
 
 Names are case-sensitive lowercase; passing an unknown name
 raises `ValueError` with the canonical list in the message. The

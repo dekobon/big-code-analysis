@@ -21,6 +21,13 @@
 
 mod analysis;
 mod batch;
+// `codegen` exists only to render and drift-check the generated
+// `python/big_code_analysis/_enums.py`. It is exercised purely from
+// the test harness (the `enums_module_matches_checked_in` gate), so
+// gating it on `cfg(test)` keeps the shipped cdylib free of unused-
+// code warnings rather than littering the generator with `#[allow]`.
+#[cfg(test)]
+mod codegen;
 mod conversion;
 mod language;
 mod sarif;

@@ -459,6 +459,100 @@ The negative-filter union is a behaviour change from the pre-2.0
 contract, where CLI excludes *replaced* the manifest list. It landed
 as part of the 2.0 line.
 
+## Python bindings
+
+`big-code-analysis-py` is the PyO3 wrapper published from this
+workspace. It is not yet on PyPI; the names below are the contract
+the **first** stable publish locks in, because none of them can
+change afterward without breaking every consumer's imports.
+
+- **Distribution name** `big-code-analysis` (the `pip install`
+  target / PyPI project name).
+- **Import name** `big_code_analysis` (the top-level package).
+- **Compiled extension** `big_code_analysis._native` — a private,
+  `#[doc(hidden)]`-equivalent module. It is an implementation
+  detail: import from the package (`big_code_analysis.analyze`),
+  never from `_native` directly. Its layout may change between
+  releases; the package facade (`__init__.py`) is the stable seam.
+
+The bound surface tracks the library: `analyze`, `analyze_source`,
+`analyze_batch`, `language_for_file`, `language_extensions`,
+`supported_languages`, `to_sarif`, `flatten_spaces`, the
+`AnalysisError` / `ParseError` / `UnsupportedLanguageError`
+exception types, `__version__`, and the `METRIC_NAMES` constant.
+
+### Language and metric string enums
+
+`supported_languages()` returns `list[Lang]` and `METRIC_NAMES` is a
+`tuple[MetricName, ...]`. `Lang` and `MetricName` are
+[`enum.StrEnum`][strenum]s (the floor is Python 3.12), so each member
+**is** a `str`: `Lang.CPP == "cpp"`, `MetricName.HALSTEAD ==
+"halstead"`, and the members work anywhere a string slug does
+(`metrics=[MetricName.LOC]`, `language_extensions(Lang.RUST)`). The
+enums are **generated** from the same upstream tables the CLI and
+JSON output use — `LANG::name()` (the canonical slugs, see *What is
+stable in shape* above) and `Metric::NAMES` — by a checked-in
+generator with a drift-gate test, so the Python values can never
+diverge from the slugs emitted elsewhere. The contract is: **every
+`Lang` / `MetricName` value equals the corresponding CLI / JSON
+slug.** Adding a language or metric adds a member (additive, minor);
+the existing values are frozen.
+
+### Error mapping
+
+Per-file failures from `analyze_batch` are **returned**, not raised,
+as `AnalysisError` values (not `Exception` subclasses). The
+`error_kind` field is a closed set —
+`Literal["UnsupportedLanguage", "ParseError", "IoError"]` — and is
+part of the contract: callers may branch on it. The raising entry
+points (`analyze`, `analyze_source`) map upstream failures to
+`UnsupportedLanguageError` (a `ValueError` subclass), `ParseError`,
+or the appropriate `OSError` subclass.
+
+### Typing
+
+The package ships [PEP 561][pep561] type information: a `py.typed`
+marker and a hand-written `_native.pyi` stub, with the public facade
+typed directly. `mypy --strict` and `pyright` are gated in CI. The
+stub shape (function signatures, the `error_kind` `Literal`, the
+`Lang` / `MetricName` enums) is covered by the same shape contract
+as the library: additive in minor bumps, breaking only at a major.
+
+[strenum]: https://docs.python.org/3/library/enum.html#enum.StrEnum
+[pep561]: https://peps.python.org/pep-0561/
+
+## REST schema
+
+`big-code-analysis-web` (`bca-web`) is the HTTP wrapper. Its
+request/response schema is a published surface governed by the same
+SemVer discipline as the CLI artifact formats: additive endpoints
+and fields in minor bumps, shape breaks reserved for major bumps.
+The full route-by-route reference lives in the book
+([*REST API*](big-code-analysis-book/src/commands/rest.md)); the
+contract points are:
+
+- **Analysis envelope.** `/metrics`, `/function`, and `/comment`
+  return a JSON object carrying the request `id` (echoed; empty when
+  the request carried none), a `language` field, and the endpoint's
+  result. The `language` value is the #540 canonical slug (routed
+  through `guess_language` → `LANG::name()`), the same identifier
+  used by the CLI JSON output and the Python bindings — the comment
+  endpoint reports the *guessed* language, not its internal
+  `ccomment` grammar swap.
+- **Uniform errors.** Every error path returns the JSON body
+  `{error, id}` with an appropriate status; no endpoint emits a bare
+  `text/plain` error. The `id` is always present.
+- **Introspection.** `GET /v1/version` reports the server and
+  library versions; `GET /v1/languages` reports the supported
+  languages and their extensions, sourced from the `LANG` table (not
+  hardcoded), mirroring the Python `__version__` /
+  `supported_languages()` / `language_extensions()` surface.
+  Unprefixed aliases exist for the introspection routes.
+
+The `{id, language}` envelope on `/function` and `/comment`, the
+uniform `{error, id}` error body, and the stricter `unit` bool
+parsing all landed as `2.0`-line breaks (#541).
+
 ## MSRV policy
 
 The workspace pins `rust-version = "1.94"` (see the
@@ -575,6 +669,19 @@ loose ends that will be tightened at `2.0`:
   `mozjs`), and `.cjs` is newly recognized. The two grammars are
   metric-equivalent on real-world code, so this is a naming/dispatch
   change with **no** JS metric re-baseline.
+- The Python bindings tighten their typed surface (#542): the
+  `analyze_batch` `skip_generated` default flips from `False` to
+  `True` to align with `analyze` (a generated file is now skipped, so
+  the result list can be shorter than the input), and the return
+  types shift to the generated string enums — `supported_languages()
+  -> list[Lang]` and `METRIC_NAMES: tuple[MetricName, ...]`. Because
+  `Lang` / `MetricName` are `StrEnum`s the values stay
+  string-compatible, so string-based call sites keep working; the
+  breaking pieces are the default flip and the static return types.
+  See *Python bindings* above.
+- The REST surface adopts the uniform `{error, id}` error body and the
+  `{id, language}` analysis envelope, and tightens `unit` bool parsing
+  (#541). See *REST schema* above.
 
 `2.0` is not scheduled. We will cut it when the items above are
 ripe and the value-drift accumulated since `1.0` is worth the

@@ -266,13 +266,11 @@ impl PyAnalysisError {
 
     /// Build a synthetic [`PyAnalysisError`] from a caller path plus
     /// a free-form message and kind. Used by [`analyze_batch`] to
-    /// surface internal contract violations (e.g. a future
-    /// `analyze_path` skip surface that returns `Ok(None)` despite
-    /// `skip_generated=false`, or a `json_string_to_py` failure on
-    /// the success arm) as per-file [`PyAnalysisError`] values
-    /// rather than propagating them as Python exceptions — the
-    /// never-raise-on-per-file-errors contract requires every input
-    /// position to yield either a `dict` or an `AnalysisError`.
+    /// surface a `json_string_to_py` failure on the success arm as a
+    /// per-file [`PyAnalysisError`] value rather than propagating it
+    /// as a Python exception — the never-raise-on-per-file-errors
+    /// contract requires every input position that is not skipped to
+    /// yield either a `dict` or an `AnalysisError`.
     fn synthetic_internal(path: &Path, message: String, kind: ErrorKind) -> Self {
         Self::new_internal(encode_path_for_field(path), message, kind)
     }
@@ -335,14 +333,18 @@ const _: fn() = || {
 /// absent (not `None`) from the resulting dicts; selecting a derived
 /// metric (`"mi"`, `"wmc"`) implicitly pulls in its dependencies.
 ///
-/// Batch always runs with `skip_generated=false` so that every input
-/// position produces either a `dict` or an `AnalysisError`. The
-/// `analyze()` per-file entry point still defaults to
-/// `skip_generated=true` (and would return `None`); callers who want
-/// the same behaviour for batches should pre-filter or call
-/// `analyze()` directly.
+/// `exclude_tests`, `allow_lossy_path`, and `skip_generated` mirror
+/// the keyword-only kwargs on [`crate::analyze`] verbatim (#542), so
+/// migrating a comprehension from `analyze` to `analyze_batch` is
+/// behaviour-preserving. In particular `skip_generated` defaults to
+/// `true` here too: a generated file is *skipped* (its input position
+/// yields no `dict`), so the result list can be **shorter** than the
+/// input iterable when `skip_generated=true`. Pass
+/// `skip_generated=false` to restore the legacy "one result per input,
+/// always" behaviour (every position produces a `dict` or an
+/// `AnalysisError`).
 #[pyfunction]
-#[pyo3(signature = (paths, /, *, metrics = None))]
+#[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None))]
 // `metrics: Option<Vec<String>>` is taken by value to match the PyO3
 // keyword-argument FFI shape (the macro materialises an owned `Vec`
 // out of the Python list); clippy's `needless_pass_by_value` lint
@@ -351,6 +353,9 @@ const _: fn() = || {
 pub(crate) fn analyze_batch<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyAny>,
+    exclude_tests: bool,
+    allow_lossy_path: bool,
+    skip_generated: bool,
     metrics: Option<Vec<String>>,
 ) -> PyResult<Vec<Py<PyAny>>> {
     // Resolve `metrics=` *before* `paths.try_iter()` so a bad name
@@ -361,11 +366,9 @@ pub(crate) fn analyze_batch<'py>(
 
     let iter = paths.try_iter()?;
     let opts = AnalyzeOptions {
-        exclude_tests: false,
-        allow_lossy_path: false,
-        // Batch processes every readable file: see the module-level
-        // discussion above.
-        skip_generated: false,
+        exclude_tests,
+        allow_lossy_path,
+        skip_generated,
         metrics: metric_set,
     };
 
@@ -419,32 +422,14 @@ pub(crate) fn analyze_batch<'py>(
                     results.push(Py::new(py, py_err)?.into_any());
                 }
             },
-            // `skip_generated = false` makes `Ok(None)` unreachable
-            // from `analyze_path` today, but defensively surface it
-            // as an `IoError`-kind per-file error rather than
-            // panicking — a `panic!` / `unreachable!` here would
-            // bubble out as `PyO3`'s `PanicException` (a
-            // `BaseException` subclass that `except Exception`
-            // does not catch) and violate the documented
-            // never-raise contract the day a future `analyze_path`
-            // refactor adds another `Ok(None)` skip surface
-            // (gitignore filter, size cap, etc.). The error
-            // message names the invariant break loudly enough
-            // that telemetry surfaces it for triage without
-            // crashing the whole sweep and discarding every
-            // already-pushed result.
-            Ok(None) => {
-                let py_err = PyAnalysisError::synthetic_internal(
-                    &path,
-                    "internal: analyze_path returned Ok(None) despite \
-                     skip_generated=false; batch's 1:1 ordering invariant is \
-                     preserved by surfacing this as IoError, but audit \
-                     analyze_path() for new skip surfaces"
-                        .to_owned(),
-                    ErrorKind::IoError,
-                );
-                results.push(Py::new(py, py_err)?.into_any());
-            }
+            // `Ok(None)` means `analyze_path` skipped the file — with
+            // the #542 default `skip_generated=true` this is the
+            // generated-file case, and the contract (matching
+            // `analyze`) is to omit it from the output entirely. The
+            // result list is therefore shorter than the input when any
+            // path is skipped; callers who need strict 1:1 positional
+            // alignment pass `skip_generated=false`.
+            Ok(None) => {}
             Err(err) => {
                 let py_err = PyAnalysisError::from_internal(err, &path);
                 results.push(Py::new(py, py_err)?.into_any());

@@ -295,16 +295,24 @@ def analyze_batch(
     paths: Iterable[str | os.PathLike[str]],
     /,
     *,
+    exclude_tests: bool = False,
+    allow_lossy_path: bool = False,
+    skip_generated: bool = True,
     metrics: Sequence[str] | None = None,
 ) -> list[dict[str, Any] | AnalysisError]:
     """Compute metrics for every path in ``paths``.
 
-    Returns a list with one element per yielded path, in the same
-    order as the input iterable, so ``zip(paths, results)`` lines
-    up by index. Each element is either:
+    Returns a list whose elements preserve the input order, so
+    ``zip(paths, results)`` lines up by index **when no path is
+    skipped**. Each element is either:
 
     * a ``dict`` matching :func:`analyze`'s output shape, or
     * an :class:`AnalysisError` describing the per-file failure.
+
+    A path that is skipped (``skip_generated=True`` and the file is
+    generated) produces **no** element, so with skipping enabled the
+    result list can be shorter than the input iterable. Pass
+    ``skip_generated=False`` to guarantee one element per input.
 
     The function **never raises on per-file errors** — a missing
     file, an unknown extension, or a parser failure becomes an
@@ -342,19 +350,16 @@ def analyze_batch(
     inputs), and the ``"exit"`` / ``"nexits"`` alias. Unrequested
     metrics are absent from each result dict.
 
-    Unlike :func:`analyze`, ``analyze_batch`` runs with the
-    ``is_generated`` walker filter **off** so every input position
-    yields either a ``dict`` or an :class:`AnalysisError` (never
-    ``None``). Call :func:`analyze` per-file with the default
-    ``skip_generated=True`` if you need the CLI walker's skip
-    behaviour. ``exclude_tests``, ``allow_lossy_path``, and
-    ``skip_generated`` are all hardcoded today (a future phase may
-    expose them as kwargs); the bridge runs with ``exclude_tests=False``,
-    ``allow_lossy_path=False``, and ``skip_generated=False``. The
-    ``skip_generated=False`` choice is the inverse of
-    :func:`analyze`'s default — migrating
-    ``[bca.analyze(p) for p in paths]`` to
-    ``bca.analyze_batch(paths)`` changes generated-file handling.
+    ``exclude_tests``, ``allow_lossy_path``, and ``skip_generated``
+    mirror the keyword-only kwargs on :func:`analyze` exactly (#542),
+    so migrating ``[bca.analyze(p) for p in paths]`` to
+    ``bca.analyze_batch(paths)`` is behaviour-preserving. In
+    particular ``skip_generated`` defaults to ``True`` here too: a
+    generated file is *skipped* (it yields no element), matching the
+    CLI walker and :func:`analyze`'s ``None`` return. This default
+    flipped at 2.0 — the pre-2.0 ``analyze_batch`` hardcoded
+    ``skip_generated=False`` (always one element per input). Pass
+    ``skip_generated=False`` to restore that behaviour.
 
     The GIL is released across each file's read + tree-sitter
     parse via PyO3's ``Python::detach``, so a multi-threaded

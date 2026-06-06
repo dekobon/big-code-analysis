@@ -47,8 +47,13 @@ docs.
 
 ## Installation
 
-The package is not yet published on PyPI. For development, build
-locally via [maturin](https://www.maturin.rs/). The recommended
+The package is not yet published on PyPI. When it is, the
+distribution will be **`big-code-analysis`** and the import name
+**`big_code_analysis`** — these names are locked by the stability
+contract (see [`STABILITY.md`](../STABILITY.md), *Python bindings*)
+and cannot change post-publish without breaking every consumer. For
+development, build locally via [maturin](https://www.maturin.rs/).
+The recommended
 bootstrap uses [uv](https://docs.astral.sh/uv/) so the resolved dev
 set matches the checked-in `uv.lock` — every contributor on this
 path gets the same ruff/mypy/pyright/maturin/pytest versions. CI
@@ -127,6 +132,14 @@ assert bca.language_for_file("path/to/real/foo.py") == "python"
 # would resolve to "python" too (the asymmetry #318 closed).
 assert "python" in bca.supported_languages()
 assert "py" in bca.language_extensions("python")
+
+# `supported_languages()` returns `list[Lang]`. `Lang` is a
+# `StrEnum`, so the members *are* strings: `Lang.PYTHON == "python"`
+# is True and `bca.Lang.PYTHON in bca.supported_languages()` holds.
+from big_code_analysis import Lang
+
+assert bca.Lang.PYTHON in bca.supported_languages()
+assert bca.language_for_file("path/to/real/foo.py") == Lang.PYTHON
 ```
 
 ## Selecting metrics
@@ -150,9 +163,12 @@ mi_result = bca.analyze("src/main.rs", metrics=["mi"])
 assert mi_result is not None
 assert {"loc", "cyclomatic", "halstead", "mi"}.issubset(mi_result["metrics"])
 
-# `bca.METRIC_NAMES` is a `tuple[str, ...]` enumerating every
-# canonical name accepted by `metrics=` (alphabetised, lowercase).
+# `bca.METRIC_NAMES` is a `tuple[MetricName, ...]` enumerating every
+# canonical name accepted by `metrics=`. `MetricName` is a `StrEnum`,
+# so `"halstead" in bca.METRIC_NAMES` works and you can pass either a
+# member or a plain string to `metrics=`.
 assert "halstead" in bca.METRIC_NAMES
+assert bca.MetricName.HALSTEAD == "halstead"
 ```
 
 The same kwarg is honoured by `bca.analyze_source` and
@@ -255,10 +271,20 @@ placeholders.
 
 `bca.analyze_batch(paths)` runs the same analysis as `bca.analyze`
 over every path in an iterable and **never raises on per-file
-errors**: each result slot is either an analysis ``dict`` or a
-`bca.AnalysisError` describing the failure. The list has the same
-length as the input and preserves order one-to-one, so callers
-can `zip(inputs, results)` without losing the pairing.
+errors**: each result element is either an analysis ``dict`` or a
+`bca.AnalysisError` describing the failure. Results preserve input
+order, so `zip(inputs, results)` lines up by index **when no path is
+skipped**. `analyze_batch` accepts the same keyword-only options as
+`analyze` — `exclude_tests`, `allow_lossy_path`, `skip_generated`
+(default `True`), `metrics` — so migrating between the two is
+behaviour-preserving.
+
+With the default `skip_generated=True`, a generated file is *skipped*
+and produces no result element (matching single-file `analyze`, which
+returns `None`), so the result list can be shorter than the input.
+This default flipped at 2.0 — the pre-2.0 `analyze_batch` always
+analysed generated files (`skip_generated=False`); pass that
+explicitly to restore one-element-per-input.
 
 ```python
 import big_code_analysis as bca
