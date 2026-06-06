@@ -1309,6 +1309,19 @@ for historical reference.
   workspace-excluded `enums` crate so the new dispatch tests
   (and any future tests) execute in pre-commit and CI rather than
   being compile-only.
+- Internal CLI refactor: consolidated three pre-existing inline
+  duplicates onto the shared helpers added in #544. Path-prefix
+  stripping in `exemptions.rs` / `markdown_report.rs` now calls
+  `format_util::strip_path_prefix`, and the `--output` validate/write
+  logic in `report` / `exemptions` now calls `validate_output_path` /
+  `write_output_or_stdout`. No behavior change — error wording and
+  stdout fallback are byte-identical (#545).
+- Hardened the two `OnceLock` static initializers in `checker.rs`
+  (the cbindgen `<div rustbindgen` AhoCorasick automaton and the
+  Python `coding:` regex) to use documented `.expect(...)` instead of
+  bare `.unwrap()` on infallible constant-pattern compilation,
+  completing the #343 non-test `unwrap` sweep. No behavior change
+  (#549).
 
 ### Fixed
 
@@ -2203,6 +2216,14 @@ for historical reference.
   `escape_cell` now delegates to the `check` report's
   `escape_gfm_cell`, which escapes `\` before `|`, so the two
   GFM-table emitters share one escaping policy.
+- Bash LOC `blank` was undercounted by one for sources where the
+  grammar anchors a zero-width code leaf to a standalone comment's row
+  (e.g. a `$(...)` command substitution containing only a comment).
+  The `Loc` leaf arm now reclassifies that row from comment-only to
+  code-comment via `check_comment_ends_on_code_line`, mirroring Elixir
+  and every other language impl; the row is no longer double-credited
+  to both `ploc` and the comment-only set. Affects metric *values* for
+  Bash sources with that shape (#547).
 
 ## [1.1.0] - 2026-05-25
 
