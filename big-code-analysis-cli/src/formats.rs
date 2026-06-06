@@ -420,7 +420,7 @@ impl WriteFile for Cbor {
         path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
-        serde_cbor::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
+        ciborium::into_writer(&content, Self::open_file(path, output_path)?).map_err(ser_err)
     }
 }
 

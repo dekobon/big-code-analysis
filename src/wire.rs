@@ -991,11 +991,12 @@ fn run() {
     fn cbor_round_trips() {
         check_func_space::<RustParser, _>(FIXTURE, "fixture.rs", |fs| {
             let mut bytes = Vec::new();
-            serde_cbor::to_writer(&mut bytes, &fs).expect("serialize to CBOR");
-            let back: FuncSpace = serde_cbor::from_slice(&bytes).expect("parse wire from CBOR");
+            ciborium::into_writer(&fs, &mut bytes).expect("serialize to CBOR");
+            let back: FuncSpace =
+                ciborium::from_reader(bytes.as_slice()).expect("parse wire from CBOR");
             assert_eq!(back, fs.to_wire());
             let mut re = Vec::new();
-            serde_cbor::to_writer(&mut re, &back).expect("re-serialize");
+            ciborium::into_writer(&back, &mut re).expect("re-serialize");
             assert_eq!(re, bytes, "CBOR re-serialization must be byte-identical");
         });
     }
@@ -1094,18 +1095,23 @@ fn run() {
             // CBOR: serialize to bytes, confirm the field decodes as a null
             // token, and that it deserializes back to NaN.
             let mut cbor = Vec::new();
-            serde_cbor::to_writer(&mut cbor, &mi).expect("CBOR");
-            let value: serde_cbor::Value = serde_cbor::from_slice(&cbor).expect("parse cbor value");
-            let serde_cbor::Value::Map(map) = &value else {
+            ciborium::into_writer(&mi, &mut cbor).expect("CBOR");
+            let value: ciborium::value::Value =
+                ciborium::from_reader(cbor.as_slice()).expect("parse cbor value");
+            let ciborium::value::Value::Map(map) = &value else {
                 panic!("CBOR root is not a map");
             };
+            let original_key = ciborium::value::Value::Text("original".to_owned());
+            let original = map
+                .iter()
+                .find_map(|(k, v)| (*k == original_key).then_some(v));
             assert_eq!(
-                map.get(&serde_cbor::Value::Text("original".to_owned())),
-                Some(&serde_cbor::Value::Null),
+                original,
+                Some(&ciborium::value::Value::Null),
                 "non-finite must serialize to CBOR null",
             );
             assert!(
-                serde_cbor::from_slice::<Mi>(&cbor)
+                ciborium::from_reader::<Mi, _>(cbor.as_slice())
                     .expect("parse")
                     .original
                     .is_nan(),

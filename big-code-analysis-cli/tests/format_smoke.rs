@@ -418,20 +418,22 @@ fn cli_metrics_toml_round_trips() {
 #[test]
 fn cli_metrics_cbor_round_trips() {
     // CBOR errors on stdout (it is binary), so it is emitted to a file
-    // and read back. Round-trip through `serde_cbor::Value` and assert
-    // the same structural keys + numeric fidelity as the text formats.
+    // and read back. Round-trip through `ciborium::value::Value` and
+    // assert the same structural keys + numeric fidelity as the text
+    // formats.
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
     let bytes = run_metrics_to_file(&dir, "cbor", &fixture, ".cbor");
 
-    let doc: serde_cbor::Value =
-        serde_cbor::from_slice(&bytes).expect("metrics CBOR parses into a Value");
-    let serde_cbor::Value::Map(map) = &doc else {
+    let doc: ciborium::value::Value =
+        ciborium::from_reader(bytes.as_slice()).expect("metrics CBOR parses into a Value");
+    let ciborium::value::Value::Map(map) = &doc else {
         panic!("CBOR root is not a map: {doc:?}");
     };
     for key in STRUCTURAL_KEYS {
+        let target = ciborium::value::Value::Text((*key).to_string());
         assert!(
-            map.contains_key(&serde_cbor::Value::Text((*key).to_string())),
+            map.iter().any(|(k, _)| *k == target),
             "CBOR output missing top-level key {key:?}",
         );
     }
@@ -467,7 +469,8 @@ fn cli_metrics_all_formats_agree_on_metric() {
         .expect("TOML metric is numeric");
 
     let cbor_bytes = run_metrics_to_file(&dir, "cbor", &fixture, ".cbor");
-    let cbor_doc: serde_cbor::Value = serde_cbor::from_slice(&cbor_bytes).expect("CBOR parses");
+    let cbor_doc: ciborium::value::Value =
+        ciborium::from_reader(cbor_bytes.as_slice()).expect("CBOR parses");
     let cbor = cbor_metric(&cbor_doc, CYCLOMATIC_KEY).expect("CBOR metric is numeric");
 
     assert_eq!(json, yaml, "JSON vs YAML cyclomatic.sum");
@@ -476,16 +479,16 @@ fn cli_metrics_all_formats_agree_on_metric() {
 }
 
 /// Extract `metrics.<group>.<key>` from a parsed CBOR document as f64.
-/// `serde_cbor::Value` has no string-indexing sugar, so the map walk is
-/// explicit. Accepts both `Integer` (integral metrics — counts/sums/
-/// min/max) and `Float` (ratios/averages/derived scores) so the check is
-/// agnostic to a metric's numeric representation.
-fn cbor_metric(doc: &serde_cbor::Value, key: (&str, &str)) -> Option<f64> {
+/// `ciborium::value::Value` has no string-indexing sugar, so the map
+/// walk is explicit. Accepts both `Integer` (integral metrics — counts/
+/// sums/min/max) and `Float` (ratios/averages/derived scores) so the
+/// check is agnostic to a metric's numeric representation.
+fn cbor_metric(doc: &ciborium::value::Value, key: (&str, &str)) -> Option<f64> {
     let metrics = cbor_get(doc, "metrics")?;
     let group = cbor_get(metrics, key.0)?;
     match cbor_get(group, key.1)? {
-        serde_cbor::Value::Float(f) => Some(*f),
-        serde_cbor::Value::Integer(i) => Some(*i as f64),
+        ciborium::value::Value::Float(f) => Some(*f),
+        ciborium::value::Value::Integer(i) => Some(i128::from(*i) as f64),
         _ => None,
     }
 }
@@ -499,9 +502,13 @@ fn toml_num(value: &toml::Value) -> Option<f64> {
         .or_else(|| value.as_integer().map(|i| i as f64))
 }
 
-fn cbor_get<'a>(value: &'a serde_cbor::Value, key: &str) -> Option<&'a serde_cbor::Value> {
-    let serde_cbor::Value::Map(map) = value else {
+fn cbor_get<'a>(
+    value: &'a ciborium::value::Value,
+    key: &str,
+) -> Option<&'a ciborium::value::Value> {
+    let ciborium::value::Value::Map(map) = value else {
         return None;
     };
-    map.get(&serde_cbor::Value::Text(key.to_string()))
+    let target = ciborium::value::Value::Text(key.to_string());
+    map.iter().find_map(|(k, v)| (*k == target).then_some(v))
 }

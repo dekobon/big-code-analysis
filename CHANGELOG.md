@@ -521,6 +521,10 @@ for historical reference.
 
 ### Changed
 
+- CBOR output (`bca metrics --format cbor`) now serializes via
+  `ciborium` instead of the unmaintained `serde_cbor`
+  (RUSTSEC-2021-0127). Output remains valid CBOR; no public API or
+  CLI change.
 - **(breaking)** Serialized AST node output (`AstNode`, REST `/ast`,
   `AstCallback`) now uses snake_case keys `type` / `value` / `span` /
   `field_name` / `children` (was `Type` / `TextValue` / `Span` /

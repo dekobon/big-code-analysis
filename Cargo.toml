@@ -261,7 +261,7 @@ globset = "^0.4"
 # mirror the `big-code-analysis-cli` pins; these crates already sit in the
 # workspace graph, so listing them here adds no new resolved dependency.
 serde_yaml = "^0.9"
-serde_cbor = "^0.11"
+ciborium = "^0.2"
 toml = "^1.1"
 
 [profile.dev.package.insta]
