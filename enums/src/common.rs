@@ -313,19 +313,39 @@ mod tests {
         }
     }
 
-    // The bool flag is set exactly on entries whose Rust name was
-    // suffixed to break a collision; such names end in a digit.
+    // The bool flag marks entries whose Rust name was suffixed with a
+    // numeric counter (>= 2) to break a collision with an earlier entry.
+    // A renamed name must therefore be exactly an original (non-renamed)
+    // entry's name followed by digits. The Rust grammar is expected to
+    // produce at least one such collision, so the dedup path is actually
+    // exercised rather than skipped (the assertion is not vacuous).
     #[test]
-    fn get_token_names_renamed_flag_marks_suffixed_entries() {
+    fn get_token_names_renamed_flag_marks_deduplicated_entries() {
         let language: Language = tree_sitter_rust::LANGUAGE.into();
         let names = get_token_names(&language, false);
+        let originals: Vec<&str> = names
+            .iter()
+            .filter(|(_, renamed, _)| !renamed)
+            .map(|(n, _, _)| n.as_str())
+            .collect();
+        let mut renamed_count = 0_usize;
         for (rust_name, renamed, _) in &names {
             if *renamed {
+                renamed_count += 1;
+                let is_dedup_suffix = originals.iter().any(|base| {
+                    rust_name.strip_prefix(base).is_some_and(|suffix| {
+                        !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+                    })
+                });
                 assert!(
-                    rust_name.chars().last().is_some_and(|c| c.is_ascii_digit()),
-                    "renamed entry {rust_name} should carry a numeric suffix"
+                    is_dedup_suffix,
+                    "renamed entry {rust_name} should be an original name plus a numeric counter"
                 );
             }
         }
+        assert!(
+            renamed_count > 0,
+            "the Rust grammar is expected to produce at least one deduplicated token name"
+        );
     }
 }
