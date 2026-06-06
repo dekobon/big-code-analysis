@@ -689,12 +689,12 @@ impl Npa for PhpCode {
 //
 // Python has no visibility keyword. The PEP-8 convention `_x` for
 // "internal" and `__x` for "name-mangled private" is purely advisory
-// and not represented in the AST. `Npa::compute` is also called
-// without access to the source bytes (only the `Node`), so reading
-// the identifier text is not possible from this trait. We therefore
-// treat every class attribute as public — `class_npa == class_na` —
-// matching the Python ethos of "consenting adults". Documented as
-// part of the trait contract for Python.
+// and not represented in the AST. We therefore treat every class
+// attribute as public — `class_npa == class_na` — matching the Python
+// ethos of "consenting adults". Documented as part of the trait
+// contract for Python. (The impl does read the `code` source bytes —
+// widened into the trait by #219 — but only to deduplicate attribute
+// names, not to infer any visibility distinction.)
 //
 // Strategy: when the visitor hits a `ClassDefinition`, walk the body
 // once and tally both class-level assignments and the `self.X = …`
@@ -1815,13 +1815,12 @@ impl Npa for TsxCode {
 // Prototype-based attribute assignments (`Foo.prototype.x = 5;`)
 // would also be legitimate JS attributes per Fenton's metric
 // taxonomy, but detecting them requires matching the `prototype`
-// property-identifier text. The `Npa::compute` trait signature
-// does not carry source bytes, so prototype-shaped attributes are
-// intentionally not counted by this impl. Modern ES2015+ class
-// syntax — the dominant style — is unaffected; legacy prototype-
-// only files under-report. A follow-up that widens the trait
-// signature to `(node, code, stats)` would unlock prototype
-// detection (see `Abc::compute` for the existing pattern).
+// property-identifier text. They are not yet detected by this impl,
+// so modern ES2015+ class syntax — the dominant style — is
+// unaffected, while legacy prototype-only files under-report. The
+// `code` source bytes are already available (bound as `_code`
+// below), so implementing prototype detection requires no trait
+// signature change (see `Abc::compute` for the existing pattern).
 
 macro_rules! js_npa_compute {
     ($lang:ident) => {
