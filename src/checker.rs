@@ -210,7 +210,10 @@ macro_rules! impl_is_else_if_clause {
 #[inline]
 fn get_aho_corasick_match(code: &[u8]) -> bool {
     AHO_CORASICK
-        .get_or_init(|| AhoCorasick::new(vec![b"<div rustbindgen"]).unwrap())
+        .get_or_init(|| {
+            AhoCorasick::new(vec![b"<div rustbindgen"])
+                .expect("constant single-needle AhoCorasick automaton always compiles")
+        })
         .is_match(code)
 }
 
@@ -419,7 +422,8 @@ impl Checker for PythonCode {
         node.start_row() <= 1
             && RE
                 .get_or_init(|| {
-                    Regex::new(r"^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)").unwrap()
+                    Regex::new(r"^[ \t\f]*#.*?coding[:=][ \t]*([-_.a-zA-Z0-9]+)")
+                        .expect("constant Python coding-declaration regex always compiles")
                 })
                 .is_match(&code[node.start_byte()..node.end_byte()])
     }
