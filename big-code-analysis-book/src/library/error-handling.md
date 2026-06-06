@@ -59,7 +59,6 @@ recommended [`analyze`] entry point takes a caller-supplied
 round-tripped in the first place.
 
 [#252]: https://github.com/dekobon/big-code-analysis/issues/252
-[#254]: https://github.com/dekobon/big-code-analysis/issues/254
 [#536]: https://github.com/dekobon/big-code-analysis/issues/536
 
 ## Tree-sitter does not always say "no"
@@ -123,9 +122,6 @@ under the library-DX umbrella ([#250]).
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [`Source::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html#structfield.name
-[`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
-[`metrics_with_options`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.metrics_with_options.html
-[`MetricsOptions`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html
 [`FuncSpace`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
 [Node]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Node.html
