@@ -30,6 +30,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Nom` metric suite.
@@ -70,10 +71,10 @@ impl Serialize for Stats {
         let mut st = serializer.serialize_struct("nom", 10)?;
         st.serialize_field("functions", &self.functions_sum())?;
         st.serialize_field("closures", &self.closures_sum())?;
-        st.serialize_field("functions_average", &self.functions_average())?;
-        st.serialize_field("closures_average", &self.closures_average())?;
+        st.serialize_field("functions_average", &NonFinite(self.functions_average()))?;
+        st.serialize_field("closures_average", &NonFinite(self.closures_average()))?;
         st.serialize_field("total", &self.total())?;
-        st.serialize_field("average", &self.average())?;
+        st.serialize_field("average", &NonFinite(self.average()))?;
         st.serialize_field("functions_min", &self.functions_min())?;
         st.serialize_field("functions_max", &self.functions_max())?;
         st.serialize_field("closures_min", &self.closures_min())?;

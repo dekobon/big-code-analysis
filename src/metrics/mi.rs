@@ -27,6 +27,7 @@ use super::loc;
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Mi` metric.
@@ -49,9 +50,9 @@ impl Serialize for Stats {
         S: Serializer,
     {
         let mut st = serializer.serialize_struct("mi", 3)?;
-        st.serialize_field("original", &self.mi_original())?;
-        st.serialize_field("sei", &self.mi_sei())?;
-        st.serialize_field("visual_studio", &self.mi_visual_studio())?;
+        st.serialize_field("original", &NonFinite(self.mi_original()))?;
+        st.serialize_field("sei", &NonFinite(self.mi_sei()))?;
+        st.serialize_field("visual_studio", &NonFinite(self.mi_visual_studio()))?;
         st.end()
     }
 }

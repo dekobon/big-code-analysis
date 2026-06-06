@@ -30,6 +30,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::langs::*;
 use crate::macros::{csharp_var_decl_kinds, csharp_var_declarator_kinds, implement_metric_trait};
+use crate::metrics::NonFinite;
 use crate::node::Node;
 use crate::*;
 
@@ -60,11 +61,11 @@ impl Serialize for Stats {
         st.serialize_field("interfaces", &self.interface_npa_sum())?;
         st.serialize_field("class_attributes", &self.class_na_sum())?;
         st.serialize_field("interface_attributes", &self.interface_na_sum())?;
-        st.serialize_field("class_cda", &self.class_cda())?;
-        st.serialize_field("interface_cda", &self.interface_cda())?;
+        st.serialize_field("class_cda", &NonFinite(self.class_cda()))?;
+        st.serialize_field("interface_cda", &NonFinite(self.interface_cda()))?;
         st.serialize_field("total", &self.total_npa())?;
         st.serialize_field("total_attributes", &self.total_na())?;
-        st.serialize_field("cda", &self.total_cda())?;
+        st.serialize_field("cda", &NonFinite(self.total_cda()))?;
         st.end()
     }
 }
@@ -179,8 +180,11 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn interface_cda(&self) -> f64 {
-        // For the Java language it's not necessary to compute the metric value
-        // The metric value in Java can only be 1.0 or f64:NAN
+        // Java interface fields are implicitly public, so when every counted
+        // attribute is public (`npa == na != 0`) the ratio is exactly 1.0 and
+        // the division is skipped. The empty case falls through to
+        // `accessibility_ratio`, which is guarded to return a finite 0.0 (not
+        // `NaN`) for a zero denominator (#438).
         if self.interface_npa_sum == self.interface_na_sum && self.interface_npa_sum != 0 {
             1.0
         } else {

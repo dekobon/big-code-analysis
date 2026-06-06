@@ -30,6 +30,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Tokens` metric: per-function and per-file count of tree-sitter
@@ -69,7 +70,7 @@ impl Serialize for Stats {
     {
         let mut st = serializer.serialize_struct("tokens", 4)?;
         st.serialize_field("tokens", &self.tokens_sum())?;
-        st.serialize_field("tokens_average", &self.tokens_average())?;
+        st.serialize_field("tokens_average", &NonFinite(self.tokens_average()))?;
         st.serialize_field("tokens_min", &self.tokens_min())?;
         st.serialize_field("tokens_max", &self.tokens_max())?;
         st.end()

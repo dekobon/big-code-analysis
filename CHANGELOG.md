@@ -484,6 +484,27 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Non-finite float metric values (`NaN`/`±Infinity`) now
+  serialize as a null uniformly across every structured format, enforced once
+  at the serialize boundary via an internal `NonFinite` float wrapper rather
+  than relying on each accessor staying finite. A non-finite value renders as a
+  native `null` in JSON, YAML, and CBOR, and as an omitted key in TOML (which
+  has no null literal). This replaces the previous per-format divergence — JSON
+  silently emitted `null`, TOML `nan`, YAML `.nan`, and CBOR the raw IEEE-754
+  bits — so YAML/TOML/CBOR consumers of a non-finite field see a changed shape;
+  JSON is unchanged. The structured serializers also explicitly commit to
+  **full `f64` precision**, documented in [STABILITY.md](./STABILITY.md) as not
+  byte-stable across versions/platforms (the human-readable `bca check` warning
+  path keeps its own six-decimal rounding, intentionally distinct from machine
+  output). Finite values — every value the guarded metric accessors produce
+  today (#428, #438, the Halstead/MI `log`/division guards) — serialize
+  byte-identically to before, so this is a structural backstop with no
+  observable change for current metrics. SemVer-breaking shape change to the
+  serialized output, **deferred to the `2.0.0` release** (the release-prep
+  commit moves this entry into the `2.0.0` section).
+  ([#531](https://github.com/dekobon/big-code-analysis/issues/531), part of
+  [#505](https://github.com/dekobon/big-code-analysis/issues/505))
+
 - **(breaking)** Integer-valued metrics now serialize as integers instead of
   floats, and their public `Stats` accessors return `u64` instead of `f64`.
   Affected: every count, sum, and min/max (cyclomatic, cognitive, exit, nargs,

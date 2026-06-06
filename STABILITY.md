@@ -166,7 +166,46 @@ This is the one deliberate carve-out in the `1.x` contract. The
 *shape* of the data is stable; the *numbers in the cells* are not.
 If you need to compare metric runs across time, pin to an exact
 version (`big-code-analysis = "= 1.1.0"`) and store the version
-alongside the results. Note that `bca --version` prints the CLI
+alongside the results.
+
+### Float precision and non-finite values
+
+The structured serializers (JSON, YAML, TOML, CBOR) emit **full
+`f64` precision** for the float-valued fields (ratios, averages,
+ABC `magnitude`, the derived Halstead scores, and the MI scores) —
+they are not rounded. The exact decimal expansion of a float
+magnitude is therefore **not byte-stable** across versions or
+platforms: a metric-definition fix or a grammar bump can move the
+last digits, and the same value may render with a different number
+of significant digits on a different target. This is the same
+"numbers in the cells are not stable" carve-out applied to floats,
+and it is the reason float magnitudes are excluded from exact
+snapshot anchoring. Do not diff structured output byte-for-byte to
+detect change; compare the parsed numbers with a tolerance, or
+compare the integer-valued fields (which *are* exact).
+
+The human-readable diagnostic path (`bca check` warning lines and
+the Checkstyle / SARIF message strings) is **intentionally
+different**: it rounds float magnitudes to six decimal places for
+legibility. Machine output favors fidelity (full precision); human
+output favors readability (rounded). The two are not expected to
+agree digit-for-digit, by design.
+
+**Non-finite float values (`NaN`, `±Infinity`) serialize as a
+null, uniformly across every structured format.** A non-finite
+metric means "not applicable" (an average or ratio over an empty
+subtree, an undefined `log`/division in a Halstead or MI formula).
+Such values render as a native `null` in JSON, YAML, and CBOR, and
+as an **omitted key** in TOML (which has no null literal). This is
+enforced once at the serialize boundary rather than relying on each
+accessor staying finite, so a future metric cannot silently
+reintroduce the old per-format split (JSON `null` vs TOML `nan` vs
+CBOR raw IEEE-754 bits). The metric accessors are additionally
+guarded to return finite values today (#428, #438, and the
+Halstead/MI `log`/division guards), so this policy is a structural
+backstop rather than a behavior you should observe in practice.
+
+Note that `bca --version` prints the CLI
 binary's own version, not the library version — to record the
 library version from a CLI run, capture it from `Cargo.lock` or
 the resolved `cargo metadata` output for the
@@ -408,6 +447,16 @@ loose ends that will be tightened at `2.0`:
   emitted integers) and is a SemVer-breaking shape change to both the
   serialized output and the accessor signatures, so it is reserved for
   `2.0`. No metric value changes — only its type.
+- Non-finite float metric values (`NaN`/`±Infinity`) now serialize as
+  a null uniformly across every structured format (#531): native
+  `null` in JSON/YAML/CBOR, omitted key in TOML. This replaces the old
+  per-format split (JSON `null` vs TOML `nan`/YAML `.nan` vs CBOR raw
+  IEEE-754 bits). YAML, TOML, and CBOR consumers of a non-finite field
+  see a different shape, so it is a SemVer-breaking change reserved for
+  `2.0`. The structured serializers also commit to full `f64`
+  precision (documented as not byte-stable; the human-readable warning
+  path keeps its own six-decimal rounding). See *Float precision and
+  non-finite values* above.
 - `FilesData` and `ConcurrentRunner` are reshaped into a terminal
   file-set processor (#495): `FilesData` drops its `include` /
   `exclude` `GlobSet` fields and becomes `FilesData { paths }` (a

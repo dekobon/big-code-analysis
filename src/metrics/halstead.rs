@@ -40,6 +40,7 @@ use crate::checker::Checker;
 use crate::getter::Getter;
 use crate::macros::implement_metric_trait;
 
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Halstead` metric suite.
@@ -105,21 +106,32 @@ impl Serialize for Stats {
     where
         S: Serializer,
     {
+        // This is a flat, mechanical field writer: 14 `serialize_field`
+        // calls, 8 of them wrapping a float accessor in `NonFinite(..)` for
+        // the uniform non-finite policy (#531). ABC counts every call as a
+        // branch, so the score (~53) tracks the field count, not any
+        // decision logic — there are no conditionals here. Suppress `abc`
+        // for this writer only; it stays enforced on Halstead's `compute`
+        // dispatch.
+        // bca: suppress(abc)
         let mut st = serializer.serialize_struct("halstead", 14)?;
         st.serialize_field("unique_operators", &self.u_operators())?;
         st.serialize_field("total_operators", &self.operators())?;
         st.serialize_field("unique_operands", &self.u_operands())?;
         st.serialize_field("total_operands", &self.operands())?;
         st.serialize_field("length", &self.length())?;
-        st.serialize_field("estimated_program_length", &self.estimated_program_length())?;
-        st.serialize_field("purity_ratio", &self.purity_ratio())?;
+        st.serialize_field(
+            "estimated_program_length",
+            &NonFinite(self.estimated_program_length()),
+        )?;
+        st.serialize_field("purity_ratio", &NonFinite(self.purity_ratio()))?;
         st.serialize_field("vocabulary", &self.vocabulary())?;
-        st.serialize_field("volume", &self.volume())?;
-        st.serialize_field("difficulty", &self.difficulty())?;
-        st.serialize_field("level", &self.level())?;
-        st.serialize_field("effort", &self.effort())?;
-        st.serialize_field("time", &self.time())?;
-        st.serialize_field("bugs", &self.bugs())?;
+        st.serialize_field("volume", &NonFinite(self.volume()))?;
+        st.serialize_field("difficulty", &NonFinite(self.difficulty()))?;
+        st.serialize_field("level", &NonFinite(self.level()))?;
+        st.serialize_field("effort", &NonFinite(self.effort()))?;
+        st.serialize_field("time", &NonFinite(self.time()))?;
+        st.serialize_field("bugs", &NonFinite(self.bugs()))?;
         st.end()
     }
 }

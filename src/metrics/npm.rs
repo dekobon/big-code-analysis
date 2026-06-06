@@ -30,6 +30,7 @@ use std::fmt;
 use crate::checker::{Checker, csharp_accessor_count};
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
+use crate::metrics::NonFinite;
 use crate::metrics::npa::{accessibility_ratio, python_is_block, ts_member_is_public};
 use crate::node::Node;
 use crate::*;
@@ -61,11 +62,11 @@ impl Serialize for Stats {
         st.serialize_field("interfaces", &self.interface_npm_sum())?;
         st.serialize_field("class_methods", &self.class_nm_sum())?;
         st.serialize_field("interface_methods", &self.interface_nm_sum())?;
-        st.serialize_field("class_coa", &self.class_coa())?;
-        st.serialize_field("interface_coa", &self.interface_coa())?;
+        st.serialize_field("class_coa", &NonFinite(self.class_coa()))?;
+        st.serialize_field("interface_coa", &NonFinite(self.interface_coa()))?;
         st.serialize_field("total", &self.total_npm())?;
         st.serialize_field("total_methods", &self.total_nm())?;
-        st.serialize_field("coa", &self.total_coa())?;
+        st.serialize_field("coa", &NonFinite(self.total_coa()))?;
         st.end()
     }
 }
@@ -180,8 +181,11 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn interface_coa(&self) -> f64 {
-        // For the Java language it's not necessary to compute the metric value
-        // The metric value in Java can only be 1.0 or f64:NAN
+        // Java interface methods are implicitly public, so when every counted
+        // method is public (`npm == nm != 0`) the ratio is exactly 1.0 and the
+        // division is skipped. The empty case falls through to
+        // `accessibility_ratio`, which is guarded to return a finite 0.0 (not
+        // `NaN`) for a zero denominator (#438).
         if self.interface_npm_sum == self.interface_nm_sum && self.interface_npm_sum != 0 {
             1.0
         } else {

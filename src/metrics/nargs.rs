@@ -29,6 +29,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `NArgs` metric.
@@ -74,10 +75,13 @@ impl Serialize for Stats {
         let mut st = serializer.serialize_struct("nargs", 10)?;
         st.serialize_field("function_args", &self.fn_args_sum())?;
         st.serialize_field("closure_args", &self.closure_args_sum())?;
-        st.serialize_field("function_args_average", &self.fn_args_average())?;
-        st.serialize_field("closure_args_average", &self.closure_args_average())?;
+        st.serialize_field("function_args_average", &NonFinite(self.fn_args_average()))?;
+        st.serialize_field(
+            "closure_args_average",
+            &NonFinite(self.closure_args_average()),
+        )?;
         st.serialize_field("total", &self.nargs_total())?;
-        st.serialize_field("average", &self.nargs_average())?;
+        st.serialize_field("average", &NonFinite(self.nargs_average()))?;
         st.serialize_field("function_args_min", &self.fn_args_min())?;
         st.serialize_field("function_args_max", &self.fn_args_max())?;
         st.serialize_field("closure_args_min", &self.closure_args_min())?;

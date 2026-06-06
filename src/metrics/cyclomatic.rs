@@ -29,6 +29,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Cyclomatic` metric.
@@ -86,7 +87,7 @@ impl Serialize for ModifiedStats<'_> {
         let s = self.0;
         let mut st = serializer.serialize_struct("cyclomatic_modified", 4)?;
         st.serialize_field("sum", &s.cyclomatic_modified_sum())?;
-        st.serialize_field("average", &s.cyclomatic_modified_average())?;
+        st.serialize_field("average", &NonFinite(s.cyclomatic_modified_average()))?;
         st.serialize_field("min", &s.cyclomatic_modified_min())?;
         st.serialize_field("max", &s.cyclomatic_modified_max())?;
         st.end()
@@ -97,7 +98,7 @@ impl Serialize for Stats {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut st = serializer.serialize_struct("cyclomatic", 5)?;
         st.serialize_field("sum", &self.cyclomatic_sum())?;
-        st.serialize_field("average", &self.cyclomatic_average())?;
+        st.serialize_field("average", &NonFinite(self.cyclomatic_average()))?;
         st.serialize_field("min", &self.cyclomatic_min())?;
         st.serialize_field("max", &self.cyclomatic_max())?;
         st.serialize_field("modified", &ModifiedStats(self))?;

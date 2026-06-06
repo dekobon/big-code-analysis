@@ -250,6 +250,15 @@ walkdir = "^2.3"
 # globsets to filter the resolved corpus file list; production code no
 # longer filters via globsets (the CLI owns the walk seam) (#495).
 globset = "^0.4"
+# Test-only: the non-finite serialize-boundary test (#531) renders the
+# crate-internal `NonFinite` newtype through every structured output
+# format the project supports (JSON via serde_json above, plus these
+# three) to pin the uniform null/omit policy across all of them. Versions
+# mirror the `big-code-analysis-cli` pins; these crates already sit in the
+# workspace graph, so listing them here adds no new resolved dependency.
+serde_yaml = "^0.9"
+serde_cbor = "^0.11"
+toml = "^1.1"
 
 [profile.dev.package.insta]
 opt-level = 3

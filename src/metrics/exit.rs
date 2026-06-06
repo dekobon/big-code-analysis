@@ -29,6 +29,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `NExit` metric.
@@ -63,7 +64,7 @@ impl Serialize for Stats {
     {
         let mut st = serializer.serialize_struct("nexits", 4)?;
         st.serialize_field("sum", &self.exit_sum())?;
-        st.serialize_field("average", &self.exit_average())?;
+        st.serialize_field("average", &NonFinite(self.exit_average()))?;
         st.serialize_field("min", &self.exit_min())?;
         st.serialize_field("max", &self.exit_max())?;
         st.end()

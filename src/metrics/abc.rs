@@ -41,6 +41,7 @@ use crate::macros::{
     rust_bool_terminal_kinds, tcl_bool_terminal_kinds, tsx_bool_terminal_kinds,
     typescript_bool_terminal_kinds,
 };
+use crate::metrics::NonFinite;
 use crate::node::Node;
 use crate::*;
 
@@ -165,10 +166,13 @@ impl Serialize for Stats {
         st.serialize_field("assignments", &self.assignments_sum())?;
         st.serialize_field("branches", &self.branches_sum())?;
         st.serialize_field("conditions", &self.conditions_sum())?;
-        st.serialize_field("magnitude", &self.magnitude_sum())?;
-        st.serialize_field("assignments_average", &self.assignments_average())?;
-        st.serialize_field("branches_average", &self.branches_average())?;
-        st.serialize_field("conditions_average", &self.conditions_average())?;
+        st.serialize_field("magnitude", &NonFinite(self.magnitude_sum()))?;
+        st.serialize_field(
+            "assignments_average",
+            &NonFinite(self.assignments_average()),
+        )?;
+        st.serialize_field("branches_average", &NonFinite(self.branches_average()))?;
+        st.serialize_field("conditions_average", &NonFinite(self.conditions_average()))?;
         st.serialize_field("assignments_min", &self.assignments_min())?;
         st.serialize_field("assignments_max", &self.assignments_max())?;
         st.serialize_field("branches_min", &self.branches_min())?;

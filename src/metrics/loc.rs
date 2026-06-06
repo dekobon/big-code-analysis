@@ -37,6 +37,7 @@ use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::macros::implement_metric_trait;
+use crate::metrics::NonFinite;
 use crate::*;
 
 // Collapse the `usize::MAX` sentinel that `*_min` fields are
@@ -381,11 +382,11 @@ impl Serialize for Stats {
         st.serialize_field("lloc", &self.lloc())?;
         st.serialize_field("cloc", &self.cloc())?;
         st.serialize_field("blank", &self.blank())?;
-        st.serialize_field("sloc_average", &self.sloc_average())?;
-        st.serialize_field("ploc_average", &self.ploc_average())?;
-        st.serialize_field("lloc_average", &self.lloc_average())?;
-        st.serialize_field("cloc_average", &self.cloc_average())?;
-        st.serialize_field("blank_average", &self.blank_average())?;
+        st.serialize_field("sloc_average", &NonFinite(self.sloc_average()))?;
+        st.serialize_field("ploc_average", &NonFinite(self.ploc_average()))?;
+        st.serialize_field("lloc_average", &NonFinite(self.lloc_average()))?;
+        st.serialize_field("cloc_average", &NonFinite(self.cloc_average()))?;
+        st.serialize_field("blank_average", &NonFinite(self.blank_average()))?;
         st.serialize_field("sloc_min", &self.sloc_min())?;
         st.serialize_field("sloc_max", &self.sloc_max())?;
         st.serialize_field("cloc_min", &self.cloc_min())?;

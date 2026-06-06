@@ -36,6 +36,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
+use crate::metrics::NonFinite;
 use crate::*;
 
 // TODO: Find a way to increment the cognitive complexity value
@@ -80,7 +81,7 @@ impl Serialize for Stats {
     {
         let mut st = serializer.serialize_struct("cognitive", 4)?;
         st.serialize_field("sum", &self.cognitive_sum())?;
-        st.serialize_field("average", &self.cognitive_average())?;
+        st.serialize_field("average", &NonFinite(self.cognitive_average()))?;
         st.serialize_field("min", &self.cognitive_min())?;
         st.serialize_field("max", &self.cognitive_max())?;
         st.end()
