@@ -217,13 +217,59 @@ fn tty_render_lists_changes_and_files() {
     let mut new = set("a", json!({ "cyclomatic": { "sum": 4.0 } }));
     new.insert("b".to_string(), json!({ "tokens": { "tokens": 1.0 } }));
     let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
-    let tty = diff.render_tty();
+    let tty = diff.render_tty("");
     assert!(tty.contains("1 metric(s) changed, 1 added file(s), 0 removed file(s)"));
     assert!(tty.contains("## cyclomatic"));
     assert!(tty.contains("a.sum"));
     assert!(tty.contains("3 \u{2192} 4"));
     assert!(tty.contains("## Added files"));
     assert!(tty.contains("  b"));
+}
+
+#[test]
+fn strip_prefix_trims_displayed_paths_in_tty_and_markdown() {
+    let old = set("src/a.rs", json!({ "cyclomatic": { "sum": 3.0 } }));
+    let mut new = set("src/a.rs", json!({ "cyclomatic": { "sum": 4.0 } }));
+    new.insert(
+        "src/b.rs".to_string(),
+        json!({ "tokens": { "tokens": 1.0 } }),
+    );
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &[]);
+
+    let tty = diff.render_tty("src/");
+    assert!(
+        tty.contains("a.rs.sum"),
+        "TTY change row should be trimmed: {tty}"
+    );
+    assert!(
+        !tty.contains("src/a.rs"),
+        "TTY must not show the prefix: {tty}"
+    );
+    assert!(
+        tty.contains("  b.rs"),
+        "TTY added-files row should be trimmed: {tty}"
+    );
+
+    let md = diff.render_markdown("src/");
+    assert!(
+        md.contains("a.rs.sum"),
+        "Markdown change row should be trimmed: {md}"
+    );
+    assert!(
+        !md.contains("src/a.rs"),
+        "Markdown must not show the prefix: {md}"
+    );
+    assert!(
+        md.contains("- b.rs"),
+        "Markdown added-files row should be trimmed: {md}"
+    );
+
+    // A non-matching prefix is a no-op passthrough.
+    let untouched = diff.render_tty("nope/");
+    assert!(
+        untouched.contains("src/a.rs.sum"),
+        "non-matching prefix passes through: {untouched}"
+    );
 }
 
 #[test]

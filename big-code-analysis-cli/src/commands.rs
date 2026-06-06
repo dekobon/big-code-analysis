@@ -47,7 +47,8 @@ use crate::{
     GlobalOpts, InitArgs, LineRange, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs,
     PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die, die_io,
     group_files_by_basename, legacy_hint, load_baseline, load_preproc_data, load_threshold_config,
-    read_exclude_patterns_from, run_walk, run_walk_collecting, write_atomic, write_stdout_or_die,
+    read_exclude_patterns_from, run_walk, run_walk_collecting, validate_output_path, write_atomic,
+    write_output_or_stdout, write_stdout_or_die,
 };
 
 fn run_check(
@@ -1941,6 +1942,11 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
 ///
 /// Always exits 0 on success; the diff is informational, not a gate.
 fn run_command_diff_baseline(args: DiffBaselineArgs) {
+    // Validate `--output` before the (cheaper, but still avoidable) load
+    // so a bad path fails fast, mirroring `report` / `exemptions`.
+    if let Some(ref output) = args.output {
+        validate_output_path(output, "diff-baseline");
+    }
     let old = load_baseline(&args.old, baseline::DEFAULT_LINE_TOLERANCE, false);
     let new = load_baseline(&args.new, baseline::DEFAULT_LINE_TOLERANCE, false);
     let diff = BaselineDiff::compute(&old.diff_entries(), &new.diff_entries());
@@ -1951,8 +1957,8 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
         args.improved_only,
     ]);
     let rendered = match args.format {
-        OutputFormat::Tty => diff.render_tty(filter),
-        OutputFormat::Markdown => diff.render_markdown(filter),
+        OutputFormat::Tty => diff.render_tty(filter, &args.strip_prefix),
+        OutputFormat::Markdown => diff.render_markdown(filter, &args.strip_prefix),
         // Serialization of a fixed-shape struct of owned scalars cannot
         // fail in practice; surface any future error as a tool error
         // rather than panicking.
@@ -1960,10 +1966,19 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
             .render_json()
             .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
     };
-    write_stdout_or_die(rendered.as_bytes());
+    write_output_or_stdout(
+        args.output.as_deref(),
+        "write diff-baseline to",
+        rendered.as_bytes(),
+    );
 }
 
 fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
+    // Validate `--output` before the (potentially slow) `--since` analysis
+    // walk so a bad path fails fast, mirroring `report` / `exemptions`.
+    if let Some(ref output) = args.output {
+        validate_output_path(output, "diff");
+    }
     let diff = if let Some(since_ref) = args.since.as_deref() {
         // `--since` takes at most one positional (the after-side tree),
         // which clap binds to `old` first. A second positional (`new`)
@@ -1990,8 +2005,8 @@ fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
     }
     .unwrap_or_else(|e| die(format_args!("{e}")));
     let rendered = match args.format {
-        OutputFormat::Tty => diff.render_tty(),
-        OutputFormat::Markdown => diff.render_markdown(),
+        OutputFormat::Tty => diff.render_tty(&args.strip_prefix),
+        OutputFormat::Markdown => diff.render_markdown(&args.strip_prefix),
         // Serialization of a fixed-shape struct of owned scalars cannot
         // fail in practice; surface any future error as a tool error
         // rather than panicking.
@@ -1999,7 +2014,7 @@ fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
             .render_json()
             .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
     };
-    write_stdout_or_die(rendered.as_bytes());
+    write_output_or_stdout(args.output.as_deref(), "write diff to", rendered.as_bytes());
 }
 
 fn compute_since_diff(

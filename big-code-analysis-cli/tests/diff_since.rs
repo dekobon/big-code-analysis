@@ -89,6 +89,54 @@ fn since_diffs_working_tree_against_first_commit() {
 }
 
 #[test]
+fn output_flag_writes_diff_to_file_and_stdout_stays_empty() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--output", "diff.txt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    let written = fs::read_to_string(repo.path().join("diff.txt")).expect("output file written");
+    assert!(
+        written.contains("## cyclomatic"),
+        "file content missing diff body: {written}"
+    );
+    assert!(written.contains("src/work.rs"), "file content: {written}");
+}
+
+#[test]
+fn short_output_flag_is_accepted() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths", "src", "-o", "d.txt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    assert!(repo.path().join("d.txt").exists());
+}
+
+#[test]
+fn strip_prefix_trims_displayed_paths() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
+    // Diff the whole tree (no `--paths` scope) so file keys carry the
+    // `./src/` prefix; `--strip-prefix ./src/` must then trim it to
+    // `work.rs` in the per-file change rows (e.g. `work.rs.sum` under
+    // `cyclomatic`).
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--strip-prefix", "./src/"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("work.rs.sum"))
+        .stdout(predicate::str::contains("src/work.rs").not());
+}
+
+#[test]
 fn since_positional_scopes_subtree() {
     // #497: the `--since` positional is a relative *scope* (like
     // `--paths`), applied to both sides — NOT an alternate after-root.

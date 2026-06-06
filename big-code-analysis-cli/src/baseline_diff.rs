@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use crate::baseline::DiffEntry;
-use crate::format_util::MetricScalar;
+use crate::format_util::{MetricScalar, strip_path_prefix};
 
 /// An entry present in exactly one of the two baselines (`added` /
 /// `removed`).
@@ -166,11 +166,11 @@ impl BaselineDiff {
     /// Human-readable, column-aligned form for a terminal. Empty
     /// sections are omitted; an all-empty diff renders just the summary
     /// line.
-    pub(crate) fn render_tty(&self, filter: SectionFilter) -> String {
-        let (id_w, metric_w) = self.column_widths(filter);
+    pub(crate) fn render_tty(&self, filter: SectionFilter, strip_prefix: &str) -> String {
+        let (id_w, metric_w) = self.column_widths(filter, strip_prefix);
         let mut out = self.summary_line();
         out.push('\n');
-        for (title, rows) in self.sections(filter, id_w, metric_w) {
+        for (title, rows) in self.sections(filter, id_w, metric_w, strip_prefix) {
             let _ = write!(out, "\n## {title}\n");
             for row in rows {
                 let _ = writeln!(out, "  {row}");
@@ -183,11 +183,11 @@ impl BaselineDiff {
     /// `## Section` header per non-empty filtered bucket with its rows in
     /// a fenced `text` block so column alignment survives Markdown's
     /// whitespace collapsing.
-    pub(crate) fn render_markdown(&self, filter: SectionFilter) -> String {
-        let (id_w, metric_w) = self.column_widths(filter);
+    pub(crate) fn render_markdown(&self, filter: SectionFilter, strip_prefix: &str) -> String {
+        let (id_w, metric_w) = self.column_widths(filter, strip_prefix);
         let mut out = self.summary_line();
         out.push('\n');
-        for (title, rows) in self.sections(filter, id_w, metric_w) {
+        for (title, rows) in self.sections(filter, id_w, metric_w, strip_prefix) {
             let _ = write!(out, "\n## {title}\n\n```text\n");
             for row in rows {
                 let _ = writeln!(out, "{row}");
@@ -234,31 +234,51 @@ impl BaselineDiff {
         filter: SectionFilter,
         id_w: usize,
         metric_w: usize,
+        strip_prefix: &str,
     ) -> Vec<(&'static str, Vec<String>)> {
         let mut sections = Vec::new();
         if filter.added && !self.added.is_empty() {
-            sections.push(("Added", entry_rows(&self.added, id_w, metric_w)));
+            sections.push((
+                "Added",
+                entry_rows(&self.added, id_w, metric_w, strip_prefix),
+            ));
         }
         if filter.removed && !self.removed.is_empty() {
-            sections.push(("Removed", entry_rows(&self.removed, id_w, metric_w)));
+            sections.push((
+                "Removed",
+                entry_rows(&self.removed, id_w, metric_w, strip_prefix),
+            ));
         }
         if filter.worsened && !self.worsened.is_empty() {
-            sections.push(("Worsened", value_rows(&self.worsened, id_w, metric_w)));
+            sections.push((
+                "Worsened",
+                value_rows(&self.worsened, id_w, metric_w, strip_prefix),
+            ));
         }
         if filter.improved && !self.improved.is_empty() {
-            sections.push(("Improved", value_rows(&self.improved, id_w, metric_w)));
+            sections.push((
+                "Improved",
+                value_rows(&self.improved, id_w, metric_w, strip_prefix),
+            ));
         }
         sections
     }
 
     /// Width of the identity and metric columns across every row that
-    /// `filter` will render, so TTY and Markdown bodies align.
-    fn column_widths(&self, filter: SectionFilter) -> (usize, usize) {
+    /// `filter` will render, so TTY and Markdown bodies align. Widths are
+    /// measured *after* `strip_prefix` so the columns size to the
+    /// displayed (trimmed) paths, not the full ones.
+    fn column_widths(&self, filter: SectionFilter, strip_prefix: &str) -> (usize, usize) {
         let entries = [(filter.added, &self.added), (filter.removed, &self.removed)]
             .into_iter()
             .filter_map(|(show, rows)| show.then_some(rows))
             .flatten()
-            .map(|r| (id_width(&r.path, &r.qualified), r.metric.len()));
+            .map(|r| {
+                (
+                    id_width(strip_path_prefix(&r.path, strip_prefix), &r.qualified),
+                    r.metric.len(),
+                )
+            });
         let values = [
             (filter.worsened, &self.worsened),
             (filter.improved, &self.improved),
@@ -266,7 +286,12 @@ impl BaselineDiff {
         .into_iter()
         .filter_map(|(show, rows)| show.then_some(rows))
         .flatten()
-        .map(|r| (id_width(&r.path, &r.qualified), r.metric.len()));
+        .map(|r| {
+            (
+                id_width(strip_path_prefix(&r.path, strip_prefix), &r.qualified),
+                r.metric.len(),
+            )
+        });
         entries
             .chain(values)
             .fold((0, 0), |(id_w, m_w), (id, m)| (id_w.max(id), m_w.max(m)))
@@ -309,12 +334,17 @@ fn id_width(path: &str, qualified: &str) -> usize {
     path.chars().count() + ID_SEP.len() + qualified.chars().count()
 }
 
-fn entry_rows(rows: &[EntryDelta], id_w: usize, metric_w: usize) -> Vec<String> {
+fn entry_rows(
+    rows: &[EntryDelta],
+    id_w: usize,
+    metric_w: usize,
+    strip_prefix: &str,
+) -> Vec<String> {
     rows.iter()
         .map(|r| {
             format!(
                 "{:<id_w$}  {:<metric_w$}  = {}",
-                identity(&r.path, &r.qualified),
+                identity(strip_path_prefix(&r.path, strip_prefix), &r.qualified),
                 r.metric,
                 MetricScalar(r.value),
             )
@@ -322,12 +352,17 @@ fn entry_rows(rows: &[EntryDelta], id_w: usize, metric_w: usize) -> Vec<String> 
         .collect()
 }
 
-fn value_rows(rows: &[ValueDelta], id_w: usize, metric_w: usize) -> Vec<String> {
+fn value_rows(
+    rows: &[ValueDelta],
+    id_w: usize,
+    metric_w: usize,
+    strip_prefix: &str,
+) -> Vec<String> {
     rows.iter()
         .map(|r| {
             format!(
                 "{:<id_w$}  {:<metric_w$}  {} \u{2192} {}",
-                identity(&r.path, &r.qualified),
+                identity(strip_path_prefix(&r.path, strip_prefix), &r.qualified),
                 r.metric,
                 MetricScalar(r.old),
                 MetricScalar(r.new),

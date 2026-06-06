@@ -4,7 +4,7 @@
 .SH NAME
 bca\-diff\-baseline \- Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
 .SH DESCRIPTION
 Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .SH OPTIONS
@@ -35,6 +35,12 @@ Render only the "Worsened" section. Ignored by `\-\-format json`
 .TP
 \fB\-\-improved\-only\fR
 Render only the "Improved" section. Ignored by `\-\-format json`
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output file. Stdout if omitted
+.TP
+\fB\-\-strip\-prefix\fR \fI<STRIP_PREFIX>\fR [default: ]
+Path prefix to strip from displayed file paths in the TTY and Markdown per\-file tables. No\-op for `\-\-format json`, whose paths are a stable machine identity
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

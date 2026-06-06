@@ -47,7 +47,7 @@ use big_code_analysis::metric_catalog::FAMILIES;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::format_util::MetricScalar;
+use crate::format_util::{MetricScalar, strip_path_prefix};
 // Single source of truth for the one expanded family lives in
 // `metric_alias`; importing it keeps diff bucketing and `--metric`
 // aliasing from drifting apart.
@@ -245,21 +245,25 @@ impl MetricDiff {
     /// Human-readable, column-aligned form for a terminal. Empty
     /// sections are omitted; an all-empty diff renders just the summary
     /// line.
-    pub(crate) fn render_tty(&self) -> String {
+    pub(crate) fn render_tty(&self, strip_prefix: &str) -> String {
         let mut out = self.summary_line();
         out.push('\n');
-        Self::write_file_section(&mut out, "Added files", &self.added_files);
-        Self::write_file_section(&mut out, "Removed files", &self.removed_files);
+        Self::write_file_section(&mut out, "Added files", &self.added_files, strip_prefix);
+        Self::write_file_section(&mut out, "Removed files", &self.removed_files, strip_prefix);
         for (metric, bucket) in &self.buckets {
             let _ = write!(out, "\n## {metric} ({} change(s))\n", bucket.changed.len());
             let width = bucket
                 .changed
                 .iter()
-                .map(|d| d.file.chars().count() + d.field.chars().count() + 1)
+                .map(|d| {
+                    strip_path_prefix(&d.file, strip_prefix).chars().count()
+                        + d.field.chars().count()
+                        + 1
+                })
                 .max()
                 .unwrap_or(0);
             for d in &bucket.changed {
-                let id = format!("{}.{}", d.file, d.field);
+                let id = format!("{}.{}", strip_path_prefix(&d.file, strip_prefix), d.field);
                 let _ = writeln!(
                     out,
                     "  {id:<width$}  {} \u{2192} {}",
@@ -275,19 +279,19 @@ impl MetricDiff {
     /// `## Section` header per non-empty bucket with its rows in a fenced
     /// `text` block so column alignment survives Markdown's whitespace
     /// collapsing.
-    pub(crate) fn render_markdown(&self) -> String {
+    pub(crate) fn render_markdown(&self, strip_prefix: &str) -> String {
         let mut out = self.summary_line();
         out.push('\n');
         if !self.added_files.is_empty() {
             let _ = write!(out, "\n## Added files\n\n");
             for f in &self.added_files {
-                let _ = writeln!(out, "- {f}");
+                let _ = writeln!(out, "- {}", strip_path_prefix(f, strip_prefix));
             }
         }
         if !self.removed_files.is_empty() {
             let _ = write!(out, "\n## Removed files\n\n");
             for f in &self.removed_files {
-                let _ = writeln!(out, "- {f}");
+                let _ = writeln!(out, "- {}", strip_path_prefix(f, strip_prefix));
             }
         }
         for (metric, bucket) in &self.buckets {
@@ -300,7 +304,7 @@ impl MetricDiff {
                 let _ = writeln!(
                     out,
                     "{}.{}  {} \u{2192} {}",
-                    d.file,
+                    strip_path_prefix(&d.file, strip_prefix),
                     d.field,
                     MetricScalar(d.old),
                     MetricScalar(d.new),
@@ -329,14 +333,15 @@ impl MetricDiff {
         Ok(s)
     }
 
-    /// Append a `## <title>` list of bare file paths to a TTY render.
-    fn write_file_section(out: &mut String, title: &str, files: &[String]) {
+    /// Append a `## <title>` list of file paths to a TTY render, each
+    /// trimmed by `strip_prefix` for display.
+    fn write_file_section(out: &mut String, title: &str, files: &[String], strip_prefix: &str) {
         if files.is_empty() {
             return;
         }
         let _ = write!(out, "\n## {title}\n");
         for f in files {
-            let _ = writeln!(out, "  {f}");
+            let _ = writeln!(out, "  {}", strip_path_prefix(f, strip_prefix));
         }
     }
 }

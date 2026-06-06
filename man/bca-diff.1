@@ -4,7 +4,7 @@
 .SH NAME
 bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
+\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
 .SH DESCRIPTION
 Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH OPTIONS
@@ -34,6 +34,12 @@ Minimum absolute change for a per\-file metric delta to be reported. `0` (the de
 .TP
 \fB\-\-metric\fR \fI<METRIC>\fR
 Restrict the diff to one or more metrics (repeatable). Names are those printed by `bca list\-metrics` (e.g. `cyclomatic`, `sloc`). The dotted `bca check \-\-threshold` spelling is accepted as an alias (`loc.sloc` == `sloc`, `halstead.volume` == `halstead`). When omitted, every metric is reported
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output file. Stdout if omitted
+.TP
+\fB\-\-strip\-prefix\fR \fI<STRIP_PREFIX>\fR [default: ]
+Path prefix to strip from displayed file paths in the TTY and Markdown per\-file tables. No\-op for `\-\-format json`, whose paths are a stable machine identity
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

@@ -27,6 +27,19 @@ impl fmt::Display for MetricScalar {
     }
 }
 
+/// Strip `prefix` from the front of `path` for display, using
+/// `str::strip_prefix` semantics. A no-op when `prefix` is empty or
+/// does not match, so callers can pass an empty prefix unconditionally
+/// (matching the `--strip-prefix` default on `report` / `exemptions` /
+/// `diff` / `diff-baseline`).
+pub(crate) fn strip_path_prefix<'a>(path: &'a str, prefix: &str) -> &'a str {
+    if prefix.is_empty() {
+        path
+    } else {
+        path.strip_prefix(prefix).unwrap_or(path)
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,

@@ -146,7 +146,7 @@ fn bucket_entries_are_sorted_by_identity() {
 #[test]
 fn empty_diff_renders_only_summary_line() {
     let diff = BaselineDiff::compute(&[], &[]);
-    let tty = diff.render_tty(all());
+    let tty = diff.render_tty(all(), "");
     assert_eq!(tty, "0 added, 0 removed, 0 worsened, 0 improved\n");
 }
 
@@ -158,7 +158,7 @@ fn summary_line_reports_full_counts() {
         entry("b.rs", "y", "cognitive", 1, 5.0),
     ];
     let diff = BaselineDiff::compute(&old, &new);
-    let tty = diff.render_tty(all());
+    let tty = diff.render_tty(all(), "");
     assert!(
         tty.starts_with("1 added, 0 removed, 1 worsened, 0 improved\n"),
         "summary line wrong: {tty}"
@@ -173,7 +173,7 @@ fn tty_renders_arrow_for_value_changes_and_equals_for_added() {
         entry("src/foo.rs", "do_thing", "cognitive", 10, 27.0),
     ];
     let diff = BaselineDiff::compute(&old, &new);
-    let tty = diff.render_tty(all());
+    let tty = diff.render_tty(all(), "");
     assert!(
         tty.contains("## Worsened"),
         "missing worsened header: {tty}"
@@ -195,7 +195,7 @@ fn tty_renders_arrow_for_value_changes_and_equals_for_added() {
 fn integer_values_print_without_decimal() {
     let old = vec![];
     let new = vec![entry("a.rs", "x", "cognitive", 1, 27.0)];
-    let tty = BaselineDiff::compute(&old, &new).render_tty(all());
+    let tty = BaselineDiff::compute(&old, &new).render_tty(all(), "");
     assert!(tty.contains("= 27"), "integer should print bare: {tty}");
     assert!(!tty.contains("= 27.0"), "no trailing .0: {tty}");
 }
@@ -209,7 +209,7 @@ fn filter_added_only_hides_other_sections() {
     ];
     let diff = BaselineDiff::compute(&old, &new);
     let filter = SectionFilter::from_flags([true, false, false, false]);
-    let tty = diff.render_tty(filter);
+    let tty = diff.render_tty(filter, "");
     assert!(tty.contains("## Added"), "added shown: {tty}");
     assert!(!tty.contains("## Worsened"), "worsened hidden: {tty}");
     // Summary line still reports the full counts.
@@ -225,7 +225,7 @@ fn filter_flags_are_combinable() {
     ];
     let diff = BaselineDiff::compute(&old, &new);
     let filter = SectionFilter::from_flags([true, false, true, false]);
-    let tty = diff.render_tty(filter);
+    let tty = diff.render_tty(filter, "");
     assert!(tty.contains("## Added"));
     assert!(tty.contains("## Worsened"));
 }
@@ -234,11 +234,40 @@ fn filter_flags_are_combinable() {
 fn markdown_wraps_sections_in_fenced_blocks() {
     let old = vec![];
     let new = vec![entry("src/foo.rs", "do_thing", "cognitive", 10, 27.0)];
-    let md = BaselineDiff::compute(&old, &new).render_markdown(all());
+    let md = BaselineDiff::compute(&old, &new).render_markdown(all(), "");
     assert!(md.contains("## Added"), "header: {md}");
     assert!(md.contains("```text"), "fence open: {md}");
     assert!(md.contains("```\n"), "fence close: {md}");
     assert!(md.contains("src/foo.rs::do_thing"), "identity: {md}");
+}
+
+#[test]
+fn strip_prefix_trims_displayed_paths_in_tty_and_markdown() {
+    let old = vec![entry("src/bar.rs", "act", "cognitive", 5, 60.0)];
+    let new = vec![
+        entry("src/bar.rs", "act", "cognitive", 5, 63.0),
+        entry("src/foo.rs", "do_thing", "cognitive", 10, 27.0),
+    ];
+    let diff = BaselineDiff::compute(&old, &new);
+
+    let tty = diff.render_tty(all(), "src/");
+    assert!(tty.contains("bar.rs::act"), "trimmed identity: {tty}");
+    assert!(!tty.contains("src/bar.rs"), "prefix must be gone: {tty}");
+    assert!(tty.contains("foo.rs::do_thing"), "trimmed added: {tty}");
+
+    let md = diff.render_markdown(all(), "src/");
+    assert!(md.contains("bar.rs::act"), "trimmed identity in md: {md}");
+    assert!(
+        !md.contains("src/bar.rs"),
+        "prefix must be gone in md: {md}"
+    );
+
+    // A non-matching prefix passes through unchanged.
+    let untouched = diff.render_tty(all(), "nope/");
+    assert!(
+        untouched.contains("src/bar.rs::act"),
+        "non-matching prefix passes through: {untouched}"
+    );
 }
 
 #[test]
@@ -262,7 +291,7 @@ fn json_emits_all_buckets_with_summary_ignoring_filter() {
 fn file_level_metric_identity_uses_file_sentinel() {
     let old = vec![];
     let new = vec![entry("src/big.rs", "<file>", "loc.sloc", 1, 852.0)];
-    let tty = BaselineDiff::compute(&old, &new).render_tty(all());
+    let tty = BaselineDiff::compute(&old, &new).render_tty(all(), "");
     assert!(
         tty.contains("src/big.rs::<file>"),
         "file-level identity: {tty}"

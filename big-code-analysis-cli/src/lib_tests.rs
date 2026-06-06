@@ -306,6 +306,85 @@ fn diff_accepts_short_format_flag() {
     }
 }
 
+// Issue #544 added `--output`/`-o` and `--strip-prefix` to `diff` and
+// `diff-baseline` for reporter parity. `-o` (output) and `-O` (format)
+// are distinct, case-sensitive shorts and must not collide.
+#[test]
+fn diff_binds_output_and_strip_prefix() {
+    match parse(&[
+        "diff",
+        "-o",
+        "out.txt",
+        "--strip-prefix",
+        "src/",
+        "-O",
+        "json",
+    ])
+    .expect("diff -o / --strip-prefix parses")
+    .command
+    {
+        Command::Diff(args) => {
+            assert_eq!(
+                args.output.as_deref(),
+                Some(std::path::Path::new("out.txt"))
+            );
+            assert_eq!(args.strip_prefix, "src/");
+            assert_eq!(args.format, OutputFormat::Json);
+        }
+        other => panic!("expected Command::Diff, got {other:?}"),
+    }
+}
+
+#[test]
+fn diff_output_defaults_to_none() {
+    match parse(&["diff"]).expect("bare diff parses").command {
+        Command::Diff(args) => {
+            assert!(args.output.is_none(), "stdout when --output omitted");
+            assert_eq!(args.strip_prefix, "");
+        }
+        other => panic!("expected Command::Diff, got {other:?}"),
+    }
+}
+
+#[test]
+fn diff_baseline_binds_output_and_strip_prefix() {
+    match parse(&[
+        "diff-baseline",
+        "old.toml",
+        "new.toml",
+        "--output",
+        "out.txt",
+        "--strip-prefix",
+        "src/",
+    ])
+    .expect("diff-baseline --output / --strip-prefix parses")
+    .command
+    {
+        Command::DiffBaseline(args) => {
+            assert_eq!(
+                args.output.as_deref(),
+                Some(std::path::Path::new("out.txt"))
+            );
+            assert_eq!(args.strip_prefix, "src/");
+        }
+        other => panic!("expected Command::DiffBaseline, got {other:?}"),
+    }
+}
+
+#[test]
+fn diff_baseline_output_defaults_to_none() {
+    match parse(&["diff-baseline", "old.toml", "new.toml"])
+        .expect("bare diff-baseline parses")
+        .command
+    {
+        Command::DiffBaseline(args) => {
+            assert!(args.output.is_none(), "stdout when --output omitted");
+            assert_eq!(args.strip_prefix, "");
+        }
+        other => panic!("expected Command::DiffBaseline, got {other:?}"),
+    }
+}
+
 #[test]
 fn exemptions_accepts_short_format_flag() {
     match parse(&["exemptions", "-O", "json"])

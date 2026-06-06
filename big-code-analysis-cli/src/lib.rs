@@ -121,6 +121,36 @@ fn write_stdout_or_die(bytes: &[u8]) {
     }
 }
 
+/// Reject an `--output` path that names an existing directory or whose
+/// parent directory is missing, mirroring the fast pre-walk validation
+/// `report` / `exemptions` do. `label` names the subcommand for the
+/// error message.
+fn validate_output_path(output: &Path, label: &str) {
+    if output.exists() && output.is_dir() {
+        die(format_args!("--output must be a file path for `{label}`"));
+    }
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        die(format_args!(
+            "parent directory of --output does not exist: {}",
+            parent.display()
+        ));
+    }
+}
+
+/// Emit `bytes` to the `--output` file when given, else stdout. The
+/// universal rule across every emitting subcommand: stdout if `--output`
+/// is omitted. `verb` is the action phrase for an I/O error (e.g.
+/// `"write diff to"`).
+fn write_output_or_stdout(output: Option<&Path>, verb: &str, bytes: &[u8]) {
+    match output {
+        Some(path) => std::fs::write(path, bytes).unwrap_or_else(|e| die_io(verb, path, e)),
+        None => write_stdout_or_die(bytes),
+    }
+}
+
 /// Analyze source code.
 //
 // Single-line doc-comment kept in sync with the `about = "..."` attribute
@@ -804,6 +834,14 @@ struct DiffBaselineArgs {
     /// Render only the "Improved" section. Ignored by `--format json`.
     #[clap(long = "improved-only")]
     improved_only: bool,
+    /// Output file. Stdout if omitted.
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
+    /// Path prefix to strip from displayed file paths in the TTY and
+    /// Markdown per-file tables. No-op for `--format json`, whose paths
+    /// are a stable machine identity.
+    #[clap(long, default_value = "")]
+    strip_prefix: String,
 }
 
 /// Arguments for the `diff` subcommand (issue #487, `--since` from
@@ -869,6 +907,14 @@ struct DiffArgs {
     /// When omitted, every metric is reported.
     #[clap(long = "metric")]
     metric: Vec<String>,
+    /// Output file. Stdout if omitted.
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
+    /// Path prefix to strip from displayed file paths in the TTY and
+    /// Markdown per-file tables. No-op for `--format json`, whose paths
+    /// are a stable machine identity.
+    #[clap(long, default_value = "")]
+    strip_prefix: String,
 }
 
 /// Arguments for the `exemptions` subcommand (issue #386). Audits the

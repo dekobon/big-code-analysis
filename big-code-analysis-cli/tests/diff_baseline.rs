@@ -151,6 +151,60 @@ fn worsened_only_filter_hides_other_sections() {
 }
 
 #[test]
+fn output_flag_writes_to_file_and_stdout_stays_empty() {
+    let dir = fixture();
+    let out_path = dir.path().join("report.txt");
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "diff-baseline",
+            "old.toml",
+            "new.toml",
+            "--output",
+            "report.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    let written = fs::read_to_string(&out_path).expect("output file written");
+    assert!(
+        written.starts_with("1 added, 1 removed, 2 worsened, 0 improved\n"),
+        "file content: {written}"
+    );
+    assert!(written.contains("src/bar.rs::act_on_file"));
+}
+
+#[test]
+fn short_output_flag_is_accepted() {
+    let dir = fixture();
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "old.toml", "new.toml", "-o", "out.txt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    assert!(dir.path().join("out.txt").exists());
+}
+
+#[test]
+fn strip_prefix_trims_displayed_paths() {
+    let dir = fixture();
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "diff-baseline",
+            "old.toml",
+            "new.toml",
+            "--strip-prefix",
+            "src/",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bar.rs::act_on_file"))
+        .stdout(predicate::str::contains("src/bar.rs").not());
+}
+
+#[test]
 fn unsupported_version_is_a_clear_error() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("ok.toml"), "version = 4\n").unwrap();
