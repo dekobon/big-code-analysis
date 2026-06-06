@@ -20,11 +20,12 @@
 //! were found.)
 
 // The cross-format round-trip tests (#543) compare integer-valued
-// metrics that serde emits as f64 (`loc.sloc == 1.0`,
-// `cyclomatic.sum == 3.0`). Small integers are represented exactly in
-// f64, so exact equality is the intended assertion — float-magnitude
-// metrics are deliberately not compared.
-#![allow(clippy::float_cmp)]
+// metrics. After #530 those serialize as integers (TOML/CBOR `Integer`),
+// so the extractors coerce them to f64 for a uniform compare; the counts
+// are tiny and exact in f64. Exact equality is the intended assertion —
+// float-magnitude metrics are deliberately not compared, and the
+// integer→f64 coercion cannot lose precision at these magnitudes.
+#![allow(clippy::float_cmp, clippy::cast_precision_loss)]
 
 use assert_cmd::Command;
 use big_code_analysis::CSV_HEADER;
@@ -405,9 +406,8 @@ fn cli_metrics_toml_round_trips() {
         );
     }
 
-    let sloc = doc["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1]
-        .as_float()
-        .expect("TOML cyclomatic.sum is a float");
+    let sloc = toml_num(&doc["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1])
+        .expect("TOML cyclomatic.sum is numeric");
     assert_eq!(
         sloc,
         json_metric(&dir, &fixture, CYCLOMATIC_KEY),
@@ -463,9 +463,8 @@ fn cli_metrics_all_formats_agree_on_metric() {
 
     let toml_out = run_metrics(&dir, "toml", &fixture);
     let toml: toml::Value = toml::from_str(&toml_out).expect("TOML parses");
-    let toml = toml["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1]
-        .as_float()
-        .expect("TOML metric is a float");
+    let toml = toml_num(&toml["metrics"][CYCLOMATIC_KEY.0][CYCLOMATIC_KEY.1])
+        .expect("TOML metric is numeric");
 
     let cbor_bytes = run_metrics_to_file(&dir, "cbor", &fixture, ".cbor");
     let cbor_doc: serde_cbor::Value = serde_cbor::from_slice(&cbor_bytes).expect("CBOR parses");
@@ -478,14 +477,26 @@ fn cli_metrics_all_formats_agree_on_metric() {
 
 /// Extract `metrics.<group>.<key>` from a parsed CBOR document as f64.
 /// `serde_cbor::Value` has no string-indexing sugar, so the map walk is
-/// explicit; numeric metrics serialize as `Float`.
+/// explicit. Accepts both `Integer` (integral metrics — counts/sums/
+/// min/max) and `Float` (ratios/averages/derived scores) so the check is
+/// agnostic to a metric's numeric representation.
 fn cbor_metric(doc: &serde_cbor::Value, key: (&str, &str)) -> Option<f64> {
     let metrics = cbor_get(doc, "metrics")?;
     let group = cbor_get(metrics, key.0)?;
     match cbor_get(group, key.1)? {
         serde_cbor::Value::Float(f) => Some(*f),
+        serde_cbor::Value::Integer(i) => Some(*i as f64),
         _ => None,
     }
+}
+
+/// Read a `toml::Value` metric as f64, accepting both TOML integers
+/// (integral metrics) and floats (ratios/averages), mirroring
+/// [`cbor_metric`] so the round-trip checks are representation-agnostic.
+fn toml_num(value: &toml::Value) -> Option<f64> {
+    value
+        .as_float()
+        .or_else(|| value.as_integer().map(|i| i as f64))
 }
 
 fn cbor_get<'a>(value: &'a serde_cbor::Value, key: &str) -> Option<&'a serde_cbor::Value> {
