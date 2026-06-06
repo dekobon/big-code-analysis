@@ -1583,6 +1583,7 @@ impl Loc for BashCode {
             }
             _ => {
                 if node.child_count() == 0 {
+                    check_comment_ends_on_code_line(stats, start);
                     stats.ploc.lines.insert(start);
                 }
             }
@@ -7206,6 +7207,61 @@ try {
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
+    }
+
+    #[test]
+    fn bash_comment_before_code_line_reclassified() {
+        // Regression for #547: a standalone `#` comment sitting on a line
+        // that the grammar *also* anchors a zero-width code leaf to (the
+        // empty `word` tree-sitter-bash emits inside a `$(...)` command
+        // substitution that contains only a comment) must reclassify that
+        // row from comment-only to code-comment. The Bash `Loc` leaf arm
+        // previously omitted `check_comment_ends_on_code_line` (unlike
+        // Elixir and every other impl), so the row was credited to BOTH
+        // `ploc` and the comment-only set and `blank` was undercounted by
+        // one.
+        //
+        // Source rows: 0 `echo a`, 1 blank, 2 `echo "$(`, 3 `  # c`,
+        // 4 `)"`. expected: sloc=5 (every physical row),
+        // ploc=4 (rows 0/2/3/4 — row 3 carries the phantom code leaf),
+        // lloc=3, cloc=1 (row 3, now a code-comment line, not comment-only),
+        // blank=1 (row 1). Without the fix `blank` collapses to 0 because
+        // row 3 is double-counted. Verified fail-on-revert per
+        // .claude/rules/testing.md.
+        check_metrics::<BashParser>("echo a\n\necho \"$(\n  # c\n)\"\n", "foo.sh", |metric| {
+            assert_eq!(metric.loc.sloc(), 5);
+            assert_eq!(metric.loc.ploc(), 4);
+            assert_eq!(metric.loc.lloc(), 3);
+            assert_eq!(metric.loc.cloc(), 1);
+            assert_eq!(metric.loc.blank(), 1);
+            insta::assert_json_snapshot!(
+                metric.loc,
+                @r#"
+                {
+                  "sloc": 5,
+                  "ploc": 4,
+                  "lloc": 3,
+                  "cloc": 1,
+                  "blank": 1,
+                  "sloc_average": 5.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 1.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 5,
+                  "sloc_max": 5,
+                  "cloc_min": 1,
+                  "cloc_max": 1,
+                  "ploc_min": 4,
+                  "ploc_max": 4,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#
+            );
+        });
     }
 
     #[test]
