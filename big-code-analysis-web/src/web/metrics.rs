@@ -41,8 +41,10 @@ pub struct WebMetricsInfo {
     pub file_name: String,
     /// Flag to consider only unit space metrics.
     ///
-    /// Accepted truthy values: `"1"`, `"true"`, `"yes"`, `"on"` (case-insensitive).
-    /// If `None` or a non-truthy value, the entire code is considered.
+    /// Normal boolean semantics (#541): accepts `true`/`false` and
+    /// `1`/`0`, case-insensitively. If `None`, defaults to `false` (the
+    /// entire code is considered). Any other value is rejected with an
+    /// HTTP 400 carrying the uniform JSON error body.
     pub unit: Option<String>,
 }
 

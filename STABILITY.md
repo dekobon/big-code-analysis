@@ -56,8 +56,9 @@ section.
     `javascript`, `mozjs`, …), so `Display` is injective and
     `LANG::from_str(&lang.to_string()) == Ok(lang)` for every variant.
     This slug is the single language identifier across every surface
-    (the CLI JSON `language` field, the web `/metrics` `language`
-    field, and the Python bindings). The human-pretty `c/c++` / `c#`
+    (the CLI JSON `language` field, the web `language` field on every
+    analysis endpoint — `/metrics`, `/comment`, `/function` (#541) —
+    and the Python bindings). The human-pretty `c/c++` / `c#`
     display forms were dropped at `2.0` — a break in the serialized
     `language` value.
   - `get_language_for_file`, `guess_language` in `src/tools.rs`.

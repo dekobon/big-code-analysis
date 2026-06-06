@@ -32,17 +32,37 @@ should use the `/v1` paths. The examples below use the versioned form.
 
 ## Error responses
 
-Errors are reported with an HTTP status code, not inside a `200` body:
+Errors are reported with an HTTP status code, not inside a `200` body.
+**Every** error — on the JSON endpoints, the raw/octet-stream
+endpoints, and the `415`/`405`/`404` fallbacks alike — returns one
+uniform machine-readable JSON body so clients parse a single error
+shape regardless of the success content-type:
 
+```json
+{
+  "error": "human-readable message",
+  "id": "echoed-request-id"
+}
+```
+
+The `id` key is **always present**. It carries the client-supplied
+correlation id when the request had one (the JSON endpoints), and an
+empty string otherwise (the octet-stream / query endpoints carry no
+id, and the content-type / method / not-found fallbacks have not
+parsed a body).
+
+Status codes:
+
+- `400 Bad Request` — a malformed query parameter (e.g. a `unit` flag
+  that is not a recognised boolean — see *Compute Metrics* below).
 - `404 Not Found` — the `file_name` extension maps to no supported
-  language (JSON endpoints return an `{ "id", "error" }` body; the
-  raw/octet-stream endpoints return a `text/plain` `error: …` body), or
-  the URL matches no endpoint.
+  language, or the URL matches no endpoint.
 - `415 Unsupported Media Type` — a known `POST` endpoint received a
   `Content-Type` that is neither `application/json` nor
   `application/octet-stream` (a `charset` parameter is allowed).
 - `405 Method Not Allowed` — a known endpoint was called with the wrong
-  HTTP method (the analysis endpoints are `POST`-only; `/ping` is `GET`).
+  HTTP method (the analysis endpoints are `POST`-only; `/ping`,
+  `/version`, and `/languages` are `GET`-only).
 - `413 Payload Too Large` — the request body exceeded the server limit.
 - `500 Internal Server Error` — metric computation or AST construction
   failed for an otherwise-valid request.
@@ -99,15 +119,19 @@ POST http://127.0.0.1:8080/v1/comment
 ```json
 {
   "id": "unique-id",
+  "language": "cpp",
   "code": [10, 112, 114, 105, 110, 116]
 }
 ```
 
-The `code` field is a **byte array** of the stripped source, not a
-string. Decode it with `jq -r '.code | implode'` (ASCII/UTF-8) or
-the equivalent in your client. The `application/octet-stream`
-variant returns the stripped source as the raw response body, which
-is simpler for shell pipelines.
+The response envelope reports `id`, the detected `language` (the
+canonical lowercase slug — see *Compute Metrics* below), and the
+`code` result key. The `code` field is a **byte array** of the
+stripped source, not a string. Decode it with `jq -r '.code |
+implode'` (ASCII/UTF-8) or the equivalent in your client. The
+`application/octet-stream` variant returns the stripped source as the
+raw response body (no envelope), which is simpler for shell pipelines;
+its *errors* still use the uniform JSON error body above.
 
 ### 3. Retrieve Function Spans
 
@@ -138,6 +162,7 @@ POST http://127.0.0.1:8080/v1/function
 ```json
 {
   "id": "unique-id",
+  "language": "cpp",
   "spans": [
     {
       "name": "function_name",
@@ -148,7 +173,8 @@ POST http://127.0.0.1:8080/v1/function
 }
 ```
 
-`name` is `null` when the parser could not resolve the function's
+The envelope reports `id`, the detected `language` slug, and the
+`spans` result key. `name` is `null` when the parser could not resolve the function's
 name from the AST (e.g. an anonymous or malformed definition). The
 former boolean `error` field was removed in the pre-2.0 cleanup
 ([#536]); a `null` `name` is now the malformed-span signal.
@@ -183,12 +209,21 @@ POST http://127.0.0.1:8080/v1/metrics
   `false` for detailed metrics across all units (functions, classes,
   etc.).
 
+In the JSON payload, `unit` is a JSON boolean (`true` / `false`). On
+the `application/octet-stream` variant, the source is the raw request
+body and `unit` is supplied as a **query parameter**
+(`?file_name=…&unit=…`) accepting normal boolean forms: `true` /
+`false` and `1` / `0`, case-insensitively. Any other value (including
+the formerly-accepted `yes` / `on`) is rejected with `400` and the
+uniform JSON error body. When the parameter is omitted it defaults to
+`false`.
+
 **Response:**
 
 ```json
 {
   "id": "unique-id",
-  "language": "Rust",
+  "language": "rust",
   "spaces": {
     "metrics": {
       "cyclomatic_complexity": 5,
@@ -198,3 +233,55 @@ POST http://127.0.0.1:8080/v1/metrics
   }
 }
 ```
+
+The `language` value is the **canonical lowercase slug** (e.g. `rust`,
+`cpp`, `csharp`, `tsx`) — the same token the language vocabulary
+accepts — not a human-pretty display name. Every analysis endpoint
+(`/metrics`, `/comment`, `/function`) reports this `language` field so
+clients can confirm which grammar was selected.
+
+### 5. Server and Library Version
+
+Reports the running server version and the version of the
+`big-code-analysis` library it was built against.
+
+**Request:**
+
+```http
+GET http://127.0.0.1:8080/v1/version
+```
+
+**Response:**
+
+```json
+{
+  "server": "1.1.0",
+  "library": "1.1.0"
+}
+```
+
+### 6. Supported Languages
+
+Lists the supported languages and their registered file extensions.
+The names are the canonical lowercase slugs; the list and extensions
+are sourced from the library's language table, never hardcoded.
+
+**Request:**
+
+```http
+GET http://127.0.0.1:8080/v1/languages
+```
+
+**Response:**
+
+```json
+{
+  "languages": [
+    { "name": "cpp", "extensions": ["cpp", "cc", "hpp", "..."] },
+    { "name": "rust", "extensions": ["rs"] }
+  ]
+}
+```
+
+Like `/ping`, both `/version` and `/languages` are also exposed as
+unprefixed aliases (`/version`, `/languages`) for one release cycle.

@@ -260,6 +260,7 @@ async fn test_web_comment_json() {
     let res: Value = test::call_and_read_body_json(&app, req).await;
     let expected = json!({
         "id": "1234",
+        "language": "cpp",
         "code": b"int x = 1; ",
     });
 
@@ -318,6 +319,7 @@ async fn test_web_comment_json_no_comment() {
     // No comment in the code so the code is null
     let expected = json!({
         "id": "1234",
+        "language": "cpp",
         "code": (),
     });
 
@@ -368,10 +370,15 @@ async fn test_web_comment_plain_invalid() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
-    let res = test::read_body(resp).await;
-    let expected = Bytes::from(format!("error: {INVALID_LANGUAGE}"));
+    // Errors on the octet-stream endpoint now use the uniform JSON
+    // `{error, id}` body (#541), not a bare `text/plain` string.
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    let expected = json!({
+        "error": INVALID_LANGUAGE,
+        "id": "",
+    });
 
-    assert_eq!(res, expected);
+    assert_eq!(body, expected);
 }
 
 #[actix_rt::test]
@@ -805,6 +812,7 @@ async fn test_web_function_json() {
     let res: Value = test::call_and_read_body_json(&app, req).await;
     let expected = json!({
         "id": "1234",
+        "language": "python",
         "spans": [
             {
                 "end_line": 2,
@@ -841,6 +849,7 @@ async fn test_web_function_plain() {
     let res: Value = test::call_and_read_body_json(&app, req).await;
     let expected = json!({
         "id": "",
+        "language": "python",
         "spans": [
             {
                 "end_line": 2,
@@ -1354,8 +1363,10 @@ async fn test_web_unknown_url_still_404() {
 
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-    let body = test::read_body(resp).await;
-    assert_eq!(String::from_utf8_lossy(&body), "Not found");
+    // The app-level 404 now carries the uniform JSON `{error, id}` body
+    // (#541) rather than the former bare `text/plain` "Not found".
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert_eq!(body, json!({"error": "Not found", "id": ""}));
 }
 
 #[actix_rt::test]
@@ -1583,4 +1594,318 @@ async fn test_web_v1_wrong_method_yields_405() {
         String::from_utf8_lossy(&body).contains("POST"),
         "405 body should name the accepted method"
     );
+}
+
+// --- Uniform JSON error body across every endpoint (issue #541) ---------
+//
+// The core regression guard: an error on a JSON endpoint, an
+// octet-stream endpoint, a 415 (bad content-type) and a 405 (bad
+// method) must ALL return a body parseable as `{error, id}` with the
+// right status, so clients parse one error shape regardless of the
+// success content-type.
+
+/// Asserts `body` parses as the uniform `{error, id}` shape with a
+/// non-empty `error` string and `id == expected_id`.
+fn assert_uniform_error_body(body: &[u8], expected_id: &str) {
+    let parsed: Value =
+        serde_json::from_slice(body).expect("error body must be valid JSON `{error, id}`");
+    assert!(
+        parsed["error"].as_str().is_some_and(|s| !s.is_empty()),
+        "error body must carry a non-empty `error` string: {parsed}"
+    );
+    assert_eq!(
+        parsed["id"],
+        json!(expected_id),
+        "error body must echo the request id (empty when absent): {parsed}"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_error_body_uniform_across_endpoints() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // 1) JSON endpoint, invalid language -> 404 JSON `{error, id}` with
+    //    the echoed id.
+    let json_req = test::TestRequest::post()
+        .uri("/v1/metrics")
+        .insert_header(ContentType::json())
+        .set_payload(
+            json!({"id": "err-json", "file_name": "x.unknown_ext", "code": "x", "unit": false})
+                .to_string(),
+        )
+        .to_request();
+    let json_resp = test::call_service(&app, json_req).await;
+    assert_eq!(json_resp.status(), StatusCode::NOT_FOUND);
+    assert_uniform_error_body(&test::read_body(json_resp).await, "err-json");
+
+    // 2) Octet-stream endpoint, invalid language -> 404 JSON `{error,
+    //    id}` (formerly a bare `text/plain` "error: ..." body). The
+    //    octet-stream variants carry no id, so `id` is the empty string.
+    let octet_req = test::TestRequest::post()
+        .uri("/v1/metrics?file_name=x.unknown_ext")
+        .insert_header(ContentType::octet_stream())
+        .set_payload("int x = 1;")
+        .to_request();
+    let octet_resp = test::call_service(&app, octet_req).await;
+    assert_eq!(octet_resp.status(), StatusCode::NOT_FOUND);
+    assert_uniform_error_body(&test::read_body(octet_resp).await, "");
+
+    // 3) 415: a known endpoint with an unsupported content-type.
+    let unsupported_req = test::TestRequest::post()
+        .uri("/v1/metrics")
+        .insert_header(("content-type", "text/plain"))
+        .set_payload("int x = 1;")
+        .to_request();
+    let unsupported_resp = test::call_service(&app, unsupported_req).await;
+    assert_eq!(
+        unsupported_resp.status(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
+    assert_uniform_error_body(&test::read_body(unsupported_resp).await, "");
+
+    // 4) 405: a wrong method on a POST-only endpoint.
+    let method_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/v1/metrics").to_request(),
+    )
+    .await;
+    assert_eq!(method_resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_uniform_error_body(&test::read_body(method_resp).await, "");
+}
+
+// --- Success envelope carries id + canonical language slug (#541) -------
+
+#[actix_rt::test]
+async fn test_web_function_envelope_carries_id_and_language_slug() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // A `.cpp` file must report the #540 canonical slug `cpp`, plus the
+    // echoed id and the `spans` result key.
+    let req = test::TestRequest::post()
+        .uri("/v1/function")
+        .insert_header(ContentType::json())
+        .set_payload(
+            json!({"id": "fn-env", "file_name": "a.cpp", "code": "int f() { return 0; }"})
+                .to_string(),
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert_eq!(body["id"], json!("fn-env"));
+    assert_eq!(body["language"], json!("cpp"));
+    assert!(body["spans"].is_array(), "function envelope keeps `spans`");
+}
+
+#[actix_rt::test]
+async fn test_web_comment_envelope_carries_id_and_language_slug() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/v1/comment")
+        .insert_header(ContentType::json())
+        .set_payload(
+            json!({"id": "cm-env", "file_name": "a.cpp", "code": "int x = 1; // c"}).to_string(),
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert_eq!(body["id"], json!("cm-env"));
+    // Reports the *guessed* language slug (`cpp`), not the internal
+    // `ccomment` grammar the comment-removal path swaps in.
+    assert_eq!(body["language"], json!("cpp"));
+    assert!(
+        body.get("code").is_some(),
+        "comment envelope keeps the `code` result key"
+    );
+}
+
+// --- `unit` query flag: normal bool semantics (#541) --------------------
+
+#[actix_rt::test]
+async fn test_web_metrics_plain_unit_flag_accepts_bool_forms() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // `true`/`1` (and case variants) enable unit-only metrics: the
+    // response carries no nested `spaces`. `false`/`0`/absent keep the
+    // full tree, which for this single-function source has a non-empty
+    // nested `spaces` array.
+    let post_unit = |unit: Option<&str>| {
+        let uri = match unit {
+            Some(v) => format!("/v1/metrics?file_name=u.py&unit={v}"),
+            None => "/v1/metrics?file_name=u.py".to_string(),
+        };
+        test::TestRequest::post()
+            .uri(&uri)
+            .insert_header(ContentType::octet_stream())
+            .set_payload("def foo():\n    pass\n")
+            .to_request()
+    };
+
+    for truthy in ["true", "TRUE", "True", "1"] {
+        let resp = test::call_service(&app, post_unit(Some(truthy))).await;
+        assert_eq!(resp.status(), StatusCode::OK, "unit={truthy} should be 200");
+        let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        assert_eq!(
+            body["spaces"]["spaces"],
+            json!([]),
+            "unit={truthy} should clear nested spaces"
+        );
+    }
+
+    for falsy in ["false", "FALSE", "0"] {
+        let resp = test::call_service(&app, post_unit(Some(falsy))).await;
+        assert_eq!(resp.status(), StatusCode::OK, "unit={falsy} should be 200");
+        let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        assert!(
+            body["spaces"]["spaces"]
+                .as_array()
+                .is_some_and(|s| !s.is_empty()),
+            "unit={falsy} should keep nested spaces"
+        );
+    }
+
+    // Absent defaults to false (full tree).
+    let resp = test::call_service(&app, post_unit(None)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert!(
+        body["spaces"]["spaces"]
+            .as_array()
+            .is_some_and(|s| !s.is_empty())
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_plain_unit_flag_rejects_non_bool() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // The former lenient truthy set (`yes`/`on`) is gone (#541); any
+    // value that is not a recognised bool is a 400 with the uniform
+    // JSON error body.
+    for bad in ["yes", "on", "bogus"] {
+        let req = test::TestRequest::post()
+            .uri(&format!("/v1/metrics?file_name=u.py&unit={bad}"))
+            .insert_header(ContentType::octet_stream())
+            .set_payload("def foo():\n    pass\n")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "unit={bad} should be rejected with 400"
+        );
+        assert_uniform_error_body(&test::read_body(resp).await, "");
+    }
+}
+
+// --- Introspection endpoints + unprefixed aliases (#541) ----------------
+
+#[actix_rt::test]
+async fn test_web_version_endpoint_reports_server_and_library() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    for uri in ["/v1/version", "/version"] {
+        let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK, "GET {uri} should return 200");
+        let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        assert_eq!(
+            body["server"],
+            json!(env!("CARGO_PKG_VERSION")),
+            "{uri} should report the server crate version"
+        );
+        assert_eq!(
+            body["library"],
+            json!(big_code_analysis::VERSION),
+            "{uri} should report the library version"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_languages_endpoint_lists_slugs_and_extensions() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    for uri in ["/v1/languages", "/languages"] {
+        let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
+        assert_eq!(resp.status(), StatusCode::OK, "GET {uri} should return 200");
+        let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        let languages = body["languages"]
+            .as_array()
+            .expect("`languages` must be an array");
+        assert!(!languages.is_empty(), "language list must not be empty");
+
+        // A known language reported by its #540 slug, with a known
+        // extension present in its extension list.
+        let cpp = languages
+            .iter()
+            .find(|entry| entry["name"] == json!("cpp"))
+            .expect("`cpp` must be listed by its canonical slug");
+        let exts: Vec<&str> = cpp["extensions"]
+            .as_array()
+            .expect("extensions must be an array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            exts.contains(&"cpp"),
+            "cpp extensions should include `cpp`: {exts:?}"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_introspection_endpoints_reject_post_with_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // The introspection resources are GET-only; a POST must hit their
+    // own `default_service` and answer a uniform JSON 405.
+    for uri in ["/v1/version", "/v1/languages"] {
+        let resp = test::call_service(&app, test::TestRequest::post().uri(uri).to_request()).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::METHOD_NOT_ALLOWED,
+            "POST {uri} should return 405"
+        );
+        assert_uniform_error_body(&test::read_body(resp).await, "");
+    }
 }

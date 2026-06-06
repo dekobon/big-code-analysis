@@ -19,6 +19,9 @@ pub struct WebFunctionPayload {
 pub struct WebFunctionResponse {
     /// Server response identifier.
     pub id: String,
+    /// Source code programming language, as the canonical lowercase
+    /// slug (#540 / #541), reporting which grammar was selected.
+    pub language: String,
     /// Function spans for the requested source code.
     pub spans: Vec<FunctionSpan>,
 }
@@ -35,6 +38,8 @@ pub struct WebFunctionInfo {
 pub struct WebFunctionCfg {
     /// Request identifier.
     pub id: String,
+    /// Canonical language slug to echo back in the response envelope.
+    pub language: String,
 }
 
 /// Unit structure to implement the `Callback` trait.
@@ -46,7 +51,11 @@ impl Callback for WebFunctionCallback {
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         let spans = function(parser);
-        serde_json::to_value(WebFunctionResponse { id: cfg.id, spans })
-            .expect("WebFunctionResponse has a static, infallible Serialize impl")
+        serde_json::to_value(WebFunctionResponse {
+            id: cfg.id,
+            language: cfg.language,
+            spans,
+        })
+        .expect("WebFunctionResponse has a static, infallible Serialize impl")
     }
 }

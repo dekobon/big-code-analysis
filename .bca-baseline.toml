@@ -19,6 +19,20 @@ metric = "halstead.effort"
 value = 55546.053164509794
 
 [[entry]]
+path = "big-code-analysis-web/src/web/server.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 806.0
+
+[[entry]]
+path = "src/lib.rs"
+qualified = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 53416.50418058527
+
+[[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "collect_offenders"
 start_line = 450

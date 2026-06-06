@@ -30,6 +30,29 @@ use big_code_analysis::{AstCallback, AstCfg, AstPayload, LANG, action, guess_lan
 
 const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
 
+/// Error body emitted when the `unit` query flag is not a recognised
+/// boolean (#541).
+const INVALID_UNIT_FLAG: &str =
+    "The `unit` query flag must be one of `true`, `false`, `1`, or `0` (case-insensitive)";
+
+/// Parses the optional `unit` query flag into a bool with normal
+/// boolean semantics (#541).
+///
+/// Absent (`None`) defaults to `false`. Present values accept
+/// `true`/`false` and `1`/`0`, case-insensitively, mirroring the
+/// JSON-payload `bool` (`WebMetricsInfo`/`WebMetricsPayload.unit`).
+/// Any other value is rejected so the caller can answer `400` with the
+/// uniform JSON error body. The former lenient truthy set
+/// (`yes`/`on`) is no longer accepted.
+fn parse_unit_flag(raw: Option<&str>) -> Result<bool, &'static str> {
+    match raw {
+        None => Ok(false),
+        Some(s) if s.eq_ignore_ascii_case("true") || s == "1" => Ok(true),
+        Some(s) if s.eq_ignore_ascii_case("false") || s == "0" => Ok(false),
+        Some(_) => Err(INVALID_UNIT_FLAG),
+    }
+}
+
 /// `expect` message used at every `action::<_>` call site below.
 ///
 /// The web crate pins `big-code-analysis` with `features =
@@ -174,10 +197,30 @@ async fn run_parse<T: Send + 'static>(
     result
 }
 
+/// Uniform machine-readable error body for *every* endpoint, regardless
+/// of the success content-type (#541).
+///
+/// The `id` key is always present: it carries the client-supplied
+/// correlation id when the request had one, and an empty string
+/// otherwise (the octet-stream / query endpoints carry no id, and the
+/// content-type / method fallbacks have not parsed a body). Always
+/// emitting the key keeps the shape predictable for clients that
+/// destructure it.
 #[derive(Debug, Deserialize, Serialize)]
 struct Error {
-    id: String,
     error: &'static str,
+    id: String,
+}
+
+/// Builds an `application/json` error response with the uniform
+/// `{error, id}` body (#541).
+///
+/// Every error path in the crate routes through this helper so clients
+/// parse one error shape no matter which endpoint or success
+/// content-type they hit. `status` is the HTTP status; `id` is the
+/// echoed correlation id (empty when the request carried none).
+fn json_error(status: http::StatusCode, error: &'static str, id: String) -> HttpResponse {
+    HttpResponse::build(status).json(Error { error, id })
 }
 
 /// Drains a streaming request body into a byte buffer, enforcing `max_size`.
@@ -228,16 +271,18 @@ async fn ast_parser(
         if result.root.is_some() {
             Ok(HttpResponse::Ok().json(result))
         } else {
-            Ok(HttpResponse::InternalServerError().json(Error {
-                id: result.id,
-                error: AST_BUILD_FAILED,
-            }))
+            Ok(json_error(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                AST_BUILD_FAILED,
+                result.id,
+            ))
         }
     } else {
-        Ok(HttpResponse::NotFound().json(Error {
-            id: payload.id,
-            error: INVALID_LANGUAGE,
-        }))
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            payload.id,
+        ))
     }
 }
 
@@ -251,7 +296,13 @@ async fn comment_removal_json(
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let payload_id = payload.id.clone();
-        let cfg = WebCommentCfg { id: payload.id };
+        // Report the *guessed* language slug, not the comment-removal
+        // grammar swap (`Cpp` -> `Ccomment`): the client cares which
+        // source language was detected, not the internal helper grammar.
+        let cfg = WebCommentCfg {
+            id: payload.id,
+            language: language.name().to_string(),
+        };
         let language = comment_language(language);
         let result = run_parse(&config, &payload_id, move || {
             action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
@@ -260,10 +311,11 @@ async fn comment_removal_json(
         .await?;
         Ok(HttpResponse::Ok().json(result))
     } else {
-        Ok(HttpResponse::NotFound().json(Error {
-            id: payload.id,
-            error: INVALID_LANGUAGE,
-        }))
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            payload.id,
+        ))
     }
 }
 
@@ -276,8 +328,11 @@ async fn comment_removal_plain(
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
+        let cfg = WebCommentCfg {
+            id: String::new(),
+            language: language.name().to_string(),
+        };
         let language = comment_language(language);
-        let cfg = WebCommentCfg { id: String::new() };
         // The octet-stream variants carry no request id in the body, so log
         // correlation falls back to the `TracingLogger` request span.
         let res = run_parse(&config, "", move || {
@@ -295,9 +350,13 @@ async fn comment_removal_plain(
                 .body(()))
         }
     } else {
-        Ok(HttpResponse::NotFound()
-            .append_header((http::header::CONTENT_TYPE, "text/plain"))
-            .body(format!("error: {INVALID_LANGUAGE}")))
+        // Even on the octet-stream endpoint, errors use the uniform JSON
+        // body so clients parse one error shape everywhere (#541).
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            String::new(),
+        ))
     }
 }
 
@@ -325,16 +384,18 @@ async fn metrics_json(
         // `500` instead of the former `200`-with-`spaces: null` (issue #517).
         match response {
             Some(resp) => Ok(HttpResponse::Ok().json(resp)),
-            None => Ok(HttpResponse::InternalServerError().json(Error {
-                id: payload_id,
-                error: METRICS_FAILED,
-            })),
+            None => Ok(json_error(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                METRICS_FAILED,
+                payload_id,
+            )),
         }
     } else {
-        Ok(HttpResponse::NotFound().json(Error {
-            id: payload.id,
-            error: INVALID_LANGUAGE,
-        }))
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            payload.id,
+        ))
     }
 }
 
@@ -344,15 +405,21 @@ async fn metrics_plain(
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let buf = get_code(body, config.max_body_size).await?;
+    // Validate the `unit` flag up front so a bad value is a clear `400`
+    // regardless of whether the language resolves (#541).
+    let unit = match parse_unit_flag(info.unit.as_deref()) {
+        Ok(unit) => unit,
+        Err(error) => {
+            return Ok(json_error(
+                http::StatusCode::BAD_REQUEST,
+                error,
+                String::new(),
+            ));
+        }
+    };
     let path = PathBuf::from(&info.file_name);
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
-        let unit = info.unit.as_ref().is_some_and(|s| {
-            s == "1"
-                || s.eq_ignore_ascii_case("true")
-                || s.eq_ignore_ascii_case("yes")
-                || s.eq_ignore_ascii_case("on")
-        });
         // Same `exclude_tests` rationale as the JSON variant above.
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
         let response = run_parse(&config, "", move || {
@@ -360,19 +427,22 @@ async fn metrics_plain(
                 .expect(FEATURES_PINNED)
         })
         .await?;
-        // Same error mapping as the JSON variant (issue #517); the plain
-        // endpoint reports failure as a `text/plain` body to match its
-        // invalid-language response.
+        // Same error mapping as the JSON variant (issue #517); errors use
+        // the uniform JSON body even on the octet-stream endpoint (#541).
         match response {
             Some(resp) => Ok(HttpResponse::Ok().json(resp)),
-            None => Ok(HttpResponse::InternalServerError()
-                .append_header((http::header::CONTENT_TYPE, "text/plain"))
-                .body(format!("error: {METRICS_FAILED}"))),
+            None => Ok(json_error(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                METRICS_FAILED,
+                String::new(),
+            )),
         }
     } else {
-        Ok(HttpResponse::NotFound()
-            .append_header((http::header::CONTENT_TYPE, "text/plain"))
-            .body(format!("error: {INVALID_LANGUAGE}")))
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            String::new(),
+        ))
     }
 }
 
@@ -386,7 +456,10 @@ async fn function_json(
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let payload_id = payload.id.clone();
-        let cfg = WebFunctionCfg { id: payload.id };
+        let cfg = WebFunctionCfg {
+            id: payload.id,
+            language: language.name().to_string(),
+        };
         let result = run_parse(&config, &payload_id, move || {
             action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
@@ -394,10 +467,11 @@ async fn function_json(
         .await?;
         Ok(HttpResponse::Ok().json(result))
     } else {
-        Ok(HttpResponse::NotFound().json(Error {
-            id: payload.id,
-            error: INVALID_LANGUAGE,
-        }))
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            payload.id,
+        ))
     }
 }
 
@@ -410,7 +484,10 @@ async fn function_plain(
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
-        let cfg = WebFunctionCfg { id: String::new() };
+        let cfg = WebFunctionCfg {
+            id: String::new(),
+            language: language.name().to_string(),
+        };
         let result = run_parse(&config, "", move || {
             action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
@@ -418,14 +495,77 @@ async fn function_plain(
         .await?;
         Ok(HttpResponse::Ok().json(result))
     } else {
-        Ok(HttpResponse::NotFound()
-            .append_header((http::header::CONTENT_TYPE, "text/plain"))
-            .body(format!("error: {INVALID_LANGUAGE}")))
+        Ok(json_error(
+            http::StatusCode::NOT_FOUND,
+            INVALID_LANGUAGE,
+            String::new(),
+        ))
     }
 }
 
 async fn ping() -> HttpResponse {
     HttpResponse::Ok().body(())
+}
+
+/// Server (`bca-web`) and underlying library versions (#541).
+#[derive(Debug, Serialize)]
+struct VersionResponse {
+    /// Version of the `bca-web` server crate.
+    server: &'static str,
+    /// Version of the `big-code-analysis` library crate it is built against.
+    library: &'static str,
+}
+
+/// `GET /v1/version`: reports the server and library versions.
+///
+/// The server version is this crate's `CARGO_PKG_VERSION`; the library
+/// version is sourced from [`big_code_analysis::VERSION`] so the two are
+/// reported independently even though they currently share a workspace
+/// version.
+async fn version() -> HttpResponse {
+    HttpResponse::Ok().json(VersionResponse {
+        server: env!("CARGO_PKG_VERSION"),
+        library: big_code_analysis::VERSION,
+    })
+}
+
+/// One supported language plus its registered file extensions (#541).
+#[derive(Debug, Serialize)]
+struct LanguageEntry {
+    /// Canonical lowercase language slug (#540).
+    name: &'static str,
+    /// File extensions that resolve to this language.
+    extensions: &'static [&'static str],
+}
+
+/// Supported-language listing returned by `GET /v1/languages` (#541).
+#[derive(Debug, Serialize)]
+struct LanguagesResponse {
+    languages: Vec<LanguageEntry>,
+}
+
+/// `GET /v1/languages`: lists the supported languages and their file
+/// extensions, sourced from the library `LANG` table (#541).
+///
+/// "Supported" mirrors the Python `supported_languages()` surface: a
+/// variant is listed when it (a) has at least one registered file
+/// extension — internal helper variants (`Ccomment`, `Preproc`) carry
+/// none and are filtered out — and (b) is enabled in the current build.
+/// The web crate pins `features = ["all-languages"]`, so (b) is always
+/// true here; the `is_enabled` filter keeps the listing honest if that
+/// pin is ever loosened. The list is never hardcoded: both the names
+/// (`LANG::name`) and the extensions (`LANG::extensions`) come from the
+/// enum table.
+async fn languages() -> HttpResponse {
+    let languages = LANG::into_enum_iter()
+        .filter(|lang| !lang.extensions().is_empty())
+        .filter(LANG::is_enabled)
+        .map(|lang| LanguageEntry {
+            name: lang.name(),
+            extensions: lang.extensions(),
+        })
+        .collect();
+    HttpResponse::Ok().json(LanguagesResponse { languages })
 }
 
 /// Runs an HTTP server with the default parse timeout (30 s).
@@ -487,8 +627,9 @@ fn octet_guard() -> impl guard::Guard {
 
 /// Registers every `bca-web` endpoint into `cfg`.
 ///
-/// Each content-type-guarded `POST` resource and the `GET`-only `/ping`
-/// resource carry their *own* `default_service`, so a request that
+/// Each content-type-guarded `POST` resource and the `GET`-only
+/// introspection resources (`/ping`, `/version`, `/languages`) carry
+/// their *own* `default_service`, so a request that
 /// reaches a known resource but matches none of its routes (wrong
 /// `Content-Type` or wrong method) is answered with a diagnostic
 /// `415`/`405` *by the resource itself*. This is the route table acting
@@ -527,7 +668,17 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/ping")
             .route(web::get().to(ping))
-            .default_service(web::route().to(ping_method_not_allowed)),
+            .default_service(web::route().to(get_only_method_not_allowed)),
+    )
+    .service(
+        web::resource("/version")
+            .route(web::get().to(version))
+            .default_service(web::route().to(get_only_method_not_allowed)),
+    )
+    .service(
+        web::resource("/languages")
+            .route(web::get().to(languages))
+            .default_service(web::route().to(get_only_method_not_allowed)),
     );
 }
 
@@ -553,23 +704,34 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
 /// `POST`-only).
 async fn guarded_post_fallback(req: actix_web::HttpRequest) -> HttpResponse {
     if req.method() == http::Method::POST {
-        HttpResponse::UnsupportedMediaType().body(
+        json_error(
+            http::StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "Unsupported or missing Content-Type. Send 'application/json' \
              or 'application/octet-stream' (a charset parameter is allowed).",
+            String::new(),
         )
     } else {
-        HttpResponse::MethodNotAllowed().body("Method not allowed. This endpoint accepts POST.")
+        json_error(
+            http::StatusCode::METHOD_NOT_ALLOWED,
+            "Method not allowed. This endpoint accepts POST.",
+            String::new(),
+        )
     }
 }
 
-/// Resource-level fallback for `/ping`, which only accepts `GET`.
-async fn ping_method_not_allowed() -> HttpResponse {
-    HttpResponse::MethodNotAllowed().body("Method not allowed. This endpoint accepts GET.")
+/// Resource-level fallback for the `GET`-only introspection / `/ping`
+/// resources.
+async fn get_only_method_not_allowed() -> HttpResponse {
+    json_error(
+        http::StatusCode::METHOD_NOT_ALLOWED,
+        "Method not allowed. This endpoint accepts GET.",
+        String::new(),
+    )
 }
 
 /// App-level fallback for URLs that match no registered resource.
 async fn not_found() -> HttpResponse {
-    HttpResponse::NotFound().body("Not found")
+    json_error(http::StatusCode::NOT_FOUND, "Not found", String::new())
 }
 
 /// Runs an HTTP server with a configurable parse timeout.

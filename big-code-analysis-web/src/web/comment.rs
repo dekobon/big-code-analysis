@@ -18,6 +18,9 @@ pub struct WebCommentPayload {
 pub struct WebCommentResponse {
     /// Server response identifier.
     pub id: String,
+    /// Source code programming language, as the canonical lowercase
+    /// slug (#540 / #541), reporting which grammar was selected.
+    pub language: String,
     /// Source code without comments.
     ///
     /// If `None`, no comments were found in the source code.
@@ -36,6 +39,8 @@ pub struct WebCommentInfo {
 pub struct WebCommentCfg {
     /// Request identifier.
     pub id: String,
+    /// Canonical language slug to echo back in the response envelope.
+    pub language: String,
 }
 
 /// Unit structure to implement the `Callback` trait.
@@ -49,6 +54,7 @@ impl Callback for WebCommentCallback {
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         WebCommentResponse {
             id: cfg.id,
+            language: cfg.language,
             code: rm_comments(parser),
         }
     }

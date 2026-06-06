@@ -320,6 +320,15 @@ pub use crate::traits::{Callback, LanguageInfo, ParserTrait};
 /// pin may bump in any minor release (see `STABILITY.md`).
 pub use ::tree_sitter;
 
+/// The version of this `big-code-analysis` library crate.
+///
+/// Sourced from the crate's own `CARGO_PKG_VERSION` at compile time.
+/// Exposed so downstream surfaces (the REST `/v1/version` endpoint, the
+/// Python `__version__` attribute, …) can report the exact library
+/// version they were built against without re-deriving it from Cargo
+/// metadata.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Recommended entry points for the 90% case.
 ///
 /// Star-import this module to get the curated set of types and
