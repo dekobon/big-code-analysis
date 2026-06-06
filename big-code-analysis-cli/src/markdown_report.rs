@@ -1412,6 +1412,13 @@ mod tests {
     fn title_case_basic() {
         assert_eq!(title_case("rust"), "Rust");
         assert_eq!(title_case("python"), "Python");
+        // Canonical slugs since #540 — the language headings the report
+        // actually renders.
+        assert_eq!(title_case("cpp"), "Cpp");
+        assert_eq!(title_case("csharp"), "Csharp");
+        assert_eq!(title_case("tsx"), "Tsx");
+        // The `/`, `-`, and space delimiters still trigger re-capitalisation
+        // for arbitrary inputs (no current language slug uses them).
         assert_eq!(title_case("c/c++"), "C/C++");
         assert_eq!(title_case(""), "");
     }

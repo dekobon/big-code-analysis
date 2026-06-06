@@ -208,10 +208,10 @@ fn guess_file_mozilla_prefix_is_stripped_before_resolution() {
 #[test]
 fn test_guess_language() {
     let buf = b"// -*- foo: bar; mode: c++; hello: world\n";
-    assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "c/c++"));
+    assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "cpp"));
 
     let buf = b"// -*- c++ -*-\n";
-    assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "c/c++"));
+    assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "cpp"));
 
     let buf = b"// -*- foo: bar; bar-mode: c++; hello: world\n";
     assert_eq!(
@@ -220,19 +220,19 @@ fn test_guess_language() {
     );
 
     let buf = b"/* hello world */\n";
-    assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "c/c++"));
+    assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "cpp"));
 
     let buf = b"\n\n\n\n\n\n\n\n\n// vim: set ts=4 ft=c++\n\n\n";
-    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::Cpp), "c/c++"));
+    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::Cpp), "cpp"));
 
     let buf = b"\n\n\n\n\n\n\n\n\n\n\n\n";
     assert_eq!(guess_language(buf, "foo.txt"), (None, ""));
 
+    // Objective-C / Objective-C++ files parse with the C/C++ grammar
+    // and report the canonical `"cpp"` slug since #540 (the former
+    // `"obj-c/c++"` pseudo-name was unparseable as a `FromStr` token).
     let buf = b"// -*- foo: bar; mode: Objective-C++; hello: world\n";
-    assert_eq!(
-        guess_language(buf, "foo.mm"),
-        (Some(LANG::Cpp), "obj-c/c++")
-    );
+    assert_eq!(guess_language(buf, "foo.mm"), (Some(LANG::Cpp), "cpp"));
 }
 
 #[test]
@@ -245,12 +245,13 @@ fn guess_language_name_outlives_input_buffer() {
         let buf: Vec<u8> = b"// -*- foo: bar; mode: Objective-C++; hello: world\n".to_vec();
         let (lang, name) = guess_language(&buf, "foo.mm");
         assert_eq!(lang, Some(LANG::Cpp));
-        // `name` is the `fake::get_true` override, NOT derivable from
-        // `LANG::name()` — which is why the tuple's second element
-        // cannot simply be dropped in favour of the `LANG`.
+        // `name` comes from the `fake::get_true` objc override, which
+        // since #540 returns the canonical `LANG::Cpp.name()` slug — a
+        // `&'static str` from static tables / literals, never borrowed
+        // from `buf` (issue #506).
         name
     };
-    assert_eq!(name, "obj-c/c++");
+    assert_eq!(name, "cpp");
 }
 
 #[test]

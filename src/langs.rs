@@ -157,7 +157,7 @@ mk_langs!(
         "cpp",
         Cpp,
         "The `C/C++` language",
-        "c/c++",
+        "cpp",
         CppCode,
         CppParser,
         tree_sitter_cpp,
@@ -168,7 +168,7 @@ mk_langs!(
         "csharp",
         Csharp,
         "The `C#` language",
-        "c#",
+        "csharp",
         CsharpCode,
         CsharpParser,
         tree_sitter_c_sharp,
@@ -201,7 +201,7 @@ mk_langs!(
         "typescript",
         Tsx,
         "The `Tsx` language incorporates the `JSX` syntax inside `TypeScript`",
-        "typescript",
+        "tsx",
         TsxCode,
         TsxParser,
         tree_sitter_tsx,
@@ -299,6 +299,13 @@ mk_langs!(
 );
 
 pub(crate) mod fake {
+    // Objective-C / Objective-C++ files are parsed with the C/C++
+    // grammar (`LANG::Cpp`), so `guess_language` reports them as
+    // `"cpp"` — the same canonical slug `LANG::Cpp.name()` emits and a
+    // valid `FromStr` lookup token. The earlier `"obj-c/c++"` pseudo-
+    // name surfaced through `/metrics` and CLI JSON but round-tripped
+    // to nothing; folding it onto `"cpp"` keeps every reported
+    // `language` value parseable (issue #540).
     pub(crate) fn get_true(ext: &str, mode: &str) -> Option<&'static str> {
         if ext == "m"
             || ext == "mm"
@@ -307,7 +314,7 @@ pub(crate) mod fake {
             || mode == "objective-c++"
             || mode == "objective-c"
         {
-            Some("obj-c/c++")
+            Some(crate::LANG::Cpp.name())
         } else {
             None
         }
@@ -435,25 +442,41 @@ mod tests {
         }
     }
 
-    // `Display` -> `FromStr` round-trip. The only variants still sharing
-    // a display name are `Tsx`/`Typescript` (both "typescript"); the
-    // JavaScript pair was split at 2.0 (#507) so `Mozjs` displays "mozjs"
-    // and `Javascript` "javascript". Parsing back is therefore not
-    // guaranteed to return the *same* variant for the TS pair, but it
-    // must return one whose name matches — the round-trip preserves the
-    // display name.
+    // `Display` -> `FromStr` round-trip over EVERY variant. Since #540
+    // every variant has a distinct canonical slug, so the round-trip is
+    // exact: `from_str(to_string(l)) == Ok(l)` for all `l`. This single
+    // iterating assertion proves both round-trip fidelity AND injectivity
+    // (a slug collision would make `from_str` resolve to the
+    // first-declared sibling, failing the `Ok(l)` equality for the
+    // later one). Test-via-revert: reintroducing the old "c/c++" display
+    // for `Cpp` keeps the round-trip passing for `Cpp` (it still parses
+    // back to `Cpp`), but reverting `Tsx` to "typescript" makes this
+    // test fail on whichever of `Tsx`/`Typescript` is declared second.
     #[test]
-    fn display_fromstr_round_trip_preserves_name() {
+    fn display_fromstr_round_trips_exactly_for_every_variant() {
         use std::str::FromStr;
         for lang in LANG::into_enum_iter() {
-            let parsed = LANG::from_str(lang.name())
-                .unwrap_or_else(|e| panic!("{} failed to parse back: {e}", lang.name()));
             assert_eq!(
-                parsed.name(),
+                LANG::from_str(&lang.to_string()),
+                Ok(lang),
+                "{} did not round-trip exactly through Display/FromStr",
                 lang.name(),
-                "{} round-tripped to a differently-named variant {:?}",
-                lang.name(),
-                parsed,
+            );
+        }
+    }
+
+    // No variant's canonical slug may contain `/` or `#` — the
+    // punctuation that made the old "c/c++" / "c#" display forms
+    // unusable as lookup tokens and leaked through the web `/metrics`
+    // `language` field (#540). Guards against reintroducing a
+    // human-pretty display form.
+    #[test]
+    fn no_variant_slug_contains_punctuation() {
+        for lang in LANG::into_enum_iter() {
+            let name = lang.name();
+            assert!(
+                !name.contains('/') && !name.contains('#'),
+                "{name} contains punctuation that breaks FromStr lookup",
             );
         }
     }
@@ -472,14 +495,17 @@ mod tests {
         assert_eq!(LANG::from_str("mozjs"), Ok(LANG::Mozjs));
     }
 
-    // The TypeScript pair still shares the "typescript" display name
-    // (both ride the upstream `tree-sitter-typescript` crate), so the
-    // aliased name resolves to the first variant declared with it.
+    // The TypeScript pair has distinct slugs since #540 ("tsx" for
+    // `Tsx`, "typescript" for `Typescript`), even though both ride the
+    // upstream `tree-sitter-typescript` crate. Both round-trip to their
+    // own variant — no aliasing collapse.
     #[test]
-    fn aliased_typescript_name_resolves_to_first_declared_variant() {
+    fn typescript_pair_has_distinct_slugs() {
         use std::str::FromStr;
-        // Tsx precedes Typescript in `mk_langs!`.
-        assert_eq!(LANG::from_str("typescript"), Ok(LANG::Tsx));
+        assert_eq!(LANG::Tsx.name(), "tsx");
+        assert_eq!(LANG::Typescript.name(), "typescript");
+        assert_eq!(LANG::from_str("tsx"), Ok(LANG::Tsx));
+        assert_eq!(LANG::from_str("typescript"), Ok(LANG::Typescript));
     }
 
     // Extension dispatch after the #507 default-grammar swap: the
@@ -504,16 +530,20 @@ mod tests {
         assert_eq!(get_from_emacs_mode("js2"), Some(LANG::Javascript));
     }
 
-    // The `Cpp` and `Csharp` variants carry punctuation in their
-    // display names ("c/c++", "c#"); `FromStr` must accept exactly what
-    // `Display` emits, including the punctuation.
+    // The `Cpp` and `Csharp` variants now expose punctuation-free
+    // canonical slugs ("cpp", "csharp") since #540; `FromStr` round-trips
+    // them and the former human-pretty "c/c++" / "c#" forms are no longer
+    // accepted (the slug is the single canonical token everywhere).
     #[test]
-    fn punctuated_display_names_round_trip() {
+    fn cpp_and_csharp_slugs_round_trip() {
         use std::str::FromStr;
-        assert_eq!(LANG::Cpp.to_string(), "c/c++");
-        assert_eq!(LANG::from_str("c/c++"), Ok(LANG::Cpp));
-        assert_eq!(LANG::Csharp.to_string(), "c#");
-        assert_eq!(LANG::from_str("c#"), Ok(LANG::Csharp));
+        assert_eq!(LANG::Cpp.to_string(), "cpp");
+        assert_eq!(LANG::from_str("cpp"), Ok(LANG::Cpp));
+        assert_eq!(LANG::Csharp.to_string(), "csharp");
+        assert_eq!(LANG::from_str("csharp"), Ok(LANG::Csharp));
+        // The dropped pretty forms no longer parse.
+        assert!(LANG::from_str("c/c++").is_err());
+        assert!(LANG::from_str("c#").is_err());
     }
 
     // Unknown / mis-cased input is rejected; matching is case-sensitive,

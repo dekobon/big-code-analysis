@@ -31,10 +31,12 @@ Some entries are variants of a shared grammar pipeline. `JavaScript`
 (the upstream `tree-sitter-javascript` grammar) is the default for
 `.js`, `.mjs`, `.cjs`, and `.jsx` files; `Mozjs` is the Mozilla /
 SpiderMonkey fork, now opt-in — it owns only the `.jsm` (Firefox
-module) extension and reports the display name `mozjs`. The two are
+module) extension and reports the canonical slug `mozjs`. The two are
 metric-equivalent on ordinary JavaScript. `Tsx` is `Typescript` with
-JSX syntax enabled. C and C++ are analysed by the single `C/C++`
-variant (display name `c/c++`).
+JSX syntax enabled and reports the distinct slug `tsx`. C and C++ are
+analysed by the single `C/C++` variant, which reports the slug `cpp`
+(C# reports `csharp`). Every variant's slug is its `LANG::name`,
+lowercase and punctuation-free so it round-trips through `FromStr`.
 
 ## Internal helper variants
 

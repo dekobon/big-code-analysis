@@ -34,8 +34,10 @@ claims that extension. This is the cheap path — no buffer required.
 
 Combines the extension lookup with an Emacs/Vim *mode line* scan of the
 buffer and a shebang scan of the first line. Returns `(Option<LANG>,
-&str)` where the second element is the human-readable name (`"c/c++"`,
-`"obj-c/c++"`, etc.).
+&str)` where the second element is the canonical lowercase language slug
+(`"cpp"`, `"csharp"`, `"rust"`, etc.) — the same string `LANG::name`
+emits and a valid `FromStr` lookup token. Objective-C / Objective-C++
+files parse with the C/C++ grammar and report `"cpp"`.
 
 Mode line scanning runs three regexes (compiled once via `OnceLock`):
 
@@ -100,14 +102,15 @@ final `(None, "")` result.
 ### The Objective-C overlay (`fake::get_true`)
 
 Objective-C and Objective-C++ are parsed by the C++ tree-sitter grammar,
-so they share `LANG::Cpp`. To preserve a meaningful display name,
-`fake::get_true(ext, mode)` returns `"obj-c/c++"` when:
+so they share `LANG::Cpp`. `fake::get_true(ext, mode)` reports the
+canonical `"cpp"` slug (matching `LANG::Cpp.name()`) when:
 
 - the extension is `m` or `mm`, or
 - the mode is `objc`, `objc++`, `objective-c`, or `objective-c++`.
 
-This only changes the *display name* — the `LANG` variant remains
-`Cpp`.
+Since #540 this is just the same slug `LANG::Cpp` would report anyway —
+the earlier `"obj-c/c++"` pseudo-name was dropped because it was not a
+valid `FromStr` lookup token. The `LANG` variant remains `Cpp`.
 
 ## Where the extension and mode tables come from
 

@@ -238,15 +238,16 @@ macro_rules! mk_lang {
             }
         }
 
-        /// Renders the language's canonical display name, identical to
+        /// Renders the language's canonical lowercase slug, identical to
         /// [`LANG::name`].
         ///
-        /// Several variants intentionally share a name (e.g. `Mozjs`
-        /// and `Javascript` both render `javascript`; `Tsx` and
-        /// `Typescript` both render `typescript`), so `Display` is not
-        /// injective. Parsing such a name back with [`std::str::FromStr`]
-        /// yields the first variant declared with that name in
-        /// `src/langs.rs`, not necessarily the original variant.
+        /// Every variant has a distinct slug, so `Display` is injective
+        /// and a `Display` → [`FromStr`](std::str::FromStr) round-trip
+        /// returns the original variant (see the round-trip test in
+        /// `src/langs.rs`). The slug is the single canonical identifier
+        /// used across every surface (CLI JSON, web `/metrics`, the
+        /// Python bindings): it contains no punctuation and is always a
+        /// valid `FromStr` lookup token.
         impl ::std::fmt::Display for LANG {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 f.write_str(self.name())
@@ -254,21 +255,20 @@ macro_rules! mk_lang {
         }
 
         /// Parses a [`LANG`] from its [`Display`](std::fmt::Display)
-        /// spelling (the [`LANG::name`] string, e.g. `"rust"`,
-        /// `"c/c++"`, `"c#"`).
+        /// spelling (the canonical lowercase [`LANG::name`] slug, e.g.
+        /// `"rust"`, `"cpp"`, `"csharp"`, `"tsx"`).
         ///
         /// Matching is case-sensitive and exact, mirroring
         /// [`Metric`](crate::Metric)'s `FromStr`: only the canonical
-        /// lowercase name is accepted. File extensions and emacs modes
+        /// lowercase slug is accepted. File extensions and emacs modes
         /// are deliberately *not* accepted here — use
         /// [`get_from_ext`](crate::get_from_ext) /
         /// [`get_from_emacs_mode`](crate::get_from_emacs_mode) for those.
         ///
-        /// Names shared by multiple variants resolve to the first
-        /// variant declared with that name in `src/langs.rs`
-        /// (`javascript` → `Mozjs`, `typescript` → `Tsx`), so a
-        /// `Display` → `FromStr` round-trip preserves the name but may
-        /// collapse aliased variants onto that first-declared sibling.
+        /// Every variant has a distinct slug, so this is the exact
+        /// inverse of [`Display`](std::fmt::Display): the round-trip
+        /// `LANG::from_str(&lang.to_string())` returns the original
+        /// variant for every `LANG`.
         impl ::std::str::FromStr for LANG {
             type Err = $crate::macros::ParseLangError;
 

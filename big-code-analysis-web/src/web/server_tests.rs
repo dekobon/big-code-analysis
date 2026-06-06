@@ -628,6 +628,52 @@ async fn test_web_metrics_json_unit() {
     assert_eq!(res, expected);
 }
 
+// Regression for #540: the `/metrics` `language` field must report the
+// canonical lowercase slug — a valid `LANG::from_str` lookup token —
+// not a human-pretty display form. Before the fix a `.cpp` file
+// surfaced `"c/c++"` and a `.cs` file `"c#"`, neither of which a client
+// could feed back through the language vocabulary. `parse::<LANG>()`
+// here proves the reported value round-trips.
+#[actix_rt::test]
+async fn test_web_metrics_language_is_canonical_slug() {
+    use big_code_analysis::LANG;
+
+    let app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/metrics")
+                .guard(guard::Header("content-type", "application/json"))
+                .route(web::post().to(metrics_json)),
+        ),
+    )
+    .await;
+
+    for (file_name, code, expected_slug, expected_lang) in [
+        ("a.cpp", "int x = 1;", "cpp", LANG::Cpp),
+        ("a.cs", "class C { int x; }", "csharp", LANG::Csharp),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/metrics")
+            .set_json(WebMetricsPayload {
+                id: "lang".to_string(),
+                file_name: file_name.to_string(),
+                code: code.to_string(),
+                unit: false,
+            })
+            .to_request();
+        let res: Value = test::call_and_read_body_json(&app, req).await;
+        assert_eq!(
+            res["language"],
+            json!(expected_slug),
+            "{file_name} should report the canonical slug",
+        );
+        assert_eq!(
+            expected_slug.parse::<LANG>(),
+            Ok(expected_lang),
+            "reported language `{expected_slug}` must round-trip via FromStr",
+        );
+    }
+}
+
 #[actix_rt::test]
 async fn test_web_metrics_plain() {
     let app = test::init_service(

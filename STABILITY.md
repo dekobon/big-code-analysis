@@ -51,11 +51,15 @@ section.
     allowed; renaming or removing one is a `2.0` break. Derives
     `Hash` and implements `Display` (the `name` string) and
     `FromStr` (parsing that same canonical name; error type
-    `ParseLangError`). The only remaining aliased pair is
-    `Tsx` / `Typescript` (both `typescript`), which parses back to
-    the first variant declared in `src/langs.rs` (`Tsx`), so
-    `Display` is not injective for it; every other name — including
-    the split `javascript` / `mozjs` pair — round-trips exactly.
+    `ParseLangError`). Since #540 every variant has a distinct
+    canonical lowercase slug (`cpp`, `csharp`, `tsx`, `typescript`,
+    `javascript`, `mozjs`, …), so `Display` is injective and
+    `LANG::from_str(&lang.to_string()) == Ok(lang)` for every variant.
+    This slug is the single language identifier across every surface
+    (the CLI JSON `language` field, the web `/metrics` `language`
+    field, and the Python bindings). The human-pretty `c/c++` / `c#`
+    display forms were dropped at `2.0` — a break in the serialized
+    `language` value.
   - `get_language_for_file`, `guess_language` in `src/tools.rs`.
 - **Top-level entry points**
   - `analyze` and `Source` in `src/spaces.rs` — the recommended

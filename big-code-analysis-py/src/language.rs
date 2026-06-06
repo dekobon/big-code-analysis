@@ -9,48 +9,17 @@
 //! These thin wrappers reuse the upstream `LANG` enum and its
 //! [`big_code_analysis::guess_language`] helper directly for both
 //! extension matching and the shebang / emacs-mode fallback the
-//! `bca` CLI walker uses. The forward lookup (variant → name) is
-//! owned by [`lang_to_name`] in this module: the upstream
-//! `LANG::name` returns a display string shared across variants
-//! (both `Tsx` and `Typescript` report `"typescript"`), so the
-//! Python facade carries its own variant-keyed name table to keep
-//! the two disambiguated.
+//! `bca` CLI walker uses. The forward lookup (variant → name) is just
+//! [`LANG::name`]: since #540 every variant has a distinct canonical
+//! lowercase slug (`Cpp` → `"cpp"`, `Csharp` → `"csharp"`, `Tsx` →
+//! `"tsx"`, `Typescript` → `"typescript"`), so the Python facade no
+//! longer needs its own variant-keyed name table.
 
 use std::path::Path;
 
 use big_code_analysis::{LANG, guess_language};
 
 use crate::analysis::AnalysisError;
-
-/// Returns the Python-facing language identifier for `lang`.
-///
-/// The rule is: use the upstream CLI display name
-/// ([`LANG::name`]), except for three tokens that are unusable as
-/// `parse_language_name` lookup identifiers and are overridden here:
-///
-/// - `Cpp`: `name()` returns `"c/c++"`, which is not a valid
-///   `language=` lookup token; the facade exposes `"cpp"`.
-/// - `Csharp`: `name()` returns `"c#"`; the facade exposes
-///   `"csharp"`.
-/// - `Tsx`: `name()` returns `"typescript"` for *both* `Tsx` and
-///   `Typescript`, so without an override the two would collapse to
-///   one lookup key. The override exposes `"tsx"`, making them
-///   distinct (TSX via `.tsx`, TypeScript via `.ts`).
-///
-/// Every other variant delegates to `name()` unchanged. Since #507 the
-/// JavaScript pair has distinct names and needs no override: `Javascript`
-/// (upstream grammar) reports `"javascript"` and is the default for `.js`
-/// / `.mjs` / `.cjs` / `.jsx`, while `Mozjs` (the Mozilla fork) reports
-/// `"mozjs"` and owns only `.jsm`. Both have registered extensions, so
-/// both are public and individually addressable from the Python API.
-pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
-    match lang {
-        LANG::Cpp => "cpp",
-        LANG::Csharp => "csharp",
-        LANG::Tsx => "tsx",
-        other => other.name(),
-    }
-}
 
 /// Returns the language name (as accepted by `analyze_source`) that
 /// matches `path`, by extension first and falling back to a
@@ -77,7 +46,7 @@ pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
 /// that `analyze` uses (`CPython`'s 3-tuple `OSError` constructor).
 pub(crate) fn language_for_file(path: &Path) -> Result<Option<&'static str>, AnalysisError> {
     let code = std::fs::read(path).map_err(|source| AnalysisError::io(source, path))?;
-    Ok(guess_language(&code, path).0.map(lang_to_name))
+    Ok(guess_language(&code, path).0.map(|lang| lang.name()))
 }
 
 /// Iterator over the `LANG` variants exposed to Python.
@@ -110,7 +79,7 @@ fn public_languages() -> impl Iterator<Item = LANG> {
 pub(crate) fn supported_languages() -> Vec<&'static str> {
     public_languages()
         .filter(LANG::is_enabled)
-        .map(lang_to_name)
+        .map(|lang| lang.name())
         .collect()
 }
 
@@ -131,7 +100,7 @@ pub(crate) fn language_extensions(name: &str) -> Option<Vec<&'static str>> {
 /// Resolve a user-supplied language name (as accepted by
 /// `analyze_source`) to its `LANG` enum value.
 ///
-/// Matches case-insensitively against [`lang_to_name`]. Helper
+/// Matches case-insensitively against [`LANG::name`]. Helper
 /// variants (`Ccomment`, `Preproc`) are *not* exposed through this
 /// path — they exist purely to support the C/C++ preprocessing
 /// pipeline internally and have no public file extensions, so
@@ -141,7 +110,7 @@ pub(crate) fn language_extensions(name: &str) -> Option<Vec<&'static str>> {
 /// to `UnsupportedLanguageError` on the Python side.
 pub(crate) fn parse_language_name(name: &str) -> Option<LANG> {
     let needle = name.to_lowercase();
-    public_languages().find(|lang| lang_to_name(*lang) == needle)
+    public_languages().find(|lang| lang.name() == needle)
 }
 
 #[cfg(test)]
@@ -216,7 +185,7 @@ mod tests {
         // succeeded — the asymmetry this issue closed.
         //
         // Test-via-revert: switching the body back to
-        // `get_language_for_file(path).map(lang_to_name)` reverts
+        // `get_language_for_file(path).map(LANG::name)` reverts
         // the function to extension-only and makes this assertion
         // fail with `None`.
         let (_dir, path) = write_fixture("install", b"#!/usr/bin/env python\nprint('ok')\n");
@@ -306,10 +275,10 @@ mod tests {
 
     #[test]
     fn tsx_and_typescript_are_distinct_python_identifiers() {
-        // Upstream `LANG::name` returns "typescript" for both
-        // `Tsx` and `Typescript`, which would collide as a lookup
-        // key. The Python bindings carry their own variant-keyed
-        // name table to keep them disambiguated.
+        // Since #540 `LANG::name` returns distinct canonical slugs
+        // ("tsx" for `Tsx`, "typescript" for `Typescript`), so the two
+        // no longer collide as lookup keys and the Python facade needs
+        // no override to keep them disambiguated.
         let langs = supported_languages();
         assert!(langs.contains(&"tsx"));
         assert!(langs.contains(&"typescript"));
@@ -382,42 +351,17 @@ mod tests {
     }
 
     #[test]
-    fn lang_to_name_overrides_cpp_and_csharp() {
-        // Pin the two overrides that no other test fixes. Upstream
-        // `name()` returns "c/c++" / "c#", neither of which is a
-        // usable `parse_language_name` lookup token. Test-via-revert:
-        // deleting the matching override arm makes `name()`'s value
-        // leak through and fails these assertions.
-        assert_eq!(lang_to_name(LANG::Cpp), "cpp");
-        assert_eq!(lang_to_name(LANG::Csharp), "csharp");
-    }
-
-    #[test]
-    fn lang_to_name_delegates_to_name_outside_overrides() {
-        // Parity contract: every public variant EXCEPT the three
-        // identifier/collision overrides exposes exactly the upstream
-        // CLI display name. This makes the delegation explicit and
-        // turns an accidental upstream display rename into a test
-        // failure rather than a silent Python-API drift.
-        const OVERRIDES: [LANG; 3] = [LANG::Cpp, LANG::Csharp, LANG::Tsx];
-        let mut checked = 0;
-        for lang in public_languages() {
-            if OVERRIDES.contains(&lang) {
-                continue;
-            }
-            assert_eq!(
-                lang_to_name(lang),
-                lang.name(),
-                "non-override variant {lang:?} must mirror name()"
-            );
-            checked += 1;
-        }
-        // Guard against a vacuous pass: if `public_languages()` ever
-        // shrank to nothing (or to only the overrides), the loop above
-        // would assert nothing yet still report green.
-        assert!(
-            checked > 0,
-            "parity loop exercised no non-override variants"
-        );
+    fn cpp_csharp_tsx_expose_canonical_slugs() {
+        // Since #540 the Python facade reports the upstream canonical
+        // slug verbatim — no override. `Cpp`/`Csharp` previously needed
+        // overriding because `name()` returned the unusable display
+        // forms "c/c++" / "c#"; `Tsx` because it shared "typescript"
+        // with `Typescript`. All three are now distinct lookup tokens.
+        assert_eq!(LANG::Cpp.name(), "cpp");
+        assert_eq!(LANG::Csharp.name(), "csharp");
+        assert_eq!(LANG::Tsx.name(), "tsx");
+        assert!(matches!(parse_language_name("cpp"), Some(LANG::Cpp)));
+        assert!(matches!(parse_language_name("csharp"), Some(LANG::Csharp)));
+        assert!(matches!(parse_language_name("tsx"), Some(LANG::Tsx)));
     }
 }

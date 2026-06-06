@@ -145,9 +145,11 @@ table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 /// suite. `"other"` is the neutral fallback for any name not listed.
 ///
 /// Names match production output of [`big_code_analysis::LANG::name`]
-/// (see `src/langs.rs`); `LANG::Tsx` still collapses to `"typescript"`
-/// upstream, and the Mozilla-fork `"mozjs"` reuses the `"javascript"`
-/// tint (it is JavaScript, just a different grammar) without its own
+/// (see `src/langs.rs`), which since #540 is the canonical lowercase
+/// slug for every variant (`"cpp"`, `"csharp"`, `"tsx"`). `LANG::Tsx`
+/// (`"tsx"`) reuses the `"typescript"` tint (it is TypeScript + JSX),
+/// and the Mozilla-fork `"mozjs"` reuses the `"javascript"` tint (it
+/// is JavaScript, just a different grammar) — neither needs its own
 /// CSS rule.
 const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("rust", "rust"),
@@ -155,11 +157,12 @@ const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("javascript", "javascript"),
     ("mozjs", "javascript"),
     ("typescript", "typescript"),
+    ("tsx", "typescript"),
     ("java", "java"),
     ("kotlin", "kotlin"),
     ("go", "go"),
-    ("c/c++", "cpp"),
-    ("c#", "csharp"),
+    ("cpp", "cpp"),
+    ("csharp", "csharp"),
     ("php", "php"),
     ("bash", "bash"),
     ("perl", "perl"),
@@ -1175,12 +1178,16 @@ mod tests {
     fn language_palette_slug_known_and_fallback() {
         assert_eq!(language_palette_slug("rust"), "rust");
         assert_eq!(language_palette_slug("python"), "python");
-        assert_eq!(language_palette_slug("c/c++"), "cpp");
-        assert_eq!(language_palette_slug("c#"), "csharp");
-        // `LANG::Tsx` still collapses to "typescript" upstream (no
-        // standalone "tsx" entry). Since #507 the Mozilla fork reports
-        // "mozjs" and reuses the "javascript" tint via an explicit row.
+        // Since #540 the input is the canonical slug ("cpp" / "csharp"),
+        // not the dropped pretty forms.
+        assert_eq!(language_palette_slug("cpp"), "cpp");
+        assert_eq!(language_palette_slug("csharp"), "csharp");
+        // `LANG::Tsx` now reports the distinct "tsx" slug (#540) and
+        // reuses the "typescript" tint via an explicit row. Since #507
+        // the Mozilla fork reports "mozjs" and reuses the "javascript"
+        // tint via an explicit row.
         assert_eq!(language_palette_slug("typescript"), "typescript");
+        assert_eq!(language_palette_slug("tsx"), "typescript");
         assert_eq!(language_palette_slug("javascript"), "javascript");
         assert_eq!(language_palette_slug("mozjs"), "javascript");
         assert_eq!(language_palette_slug("ruby"), "ruby");
@@ -1189,7 +1196,6 @@ mod tests {
         // the neutral tint rather than fabricating a slug.
         assert_eq!(language_palette_slug("ccomment"), "other");
         assert_eq!(language_palette_slug("preproc"), "other");
-        assert_eq!(language_palette_slug("tsx"), "other");
         assert_eq!(language_palette_slug(""), "other");
     }
 
@@ -1224,10 +1230,11 @@ mod tests {
 
     #[test]
     fn tsx_section_uses_typescript_palette() {
-        // `LANG::Tsx::name() == "typescript"`, so a TSX-only walk
-        // must end up tinted as typescript — not as a fabricated
-        // `lang-tsx` (no such CSS rule any more) and not as the
-        // neutral `lang-other` fallback.
+        // `LANG::Tsx::name() == "tsx"` (#540), mapped to the
+        // "typescript" tint by an explicit palette row, so a TSX-only
+        // walk must end up tinted as typescript — not as a fabricated
+        // `lang-tsx` (no such CSS rule) and not as the neutral
+        // `lang-other` fallback.
         let entries = vec![
             make_summary("App.tsx", "src/App.tsx", SpaceKind::Unit, LANG::Tsx),
             make_summary("render", "src/App.tsx", SpaceKind::Function, LANG::Tsx),
