@@ -921,11 +921,12 @@ struct DiffArgs {
 /// three gate-skipping tiers — in-source markers, `[check.exclude]`
 /// globs, and `.bca-baseline.toml` entries — in one report.
 ///
-/// The `--only-*` flags are mutually exclusive section selectors for
-/// PR-bot specialisation; omitting them reports all three. The baseline
-/// and `[check.exclude]` inputs default to the same sources `bca check`
-/// reads (`bca.toml` `[check]` table), so the audit reflects exactly
-/// what the gate would skip.
+/// The `--*-only` flags are mutually exclusive section selectors for
+/// PR-bot specialisation; omitting them reports all three. The old
+/// `--only-*` spellings remain as hidden aliases for one cycle. The
+/// baseline and `[check.exclude]` inputs default to the same sources
+/// `bca check` reads (`bca.toml` `[check]` table), so the audit
+/// reflects exactly what the gate would skip.
 #[derive(Args, Debug)]
 struct ExemptionsArgs {
     /// Output style: `tty` (default), `markdown`, or `json`. JSON nests
@@ -938,15 +939,18 @@ struct ExemptionsArgs {
     /// Path prefix to strip from displayed file paths.
     #[clap(long, default_value = "")]
     strip_prefix: String,
-    /// Report only the in-source markers section.
-    #[clap(long = "only-markers", conflicts_with_all = ["only_excludes", "only_baseline"])]
-    only_markers: bool,
-    /// Report only the `[check.exclude]` globs section.
-    #[clap(long = "only-excludes", conflicts_with_all = ["only_markers", "only_baseline"])]
-    only_excludes: bool,
-    /// Report only the `.bca-baseline.toml` entries section.
-    #[clap(long = "only-baseline", conflicts_with_all = ["only_markers", "only_excludes"])]
-    only_baseline: bool,
+    /// Report only the in-source markers section. The old
+    /// `--only-markers` spelling stays a hidden alias for one cycle.
+    #[clap(long = "markers-only", alias = "only-markers", conflicts_with_all = ["excludes_only", "baseline_only"])]
+    markers_only: bool,
+    /// Report only the `[check.exclude]` globs section. The old
+    /// `--only-excludes` spelling stays a hidden alias for one cycle.
+    #[clap(long = "excludes-only", alias = "only-excludes", conflicts_with_all = ["markers_only", "baseline_only"])]
+    excludes_only: bool,
+    /// Report only the `.bca-baseline.toml` entries section. The old
+    /// `--only-baseline` spelling stays a hidden alias for one cycle.
+    #[clap(long = "baseline-only", alias = "only-baseline", conflicts_with_all = ["markers_only", "excludes_only"])]
+    baseline_only: bool,
     /// Baseline file to audit. Defaults to `bca.toml`'s top-level
     /// `baseline` key, then `.bca-baseline.toml` in the working
     /// directory when present. A path given here must exist.

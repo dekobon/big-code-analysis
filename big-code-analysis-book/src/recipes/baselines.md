@@ -352,7 +352,7 @@ bca --paths src/ exemptions
 
 The baseline section reads the same `--baseline` / `bca.toml` top-level
 `baseline` source `bca check` does (or `.bca-baseline.toml` by default).
-Use `--only-baseline` to list just the baselined offenders, `--format
+Use `--baseline-only` to list just the baselined offenders, `--format
 markdown` for a PR comment, or `--format json` for dashboards. During
 PR review, pair it with `bca diff-baseline <old> <new>` (above): the
 diff shows what *changed* in the baseline, `bca exemptions` shows the

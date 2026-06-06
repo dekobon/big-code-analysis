@@ -274,16 +274,21 @@ bca --paths src/ exemptions --format json | jq '.suppressions.markers[] | select
 ```
 
 In the JSON form an omitted section is `null` (not requested via a
-`--only-*` flag) while a requested-but-empty section is `[]`, so
+`--*-only` flag) while a requested-but-empty section is `[]`, so
 filters can tell the two apart.
 
-The combinable-free `--only-markers` / `--only-excludes` /
-`--only-baseline` flags narrow the report to a single tier for PR-bot
+The mutually-exclusive `--markers-only` / `--excludes-only` /
+`--baseline-only` flags narrow the report to a single tier for PR-bot
 specialisation (e.g. a bot that only comments on newly-added in-source
 markers). The baseline (`bca.toml` top-level `baseline`) and
 `[check.exclude]` (`[check] exclude`) inputs default to the same
 sources `bca check` reads, so the audit reflects exactly what the gate
 would skip; override the baseline with `--baseline <path>`.
+
+The earlier `--only-markers` / `--only-excludes` / `--only-baseline`
+spellings remain as hidden aliases for one release cycle to keep
+existing PR-bot invocations working; prefer the `--<section>-only`
+forms, which match the `diff-baseline` section filters.
 
 Unlike `bca check`, `bca exemptions` is informational and always exits
 0 on success — it is a review surface, not a gate.

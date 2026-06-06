@@ -230,10 +230,21 @@ fn default_baseline_file_is_audited_when_present() {
     assert_eq!(v["suppressions"]["baseline"].as_array().unwrap().len(), 1);
 }
 
-/// `--only-markers` restricts the report to one section; the others
+/// `--markers-only` restricts the report to one section; the others
 /// serialize to JSON `null` (not requested), distinct from `[]`.
 #[test]
-fn only_markers_nulls_other_sections() {
+fn markers_only_nulls_other_sections() {
+    let dir = marker_fixture();
+    let v = run_json(&dir, &["--markers-only"]);
+    assert!(v["suppressions"]["markers"].is_array());
+    assert!(v["suppressions"]["excludes"].is_null());
+    assert!(v["suppressions"]["baseline"].is_null());
+}
+
+/// The retired `--only-markers` spelling stays a one-cycle hidden alias
+/// for `--markers-only` and must select the same section.
+#[test]
+fn only_markers_alias_still_selects_markers_section() {
     let dir = marker_fixture();
     let v = run_json(&dir, &["--only-markers"]);
     assert!(v["suppressions"]["markers"].is_array());
@@ -241,10 +252,21 @@ fn only_markers_nulls_other_sections() {
     assert!(v["suppressions"]["baseline"].is_null());
 }
 
-/// `--only-excludes` likewise nulls markers and baseline, and does not
+/// `--excludes-only` likewise nulls markers and baseline, and does not
 /// walk the tree (markers null even though the fixture has markers).
 #[test]
-fn only_excludes_nulls_markers_and_baseline() {
+fn excludes_only_nulls_markers_and_baseline() {
+    let dir = marker_fixture();
+    let v = run_json(&dir, &["--excludes-only", "--check-exclude", "vendor/**"]);
+    assert!(v["suppressions"]["markers"].is_null());
+    assert_eq!(v["suppressions"]["excludes"][0], "vendor/**");
+    assert!(v["suppressions"]["baseline"].is_null());
+}
+
+/// The retired `--only-excludes` alias selects the excludes section just
+/// like its `--excludes-only` canonical spelling.
+#[test]
+fn only_excludes_alias_still_selects_excludes_section() {
     let dir = marker_fixture();
     let v = run_json(&dir, &["--only-excludes", "--check-exclude", "vendor/**"]);
     assert!(v["suppressions"]["markers"].is_null());
@@ -252,21 +274,74 @@ fn only_excludes_nulls_markers_and_baseline() {
     assert!(v["suppressions"]["baseline"].is_null());
 }
 
-/// The `--only-*` flags are mutually exclusive (clap usage error, exit 2).
+/// The old `--only-baseline` alias maps to `--baseline-only`.
 #[test]
-fn only_flags_are_mutually_exclusive() {
+fn only_baseline_alias_still_selects_baseline_section() {
+    let dir = marker_fixture();
+    let v = run_json(&dir, &["--only-baseline"]);
+    assert!(v["suppressions"]["markers"].is_null());
+    assert!(v["suppressions"]["excludes"].is_null());
+    assert!(v["suppressions"]["baseline"].is_array());
+}
+
+/// The `--*-only` flags are mutually exclusive (clap usage error, exit 2).
+#[test]
+fn section_only_flags_are_mutually_exclusive() {
     let dir = marker_fixture();
     cli()
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
             "exemptions",
-            "--only-markers",
+            "--markers-only",
+            "--baseline-only",
+        ])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+/// The new canonical and old alias spellings collide too: mixing
+/// `--markers-only` with the `--only-baseline` alias is still exit 2.
+#[test]
+fn canonical_and_alias_section_flags_conflict() {
+    let dir = marker_fixture();
+    cli()
+        .args([
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "exemptions",
+            "--markers-only",
             "--only-baseline",
         ])
         .assert()
         .failure()
         .code(2);
+}
+
+/// The old `--only-*` spellings must be hidden aliases: they parse, but
+/// must not be advertised in `exemptions --help`.
+#[test]
+fn old_only_spellings_are_hidden_from_help() {
+    let out = cli()
+        .args(["exemptions", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(out).unwrap();
+    assert!(help.contains("--markers-only"));
+    assert!(help.contains("--excludes-only"));
+    assert!(help.contains("--baseline-only"));
+    // The old spellings may appear inside the flag descriptions (prose),
+    // but must never be listed as their own option entry. clap renders an
+    // option flag as a line whose first non-space token is the long flag.
+    let listed_as_option =
+        |flag: &str| help.lines().any(|line| line.trim_start().starts_with(flag));
+    assert!(!listed_as_option("--only-markers"));
+    assert!(!listed_as_option("--only-excludes"));
+    assert!(!listed_as_option("--only-baseline"));
 }
 
 /// The command is informational: it reports markers and still exits 0

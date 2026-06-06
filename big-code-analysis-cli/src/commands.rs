@@ -2168,12 +2168,12 @@ fn run_command_exemptions(
         }
     }
 
-    // No `--only-*` flag selects every section; one selects just that
+    // No `--*-only` flag selects every section; one selects just that
     // one (clap enforces mutual exclusivity).
-    let only_any = args.only_markers || args.only_excludes || args.only_baseline;
-    let want_markers = !only_any || args.only_markers;
-    let want_excludes = !only_any || args.only_excludes;
-    let want_baseline = !only_any || args.only_baseline;
+    let only_any = args.markers_only || args.excludes_only || args.baseline_only;
+    let want_markers = !only_any || args.markers_only;
+    let want_excludes = !only_any || args.excludes_only;
+    let want_baseline = !only_any || args.baseline_only;
 
     // Resolve the config-driven sections before the walk: it consumes
     // `globals`, and a missing exclude-from file or unparseable baseline
