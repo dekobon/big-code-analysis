@@ -12,6 +12,13 @@ tier = "soft"
 headroom = 0.95
 
 [[entry]]
+path = "big-code-analysis-cli/src/format_util.rs"
+qualified = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 55546.053164509794
+
+[[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "collect_offenders"
 start_line = 450
