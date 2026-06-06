@@ -504,6 +504,24 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Tidied internal-plumbing visibility. `Cursor`
+  (`src/node.rs`) is narrowed from `pub` to `pub(crate)` and dropped from the
+  `lib.rs` re-exports: every one of its methods was already `pub(crate)`, so the
+  re-exported type could be named but never used. `Callback` and `LanguageInfo`
+  gain `#[doc(hidden)]` to match `ParserTrait` (`Callback::call` is bound on the
+  hidden `ParserTrait`, and `LanguageInfo` is reachable from documented API only
+  through the hidden `Parser`), so the bound and the trait now have coherent
+  visibility; they remain `pub` for the `action::<T>` dispatcher and the
+  in-crate / `bca-web` `impl Callback` blocks, so only their rustdoc presence
+  changes. `Node` stays `pub` — the doc-hidden `ParserTrait::root` returns it,
+  and it carries a genuine public method (`has_error`); `Ast::as_tree_sitter` is
+  the preferred higher-level raw-tree seam. Removing `Cursor` from the public
+  surface is SemVer-breaking; **deferred to the `2.0.0` release** (the
+  release-prep commit moves this entry into the `2.0.0` section). The
+  `#[doc(hidden)]` additions are not themselves SemVer-breaking.
+  ([#534](https://github.com/dekobon/big-code-analysis/issues/534), part of
+  [#505](https://github.com/dekobon/big-code-analysis/issues/505))
+
 - **(breaking)** The builder types `Source`, `MetricsOptions`, and
   `MetricsCfg` no longer expose `pub` fields — they are narrowed to
   `pub(crate)`. These types are already documented as "construct via `new` +

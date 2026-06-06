@@ -310,7 +310,7 @@ impl ::std::error::Error for ParseLangError {}
 
 macro_rules! mk_action {
     ( $( ($feature:literal, $camel:ident, $parser:ident) ),* ) => {
-        /// Runs a function, which implements the [`Callback`] trait,
+        /// Runs a function, which implements the `Callback` trait,
         /// on a code written in one of the supported languages.
         ///
         /// # Errors
@@ -344,8 +344,6 @@ macro_rules! mk_action {
         /// action::<Metrics>(language, source_as_vec, &path, None, cfg)
         ///     .expect("cpp feature enabled");
         /// ```
-        ///
-        /// [`Callback`]: trait.Callback.html
         #[inline]
         pub fn action<T: Callback>(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, cfg: T::Cfg) -> Result<T::Res, MetricsError> {
             match lang {

@@ -238,9 +238,9 @@ pub use crate::output::{
     write_msvc_warning, write_sarif, write_sarif_with_suppressed,
 };
 
-// --- AST plumbing (Node, Cursor) ---
+// --- AST plumbing (Node) ---
 mod node;
-pub use crate::node::{Cursor, Node};
+pub use crate::node::Node;
 
 // --- Language detection / I/O helpers ---
 mod tools;

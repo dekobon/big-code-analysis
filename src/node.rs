@@ -300,7 +300,7 @@ impl<'a> Node<'a> {
 
 /// An `AST` cursor.
 #[derive(Clone)]
-pub struct Cursor<'a>(TreeCursor<'a>);
+pub(crate) struct Cursor<'a>(TreeCursor<'a>);
 
 impl<'a> Cursor<'a> {
     pub(crate) fn reset(&mut self, node: &Node<'a>) {

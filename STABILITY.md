@@ -141,7 +141,11 @@ The following are explicitly **not** part of the shape contract:
   (`Cognitive`, `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`,
   `NArgs`, `Exit`, `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`) are
   similarly doc-hidden. `Parser<T>` and `Filter` are doc-hidden for
-  the same reason. None of these appear in the curated rustdoc and
+  the same reason. `Callback` and `LanguageInfo` are doc-hidden too
+  (#534): `Callback::call` is bound on the hidden `ParserTrait`, and
+  `LanguageInfo` is reachable from documented API only through the
+  hidden `Parser` — both share `ParserTrait`'s holding-pattern
+  visibility. None of these appear in the curated rustdoc and
   none are part of the stability contract — treat them as internal
   plumbing.
 
@@ -266,6 +270,11 @@ reach the raw tree-sitter surface.
   directly through the `.0` field. Anything you do through `.0`
   follows the pinned `tree-sitter` crate version and will move
   whenever we bump that pin (typically under a minor release).
+  `Node` stays `pub` rather than being demoted (#534): the
+  doc-hidden `ParserTrait::root` returns it, so narrowing it would
+  trip `private_interfaces`. For tree-level raw access prefer the
+  higher-level `Ast::as_tree_sitter` seam below; reach for `Node.0`
+  only when you already hold a `Node` from this surface.
 - **`tree_sitter` is re-exported as `big_code_analysis::tree_sitter`.**
   Consumers who construct trees themselves should depend on the
   re-export rather than adding a sibling `tree-sitter` dependency
@@ -468,9 +477,15 @@ loose ends that will be tightened at `2.0`:
 - The deprecated `metrics` / `metrics_with_options` shims (in
   favour of `analyze`) are removed.
 - The remaining `#[doc(hidden)]` extension traits (`ParserTrait`,
-  the per-metric compute traits, `Parser<T>`, `Filter`) become
-  candidates for either deletion or formal exposure — the current
-  hidden state is a holding pattern, not a destination.
+  the per-metric compute traits, `Parser<T>`, `Filter`, and — since
+  #534 — `Callback` and `LanguageInfo`) become candidates for either
+  deletion or formal exposure — the current hidden state is a holding
+  pattern, not a destination.
+- `Cursor` (`src/node.rs`) is demoted from `pub` to `pub(crate)`
+  (#534): every one of its methods was already `pub(crate)`, so the
+  re-exported type could be named but never used. It is dropped from
+  the `lib.rs` re-exports. This is a SemVer-breaking removal from the
+  public surface, hence reserved for `2.0`.
 - The accumulated metric-definition fixes that have shifted values
   across `1.x` get a clean re-baseline note in the `2.0` entry, so
   consumers comparing across the major boundary have one diff to
