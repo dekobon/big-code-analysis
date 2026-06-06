@@ -23,6 +23,23 @@ for historical reference.
 
 ### Added
 
+- `ParseMetricError::input()` and `ParseLangError::input()` accessors
+  return the rejected input string (previously `Display`-only) (#536).
+- `bca strip-comments` gains `--output`/`-o` to write a single file's
+  stripped source to a path (stdout when omitted); mutually exclusive
+  with `--in-place`, and a multi-file input is rejected rather than
+  clobbering one path (#539).
+- `bca-web`: `GET /v1/version` and `GET /v1/languages` introspection
+  endpoints (with unprefixed `/version` and `/languages` aliases),
+  mirroring the Python `__version__` / `supported_languages()` /
+  `language_extensions()` surface (#541).
+- Library: `big_code_analysis::VERSION` constant exposing the crate
+  version (#541).
+- Python: `Lang` and `MetricName` `StrEnum`s (generated from the live
+  `LANG` / `Metric::NAMES` tables, so `Lang.CPP == "cpp"` and values
+  round-trip with the CLI/JSON slugs); `analyze_batch` gains
+  `exclude_tests` / `allow_lossy_path` / `skip_generated` keyword
+  arguments (#542).
 - The serialized metric output is now **readable back**: a new public
   `big_code_analysis::wire` module provides plain `Serialize`/`Deserialize`
   structs (`wire::FuncSpace`, `wire::CodeMetrics`, `wire::Ops`,
@@ -504,6 +521,75 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Serialized AST node output (`AstNode`, REST `/ast`,
+  `AstCallback`) now uses snake_case keys `type` / `value` / `span` /
+  `field_name` / `children` (was `Type` / `TextValue` / `Span` /
+  `FieldName` / `Children`); `TextValue` is renamed to `value`. `Span`
+  changes from a bare `(usize, usize, usize, usize)` tuple to a named
+  object `{start_row, start_col, end_row, end_col}` (still `Option`,
+  `null` for root / span-disabled nodes); field order and 1-based
+  row/column values are unchanged. Deferred to the next major bump
+  (#535).
+- **(breaking)** `Metric::Exit` renamed to `Metric::Nexits`; its
+  `Display` is now `"nexits"` and `Metric::NAMES` lists `nexits`,
+  matching the `nargs`/`nom`/`npa`/`npm` "number-of" family. The CLI
+  accepts `nexits` canonically with `exit` kept as a hidden parse alias
+  for one cycle. The serialized field and JSON key were already `nexits`,
+  so output is unchanged. Deferred to the next major bump (#536).
+- **(breaking)** Removed the never-produced `MetricsError::NonUtf8Path`
+  and `MetricsError::ParseHasErrors` variants (the enum stays
+  `#[non_exhaustive]`, so a future strict mode can re-add them).
+  `EmptyRoot` is retained — it is constructed at live forward-compat
+  guards. Deferred to the next major bump (#536).
+- **(breaking)** `FunctionSpan.name` is now `Option<String>` and the
+  `error: bool` field was removed; an unresolved name is `None`
+  (serialized `null`), matching `FuncSpace`/`Ops`. The wire DTO and the
+  REST `/function` JSON shape are updated accordingly. Deferred to the
+  next major bump (#536).
+- **(breaking)** `CountCfg` and `FindCfg` no longer expose
+  `Arc<Mutex<Count>>` / `Arc<[String]>` in their public fields.
+  `CountCfg.stats` is now an opaque `CountCollector`
+  (`CountCollector::new()`, `into_count()`); `CountCfg.filters` and
+  `FindCfg.filters` are now an opaque `NodeTypeFilters`
+  (`NodeTypeFilters::new(&[String])` / `From<Vec<String>>`, borrowed
+  `as_slice()`). Both newtypes are re-exported from the crate root.
+  Deferred to the next major bump (#537).
+- **(breaking)** `bca exemptions`: section filters renamed to the
+  `--<section>-only` idiom (`--markers-only` / `--excludes-only` /
+  `--baseline-only`), matching `diff-baseline`. The old `--only-*`
+  spellings remain as hidden aliases for one release cycle. Deferred to
+  the next major bump (#538).
+- **(breaking)** CLI excludes now merge with the manifest. `--exclude` /
+  `--check-exclude` (and their `*-from` files) UNION with the `bca.toml`
+  `exclude` / `[check] exclude` lists instead of replacing them, so a
+  command-line filter can no longer silently un-exclude a directory the
+  project config skipped. Positive scope keys (`paths`, `include`) still
+  replace on a CLI value; `--no-config` still bypasses the manifest.
+  Deferred to the next major bump (#539).
+- **(breaking)** `LANG::name`/`Display`/`FromStr` now use one canonical
+  lowercase slug per language; the pretty `c/c++` / `c#` display forms
+  are dropped and `Tsx` reports `tsx`. The serialized `language` value
+  (CLI JSON, web `/metrics`, Python) changes accordingly and is now
+  always a valid `FromStr` lookup token. Deferred to the next major bump
+  (#540).
+- **(breaking)** `bca-web`: all error responses (including
+  octet-stream/plain endpoints and the 415/405/404 fallbacks) now return
+  a uniform JSON body `{"error", "id"}` with the correct status,
+  replacing the former bare `text/plain` bodies. Deferred to the next
+  major bump (#541).
+- **(breaking)** `bca-web`: `/v1/function` and `/v1/comment` responses
+  now include `id` and the detected `language` (canonical slug),
+  matching the `/v1/metrics` envelope. Deferred to the next major bump
+  (#541).
+- **(breaking)** `bca-web`: the `unit` query flag on `/v1/metrics` now
+  uses normal boolean semantics (`true`/`false`/`1`/`0`,
+  case-insensitive); other values (including `yes`/`on`) return HTTP 400.
+  Deferred to the next major bump (#541).
+- **(breaking)** Python: `analyze_batch`'s `skip_generated` default
+  flips to `True`, aligning with single-file `analyze`;
+  `supported_languages()` now returns `list[Lang]` and `METRIC_NAMES` a
+  `tuple[MetricName, ...]` (values remain string-compatible). Deferred to
+  the next major bump (#542).
 - **(breaking)** Tidied internal-plumbing visibility. `Cursor`
   (`src/node.rs`) is narrowed from `pub` to `pub(crate)` and dropped from the
   `lib.rs` re-exports: every one of its methods was already `pub(crate)`, so the
