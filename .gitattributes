@@ -3,3 +3,11 @@ tree-sitter-ccomment/** linguist-vendored
 tree-sitter-mozcpp/** linguist-vendored
 tree-sitter-mozjs/** linguist-vendored
 tree-sitter-preproc/** linguist-vendored
+
+# Pin Python source to LF on every platform. The generated `_enums.py` is
+# byte-compared against `render_enums_module()` output (which emits `\n`) by
+# the `enums_module_matches_checked_in` drift gate (#550); a Windows
+# `core.autocrlf=true` checkout would otherwise rewrite it to CRLF and fail
+# the byte-exact comparison. Covering all `*.py` forecloses the same trap for
+# any future generated-Python gate.
+*.py text eol=lf

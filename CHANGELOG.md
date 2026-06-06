@@ -1325,6 +1325,14 @@ for historical reference.
 
 ### Fixed
 
+- Windows CI: the Python bindings' `enums_module_matches_checked_in`
+  drift gate no longer fails on Windows runners. The generated
+  `_enums.py` is byte-compared against `render_enums_module()` output
+  (which emits `\n`), but a `core.autocrlf=true` Windows checkout
+  rewrote the file to CRLF, breaking the comparison. The file is now
+  pinned to LF (`*.py text eol=lf`) in `.gitattributes`, keeping the
+  byte-exact gate valid on every platform
+  ([#550](https://github.com/dekobon/big-code-analysis/issues/550)).
 - PHP cognitive complexity no longer double-counts the two-word `else if`
   form. PHP parses `else if` as an `else_clause` wrapping a nested
   `if_statement`, and the nested `IfStatement` fell through the cognitive
