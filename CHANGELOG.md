@@ -504,6 +504,21 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** The builder types `Source`, `MetricsOptions`, and
+  `MetricsCfg` no longer expose `pub` fields — they are narrowed to
+  `pub(crate)`. These types are already documented as "construct via `new` +
+  `with_*` setters" and carry `#[non_exhaustive]`; the `pub` fields only froze
+  the internal representation (e.g. `Source::code: &[u8]`, `Source::name:
+  String`) as API for no benefit. Construction is unchanged
+  (`Source::new(...).with_*(...)`, `MetricsOptions::default().with_*(...)`,
+  `MetricsCfg::new(...).with_options(...)`); only direct field reads break, and
+  the builders cover every supported use. No accessors were added — no consumer
+  needs to read the config back. SemVer-breaking for code that read the fields
+  directly; **deferred to the `2.0.0` release** (the release-prep commit moves
+  this entry into the `2.0.0` section).
+  ([#533](https://github.com/dekobon/big-code-analysis/issues/533), part of
+  [#505](https://github.com/dekobon/big-code-analysis/issues/505))
+
 - **(breaking)** Non-finite float metric values (`NaN`/`±Infinity`) now
   serialize as a null uniformly across every structured format, enforced once
   at the serialize boundary via an internal `NonFinite` float wrapper rather

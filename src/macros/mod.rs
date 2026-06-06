@@ -339,9 +339,9 @@ macro_rules! mk_action {
         /// let source_as_vec = source_code.as_bytes().to_vec();
         ///
         /// // Configuration options used by the function which computes the metrics
-        /// let cfg = MetricsCfg::new(path);
+        /// let cfg = MetricsCfg::new(path.clone());
         ///
-        /// action::<Metrics>(language, source_as_vec, &cfg.path.clone(), None, cfg)
+        /// action::<Metrics>(language, source_as_vec, &path, None, cfg)
         ///     .expect("cpp feature enabled");
         /// ```
         ///

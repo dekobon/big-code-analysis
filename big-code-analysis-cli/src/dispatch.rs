@@ -156,8 +156,10 @@ fn dispatch_metrics(
         }
         Ok(())
     } else {
-        let metrics_cfg = MetricsCfg::new(path).with_options(cfg.metrics_options());
-        let path = metrics_cfg.path.clone();
+        // `action` needs both `&path` and a `MetricsCfg` carrying the path;
+        // clone into the cfg and keep the original borrow rather than reading
+        // the (now `pub(crate)`) `MetricsCfg::path` field back (#533).
+        let metrics_cfg = MetricsCfg::new(path.clone()).with_options(cfg.metrics_options());
         action::<Metrics>(language, source, &path, pr, metrics_cfg).expect(FEATURES_PINNED)
     }
 }

@@ -30,7 +30,7 @@ pub struct Ops {
     ///
     /// For the top-level (file-level) `Ops` the value depends on the
     /// entry point. The explicit-name seam [`crate::Ast::ops`] carries
-    /// whatever [`crate::Source::name`] the caller supplied — `Some` or
+    /// whatever `Source::name` the caller supplied — `Some` or
     /// `None`. The deprecated path-positional [`crate::get_ops`] /
     /// [`operands_and_operators`] shims instead derive it from the file
     /// path via lossy UTF-8 conversion, so it is always `Some`; non-UTF-8

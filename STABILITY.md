@@ -59,15 +59,20 @@ section.
   - `get_language_for_file`, `guess_language` in `src/tools.rs`.
 - **Top-level entry points**
   - `analyze` and `Source` in `src/spaces.rs` — the recommended
-    library entry point. `Source` carries `#[non_exhaustive]`, so
-    adding fields is additive; construct via `Source::new` plus
-    `with_*` setters rather than struct-literal syntax.
+    library entry point. `Source` carries `#[non_exhaustive]` and its
+    fields are private (`pub(crate)`): construct via `Source::new` plus
+    `with_*` setters. Only that builder API is the contract — the field
+    set, names, and types (e.g. `code: &[u8]`, `name: String`) are
+    free to change and are **not** SemVer-protected (#533).
   - `metrics`, `metrics_with_options` in `src/spaces.rs` —
     deprecated in favour of `analyze`. The deprecation shim is kept
     for the lifetime of the `1.x` line and will be removed at
     `2.0`; the deprecation attribute itself is part of the contract.
-  - `MetricsOptions`, `MetricsCfg` — both already carry
-    `#[non_exhaustive]`, so adding fields is *not* a break.
+  - `MetricsOptions`, `MetricsCfg` — both carry `#[non_exhaustive]`
+    and, like `Source`, have private (`pub(crate)`) fields as of
+    `2.0`. Construct via `MetricsOptions::default()` /
+    `MetricsCfg::new` plus `with_*` setters; the contract is the
+    builder methods, not the field representation (#533).
   - `Metric`, `MetricSet` in `src/metric_set.rs` — `Metric` carries
     `#[non_exhaustive]`, so adding variants is additive. `MetricSet`
     is the opaque bitfield consumed by
@@ -456,6 +461,10 @@ loose ends that will be tightened at `2.0`:
 - The per-metric `Stats` structs become `#[non_exhaustive]`, so
   field additions stop being a shape break in the strict SemVer
   sense.
+- The builder types `Source`, `MetricsOptions`, and `MetricsCfg`
+  lose their `pub` fields (narrowed to `pub(crate)`), so the field
+  representation stops being frozen as API — only the `new` + `with_*`
+  builder methods remain the contract (#533).
 - The deprecated `metrics` / `metrics_with_options` shims (in
   favour of `analyze`) are removed.
 - The remaining `#[doc(hidden)]` extension traits (`ParserTrait`,

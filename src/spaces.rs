@@ -231,7 +231,7 @@ pub struct FuncSpace {
     /// The name of a function space.
     ///
     /// For the top-level (file-level) `FuncSpace`, this is the value
-    /// supplied via [`Source::name`] to [`analyze`] — typically a file
+    /// supplied via `Source::name` to [`analyze`] — typically a file
     /// path or other display identifier chosen by the caller. The
     /// library no longer derives this from a `&Path` or applies lossy
     /// UTF-8 conversion; callers are expected to pass an
@@ -513,21 +513,21 @@ struct State<'a> {
 #[derive(Debug, Clone)]
 pub struct Source<'a> {
     /// The source language used to select the parser.
-    pub lang: LANG,
+    pub(crate) lang: LANG,
     /// Raw source bytes. `Source` borrows them so callers retain
     /// ownership; `analyze` copies into the parser's owned buffer.
-    pub code: &'a [u8],
+    pub(crate) code: &'a [u8],
     /// Display / identifier name for the top-level [`FuncSpace`].
     /// If `None`, the top-level [`FuncSpace::name`] is left `None`.
-    pub name: Option<String>,
+    pub(crate) name: Option<String>,
     /// Optional path used only by the C++ preprocessor lookup
     /// (`get_fake_code`) to resolve macro definitions in
     /// [`PreprocResults`]. For non-C++ languages this is ignored.
     /// Defaults to `None`.
-    pub preproc_path: Option<&'a Path>,
-    /// Preprocessor results paired with [`Source::preproc_path`].
+    pub(crate) preproc_path: Option<&'a Path>,
+    /// Preprocessor results paired with `Source::preproc_path`.
     /// Same shape as the `pr` arg on the deprecated entry points.
-    pub preproc: Option<Arc<PreprocResults>>,
+    pub(crate) preproc: Option<Arc<PreprocResults>>,
 }
 
 impl<'a> Source<'a> {
@@ -550,7 +550,7 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// Builder-style setter for [`Source::name`].
+    /// Builder-style setter for `Source::name`.
     #[inline]
     #[must_use]
     pub fn with_name(mut self, name: Option<String>) -> Self {
@@ -558,7 +558,7 @@ impl<'a> Source<'a> {
         self
     }
 
-    /// Builder-style setter for [`Source::preproc_path`].
+    /// Builder-style setter for `Source::preproc_path`.
     #[inline]
     #[must_use]
     pub fn with_preproc_path(mut self, preproc_path: Option<&'a Path>) -> Self {
@@ -566,7 +566,7 @@ impl<'a> Source<'a> {
         self
     }
 
-    /// Builder-style setter for [`Source::preproc`].
+    /// Builder-style setter for `Source::preproc`.
     #[inline]
     #[must_use]
     pub fn with_preproc(mut self, preproc: Option<Arc<PreprocResults>>) -> Self {
@@ -725,7 +725,7 @@ impl Ast {
     /// Return every operator and operand of each space in the held parse.
     ///
     /// The `Source`-based counterpart of the deprecated [`crate::get_ops`]:
-    /// the top-level [`crate::Ops::name`] is the [`Source::name`] supplied
+    /// the top-level [`crate::Ops::name`] is the `Source::name` supplied
     /// to [`Ast::parse`] / [`Ast::from_tree_sitter`] — carried explicitly
     /// rather than derived from a filesystem path via lossy UTF-8
     /// conversion, so [`crate::Ops::name_was_lossy`] is never set on this
@@ -1270,11 +1270,11 @@ pub struct MetricsOptions {
     /// functions and modules). Only languages that override the
     /// internal `should_skip_subtree` hook honor this; others ignore
     /// the flag.
-    pub exclude_tests: bool,
+    pub(crate) exclude_tests: bool,
     /// Which metrics to compute. Defaults to [`MetricSet::all`] —
     /// every metric is enabled, matching the pre-#257 behaviour.
     /// Restrict via [`MetricsOptions::with_only`].
-    pub metrics: MetricSet,
+    pub(crate) metrics: MetricSet,
     /// When true (the default), Rust's `?` operator (the
     /// `try_expression` grammar node) contributes `+1` to both
     /// standard and modified cyclomatic complexity, matching upstream
@@ -1286,7 +1286,7 @@ pub struct MetricsOptions {
     /// language emits `try_expression`, so the flag is inert
     /// elsewhere. Defaulting to `true` keeps every published metric
     /// value unchanged (#409).
-    pub count_cyclomatic_try: bool,
+    pub(crate) count_cyclomatic_try: bool,
 }
 
 impl Default for MetricsOptions {
@@ -1303,7 +1303,7 @@ impl Default for MetricsOptions {
 }
 
 impl MetricsOptions {
-    /// Builder-style setter for [`MetricsOptions::exclude_tests`].
+    /// Builder-style setter for `MetricsOptions::exclude_tests`.
     ///
     /// Provided because `MetricsOptions` is `#[non_exhaustive]` — the
     /// struct-literal form is unavailable to downstream crates, so
@@ -1316,7 +1316,7 @@ impl MetricsOptions {
         self
     }
 
-    /// Builder-style setter for [`MetricsOptions::count_cyclomatic_try`].
+    /// Builder-style setter for `MetricsOptions::count_cyclomatic_try`.
     ///
     /// Pass `false` to stop Rust's `?` operator from contributing to
     /// cyclomatic complexity (standard and modified). The default is
@@ -1438,9 +1438,9 @@ impl MetricsOptions {
 #[non_exhaustive]
 pub struct MetricsCfg {
     /// Path to the file containing the code
-    pub path: PathBuf,
+    pub(crate) path: PathBuf,
     /// Per-traversal options forwarded to [`metrics_with_options`].
-    pub options: MetricsOptions,
+    pub(crate) options: MetricsOptions,
 }
 
 impl MetricsCfg {
@@ -1457,7 +1457,7 @@ impl MetricsCfg {
         }
     }
 
-    /// Builder-style setter for [`MetricsCfg::options`].
+    /// Builder-style setter for `MetricsCfg::options`.
     #[inline]
     #[must_use]
     pub fn with_options(mut self, options: MetricsOptions) -> Self {
