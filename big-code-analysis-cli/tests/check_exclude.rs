@@ -200,13 +200,15 @@ fn manifest_check_exclude_table_drops_offenders() {
         .stderr(predicate::str::contains("excluded_offender").not());
 }
 
-/// An explicit `--check-exclude` wins over the manifest `[check]
-/// exclude` list (CLI precedence): the flag replaces the manifest's
-/// globs, so the manifest's `**/excluded.rs` no longer applies and that
-/// offender resurfaces, while the flag's `**/kept.rs` now suppresses the
-/// other.
+/// As a negative filter key (#539), an explicit `--check-exclude` UNIONs
+/// with the manifest `[check] exclude` list rather than replacing it:
+/// the manifest's `**/excluded.rs` and the flag's `**/kept.rs` both
+/// apply, so every offender is exempted and the gate passes clean (exit
+/// 0). Under the pre-#539 replace behaviour this would resurface
+/// `excluded_offender` and exit 2 — making this the regression guard for
+/// the merge semantics.
 #[test]
-fn cli_check_exclude_overrides_manifest_table() {
+fn cli_check_exclude_unions_with_manifest_table() {
     let dir = two_file_fixture();
     fs::create_dir(dir.path().join(".git")).unwrap();
     fs::write(
@@ -217,6 +219,38 @@ fn cli_check_exclude_overrides_manifest_table() {
 
     cli(dir.path())
         .args(["check", "--check-exclude", "**/kept.rs"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("excluded_offender").not())
+        .stderr(predicate::str::contains("kept_offender").not());
+}
+
+/// `--no-config` is the escape hatch that ignores the manifest entirely:
+/// the manifest's `[check] exclude = ["**/excluded.rs"]` contributes
+/// nothing, so only the CLI's `**/kept.rs` exemption applies and
+/// `excluded_offender` fails the gate (exit 2). This pins that
+/// `--no-config` short-circuits the #539 union.
+#[test]
+fn no_config_drops_manifest_check_exclude_from_union() {
+    let dir = two_file_fixture();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 1\n\n[check]\nexclude = [\"**/excluded.rs\"]\n",
+    )
+    .unwrap();
+
+    cli(dir.path())
+        .args([
+            "--no-config",
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude",
+            "**/kept.rs",
+        ])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("excluded_offender"))

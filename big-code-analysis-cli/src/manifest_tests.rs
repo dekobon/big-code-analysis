@@ -116,6 +116,61 @@ fn merge_globals_does_not_clobber_cli_values() {
     assert_eq!(g.include, vec!["from_cli".to_owned()]);
 }
 
+/// Negative filter key `exclude` UNIONs CLI and manifest patterns (#539):
+/// a CLI `--exclude` must not silently drop a directory the manifest
+/// deliberately skipped. This would FAIL under the pre-#539 replace
+/// behaviour, where a non-empty CLI list discarded the manifest's.
+#[test]
+fn merge_globals_unions_exclude_with_manifest() {
+    let m = manifest(RawManifest {
+        exclude: Some(vec!["vendor".to_owned()]),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts {
+        exclude: vec!["build".to_owned()],
+        ..Default::default()
+    };
+    m.merge_globals(&mut g, false);
+
+    // CLI patterns first, then manifest patterns appended.
+    assert_eq!(g.exclude, vec!["build".to_owned(), "vendor".to_owned()]);
+}
+
+/// Duplicate patterns across CLI and manifest collapse to one, order
+/// preserved (CLI first).
+#[test]
+fn merge_globals_exclude_union_dedups() {
+    let m = manifest(RawManifest {
+        exclude: Some(vec!["a".to_owned(), "b".to_owned()]),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts {
+        exclude: vec!["a".to_owned()],
+        ..Default::default()
+    };
+    m.merge_globals(&mut g, false);
+
+    assert_eq!(g.exclude, vec!["a".to_owned(), "b".to_owned()]);
+}
+
+/// Positive scope key `include` is REPLACED by any CLI value (pinned so a
+/// future "make every list union" change is caught): manifest `include`
+/// is dropped when the CLI supplied its own.
+#[test]
+fn merge_globals_include_replaces_not_unions() {
+    let m = manifest(RawManifest {
+        include: Some(vec!["*.py".to_owned()]),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts {
+        include: vec!["*.rs".to_owned()],
+        ..Default::default()
+    };
+    m.merge_globals(&mut g, false);
+
+    assert_eq!(g.include, vec!["*.rs".to_owned()]);
+}
+
 #[test]
 fn merge_globals_cyclomatic_count_try_opts_out_when_false() {
     // Manifest `cyclomatic_count_try = false` opts the gate out of

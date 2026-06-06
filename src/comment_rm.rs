@@ -81,8 +81,12 @@ fn remove_from_code(code: &[u8], mut spans: Vec<(usize, usize, usize)>) -> Vec<u
 pub struct CommentRmCfg {
     /// If `true`, the modified code is saved on a file
     pub in_place: bool,
-    /// Path to output file
+    /// Path to the input file (used as the in-place rewrite target).
     pub path: PathBuf,
+    /// Optional single-file output sink. When `in_place` is `false` and
+    /// this is `Some`, the stripped source is written to the given path
+    /// instead of stdout. Ignored when `in_place` is `true`.
+    pub output: Option<PathBuf>,
 }
 
 /// Type tag identifying the comment-removal action; carries no data.
@@ -98,6 +102,8 @@ impl Callback for CommentRm {
         if let Some(new_source) = rm_comments(parser) {
             if cfg.in_place {
                 write_file(&cfg.path, &new_source)?;
+            } else if let Some(output) = &cfg.output {
+                write_file(output, &new_source)?;
             } else if let Ok(new_source) = std::str::from_utf8(&new_source) {
                 println!("{new_source}");
             } else {

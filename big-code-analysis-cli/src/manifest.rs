@@ -19,9 +19,14 @@
 //! 3. `--headroom` scales the merged config-derived limits.
 //! 4. Repeated `--threshold name=value` CLI flags apply last, absolutely.
 //!
-//! For the global options (`paths`, `exclude_from`, `num_jobs`,
-//! `include`, `exclude`) and the check-only options (`baseline`,
-//! `headroom`), an explicit CLI value always wins over the manifest.
+//! For list-valued options the merge splits by *list meaning* (#539):
+//! positive scope keys (`paths`, `include`) are REPLACED by any explicit
+//! CLI value, while negative filter keys (`exclude`, `[check] exclude`)
+//! UNION CLI values with the manifest list (so a CLI exclude never
+//! silently un-skips a directory the project deliberately excluded).
+//! Scalar / path options (`exclude_from`, `num_jobs`, `baseline`,
+//! `headroom`) fill from the manifest only when the CLI left them unset.
+//! `--no-config` bypasses discovery entirely, leaving CLI values alone.
 //!
 //! Relative paths in the manifest are resolved against the manifest's
 //! own directory (Cargo-style), so a `bca.toml` discovered above the
@@ -143,6 +148,18 @@ struct RawCheck {
     exit_codes: Option<String>,
 }
 
+/// Append `extra` onto `dst`, skipping any value already present so the
+/// merged list is a duplicate-free union with CLI entries kept first
+/// (#539). Exclude lists are tiny (a handful of globs), so the linear
+/// membership check is clearer than a `HashSet` and cheaper in practice.
+fn extend_dedup(dst: &mut Vec<String>, extra: impl IntoIterator<Item = String>) {
+    for item in extra {
+        if !dst.contains(&item) {
+            dst.push(item);
+        }
+    }
+}
+
 /// Discover and load `bca.toml`. Returns `None` when no manifest exists
 /// above the working directory. Dies (exit 1) on a read / UTF-8 / parse
 /// error of a manifest that *does* exist — a malformed config must not
@@ -236,6 +253,10 @@ impl Manifest {
     /// `num_jobs` is the lone scalar-with-default, so its CLI-vs-default
     /// state is passed in explicitly from the parsed `ArgMatches`.
     pub(crate) fn merge_globals(&self, g: &mut GlobalOpts, num_jobs_from_cli: bool) {
+        // Positive scope keys (`paths`, `include`) are REPLACED by any
+        // explicit CLI value: `bca check one.rs` with manifest
+        // `paths = ["src"]` checks just `one.rs`. The empty-CLI fallback
+        // applies the manifest only when the user passed nothing.
         if g.paths.is_empty()
             && let Some(paths) = &self.raw.paths
         {
@@ -246,10 +267,15 @@ impl Manifest {
         {
             g.include.clone_from(include);
         }
-        if g.exclude.is_empty()
-            && let Some(exclude) = &self.raw.exclude
-        {
-            g.exclude.clone_from(exclude);
+        // Negative filter keys (`exclude`) UNION CLI values with the
+        // manifest list (#539): a CLI `--exclude` must never silently
+        // un-exclude a directory the project config deliberately skipped
+        // (e.g. `vendor/`). Mirrors ruff/ESLint `extend-exclude`. Dedup
+        // preserves order, CLI patterns first. `--no-config` short-
+        // circuits this by skipping the merge entirely (manifest is None),
+        // so an explicit opt-out still yields CLI-only excludes.
+        if let Some(exclude) = &self.raw.exclude {
+            extend_dedup(&mut g.exclude, exclude.iter().cloned());
         }
         if g.exclude_from.is_none()
             && let Some(exclude_from) = &self.raw.exclude_from
@@ -306,14 +332,14 @@ impl Manifest {
         if args.headroom.is_none() {
             args.headroom = self.headroom();
         }
-        // `[check] exclude` / `exclude_from` (#378). CLI wins: apply the
-        // manifest list only when the CLI provided nothing. The
-        // exclude-from path resolves against the manifest directory like
-        // every other manifest path.
-        if args.check_exclude.is_empty()
-            && let Some(exclude) = &self.raw.check.exclude
-        {
-            args.check_exclude.clone_from(exclude);
+        // `[check] exclude` / `exclude_from` (#378, #539). As a negative
+        // filter key, `check_exclude` UNIONs CLI values with the manifest
+        // list rather than letting the CLI replace it — a CLI
+        // `--check-exclude` cannot silently re-gate a path the project
+        // config deliberately exempted. The exclude-from path resolves
+        // against the manifest directory like every other manifest path.
+        if let Some(exclude) = &self.raw.check.exclude {
+            extend_dedup(&mut args.check_exclude, exclude.iter().cloned());
         }
         if args.check_exclude_from.is_none()
             && let Some(exclude_from) = &self.raw.check.exclude_from
@@ -337,21 +363,21 @@ impl Manifest {
     }
 
     /// Merge the gate-skipping defaults `bca exemptions` audits
-    /// (`baseline`, `[check] exclude` / `exclude_from`) into `args`. CLI
-    /// values win, mirroring [`Self::merge_check`]'s CLI-replaces-manifest
-    /// semantics so the audit reflects exactly what `bca check` would
-    /// skip. Threshold / headroom / exit-code keys are irrelevant to a
-    /// read-only listing and are deliberately not merged here.
+    /// (`baseline`, `[check] exclude` / `exclude_from`) into `args`,
+    /// mirroring [`Self::merge_check`] so the audit reflects exactly what
+    /// `bca check` would skip. Positive keys (`baseline`) fill only when
+    /// unset; the negative filter `check_exclude` UNIONs CLI values with
+    /// the manifest list (#539). Threshold / headroom / exit-code keys are
+    /// irrelevant to a read-only listing and are deliberately not merged
+    /// here.
     pub(crate) fn merge_exemptions(&self, args: &mut ExemptionsArgs) {
         if args.baseline.is_none()
             && let Some(baseline) = &self.raw.baseline
         {
             args.baseline = Some(self.resolve(baseline));
         }
-        if args.check_exclude.is_empty()
-            && let Some(exclude) = &self.raw.check.exclude
-        {
-            args.check_exclude.clone_from(exclude);
+        if let Some(exclude) = &self.raw.check.exclude {
+            extend_dedup(&mut args.check_exclude, exclude.iter().cloned());
         }
         if args.check_exclude_from.is_none()
             && let Some(exclude_from) = &self.raw.check.exclude_from

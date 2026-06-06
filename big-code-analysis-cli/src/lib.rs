@@ -232,7 +232,12 @@ struct GlobalOpts {
     /// Glob to include files.
     #[clap(long, short = 'I', num_args(0..), global = true)]
     include: Vec<String>,
-    /// Glob to exclude files.
+    /// Glob to exclude files. As a negative filter key (#539), CLI
+    /// values are *merged with* (unioned, not a replacement for) any
+    /// `bca.toml` `exclude` list and any `--exclude-from` patterns, so a
+    /// CLI `--exclude` never silently un-excludes a directory the
+    /// project config deliberately skipped. Pass `--no-config` to ignore
+    /// the manifest entirely.
     #[clap(long, short = 'X', num_args(0..), global = true)]
     exclude: Vec<String>,
     /// Number of jobs.
@@ -477,8 +482,21 @@ struct FindArgs {
 #[derive(Args, Debug)]
 struct StripCommentsArgs {
     /// Rewrite each input file in place instead of writing to stdout.
+    /// Use this for multi-file rewrites; it is mutually exclusive with
+    /// `--output`.
     #[clap(long)]
     in_place: bool,
+    /// Write the stripped output to this file instead of stdout. Only
+    /// meaningful for a single input file; mutually exclusive with
+    /// `--in-place`. Omit it (and `--in-place`) to stream the result to
+    /// stdout.
+    #[clap(
+        long = "output",
+        short = 'o',
+        value_parser,
+        conflicts_with = "in_place"
+    )]
+    output: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -731,9 +749,12 @@ struct CheckArgs {
     /// (test fixtures, generated code, macro-dispatch modules) stay out
     /// of `.bca-baseline.toml`. Precedence: in-source `bca: suppress`
     /// markers win first, then these globs, then the baseline. Unioned
-    /// with `--check-exclude-from`; an explicit `--check-exclude`
-    /// *replaces* the `bca.toml` `[check] exclude` list (CLI-wins, like
-    /// every other manifest key). Globs match the path as walked,
+    /// with `--check-exclude-from` and — as a negative filter key (#539)
+    /// — with the `bca.toml` `[check] exclude` list: CLI values are
+    /// *added to* (merged with), not a replacement for, the manifest's
+    /// exemptions, so a CLI `--check-exclude` never silently re-gates a
+    /// path the project config deliberately exempted. Pass `--no-config`
+    /// to ignore the manifest entirely. Globs match the path as walked,
     /// exactly like `--exclude`.
     #[clap(long = "check-exclude", value_name = "GLOB")]
     check_exclude: Vec<String>,
@@ -1027,6 +1048,10 @@ enum Action {
     },
     StripComments {
         in_place: bool,
+        /// Single-file output sink. `None` streams to stdout; `Some`
+        /// writes the stripped source to the given path. Mutually
+        /// exclusive with `in_place` (enforced by clap).
+        output: Option<PathBuf>,
     },
     Functions,
     Find(Arc<[String]>),

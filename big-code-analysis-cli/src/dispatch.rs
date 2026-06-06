@@ -21,7 +21,7 @@
 //! function-scope `#[allow(deprecated)]` keeps the helpers readable
 //! without per-call-site attributes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -52,8 +52,8 @@ pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Ops { format, pretty } => {
             dispatch_ops(language, source, path, pr, cfg, format.as_ref(), *pretty)
         }
-        Action::StripComments { in_place } => {
-            dispatch_strip_comments(language, source, path, pr, *in_place)
+        Action::StripComments { in_place, output } => {
+            dispatch_strip_comments(language, source, path, pr, *in_place, output.as_deref())
         }
         Action::Functions => dispatch_functions(language, source, path, pr),
         Action::Find(filters) => dispatch_find(language, source, path, pr, cfg, filters),
@@ -202,8 +202,13 @@ fn dispatch_strip_comments(
     path: PathBuf,
     pr: Option<Arc<PreprocResults>>,
     in_place: bool,
+    output: Option<&Path>,
 ) -> std::io::Result<()> {
-    let comment_cfg = CommentRmCfg { in_place, path };
+    let comment_cfg = CommentRmCfg {
+        in_place,
+        path,
+        output: output.map(Path::to_path_buf),
+    };
     let path = comment_cfg.path.clone();
     // C++ comment removal goes through the dedicated Ccomment grammar
     // even when the file's primary language is Cpp.

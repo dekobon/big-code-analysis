@@ -175,6 +175,64 @@ fn strip_comments_writes_to_stdout_without_comments() {
 }
 
 #[test]
+fn strip_comments_output_flag_writes_to_file() {
+    // `--output <file>` routes the stripped source to a file (not the
+    // input, which `--in-place` would rewrite) and leaves stdout empty.
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("snippet.py");
+    let out = dir.path().join("stripped.py");
+    std::fs::write(&src, "# this is a comment\nx = 1\n").unwrap();
+    cli()
+        .args([
+            "--paths",
+            src.to_str().unwrap(),
+            "strip-comments",
+            "--output",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        // Nothing printed to stdout when routed to a file.
+        .stdout(predicate::str::is_empty());
+
+    let written = std::fs::read_to_string(&out).expect("output file written");
+    assert!(
+        written.contains("x = 1"),
+        "code line preserved in output file"
+    );
+    assert!(
+        !written.contains("this is a comment"),
+        "comment stripped from output file"
+    );
+    // The input file is untouched (this is not an in-place rewrite).
+    let original = std::fs::read_to_string(&src).unwrap();
+    assert!(
+        original.contains("this is a comment"),
+        "input file must not be modified by --output"
+    );
+}
+
+#[test]
+fn strip_comments_output_conflicts_with_in_place() {
+    // The two output sinks are mutually exclusive (clap `conflicts_with`);
+    // requesting both is a usage error (exit 2), not a silent precedence.
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("snippet.py");
+    std::fs::write(&src, "# c\nx = 1\n").unwrap();
+    cli()
+        .args([
+            "--paths",
+            src.to_str().unwrap(),
+            "strip-comments",
+            "--in-place",
+            "--output",
+            dir.path().join("out.py").to_str().unwrap(),
+        ])
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn preproc_emits_json_to_stdout_without_output() {
     // The producer walks paths and emits a `PreprocResults` JSON. Even
     // when no C/C++ files are present, it must emit a syntactically

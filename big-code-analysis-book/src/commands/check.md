@@ -224,9 +224,14 @@ bca check --check-exclude-from .bcacheckignore
 `--check-exclude-from` reads a `.gitignore`-style file (blank lines and
 `#`-comments skipped); the conventional name is `.bcacheckignore`,
 mirroring `.bcaignore` for the walker. Globs match the path exactly as
-the walker matched it for `--exclude`. An explicit `--check-exclude`
-list replaces (does not append to) the manifest `[check] exclude` list,
-matching the CLI-wins precedence used for every other manifest key.
+the walker matched it for `--exclude`. As a *negative filter* key, an
+explicit `--check-exclude` list **unions with** (does not replace) the
+manifest `[check] exclude` list — a CLI exemption is added to the
+project's, never a replacement, so you cannot accidentally re-gate a
+path the manifest deliberately exempted ([#539](https://github.com/dekobon/big-code-analysis/issues/539)).
+Duplicates collapse; CLI patterns sort first. Pass `--no-config` to drop
+the manifest's exemptions entirely. (Positive scope keys like `paths` /
+`include` still *replace* on the CLI — only the exclude filters merge.)
 
 ### Precedence with the other suppression mechanisms
 

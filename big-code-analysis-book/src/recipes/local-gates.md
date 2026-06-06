@@ -193,15 +193,29 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   match wins. Relative paths inside the manifest resolve against the
   manifest's own directory, so a `bca.toml` above the current
   directory still points at the right files.
-- **CLI flags always win.** Any explicit `--paths`, `--baseline`,
-  `--headroom`, etc. overrides the corresponding manifest key.
-  `--config <file>` *merges* on top of the manifest `[thresholds]`
-  table (config keys win on collision), and repeated
+- **Scalars and positive scope keys: CLI wins.** Any explicit
+  `--baseline`, `--headroom`, `--num-jobs`, etc. overrides the
+  corresponding manifest key, and the *positive scope* list keys
+  (`paths`, `include`) are **replaced** by any explicit CLI value
+  (`bca check one.rs` with manifest `paths = ["src"]` checks just
+  `one.rs`). `--config <file>` *merges* on top of the manifest
+  `[thresholds]` table (config keys win on collision), and repeated
   `--threshold name=value` flags apply last as absolute limits. The
   full resolution order — `[thresholds]` → `--config` → tier
   resolution (`[thresholds.soft]` or `--headroom` scaling, only under
   `--tier=soft`) → `--threshold` overrides — is shared across all of
   `--config` / `--headroom` / `--tier` / the manifest.
+- **Negative filter keys: CLI unions with the manifest.** The
+  *exclude* list keys (top-level `exclude`, `[check] exclude`) are
+  **merged**, not replaced: a CLI `--exclude` / `--check-exclude` is
+  *added to* the manifest's deny-set ([#539](https://github.com/dekobon/big-code-analysis/issues/539)).
+  This way a command-line filter can never silently un-exclude a
+  directory the project config deliberately skipped (e.g. `vendor/`).
+  Duplicates across the two sources collapse; CLI patterns sort first.
+  This mirrors ruff/ESLint's `exclude` (replace) vs `extend-exclude`
+  (add), generalized: **targets replace, filters add.** As always,
+  `--x` and `--x-from` union with each other regardless. Reach for
+  `--no-config` when you need the manifest excludes gone entirely.
 - `--no-config` skips discovery entirely, for reproducible
   fully-explicit invocations that must not pick up repo-level config.
   `bca init` also ignores any existing manifest — it scaffolds config

@@ -421,6 +421,36 @@ still forces exit `0` in both modes. Code `5` is emitted only at the
 soft tier; at the hard tier every violation is a hard breach by
 definition, so the `2`/`3`/`4` split applies instead.
 
+### CLI / manifest list-merge semantics
+
+When both an explicit CLI flag and a `bca.toml` manifest key supply a
+list, how the two are combined depends on the *meaning* of the list
+([#539](https://github.com/dekobon/big-code-analysis/issues/539)):
+
+- **`--x` and `--x-from` always union with each other.** `--exclude`
+  patterns and any `--exclude-from` file patterns combine into one
+  deny-set; likewise `--check-exclude` and `--check-exclude-from`.
+  Order does not matter.
+- **Positive scope keys (`paths`, `include`) are REPLACED by any
+  explicit CLI value.** A CLI `--paths`/`--include` discards the
+  manifest's list entirely (`bca check one.rs` with manifest
+  `paths = ["src"]` checks just `one.rs`). The manifest fills these
+  only when the CLI passed nothing.
+- **Negative filter keys (`exclude`, `[check] exclude`) UNION CLI
+  values with the manifest list.** A CLI `--exclude`/`--check-exclude`
+  is *added to* the manifest's exemptions, never a replacement — so a
+  command-line filter can never silently un-exclude a directory the
+  project config deliberately skipped (e.g. `vendor/`). Duplicates
+  across the two sources collapse; CLI patterns sort first. This
+  mirrors ruff/ESLint's `exclude` (replace) vs `extend-exclude` (add),
+  generalized: targets replace, filters add.
+- **`--no-config` ignores the manifest entirely.** With it set the
+  manifest contributes nothing, so excludes come only from the CLI.
+
+The negative-filter union is a behaviour change from the pre-2.0
+contract, where CLI excludes *replaced* the manifest list. It landed
+as part of the 2.0 line.
+
 ## MSRV policy
 
 The workspace pins `rust-version = "1.94"` (see the

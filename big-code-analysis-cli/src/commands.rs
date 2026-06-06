@@ -1653,6 +1653,7 @@ fn run_command_strip_comments(
 ) {
     let action = Action::StripComments {
         in_place: args.in_place,
+        output: args.output,
     };
     let cfg = Config::new(action, &globals, preproc);
     run_walk(globals, cfg);

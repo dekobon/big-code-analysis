@@ -161,13 +161,23 @@ Each output file mirrors the input path under `/tmp/ops/`.
 ## Strip comments from a tree
 
 `strip-comments` rewrites source so that downstream tools that don't
-understand comment syntax can still consume the code. It defaults to
-streaming the result to stdout; pass `--in-place` to overwrite files
-on disk:
+understand comment syntax can still consume the code. Output routing has
+three modes:
+
+- **stdout (default).** With neither flag, the stripped source streams
+  to stdout — best for a single file in a pipeline.
+- **`--output` / `-o <FILE>` (single file).** Writes the stripped source
+  to `<FILE>`, leaving the input untouched. Only meaningful for one
+  input file; mutually exclusive with `--in-place`.
+- **`--in-place` (multi-file).** Rewrites each matched input file on
+  disk. Use this for a whole tree; mutually exclusive with `--output`.
 
 ```bash
 # Stream a single file with comments removed.
 bca --paths src/lib.rs strip-comments
+
+# Write a single stripped file to a new path (input untouched).
+bca --paths src/lib.rs strip-comments --output src/lib.stripped.rs
 
 # Rewrite every Python file in src/ in place.
 bca --include "*.py" --paths src/ \
@@ -175,4 +185,5 @@ bca --include "*.py" --paths src/ \
 ```
 
 `--in-place` is destructive — make sure the tree is committed or
-backed up first.
+backed up first. Passing both `--in-place` and `--output` is a usage
+error.
