@@ -130,11 +130,24 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
     let mut name_count = HashMap::new();
     for anon in &[false, true] {
         for i in 0..count {
-            let anonymous = !language.node_kind_is_named(i as u16);
+            // tree-sitter's node-kind id space is u16, but node_kind_count()
+            // returns usize. A real grammar cannot exceed u16, so a failed
+            // conversion means a provably-broken grammar; fail the codegen
+            // binary loudly rather than wrap the index and read a different
+            // node kind (see issue #548). This is a build-time generator,
+            // not shipped library code.
+            let Ok(id) = u16::try_from(i) else {
+                panic!("grammar node_kind_count {count} exceeds u16 id space");
+            };
+            let anonymous = !language.node_kind_is_named(id);
             if anonymous != *anon {
                 continue;
             }
-            let kind = language.node_kind_for_id(i as u16).unwrap();
+            // `id < count` is a valid node kind by construction of the loop,
+            // so node_kind_for_id never returns None here.
+            let kind = language
+                .node_kind_for_id(id)
+                .expect("id < node_kind_count is a valid node kind");
             let name = sanitize_identifier(kind);
             let ts_name = sanitize_string(kind, escape);
             let mut name = camel_case(name);
@@ -212,5 +225,107 @@ mod tests {
         assert_eq!(sanitize_identifier("_"), "UNDERSCORE");
         assert_eq!(sanitize_identifier("self"), "Zelf");
         assert_eq!(sanitize_identifier("Self"), "SELF");
+    }
+
+    #[test]
+    fn capitalize_empty_is_empty() {
+        assert_eq!(capitalize(""), "");
+    }
+
+    #[test]
+    fn capitalize_single_char() {
+        assert_eq!(capitalize("a"), "A");
+    }
+
+    #[test]
+    fn capitalize_already_capitalized_is_unchanged() {
+        assert_eq!(capitalize("Foo"), "Foo");
+    }
+
+    // Only the first char is upper-cased; the remainder is appended
+    // verbatim. A multi-byte first char must be upper-cased correctly
+    // (ß expands to two ASCII chars; the rest of the input is untouched).
+    #[test]
+    fn capitalize_multibyte_first_char() {
+        assert_eq!(capitalize("ßbc"), "SSbc");
+        assert_eq!(capitalize("élan"), "Élan");
+    }
+
+    // escape=false emits the single-backslash (Rust source) form.
+    #[test]
+    fn sanitize_string_no_escape() {
+        assert_eq!(
+            sanitize_string("a\"b\\c\td\ne\rf", false),
+            "a\\\"b\\\\c\\td\\ne\\rf"
+        );
+    }
+
+    // escape=true emits the double-backslash form (the value survives a
+    // second round of source-string interpretation).
+    #[test]
+    fn sanitize_string_escape() {
+        assert_eq!(
+            sanitize_string("a\"b\\c\td\ne\rf", true),
+            "a\\\\\\\"b\\\\\\\\c\\\\td\\\\ne\\\\rf"
+        );
+    }
+
+    #[test]
+    fn camel_case_simple() {
+        assert_eq!(camel_case("foo_bar".to_string()), "FooBar");
+    }
+
+    // Underscores only toggle the capitalize-next flag; they are never
+    // emitted. Leading, trailing, and doubled underscores therefore
+    // collapse away entirely.
+    #[test]
+    fn camel_case_underscore_variants() {
+        assert_eq!(camel_case("_foo".to_string()), "Foo");
+        assert_eq!(camel_case("foo_".to_string()), "Foo");
+        assert_eq!(camel_case("foo__bar".to_string()), "FooBar");
+    }
+
+    #[test]
+    fn camel_case_empty_is_empty() {
+        assert_eq!(camel_case(String::new()), "");
+    }
+
+    #[test]
+    fn get_token_names_appends_error_sentinel_last() {
+        let language: Language = tree_sitter_rust::LANGUAGE.into();
+        let names = get_token_names(&language, false);
+        let (rust_name, renamed, ts_name) = names.last().expect("non-empty token list");
+        assert_eq!(ts_name, "ERROR");
+        assert_eq!(rust_name, "Error");
+        assert!(!renamed, "the ERROR sentinel is not a deduplicated entry");
+    }
+
+    #[test]
+    fn get_token_names_have_unique_rust_names() {
+        let language: Language = tree_sitter_rust::LANGUAGE.into();
+        let names = get_token_names(&language, false);
+        let mut seen = std::collections::HashSet::new();
+        for (rust_name, _, _) in &names {
+            assert!(
+                seen.insert(rust_name.clone()),
+                "duplicate Rust name emitted: {rust_name}"
+            );
+        }
+    }
+
+    // The bool flag is set exactly on entries whose Rust name was
+    // suffixed to break a collision; such names end in a digit.
+    #[test]
+    fn get_token_names_renamed_flag_marks_suffixed_entries() {
+        let language: Language = tree_sitter_rust::LANGUAGE.into();
+        let names = get_token_names(&language, false);
+        for (rust_name, renamed, _) in &names {
+            if *renamed {
+                assert!(
+                    rust_name.chars().last().is_some_and(|c| c.is_ascii_digit()),
+                    "renamed entry {rust_name} should carry a numeric suffix"
+                );
+            }
+        }
     }
 }
