@@ -820,6 +820,27 @@ routes `parse_language_name` through `lang_to_name`, the same
 helper the rest of the binding already uses for the inverse
 lookup.
 
+**`LANG::Typescript` was unreachable via `FromStr` — the parse-side
+inverse, and the collapse root finally eliminated** (#540, `57e056d9`).
+The `mk_langs!` table gave both `Tsx` and `Typescript` the display
+string `"typescript"`, so `Display` / `name()` collapsed them *and*
+`FromStr("typescript")` resolved to whichever was declared first
+(`Tsx`) — leaving `LANG::Typescript` impossible to parse and impossible
+to round-trip (`from_str(Typescript.to_string())` returned `Tsx`). The
+existing test `aliased_typescript_name_resolves_to_first_declared_variant`
+*documented* the collapse as expected behaviour, cementing the bug. The
+2.0 fix removed the collapse at its source: every variant now has a
+distinct canonical slug (`Tsx` → `"tsx"`, `Typescript` →
+`"typescript"`; the pretty `"c/c++"` / `"c#"` forms dropped), which
+also let the Python `lang_to_name` override from the #265 example above
+be deleted. The per-variant round-trip assertions were replaced by one
+that iterates **every** variant —
+`assert_eq!(LANG::from_str(&l.to_string()), Ok(l))` — proving round-trip
+fidelity and injectivity together (a slug collision makes `from_str`
+resolve to the first-declared sibling, failing `Ok(l)` for the
+later one), plus a `no_variant_slug_contains_punctuation` guard against
+reintroducing an unparseable display form.
+
 **Lesson:** Whenever a helper branches on the output of a domain
 enum's identity method (`get_name()`, `to_str()`, `as_canonical()`),
 test it through the enum, not through literal strings — the literal
@@ -832,6 +853,12 @@ helper is paired with a downstream artifact (a CSS rule, a JSON key,
 a config-file lookup), add a test that walks every slug the helper
 can emit and asserts the artifact exists for it — without that test,
 the dead arm and its dangling artifact survive review indefinitely.
+And when the enum implements `Display` + `FromStr`, pin injectivity with
+a single test that iterates every variant and asserts
+`from_str(to_string(v)) == Ok(v)`: two variants sharing a display string
+make the later-declared one unreachable via parsing, and a round-trip
+test that only spot-checks the variants you remembered will miss exactly
+the one you forgot.
 
 ---
 
