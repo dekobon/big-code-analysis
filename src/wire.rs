@@ -700,7 +700,7 @@ impl From<&crate::spaces::CodeMetrics> for CodeMetrics {
         let on = |m: Metric| sel.contains(m);
         Self {
             nargs: on(Metric::NArgs).then(|| Nargs::from(&c.nargs)),
-            nexits: on(Metric::Exit).then(|| Nexits::from(&c.nexits)),
+            nexits: on(Metric::Nexits).then(|| Nexits::from(&c.nexits)),
             cognitive: on(Metric::Cognitive).then(|| Cognitive::from(&c.cognitive)),
             cyclomatic: on(Metric::Cyclomatic).then(|| Cyclomatic::from(&c.cyclomatic)),
             halstead: on(Metric::Halstead).then(|| Halstead::from(&c.halstead)),
@@ -732,7 +732,7 @@ impl CodeMetrics {
             }
         };
         mark(self.nargs.is_some(), Metric::NArgs);
-        mark(self.nexits.is_some(), Metric::Exit);
+        mark(self.nexits.is_some(), Metric::Nexits);
         mark(self.cognitive.is_some(), Metric::Cognitive);
         mark(self.cyclomatic.is_some(), Metric::Cyclomatic);
         mark(self.halstead.is_some(), Metric::Halstead);
@@ -823,14 +823,12 @@ impl From<&ops::Ops> for Ops {
 /// Wire form of [`crate::FunctionSpan`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FunctionSpan {
-    /// The function name.
-    pub name: String,
+    /// The function name, or `null` when it could not be resolved.
+    pub name: Option<String>,
     /// The first line of the function.
     pub start_line: usize,
     /// The last line of the function.
     pub end_line: usize,
-    /// Whether an error occurred determining the span.
-    pub error: bool,
 }
 
 impl From<&function::FunctionSpan> for FunctionSpan {
@@ -839,7 +837,6 @@ impl From<&function::FunctionSpan> for FunctionSpan {
             name: f.name.clone(),
             start_line: f.start_line,
             end_line: f.end_line,
-            error: f.error,
         }
     }
 }
@@ -1001,6 +998,46 @@ fn run() {
             serde_cbor::to_writer(&mut re, &back).expect("re-serialize");
             assert_eq!(re, bytes, "CBOR re-serialization must be byte-identical");
         });
+    }
+
+    /// `FunctionSpan` (#536 shape: `name: Option<String>`, no `error`
+    /// field) round-trips through JSON for both a resolved name and an
+    /// unresolved one (`None` → JSON `null`), and the serialized object
+    /// carries no `error` key.
+    #[test]
+    fn function_span_round_trips() {
+        let resolved = FunctionSpan {
+            name: Some("foo".to_owned()),
+            start_line: 1,
+            end_line: 4,
+        };
+        let unresolved = FunctionSpan {
+            name: None,
+            start_line: 7,
+            end_line: 8,
+        };
+
+        for span in [resolved, unresolved] {
+            let json = serde_json::to_string(&span).expect("serialize FunctionSpan");
+            assert!(
+                !json.contains("error"),
+                "FunctionSpan JSON must not carry an `error` key, got {json}",
+            );
+            let back: FunctionSpan = serde_json::from_str(&json).expect("parse FunctionSpan");
+            assert_eq!(back, span, "FunctionSpan must round-trip through JSON");
+        }
+
+        // The unresolved span emits `name: null`, never an empty string.
+        let json = serde_json::to_string(&FunctionSpan {
+            name: None,
+            start_line: 7,
+            end_line: 8,
+        })
+        .expect("serialize");
+        assert!(
+            json.contains(r#""name":null"#),
+            "unresolved name must serialize to JSON null, got {json}",
+        );
     }
 
     /// A non-finite float (`NaN`/`±∞`) serializes to the format's null and

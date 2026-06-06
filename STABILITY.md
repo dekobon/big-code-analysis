@@ -83,11 +83,14 @@ section.
   - `function`, `find`, `count`, `operands_and_operators`,
     `rm_comments` in their respective modules.
   - `MetricsError` in `src/error.rs` — carries `#[non_exhaustive]`,
-    so adding variants is additive. Existing variants
-    (`EmptyRoot`, `LanguageDisabled(LANG)`, `NonUtf8Path`,
-    `ParseHasErrors`) will not be removed before `2.0`. The
-    `std::error::Error` and `Display` impls are stable; the exact
-    wording of `Display` output is not.
+    so adding variants is additive. Current variants are
+    `LanguageDisabled(LANG)` (the only one produced today) and the
+    reserved-for-future `EmptyRoot`. The previously-reserved
+    `NonUtf8Path` and `ParseHasErrors` variants were removed in the
+    pre-2.0 cleanup (#536); `#[non_exhaustive]` lets a future strict
+    mode re-add them without a break. The `std::error::Error` and
+    `Display` impls are stable; the exact wording of `Display` output
+    is not.
 - **Result shapes**
   - `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metrics` in
     `src/spaces.rs`. These are the JSON / YAML / TOML / CBOR

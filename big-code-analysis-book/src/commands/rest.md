@@ -142,15 +142,18 @@ POST http://127.0.0.1:8080/v1/function
     {
       "name": "function_name",
       "start_line": 1,
-      "end_line": 10,
-      "error": false
+      "end_line": 10
     }
   ]
 }
 ```
 
-`error` is `true` when the parser flagged the span as malformed
-(e.g. unbalanced delimiters inside the function body).
+`name` is `null` when the parser could not resolve the function's
+name from the AST (e.g. an anonymous or malformed definition). The
+former boolean `error` field was removed in the pre-2.0 cleanup
+([#536]); a `null` `name` is now the malformed-span signal.
+
+[#536]: https://github.com/dekobon/big-code-analysis/issues/536
 
 ### 4. Compute Metrics
 

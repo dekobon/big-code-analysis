@@ -28,14 +28,8 @@ fn main() {
         Err(MetricsError::EmptyRoot) => {
             eprintln!("walker produced no top-level FuncSpace");
         }
-        Err(MetricsError::ParseHasErrors) => {
-            eprintln!("tree-sitter reported syntax errors (strict mode)");
-        }
         Err(MetricsError::LanguageDisabled(lang)) => {
             eprintln!("language {:?} is not enabled in this build", lang);
-        }
-        Err(MetricsError::NonUtf8Path) => {
-            eprintln!("path is not valid UTF-8");
         }
         // `MetricsError` is `#[non_exhaustive]`; new variants may be added.
         Err(_) => eprintln!("unexpected MetricsError variant"),
@@ -51,25 +45,22 @@ fn main() {
   (the traversal produced no `Unit` space for any supported
   language) also surface here; if you hit one on real-world source,
   please file an issue.
-- **`ParseHasErrors`** — Reserved for a future strict-parsing toggle
-  on [`MetricsOptions`]. Not produced by today's default entry
-  points; tree-sitter's error recovery is intentionally tolerant
-  (see below).
 - **`LanguageDisabled(LANG)`** — Reserved for upcoming per-language
   Cargo features (see [#252]). The current build enables every
   supported language, so this variant is never produced today.
-- **`NonUtf8Path`** — Reserved for callers that opt into
-  strict-identifier mode. Since [#254], the recommended [`analyze`]
-  entry point takes a caller-supplied [`Source::name`]
-  (`Option<String>`), so non-UTF-8 paths are never round-tripped
-  through lossy conversion in the first place. The deprecated
-  path-positional shims ([`get_function_spaces`],
-  [`metrics_with_options`]) still fall back to
-  `Path::to_string_lossy`. This variant is not produced today; it
-  is kept for future strict-identifier validators.
+
+The previously-reserved `ParseHasErrors` and `NonUtf8Path` variants
+were removed in the pre-2.0 cleanup ([#536]); since `MetricsError`
+stays `#[non_exhaustive]`, a future strict-parsing or
+strict-identifier mode can re-introduce them without a breaking
+change. Non-UTF-8 paths are already handled up front: the
+recommended [`analyze`] entry point takes a caller-supplied
+[`Source::name`] (`Option<String>`), so a lossy path is never
+round-tripped in the first place.
 
 [#252]: https://github.com/dekobon/big-code-analysis/issues/252
 [#254]: https://github.com/dekobon/big-code-analysis/issues/254
+[#536]: https://github.com/dekobon/big-code-analysis/issues/536
 
 ## Tree-sitter does not always say "no"
 

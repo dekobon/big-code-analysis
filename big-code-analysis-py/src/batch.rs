@@ -20,12 +20,12 @@
 //! * `UnsupportedLanguage` — extension lookup and shebang inference
 //!   both came up empty, or the upstream `MetricsError::LanguageDisabled`
 //!   bubbled up (grammar not in this build).
-//! * `ParseError` — every `MetricsError::Parse*` variant maps here,
-//!   including the upstream reserved-but-not-yet-emitted `EmptyRoot`
-//!   and `ParseHasErrors`. Today this arm is unreachable from Python
-//!   for syntactically broken sources because tree-sitter is
-//!   permissive (it produces an error tree, not an `Err`), but the
-//!   mapping is in place for the day strict parsing lands upstream.
+//! * `ParseError` — the upstream reserved-but-not-yet-emitted
+//!   `MetricsError::EmptyRoot` maps here. Today this arm is
+//!   unreachable from Python for syntactically broken sources because
+//!   tree-sitter is permissive (it produces an error tree, not an
+//!   `Err`), but the mapping is in place for the day strict parsing
+//!   lands upstream.
 //! * `IoError` — `std::fs::read` failed (the most common kind), or
 //!   the path is not valid UTF-8 (treated as a path-resolution
 //!   failure since we cannot honour it without violating the

@@ -10,10 +10,9 @@ use termcolor::{Ansi, NoColor};
 
 fn make_span(name: &str, start: usize, end: usize) -> FunctionSpan {
     FunctionSpan {
-        name: name.to_owned(),
+        name: Some(name.to_owned()),
         start_line: start,
         end_line: end,
-        error: false,
     }
 }
 
@@ -162,15 +161,14 @@ fn dump_span_ansi_layout_non_error_branch() {
 
 #[test]
 fn dump_span_ansi_layout_error_branch() {
-    // The error branch substitutes the span name with the literal
-    // "error: " and must not leak the name. `last = true` selects
-    // the last-prefix glyph. Same color-then-text invariant as the
+    // The error branch (`name: None`) renders the literal "error: "
+    // label instead of a span name. `last = true` selects the
+    // last-prefix glyph. Same color-then-text invariant as the
     // non-error branch.
     let span = FunctionSpan {
-        name: "should-not-appear".into(),
+        name: None,
         start_line: 7,
         end_line: 8,
-        error: true,
     };
     let out = dump_span_ansi(span, true);
 
@@ -179,10 +177,6 @@ fn dump_span_ansi_layout_error_branch() {
         "must begin with a color escape: {out:?}"
     );
     assert!(out.ends_with("8.\n"), "trailing newline missing: {out:?}");
-    assert!(
-        !out.contains("should-not-appear"),
-        "error branch must not include span name: {out:?}",
-    );
     assert_segments_in_order(
         &out,
         &["   `- ", "error: ", "from line ", "7", " to line ", "8.\n"],

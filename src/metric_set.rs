@@ -41,7 +41,7 @@ pub enum Metric {
     /// Number of arguments ([`crate::nargs::Stats`]).
     NArgs,
     /// Exit-point count ([`crate::exit::Stats`]).
-    Exit,
+    Nexits,
     /// ABC ([`crate::abc::Stats`]).
     Abc,
     /// Number of public methods ([`crate::npm::Stats`]).
@@ -97,7 +97,7 @@ impl Metric {
             // sourced from Nom (see `spaces::compute_averages`).
             // Without Nom the divisor would be the `Stats` default
             // (zero), producing inf/NaN averages (#428).
-            Self::Cognitive | Self::Exit | Self::NArgs => &[Self::Nom],
+            Self::Cognitive | Self::Nexits | Self::NArgs => &[Self::Nom],
             _ => &[],
         }
     }
@@ -108,15 +108,15 @@ impl Metric {
     /// valid: …` error message, and any downstream Rust consumer
     /// that parses user input into a [`MetricSet`].
     ///
-    /// Each entry round-trips through [`Metric::from_str`]. The table uses the
-    /// JSON-output-key spelling for [`Metric::Exit`] (`"nexits"`,
-    /// matching the `CodeMetrics::Serialize` impl in
-    /// `src/spaces.rs`) rather than the [`fmt::Display`] spelling
-    /// (`"exit"`); both parse to [`Metric::Exit`] via the alias
-    /// arm in `FromStr`, but the canonical spelling exposed here
-    /// is the JSON one so callers see the same name in
-    /// `Metric::NAMES`, in the output dict, and in error
-    /// messages.
+    /// Each entry round-trips through [`Metric::from_str`]. Every
+    /// metric now uses one canonical spelling end-to-end:
+    /// [`Metric::Nexits`] is `"nexits"` in `Display`, in this table,
+    /// and as the JSON output key (the `CodeMetrics::Serialize` impl
+    /// in `src/spaces.rs`). The legacy `"exit"` spelling is still
+    /// accepted by `FromStr` as a hidden back-compat alias (see
+    /// #536) but is deliberately absent here so callers see the
+    /// canonical name in `Metric::NAMES`, in the output dict, and in
+    /// error messages.
     ///
     /// Alphabetised. The drift between this table and the
     /// `FromStr` arms (or the `Metric` enum itself) is guarded by
@@ -149,7 +149,7 @@ impl fmt::Display for Metric {
             Self::Nom => "nom",
             Self::Tokens => "tokens",
             Self::NArgs => "nargs",
-            Self::Exit => "exit",
+            Self::Nexits => "nexits",
             Self::Abc => "abc",
             Self::Npm => "npm",
             Self::Npa => "npa",
@@ -173,6 +173,18 @@ impl fmt::Display for Metric {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseMetricError(String);
 
+impl ParseMetricError {
+    /// The rejected input that failed to parse as a [`Metric`] name.
+    ///
+    /// Lets callers recover the offending string programmatically
+    /// rather than scraping it out of the [`Display`](fmt::Display)
+    /// output.
+    #[must_use]
+    pub fn input(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Display for ParseMetricError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "unknown metric: {}", self.0)
@@ -187,10 +199,10 @@ impl FromStr for Metric {
     /// Parse a [`Metric`] from its [`fmt::Display`] spelling.
     ///
     /// Strict lowercase: `"Loc"` is rejected. The single alias is
-    /// `"nexits"`, which parses to [`Metric::Exit`] — this matches
-    /// the JSON output key the metric's `Stats` serialises under,
-    /// so downstream consumers can use either the enum-Display
-    /// spelling or the JSON-key spelling interchangeably.
+    /// `"exit"`, the pre-#536 spelling, which parses to
+    /// [`Metric::Nexits`] — a hidden back-compat alias kept for one
+    /// release cycle. The canonical spelling everywhere else
+    /// (`Display`, `NAMES`, JSON output key) is `"nexits"`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "cognitive" => Ok(Self::Cognitive),
@@ -200,7 +212,12 @@ impl FromStr for Metric {
             "nom" => Ok(Self::Nom),
             "tokens" => Ok(Self::Tokens),
             "nargs" => Ok(Self::NArgs),
-            "exit" | "nexits" => Ok(Self::Exit),
+            // `nexits` is the canonical spelling (matches `Display`,
+            // `NAMES`, and the JSON output key). `exit` is a hidden
+            // back-compat alias retained for one release cycle after
+            // the #536 rename of `Metric::Exit` → `Metric::Nexits`;
+            // it is intentionally absent from `NAMES`.
+            "exit" | "nexits" => Ok(Self::Nexits),
             "abc" => Ok(Self::Abc),
             "npm" => Ok(Self::Npm),
             "npa" => Ok(Self::Npa),
@@ -234,7 +251,7 @@ impl MetricSet {
         | Metric::Nom.bit()
         | Metric::Tokens.bit()
         | Metric::NArgs.bit()
-        | Metric::Exit.bit()
+        | Metric::Nexits.bit()
         | Metric::Abc.bit()
         | Metric::Npm.bit()
         | Metric::Npa.bit()

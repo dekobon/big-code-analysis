@@ -28,9 +28,12 @@ assert "halstead" in bca.METRIC_NAMES
 
 Names are case-sensitive lowercase; passing an unknown name
 raises `ValueError` with the canonical list in the message. The
-`"exit"` Metric-Display spelling is accepted as an alias for the
-canonical JSON-key spelling `"nexits"`; both produce a
-`"nexits"` key in the output. Duplicates are silently collapsed.
+canonical spelling for the exit-point metric is `"nexits"`
+everywhere (the enum `Display`, `METRIC_NAMES`, and the JSON output
+key). The legacy `"exit"` spelling is still accepted as a hidden
+back-compat alias for one release cycle (it is *not* listed in
+`METRIC_NAMES`); both produce a `"nexits"` key in the output.
+Duplicates are silently collapsed.
 
 | Metric | JSON key | Dependencies pulled in |
 |--------|----------|------------------------|
@@ -43,7 +46,7 @@ canonical JSON-key spelling `"nexits"`; both produce a
 | `nom` | `nom` | — |
 | `npa` | `npa` | — |
 | `npm` | `npm` | — |
-| `nexits` (alias `exit`) | `nexits` | — |
+| `nexits` (hidden alias `exit`) | `nexits` | — |
 | `tokens` | `tokens` | — |
 | Maintainability Index | `mi` | `loc`, `cyclomatic`, `halstead` |
 | Weighted Methods per Class | `wmc` | `cyclomatic`, `nom` |

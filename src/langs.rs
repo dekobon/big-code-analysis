@@ -524,9 +524,11 @@ mod tests {
         assert!(LANG::from_str("Rust").is_err());
         assert!(LANG::from_str("klingon").is_err());
         assert!(LANG::from_str("").is_err());
-        // The error carries the offending input verbatim.
+        // The error carries the offending input verbatim, recoverable
+        // both via `Display` and the additive `input()` accessor (#536).
         let err = LANG::from_str("klingon").unwrap_err();
         assert!(err.to_string().contains("klingon"));
+        assert_eq!(err.input(), "klingon");
     }
 
     // `Hash` (+ `Eq`) lets `LANG` key a `HashMap` / populate a

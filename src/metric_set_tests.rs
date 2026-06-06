@@ -25,7 +25,7 @@ fn all_contains_every_variant() {
         Metric::Nom,
         Metric::Tokens,
         Metric::NArgs,
-        Metric::Exit,
+        Metric::Nexits,
         Metric::Abc,
         Metric::Npm,
         Metric::Npa,
@@ -66,7 +66,7 @@ fn with_dependencies_pulls_in_wmc_inputs() {
 // (which produced inf/NaN averages).
 #[test]
 fn with_dependencies_pulls_in_nom_for_averaging_metrics() {
-    for m in [Metric::Cognitive, Metric::Exit, Metric::NArgs] {
+    for m in [Metric::Cognitive, Metric::Nexits, Metric::NArgs] {
         let set = MetricSet::from_slice_with_deps(&[m]);
         assert!(set.contains(m));
         assert!(
@@ -122,7 +122,7 @@ const ALL_VARIANTS: &[Metric] = &[
     Metric::Nom,
     Metric::Tokens,
     Metric::NArgs,
-    Metric::Exit,
+    Metric::Nexits,
     Metric::Abc,
     Metric::Npm,
     Metric::Npa,
@@ -158,7 +158,7 @@ fn _all_variants_exhaustive_guard(m: Metric) {
         | Metric::Nom
         | Metric::Tokens
         | Metric::NArgs
-        | Metric::Exit
+        | Metric::Nexits
         | Metric::Abc
         | Metric::Npm
         | Metric::Npa
@@ -182,12 +182,23 @@ fn from_str_round_trips_every_variant_display_name() {
 }
 
 #[test]
-fn from_str_accepts_nexits_alias_for_exit() {
-    // `Metric::Exit` serialises as JSON key "nexits"; we accept
-    // both spellings so consumers can name the metric by either
-    // its enum-Display spelling or its JSON output key.
-    assert_eq!("exit".parse::<Metric>().unwrap(), Metric::Exit);
-    assert_eq!("nexits".parse::<Metric>().unwrap(), Metric::Exit);
+fn from_str_accepts_hidden_exit_alias() {
+    // Post-#536 the canonical spelling is "nexits" (Display, NAMES,
+    // JSON key). The pre-#536 "exit" spelling is kept as a hidden
+    // back-compat alias for one release cycle; both must still parse
+    // to `Metric::Nexits`.
+    assert_eq!("nexits".parse::<Metric>().unwrap(), Metric::Nexits);
+    assert_eq!("exit".parse::<Metric>().unwrap(), Metric::Nexits);
+}
+
+#[test]
+fn nexits_canonical_spelling_is_consistent() {
+    // The canonical `nexits` spelling round-trips through Display and
+    // appears in NAMES; the hidden `exit` alias does not appear in
+    // NAMES (so it stays out of help / error listings).
+    assert_eq!(Metric::Nexits.to_string(), "nexits");
+    assert!(Metric::NAMES.contains(&"nexits"));
+    assert!(!Metric::NAMES.contains(&"exit"));
 }
 
 #[test]
@@ -281,6 +292,9 @@ fn with_metric_set_does_not_resolve_dependencies() {
 fn from_str_rejects_unknown_name() {
     let err = "bogus".parse::<Metric>().unwrap_err();
     assert_eq!(err.to_string(), "unknown metric: bogus");
+    // The additive `input()` accessor (#536) recovers the rejected
+    // string programmatically, not just via `Display`.
+    assert_eq!(err.input(), "bogus");
 }
 
 #[test]

@@ -29,8 +29,7 @@ use crate::traits::*;
 /// error — it is a normal outcome, not a failure mode. The
 /// [`Result`] return type is for forward compatibility with the
 /// other entry points; today no [`MetricsError`] variant is produced
-/// by `find`, but future strict-parsing modes may surface
-/// [`MetricsError::ParseHasErrors`] here.
+/// by `find`, but a future strict-parsing mode may surface one here.
 ///
 /// # Errors
 ///

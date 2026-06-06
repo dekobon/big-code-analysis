@@ -219,13 +219,13 @@ impl AnalysisError {
 // `From<std::io::Error>` impl would let `?` lose that path silently.
 
 impl From<big_code_analysis::MetricsError> for AnalysisError {
-    // The explicit `EmptyRoot | ParseHasErrors` arm maps to the same
-    // expression as the catch-all (`Self::Parse(err)`), which clippy
-    // flags via `match_same_arms`. The redundancy is intentional —
-    // the explicit arm is a *tripwire*: a future upstream rename or
-    // removal of either reserved variant will produce a compile
-    // error here, forcing a review of the Python-side taxonomy.
-    // Collapsing into the catch-all would lose that signal.
+    // The explicit `EmptyRoot` arm maps to the same expression as the
+    // catch-all (`Self::Parse(err)`), which clippy flags via
+    // `match_same_arms`. The redundancy is intentional — the explicit
+    // arm is a *tripwire*: a future upstream rename or removal of the
+    // reserved variant will produce a compile error here, forcing a
+    // review of the Python-side taxonomy. Collapsing into the
+    // catch-all would lose that signal.
     #[allow(clippy::match_same_arms)]
     fn from(err: big_code_analysis::MetricsError) -> Self {
         use big_code_analysis::MetricsError;
@@ -241,18 +241,12 @@ impl From<big_code_analysis::MetricsError> for AnalysisError {
                 lang.name()
             )),
             // `EmptyRoot` is reserved upstream (no walker emits it
-            // today) and `ParseHasErrors` is reserved for a future
-            // strict-parse mode. Both belong in the parse-failure
-            // bucket on the Python side.
-            MetricsError::EmptyRoot | MetricsError::ParseHasErrors => Self::Parse(err),
-            // Upstream `NonUtf8Path` is reserved for a future
-            // strict-identifier validator; the bindings already
-            // reject non-UTF-8 paths themselves in `analyze_path`,
-            // but if the upstream layer ever surfaces this variant
-            // it should yield the same Python exception class
-            // (`ValueError`) so callers' handling stays consistent
-            // across both detection sites.
-            MetricsError::NonUtf8Path => Self::NonUtf8Path,
+            // today); it belongs in the parse-failure bucket on the
+            // Python side. (The upstream `NonUtf8Path` /
+            // `ParseHasErrors` variants were removed in #536; the
+            // bindings still reject non-UTF-8 paths themselves in
+            // `analyze_path`, yielding the Python-side `NonUtf8Path`.)
+            MetricsError::EmptyRoot => Self::Parse(err),
             // `MetricsError` is `#[non_exhaustive]`, which *requires*
             // this wildcard arm — so it does NOT act as a compile-time
             // tripwire. New upstream variants will silently default to

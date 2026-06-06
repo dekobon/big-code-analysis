@@ -298,6 +298,17 @@ impl ParseLangError {
     pub(crate) fn new(input: &str) -> Self {
         Self(input.to_owned())
     }
+
+    /// The rejected input that failed to parse as a language name.
+    ///
+    /// Lets callers recover the offending string programmatically
+    /// rather than scraping it out of the [`Display`](std::fmt::Display)
+    /// output. Mirrors
+    /// [`ParseMetricError::input`](crate::ParseMetricError::input).
+    #[must_use]
+    pub fn input(&self) -> &str {
+        &self.0
+    }
 }
 
 impl ::std::fmt::Display for ParseLangError {

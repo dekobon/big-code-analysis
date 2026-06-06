@@ -28,15 +28,14 @@ use crate::tools::{color, intense_color};
 /// Function span data.
 #[derive(Debug)]
 pub struct FunctionSpan {
-    /// The function name
-    pub name: String,
+    /// The function name, or `None` when the name could not be
+    /// resolved from the AST. Mirrors the `Option<String>` name
+    /// convention used by [`crate::FuncSpace`] and [`crate::ops::Ops`].
+    pub name: Option<String>,
     /// The first line of a function
     pub start_line: usize,
     /// The last line of a function
     pub end_line: usize,
-    /// If `true`, an error is occurred in determining the span
-    /// of a function
-    pub error: bool,
 }
 
 impl FunctionSpan {
@@ -66,21 +65,11 @@ pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
         if T::Checker::is_func(n) {
             let start_line = n.start_row() + 1;
             let end_line = n.end_row() + 1;
-            if let Some(name) = T::Getter::get_func_name(n, code) {
-                spans.push(FunctionSpan {
-                    name: name.to_string(),
-                    start_line,
-                    end_line,
-                    error: false,
-                });
-            } else {
-                spans.push(FunctionSpan {
-                    name: String::new(),
-                    start_line,
-                    end_line,
-                    error: true,
-                });
-            }
+            spans.push(FunctionSpan {
+                name: T::Getter::get_func_name(n, code).map(str::to_string),
+                start_line,
+                end_line,
+            });
         }
     });
 
@@ -100,10 +89,9 @@ fn dump_span(span: FunctionSpan, stdout: &mut dyn WriteColor, last: bool) -> std
     // heap allocations, matching the streaming form of the
     // pre-refactor code.
     let prefix = if last { "   `- " } else { "   |- " };
-    let (label_color, label) = if span.error {
-        (Color::Red, Seg::Text("error: "))
-    } else {
-        (Color::Magenta, Seg::NameColon(&span.name))
+    let (label_color, label) = match &span.name {
+        Some(name) => (Color::Magenta, Seg::NameColon(name)),
+        None => (Color::Red, Seg::Text("error: ")),
     };
     // Only the label is intense; the other five entries use `color()`.
     let segments: [(Color, bool, Seg<'_>); 6] = [

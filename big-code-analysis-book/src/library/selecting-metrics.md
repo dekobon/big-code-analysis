@@ -110,7 +110,7 @@ let opts = MetricsOptions::default().with_only(&[
     Metric::Nom,
     Metric::Tokens,
     Metric::NArgs,
-    Metric::Exit,
+    Metric::Nexits,
     Metric::Abc,
     Metric::Npm,
     Metric::Npa,

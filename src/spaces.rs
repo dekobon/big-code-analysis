@@ -378,7 +378,7 @@ fn compute_averages(state: &mut State, selected: MetricSet) {
         state.space.metrics.cognitive.finalize(nom_total);
     }
     // Nexit average
-    if selected.contains(Metric::Exit) {
+    if selected.contains(Metric::Nexits) {
         state.space.metrics.nexits.finalize(nom_total);
     }
     // Nargs average
@@ -396,7 +396,7 @@ fn compute_minmax(state: &mut State, selected: MetricSet) {
     if selected.contains(Metric::Cyclomatic) {
         state.space.metrics.cyclomatic.compute_minmax();
     }
-    if selected.contains(Metric::Exit) {
+    if selected.contains(Metric::Nexits) {
         state.space.metrics.nexits.compute_minmax();
     }
     if selected.contains(Metric::Cognitive) {
@@ -988,7 +988,7 @@ fn compute_per_node<'a, T: ParserTrait>(
     if selected.contains(Metric::NArgs) {
         T::NArgs::compute(node, &mut last.metrics.nargs);
     }
-    if selected.contains(Metric::Exit) {
+    if selected.contains(Metric::Nexits) {
         T::Exit::compute(node, code, &mut last.metrics.nexits);
     }
     if selected.contains(Metric::Abc) {
@@ -2578,9 +2578,9 @@ fn prod(x: i32) -> i32 {
 
         #[test]
         fn exit_only_pulls_nom_and_average_is_finite() {
-            let pruned = analyse(&[Metric::Exit]);
+            let pruned = analyse(&[Metric::Nexits]);
             let sel = pruned.metrics.selected();
-            assert!(sel.contains(Metric::Exit));
+            assert!(sel.contains(Metric::Nexits));
             assert!(sel.contains(Metric::Nom), "Exit depends on Nom (#428)");
             assert!(
                 pruned.metrics.nom.total() > 0,

@@ -762,13 +762,11 @@ async fn test_web_function_json() {
         "spans": [
             {
                 "end_line": 2,
-                "error": false,
                 "name": "foo",
                 "start_line": 1
             },
             {
                 "end_line": 5,
-                "error": false,
                 "name": "bar",
                 "start_line": 4
             }
@@ -800,13 +798,11 @@ async fn test_web_function_plain() {
         "spans": [
             {
                 "end_line": 2,
-                "error": false,
                 "name": "foo",
                 "start_line": 1
             },
             {
                 "end_line": 5,
-                "error": false,
                 "name": "bar",
                 "start_line": 4
             }

@@ -1,11 +1,10 @@
 //! Error type returned from the library's top-level entry points.
 //!
 //! Prior to this module, every entry point returned `Option<…>` and
-//! collapsed parse failure, empty input, non-UTF-8 paths, and
-//! disabled-language builds into a single `None`. [`MetricsError`]
-//! distinguishes those cases so library consumers can react
-//! appropriately (e.g. log the parse failure but skip a non-UTF-8
-//! path).
+//! collapsed parse failure, empty input, and disabled-language builds
+//! into a single `None`. [`MetricsError`] distinguishes those cases so
+//! library consumers can react appropriately (e.g. report a disabled
+//! language distinctly from an empty parse).
 //!
 //! New variants may be added in future minor versions, so consumers
 //! must include a `_` arm when matching exhaustively — this is enforced
@@ -28,10 +27,11 @@ use crate::LANG;
 ///
 /// # Examples
 ///
-/// Most variants are reserved for features that have not yet landed
-/// (see each variant's documentation for the issue tracking it). The
-/// exception is [`MetricsError::LanguageDisabled`], which is
-/// produced by every dispatch entry point when the caller selects a
+/// The [`MetricsError::EmptyRoot`] variant is reserved for a future
+/// walker change (see its documentation). The
+/// [`MetricsError::LanguageDisabled`] variant is the one actually
+/// produced today: every dispatch entry point emits it when the
+/// caller selects a
 /// [`LANG`] whose per-language Cargo feature is not enabled in the
 /// current build (see #252). The example exercises the happy path
 /// and demonstrates the exhaustive-with-`_` match shape that callers
@@ -52,16 +52,10 @@ use crate::LANG;
 ///     Err(MetricsError::EmptyRoot) => {
 ///         // Reserved: walker produced no top-level FuncSpace.
 ///     }
-///     Err(MetricsError::ParseHasErrors) => {
-///         // Reserved: future strict-parsing toggle on `MetricsOptions`.
-///     }
 ///     Err(MetricsError::LanguageDisabled(_lang)) => {
 ///         // The `LANG` variant the caller asked for has no grammar
 ///         // crate compiled in for this build (per-language feature
 ///         // disabled — see the `[features]` table in Cargo.toml).
-///     }
-///     Err(MetricsError::NonUtf8Path) => {
-///         // Reserved: strict-identifier mode (see issue #254).
 ///     }
 ///     // `MetricsError` is `#[non_exhaustive]`; new variants may be added.
 ///     Err(_) => {}
@@ -99,27 +93,6 @@ pub enum MetricsError {
     /// `--no-default-features --features rust,…` are the only ones
     /// that observe this variant.
     LanguageDisabled(LANG),
-    /// The supplied path could not be losslessly converted to UTF-8.
-    ///
-    /// Reserved for callers that opt into strict-identifier mode.
-    /// As of #254, the recommended [`crate::analyze`] entry point
-    /// accepts a [`crate::Source`] with an explicit
-    /// `Source::name: Option<String>` so callers never need to round-
-    /// trip a non-UTF-8 path through lossy conversion in the first
-    /// place. The deprecated path-positional entry points
-    /// (`metrics`, [`crate::get_function_spaces`], …) still
-    /// fall back to `Path::to_string_lossy`. This variant is not
-    /// produced today; it is kept for future strict-identifier
-    /// validators that reject lossy names up front.
-    NonUtf8Path,
-    /// The tree-sitter parse tree contains syntax errors and the
-    /// caller opted into strict mode.
-    ///
-    /// Reserved for a future strict-parsing toggle on
-    /// [`MetricsOptions`][crate::MetricsOptions]; the current entry
-    /// points still tolerate `ERROR` nodes and compute best-effort
-    /// metrics, so this variant is not produced today.
-    ParseHasErrors,
 }
 
 impl std::fmt::Display for MetricsError {
@@ -131,8 +104,6 @@ impl std::fmt::Display for MetricsError {
             Self::LanguageDisabled(lang) => {
                 write!(f, "language {} is not enabled in this build", lang.name())
             }
-            Self::NonUtf8Path => f.write_str("path is not valid UTF-8"),
-            Self::ParseHasErrors => f.write_str("tree-sitter parse tree contains syntax errors"),
         }
     }
 }
