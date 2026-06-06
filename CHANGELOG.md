@@ -1148,6 +1148,20 @@ for historical reference.
 
 ### Fixed
 
+- PHP cognitive complexity no longer double-counts the two-word `else if`
+  form. PHP parses `else if` as an `else_clause` wrapping a nested
+  `if_statement`, and the nested `IfStatement` fell through the cognitive
+  `IfStatement` arm — which, unlike every sibling language, lacked the
+  `if !Self::is_else_if(node)` guard — firing `increase_nesting` on top of
+  the wrapping clause's branch extension and inflating nesting for later
+  arms super-linearly. The two-word form now scores identically to the
+  one-word `elseif` keyword (e.g. an `if … else if … else` chain reports
+  cognitive sum `3`, matching the SonarSource reference and the equivalent
+  C++/JS). PHP's `is_else_if` now recognizes both the dedicated
+  `else_if_clause` node and the `else_clause → if_statement` shape. Metric
+  values for PHP functions using two-word `else if` decrease; cyclomatic
+  and ABC are unaffected
+  ([#529](https://github.com/dekobon/big-code-analysis/issues/529)).
 - Groovy cognitive complexity now applies a lambda-nesting surcharge to
   control flow inside a closure (`list.each { … }`, `def c = { … }`),
   matching Java's `LambdaExpression` and every other closure-bearing

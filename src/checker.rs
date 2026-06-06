@@ -1495,15 +1495,50 @@ impl Checker for PhpCode {
         ShellCommandExpression,
     );
 
-    // PHP exposes a dedicated `else_if_clause` node (`ElseIfClause`); both
-    // the brace `} elseif {` and the alternative `elseif: … endif;` colon
-    // forms parse as `ElseIfClause`. `ElseIfClause2` is an aliased kind_id
-    // the grammar maps to the same `else_if_clause` rule name but which does
-    // not surface in observed parse trees; it is kept as a defensive arm
-    // (lesson #34) so a future grammar revision that emits it is handled
-    // rather than silently dropped, matching the PHP cyclomatic/ABC/cognitive
-    // dispatch which list both variants.
-    impl_is_else_if_clause!(Php, ElseIfClause, ElseIfClause2);
+    // PHP models `else if` in two distinct shapes, so it cannot use a
+    // single is_else_if macro:
+    //
+    // 1. The one-word `elseif` keyword parses as a dedicated
+    //    `else_if_clause` node (`ElseIfClause`); both the brace
+    //    `} elseif {` and the alternative `elseif: … endif;` colon forms
+    //    parse as `ElseIfClause`. `ElseIfClause2` is an aliased kind_id
+    //    the grammar maps to the same `else_if_clause` rule name but which
+    //    does not surface in observed parse trees; it is kept as a
+    //    defensive arm (lesson #34) so a future grammar revision that emits
+    //    it is handled rather than silently dropped.
+    // 2. The two-word `else if` form (only valid in the brace syntax)
+    //    parses as an `else_clause` wrapping a nested `if_statement`
+    //    (`else_clause → if_statement`, the `impl_is_else_if_parent_clause!`
+    //    shape used by C++/JS/Rust). The inner `IfStatement` must be
+    //    recognized as an else-if continuation, or the cognitive
+    //    `IfStatement` arm double-counts it and inflates nesting for later
+    //    arms (#529). A plain `else { if (…) {} }` does NOT match: there the
+    //    inner `if` nests under a `compound_statement`, not directly under
+    //    the `else_clause`.
+    //
+    // The alternative colon syntax (`if …: … endif;`) only accepts the
+    // one-word `elseif` (shape 1); two-word `else if` there is a PHP fatal
+    // parse error and the grammar emits an `ERROR` node, so it is
+    // intentionally not handled here — there is no well-defined metric for
+    // syntactically invalid source.
+    //
+    // Matching shapes 1 and 2 lets the cognitive guard
+    // `IfStatement if !Self::is_else_if(node)` suppress the nested-if
+    // penalty while the wrapping `else_clause` still scores its +1
+    // branch extension. The dedicated-clause match (shape 1) is
+    // behaviorally inert today — `count_specific_ancestors` is not used by
+    // PHP cognitive and the guard only fires on `IfStatement` — but is kept
+    // for parity with the PHP cyclomatic/ABC/cognitive dispatch which list
+    // both clause variants.
+    #[inline]
+    fn is_else_if(node: &Node) -> bool {
+        let kind = node.kind_id();
+        matches!(kind.into(), Php::ElseIfClause | Php::ElseIfClause2)
+            || (kind == Php::IfStatement
+                && node.parent().is_some_and(|parent| {
+                    matches!(parent.kind_id().into(), Php::ElseClause | Php::ElseClause2)
+                }))
+    }
 }
 
 impl Checker for ElixirCode {

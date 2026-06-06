@@ -1330,8 +1330,17 @@ impl Cognitive for PhpCode {
         let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement
-            | ForStatement
+            // The two-word `else if` form parses as `else_clause →
+            // if_statement`; `Self::is_else_if` flags that nested
+            // `IfStatement` so it is not counted again against the wrapping
+            // `else_clause`'s branch extension and does not inflate nesting
+            // for later arms (#529). The one-word `elseif` keyword is a
+            // dedicated `ElseIfClause` node handled by the branch-extension
+            // arm below.
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ForStatement
             | ForeachStatement
             | WhileStatement
             | DoStatement
@@ -8725,11 +8734,12 @@ end",
         // therefore +1 each = 3. PHP previously had no cognitive test for
         // the `elseif` dispatch; this pins it.
         //
-        // Note: unlike C++/JS/Java/etc. (where `else if` is a nested
-        // `if`/`if_expression` and `Checker::is_else_if` suppresses its
-        // nesting penalty), PHP's `is_else_if` is never consulted on this
-        // path — an `else_if_clause` is its own node, dispatched directly,
-        // and `is_else_if` is only ever checked against `IfStatement`.
+        // Note: the one-word `elseif` parses as its own `else_if_clause`
+        // node, dispatched directly to the branch-extension arm, so
+        // `is_else_if` is never consulted on this path. PHP's *two-word*
+        // `else if` is the nested-`if` shape that C++/JS/Java have, and it
+        // does go through the `IfStatement if !Self::is_else_if` guard —
+        // see `php_two_word_else_if_529` (#529).
         check_metrics::<PhpParser>(
             "<?php
             function f(int $a): void {
@@ -8740,6 +8750,137 @@ end",
                 } else {             // +1
                     echo 'zero';
                 }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_two_word_else_if_529() {
+        // PHP's two-word `else if` parses as an `else_clause` wrapping a
+        // nested `if_statement` (`else_clause → if_statement`), unlike the
+        // one-word `elseif` keyword which is a dedicated `else_if_clause`
+        // node. Before #529 the nested `IfStatement` fell through PHP's
+        // unguarded cognitive `IfStatement` arm: it fired `increase_nesting`
+        // (+1, plus an inflated nesting level for later arms) on top of the
+        // wrapping `else_clause`'s branch extension (+1), so the chain below
+        // scored 5 instead of the correct 3 — and worse for deeper chains.
+        //
+        // Correct SonarSource value: `if` +1, `else if` +1 branch
+        // extension, `else` +1 = 3. The fix adds the
+        // `IfStatement if !Self::is_else_if(node)` guard and teaches PHP's
+        // `is_else_if` to recognize the `else_clause → if_statement` shape.
+        // This test guards both halves: it scores identically to the
+        // one-word `php_if_elseif_else` form. Verified by revert — against
+        // pre-#529 code it asserts 5 and fails.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $a): void {
+                if ($a == 1) {        // +1
+                    echo 'one';
+                } else if ($a == 2) { // +1 branch extension, no nesting
+                    echo 'two';
+                } else {              // +1 branch extension
+                    echo 'zero';
+                }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_two_word_else_if_chain_nesting_529() {
+        // A genuinely nested `if` inside a two-word `else if` arm must still
+        // pay its nesting penalty — the #529 guard suppresses only the
+        // else-if-continuation `IfStatement`, not real nesting. Here the
+        // inner `if ($a > 0)` sits one level deep inside the `else if` arm:
+        // `if` +1, `else if` +1, inner `if` +2 (base + nesting), final
+        // `else` +1 = 5. Pre-#529 the misattributed nesting inflated this
+        // super-linearly; this pins the corrected total and confirms the
+        // guard does not over-suppress real nesting.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $a): void {
+                if ($a == 1) {         // +1
+                    echo 'one';
+                } else if ($a == 2) {  // +1
+                    if ($a > 0) {      // +2 (base + nesting)
+                        echo 'pos';
+                    }
+                } else {               // +1
+                    echo 'zero';
+                }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 5);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 0,
+                  "max": 5
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_alternative_syntax_elseif_529() {
+        // PHP's alternative (colon) syntax `if …: … elseif …: … else: …
+        // endif;` requires the one-word `elseif` keyword — two-word
+        // `else if` is a PHP fatal parse error there (the grammar emits an
+        // `ERROR` node). The valid one-word form parses as the dedicated
+        // `else_if_clause` node, scored as a branch extension (+1, no
+        // nesting) just like the brace form. Discovered while fixing #529:
+        // pins that the colon-syntax `elseif` chain scores 3, the same as
+        // the brace `php_if_elseif_else` form, and guards against a future
+        // change that mishandles the alternative-syntax dispatch.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $a): void {
+                if ($a > 0):        // +1
+                    echo 'pos';
+                elseif ($a < 0):    // +1 branch extension, no nesting
+                    echo 'neg';
+                else:               // +1 branch extension
+                    echo 'zero';
+                endif;
             }",
             "foo.php",
             |metric| {
