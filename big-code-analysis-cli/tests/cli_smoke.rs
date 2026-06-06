@@ -233,6 +233,35 @@ fn strip_comments_output_conflicts_with_in_place() {
 }
 
 #[test]
+fn strip_comments_output_rejects_multi_file_input() {
+    // `--output` is a single-file sink: with more than one input file
+    // every worker would write to the same path (racing, last-writer-
+    // wins, silent data loss). The command must reject the multi-file
+    // case (die, exit 1) rather than clobber — `--in-place` is the
+    // multi-file verb. Regression guard for the #539 `--output` addition.
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.py"), "# c\na = 1\n").unwrap();
+    std::fs::write(dir.path().join("b.py"), "# c\nb = 2\n").unwrap();
+    let out = dir.path().join("stripped.py");
+    cli()
+        .args([
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "strip-comments",
+            "--output",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("input files matched"));
+    // No partial sink file is left behind.
+    assert!(
+        !out.exists(),
+        "--output sink must not be written for a rejected multi-file run"
+    );
+}
+
+#[test]
 fn preproc_emits_json_to_stdout_without_output() {
     // The producer walks paths and emits a `PreprocResults` JSON. Even
     // when no C/C++ files are present, it must emit a syntactically

@@ -47,8 +47,9 @@ use crate::{
     GlobalOpts, InitArgs, LineRange, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs,
     PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die, die_io,
     group_files_by_basename, legacy_hint, load_baseline, load_preproc_data, load_threshold_config,
-    read_exclude_patterns_from, run_walk, run_walk_collecting, validate_output_path, write_atomic,
-    write_output_or_stdout, write_stdout_or_die,
+    read_exclude_patterns_from, resolve_walk_files, run_walk, run_walk_collecting,
+    run_walk_resolved, validate_output_path, write_atomic, write_output_or_stdout,
+    write_stdout_or_die,
 };
 
 fn run_check(
@@ -1651,12 +1652,26 @@ fn run_command_strip_comments(
     args: StripCommentsArgs,
     preproc: Option<Arc<PreprocResults>>,
 ) {
+    // `--output` is a single-file sink; if more than one input file
+    // matched, every worker would write to the same path (racing,
+    // last-writer-wins, silent data loss). Resolve the file set first
+    // and reject the multi-file case — `--in-place` is the multi-file
+    // verb.
+    let has_output = args.output.is_some();
     let action = Action::StripComments {
         in_place: args.in_place,
         output: args.output,
     };
     let cfg = Config::new(action, &globals, preproc);
-    run_walk(globals, cfg);
+    let (paths, num_jobs) = resolve_walk_files(globals);
+    if has_output && paths.len() > 1 {
+        die(format_args!(
+            "--output writes a single file, but {} input files matched; \
+             use --in-place to rewrite multiple files",
+            paths.len()
+        ));
+    }
+    run_walk_resolved(paths, num_jobs, cfg);
 }
 
 fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {

@@ -13,7 +13,7 @@ Remove comments from source files
 Rewrite each input file in place instead of writing to stdout. Use this for multi\-file rewrites; it is mutually exclusive with `\-\-output`
 .TP
 \fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
-Write the stripped output to this file instead of stdout. Only meaningful for a single input file; mutually exclusive with `\-\-in\-place`. Omit it (and `\-\-in\-place`) to stream the result to stdout
+Write the stripped output to this file instead of stdout. Requires a single input file — a multi\-file run is rejected (use `\-\-in\-place` for that). Mutually exclusive with `\-\-in\-place`. Omit it (and `\-\-in\-place`) to stream the result to stdout
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

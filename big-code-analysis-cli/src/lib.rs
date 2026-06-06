@@ -486,10 +486,10 @@ struct StripCommentsArgs {
     /// `--output`.
     #[clap(long)]
     in_place: bool,
-    /// Write the stripped output to this file instead of stdout. Only
-    /// meaningful for a single input file; mutually exclusive with
-    /// `--in-place`. Omit it (and `--in-place`) to stream the result to
-    /// stdout.
+    /// Write the stripped output to this file instead of stdout.
+    /// Requires a single input file — a multi-file run is rejected (use
+    /// `--in-place` for that). Mutually exclusive with `--in-place`. Omit
+    /// it (and `--in-place`) to stream the result to stdout.
     #[clap(
         long = "output",
         short = 'o',
@@ -1481,6 +1481,14 @@ fn resolve_walk_files(globals: GlobalOpts) -> (Vec<PathBuf>, usize) {
 /// `bca preproc`, for `#include` grouping) use [`run_walk_collecting`].
 fn run_walk(globals: GlobalOpts, cfg: Config) {
     let (paths, num_jobs) = resolve_walk_files(globals);
+    run_walk_resolved(paths, num_jobs, cfg);
+}
+
+/// Process an already-resolved terminal file list concurrently. Lets a
+/// caller inspect the resolved set (e.g. `strip-comments --output`, which
+/// rejects a multi-file match) before dispatching the workers, without
+/// re-running the seed expansion.
+fn run_walk_resolved(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) {
     ConcurrentRunner::new(num_jobs, act_on_file)
         .run(cfg, FilesData { paths })
         .unwrap_or_else(|e| die(format_args!("{e:?}")));
