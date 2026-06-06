@@ -1582,18 +1582,7 @@ fn run_command_report(
     }
     let policy = SuppressionPolicy::from_no_suppress(args.no_suppress);
     if let Some(ref output) = args.output {
-        if output.exists() && output.is_dir() {
-            die("--output must be a file path for `report`");
-        }
-        if let Some(parent) = output.parent()
-            && !parent.as_os_str().is_empty()
-            && !parent.exists()
-        {
-            die(format_args!(
-                "parent directory of --output does not exist: {}",
-                parent.display()
-            ));
-        }
+        validate_output_path(output, "report");
     }
     let format = args.resolved_format();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -1611,12 +1600,7 @@ fn run_command_report(
         ReportFormat::Markdown => generate_report(&summaries, args.top as usize, policy),
         ReportFormat::Html => generate_html_report(&summaries, args.top as usize, policy),
     };
-    if let Some(ref output_path) = args.output {
-        std::fs::write(output_path, &report)
-            .unwrap_or_else(|e| die_io("write report to", output_path, e));
-    } else {
-        write_stdout_or_die(report.as_bytes());
-    }
+    write_output_or_stdout(args.output.as_deref(), "write report to", report.as_bytes());
 }
 
 fn run_command_find(globals: GlobalOpts, args: FindArgs, preproc: Option<Arc<PreprocResults>>) {
@@ -2170,18 +2154,7 @@ fn run_command_exemptions(
     // Validate `--output` before the (slower) walk so a bad path fails
     // fast, mirroring `run_command_report`.
     if let Some(ref output) = args.output {
-        if output.exists() && output.is_dir() {
-            die("--output must be a file path for `exemptions`");
-        }
-        if let Some(parent) = output.parent()
-            && !parent.as_os_str().is_empty()
-            && !parent.exists()
-        {
-            die(format_args!(
-                "parent directory of --output does not exist: {}",
-                parent.display()
-            ));
-        }
+        validate_output_path(output, "exemptions");
     }
 
     // No `--*-only` flag selects every section; one selects just that
@@ -2206,12 +2179,11 @@ fn run_command_exemptions(
     let rendered = report
         .render(args.format, &args.strip_prefix)
         .unwrap_or_else(|e| die(format_args!("failed to serialize exemptions to JSON: {e}")));
-    if let Some(ref output_path) = args.output {
-        std::fs::write(output_path, rendered.as_bytes())
-            .unwrap_or_else(|e| die_io("write exemptions report to", output_path, e));
-    } else {
-        write_stdout_or_die(rendered.as_bytes());
-    }
+    write_output_or_stdout(
+        args.output.as_deref(),
+        "write exemptions report to",
+        rendered.as_bytes(),
+    );
 }
 
 /// Run the suppression-marker walk and return the flattened rows sorted

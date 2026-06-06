@@ -34,6 +34,8 @@ use big_code_analysis::{
     FuncSpace, LANG, MetricKind, SpaceKind, SuppressionPolicy, SuppressionScope,
 };
 
+use crate::format_util::strip_path_prefix;
+
 /// Compact per-function/class metric record for the markdown report pipeline.
 #[derive(Debug)]
 pub(crate) struct FunctionSummary {
@@ -120,7 +122,7 @@ pub(crate) fn extract_summaries(
     strip_prefix: &str,
     out: &mut Vec<FunctionSummary>,
 ) {
-    let display_file = file.strip_prefix(strip_prefix).unwrap_or(file);
+    let display_file = strip_path_prefix(file, strip_prefix);
     extract_summaries_inner(space, display_file, language, out);
 }
 

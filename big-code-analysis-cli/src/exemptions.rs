@@ -34,7 +34,7 @@ use big_code_analysis::{
 
 use crate::OutputFormat;
 use crate::baseline::DiffEntry;
-use crate::format_util::MetricScalar;
+use crate::format_util::{MetricScalar, strip_path_prefix};
 
 /// Per-file marker batch streamed from the walk worker pool to the
 /// post-walk aggregator. `path` is the display path (already
@@ -136,7 +136,7 @@ impl ExemptionsReport {
             );
             if open_section(&mut out, &header, "  (none)\n", section.entries.is_empty()) {
                 for e in &section.entries {
-                    let path = strip(&e.path, strip_prefix);
+                    let path = strip_path_prefix(&e.path, strip_prefix);
                     let _ = writeln!(
                         out,
                         "  {path}:{} {} {} {}",
@@ -160,7 +160,7 @@ impl ExemptionsReport {
                 out.push_str("| --- | ---: | --- | --- | --- |\n");
                 for row in rows {
                     let m = &row.marker;
-                    let path = strip(&row.path, strip_prefix);
+                    let path = strip_path_prefix(&row.path, strip_prefix);
                     let _ = writeln!(
                         out,
                         "| {} | {} | `{}` | {} | {} |",
@@ -191,7 +191,7 @@ impl ExemptionsReport {
                 out.push_str("| File | Line | Symbol | Metric | Value |\n");
                 out.push_str("| --- | ---: | --- | --- | ---: |\n");
                 for e in &section.entries {
-                    let path = strip(&e.path, strip_prefix);
+                    let path = strip_path_prefix(&e.path, strip_prefix);
                     let _ = writeln!(
                         out,
                         "| {} | {} | {} | {} | {} |",
@@ -211,7 +211,7 @@ impl ExemptionsReport {
         let markers = self.markers.as_ref().map(|rows| {
             rows.iter()
                 .map(|row| JsonMarker {
-                    path: strip(&row.path, strip_prefix),
+                    path: strip_path_prefix(&row.path, strip_prefix),
                     line: row.marker.line,
                     target: row.marker.target,
                     scope: &row.marker.scope,
@@ -225,7 +225,7 @@ impl ExemptionsReport {
                 .entries
                 .iter()
                 .map(|e| JsonBaseline {
-                    path: strip(&e.path, strip_prefix),
+                    path: strip_path_prefix(&e.path, strip_prefix),
                     line: e.start_line,
                     qualified: &e.qualified,
                     metric: &e.metric,
@@ -272,7 +272,13 @@ fn render_marker_rows_tty(out: &mut String, rows: &[MarkerRow], strip_prefix: &s
     // string (after prefix stripping), not the raw path.
     let locs: Vec<String> = rows
         .iter()
-        .map(|r| format!("{}:{}", strip(&r.path, strip_prefix), r.marker.line))
+        .map(|r| {
+            format!(
+                "{}:{}",
+                strip_path_prefix(&r.path, strip_prefix),
+                r.marker.line
+            )
+        })
         .collect();
     let loc_w = locs.iter().map(String::len).max().unwrap_or(0);
     let label_w = rows
@@ -326,17 +332,6 @@ fn function_cell(m: &SuppressionMarker) -> String {
         (SuppressionTarget::File, _) => "(whole file)".to_owned(),
         (SuppressionTarget::Function, Some(name)) => name.to_owned(),
         (SuppressionTarget::Function, None) => "(no enclosing fn)".to_owned(),
-    }
-}
-
-/// Strip `prefix` from the front of `path` for display. A no-op when
-/// `prefix` is empty or does not match, so callers can pass an empty
-/// prefix unconditionally.
-fn strip<'a>(path: &'a str, prefix: &str) -> &'a str {
-    if prefix.is_empty() {
-        path
-    } else {
-        path.strip_prefix(prefix).unwrap_or(path)
     }
 }
 
