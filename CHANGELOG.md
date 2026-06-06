@@ -23,6 +23,15 @@ for historical reference.
 
 ### Added
 
+- `bca diff` and `bca diff-baseline` now accept `--output`/`-o <PATH>` (writing
+  to the file when given, stdout when omitted) and `--strip-prefix <PREFIX>`
+  (trimming the prefix from displayed file paths in the TTY and Markdown
+  per-file tables; a no-op for `--format json`), for parity with `report` and
+  `exemptions` (#544).
+- Round-trip smoke-test coverage for the TOML, YAML, and CBOR per-file output
+  formats in `big-code-analysis-cli`, parsing each format back and asserting
+  structural keys and integer-valued numeric fidelity against JSON (#543).
+
 - `Ast::ops()` — the `Source`-based counterpart of `get_ops`. Returns the
   operator/operand `Ops` tree for a parsed `Ast`, carrying the
   `Source::name` (`Option<String>`) end-to-end instead of deriving the
