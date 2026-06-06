@@ -173,7 +173,7 @@ fn ast_callback_produces_serializable_tree() {
 
     // Walk the materialized tree structurally instead of substring-matching
     // the JSON — a substring check would false-pass on any node whose
-    // `TextValue` happened to contain `function_item` (e.g. an identifier
+    // `value` happened to contain `function_item` (e.g. an identifier
     // by that name in a future fixture).
     let root = response.root.as_ref().expect("rust source parses");
     assert!(
@@ -184,5 +184,5 @@ fn ast_callback_produces_serializable_tree() {
     // Serialization shape sanity-check stays — the AST callback's stable
     // contract is the JSON layout consumed by the REST `/ast` endpoint.
     let json = serde_json::to_string(&response).expect("AstResponse serializes");
-    assert!(json.contains("\"Type\":\"function_item\""));
+    assert!(json.contains("\"type\":\"function_item\""));
 }

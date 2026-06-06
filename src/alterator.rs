@@ -39,7 +39,7 @@ where
 
     /// Gets the code as text and the span associated to a node.
     #[must_use]
-    fn get_text_span(node: &Node, code: &[u8], span: bool, text: bool) -> (String, Span) {
+    fn get_text_span(node: &Node, code: &[u8], span: bool, text: bool) -> (String, Option<Span>) {
         let text = if text {
             // Source may contain non-UTF-8 byte strings (e.g. binary literals); replacement
             // characters are acceptable in the AST payload produced by dump functions.
@@ -50,9 +50,16 @@ where
         if span {
             let (spos_row, spos_column) = node.start_position();
             let (epos_row, epos_column) = node.end_position();
+            // Tree-sitter positions are 0-based; the dump shape reports
+            // 1-based rows and columns.
             (
                 text,
-                Some((spos_row + 1, spos_column + 1, epos_row + 1, epos_column + 1)),
+                Some(Span {
+                    start_row: spos_row + 1,
+                    start_col: spos_column + 1,
+                    end_row: epos_row + 1,
+                    end_col: epos_column + 1,
+                }),
             )
         } else {
             (text, None)

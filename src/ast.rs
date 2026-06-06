@@ -1,5 +1,5 @@
 // bca: suppress-file(halstead, nargs, exit)
-// Per-language AST-builder dispatch plus the `AstNode` serde impl; the
+// Per-language AST-builder dispatch plus the `AstNode` serde derive; the
 // offenders are arm-count / many-fn aggregation artifacts, not per-function
 // logic complexity.
 
@@ -11,19 +11,26 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::enum_glob_use, clippy::if_not_else, clippy::wildcard_imports)]
 
-use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 
 use crate::*;
 
 /// Start and end positions of a node in a code in terms of rows and columns.
 ///
-/// The first and second fields represent the row and column associated to
-/// the start position of a node.
-///
-/// The third and fourth fields represent the row and column associated to
-/// the end position of a node.
-pub type Span = Option<(usize, usize, usize, usize)>;
+/// Serialized as a flat object `{start_row, start_col, end_row, end_col}`.
+/// A node's span is `None` for the root and any node when span tracking is
+/// disabled; in that case the wrapping `Option<Span>` serializes as `null`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Span {
+    /// Row of the start position (1-based).
+    pub start_row: usize,
+    /// Column of the start position (1-based).
+    pub start_col: usize,
+    /// Row of the end position (1-based).
+    pub end_row: usize,
+    /// Column of the end position (1-based).
+    pub end_col: usize,
+}
 
 /// The payload of an `Ast` request.
 #[derive(Debug, Deserialize, Serialize)]
@@ -53,14 +60,18 @@ pub struct AstResponse {
 }
 
 /// Information on an `AST` node.
-#[derive(Debug)]
+///
+/// Serialized as a flat object with `snake_case` keys: `type`, `value`,
+/// `span`, `field_name`, `children`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct AstNode {
     /// The type of node
     pub r#type: &'static str,
     /// The code associated to a node
     pub value: String,
     /// The start and end positions of a node in a code
-    pub span: Span,
+    pub span: Option<Span>,
     /// Tree-sitter grammar field name through which the parent reaches
     /// this node (e.g. `left`, `right`, `name`, `body`).
     ///
@@ -73,28 +84,18 @@ pub struct AstNode {
     pub children: Vec<AstNode>,
 }
 
-impl Serialize for AstNode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("Node", 5)?;
-        st.serialize_field("Type", &self.r#type)?;
-        st.serialize_field("TextValue", &self.value)?;
-        st.serialize_field("Span", &self.span)?;
-        st.serialize_field("FieldName", &self.field_name)?;
-        st.serialize_field("Children", &self.children)?;
-        st.end()
-    }
-}
-
 impl AstNode {
     /// Builds an `AstNode` with the supplied type, value, span, and
     /// children. The `field_name` is set to `None`; use
     /// [`AstNode::with_field_name`] to record the tree-sitter grammar
     /// field through which the parent reaches this node.
     #[must_use]
-    pub fn new(r#type: &'static str, value: String, span: Span, children: Vec<AstNode>) -> Self {
+    pub fn new(
+        r#type: &'static str,
+        value: String,
+        span: Option<Span>,
+        children: Vec<AstNode>,
+    ) -> Self {
         Self::with_field_name(r#type, value, span, None, children)
     }
 
@@ -105,7 +106,7 @@ impl AstNode {
     pub fn with_field_name(
         r#type: &'static str,
         value: String,
-        span: Span,
+        span: Option<Span>,
         field_name: Option<&'static str>,
         children: Vec<AstNode>,
     ) -> Self {
@@ -238,6 +239,19 @@ mod tests {
             .expect("parser should produce a root AST node")
     }
 
+    fn build_ast_with_span<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
+        let path = PathBuf::from(filename);
+        let parser = P::new(code.to_vec(), &path, None);
+        let cfg = AstCfg {
+            id: String::new(),
+            comment: false,
+            span: true,
+        };
+        AstCallback::call(cfg, &parser)
+            .root
+            .expect("parser should produce a root AST node")
+    }
+
     fn find_first<'a>(node: &'a AstNode, kind: &str) -> Option<&'a AstNode> {
         if node.r#type == kind {
             return Some(node);
@@ -325,25 +339,91 @@ mod tests {
 
     #[test]
     fn serialized_json_includes_field_name_key() {
-        // Regression for the Serialize impl: every node must serialize
-        // a `FieldName` key (null or string). Verifying via JSON
+        // Regression for the Serialize derive: every node must serialize
+        // a `field_name` key (null or string). Verifying via JSON
         // string-match catches accidental removal of the field from
         // the serializer.
         let root = build_ast::<crate::RustParser>(b"fn f(){ let a = 1; }", "test.rs");
         let json = serde_json::to_string(&root).expect("serialize");
         assert!(
-            json.contains("\"FieldName\""),
-            "FieldName missing from JSON: {json}"
+            json.contains("\"field_name\""),
+            "field_name missing from JSON: {json}"
         );
         // The let binding's `pattern` and `value` fields should both
         // appear as string values in the JSON.
         assert!(
-            json.contains("\"FieldName\":\"pattern\""),
+            json.contains("\"field_name\":\"pattern\""),
             "expected pattern field name; got {json}"
         );
         assert!(
-            json.contains("\"FieldName\":\"value\""),
+            json.contains("\"field_name\":\"value\""),
             "expected value field name; got {json}"
         );
+    }
+
+    #[test]
+    fn serialized_json_uses_snake_case_keys() {
+        // The serialized AST shape uses snake_case keys (#535). This
+        // anchors the key scheme against accidental reversion to the
+        // former PascalCase `Type`/`TextValue`/`Span`/`Children`.
+        let root = build_ast_with_span::<crate::RustParser>(b"fn f(){}", "test.rs");
+        let json = serde_json::to_string(&root).expect("serialize");
+        for key in [
+            "\"type\":",
+            "\"value\":",
+            "\"span\":",
+            "\"field_name\":",
+            "\"children\":",
+        ] {
+            assert!(json.contains(key), "expected key {key}; got {json}");
+        }
+        for legacy in ["\"Type\"", "\"TextValue\"", "\"Span\"", "\"Children\""] {
+            assert!(
+                !json.contains(legacy),
+                "unexpected PascalCase key {legacy}; got {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn span_serializes_as_named_object() {
+        // The span is a flat named object preserving the 1-based
+        // tree-sitter row/column values in the original tuple order
+        // (start_row, start_col, end_row, end_col).
+        let root = build_ast_with_span::<crate::RustParser>(b"fn f(){}", "test.rs");
+        let span = root
+            .span
+            .expect("root span present when span tracking is on");
+        assert_eq!(
+            span,
+            Span {
+                start_row: 1,
+                start_col: 1,
+                end_row: 1,
+                end_col: 9,
+            }
+        );
+        let json = serde_json::to_string(&root.span).expect("serialize span");
+        assert!(
+            json.contains("\"start_row\":1")
+                && json.contains("\"start_col\":1")
+                && json.contains("\"end_row\":1")
+                && json.contains("\"end_col\":9"),
+            "expected named span object; got {json}"
+        );
+    }
+
+    #[test]
+    fn span_round_trips_through_serde() {
+        // Span derives Deserialize for wire round-trip parity.
+        let span = Span {
+            start_row: 2,
+            start_col: 3,
+            end_row: 4,
+            end_col: 5,
+        };
+        let json = serde_json::to_string(&span).expect("serialize");
+        let back: Span = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(span, back);
     }
 }

@@ -254,8 +254,8 @@ assert_eq!(functions, ["outer", "inner", "alone"]);
 ```
 
 `Node::child_by_field_name` walks the named grammar fields — the same
-fields that show up in the `FieldName` column when you run
-`bca --paths sample.rs dump`. Field-based lookup is more robust than
+fields that show up in the `field_name` key of the serialized AST
+(REST `/ast`, `AstCallback`). Field-based lookup is more robust than
 positional indexing because it does not depend on which children the
 grammar emits for anonymous tokens (commas, parentheses, …).
 

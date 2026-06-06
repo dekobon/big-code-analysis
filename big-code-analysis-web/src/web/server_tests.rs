@@ -94,66 +94,70 @@ async fn test_web_ast() {
         .to_request();
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
-    // FieldName values mirror the C grammar: `declaration` names its
+    // field_name values mirror the C grammar: `declaration` names its
     // `type` and `declarator` fields, `init_declarator` names its
     // `declarator` and `value` fields. Anonymous tokens (`=`, `;`)
-    // carry no field name. Regression coverage for #244.
+    // carry no field name. Regression coverage for #244. Span is a
+    // flat named object `{start_row, start_col, end_row, end_col}`
+    // (#535); the four values preserve the former tuple order.
+    let span =
+        |sr, sc, er, ec| json!({"start_row": sr, "start_col": sc, "end_row": er, "end_col": ec});
     let expected = json!({
         "id": "1234",
         "root": {
-            "Type": "translation_unit",
-            "TextValue": "",
-            "Span": [1, 1, 1, 11],
-            "FieldName": null,
-            "Children": [
+            "type": "translation_unit",
+            "value": "",
+            "span": span(1, 1, 1, 11),
+            "field_name": null,
+            "children": [
                 {
-                    "Type": "declaration",
-                    "TextValue": "",
-                    "Span": [1, 1, 1, 11],
-                    "FieldName": null,
-                    "Children": [
+                    "type": "declaration",
+                    "value": "",
+                    "span": span(1, 1, 1, 11),
+                    "field_name": null,
+                    "children": [
                         {
-                            "Type": "primitive_type",
-                            "TextValue": "int",
-                            "Span": [1, 1, 1, 4],
-                            "FieldName": "type",
-                            "Children": []
+                            "type": "primitive_type",
+                            "value": "int",
+                            "span": span(1, 1, 1, 4),
+                            "field_name": "type",
+                            "children": []
                         },
                         {
-                            "Type": "init_declarator",
-                            "TextValue": "",
-                            "Span": [1, 5, 1, 10],
-                            "FieldName": "declarator",
-                            "Children": [
+                            "type": "init_declarator",
+                            "value": "",
+                            "span": span(1, 5, 1, 10),
+                            "field_name": "declarator",
+                            "children": [
                                 {
-                                    "Type": "identifier",
-                                    "TextValue": "x",
-                                    "Span": [1, 5, 1, 6],
-                                    "FieldName": "declarator",
-                                    "Children": []
+                                    "type": "identifier",
+                                    "value": "x",
+                                    "span": span(1, 5, 1, 6),
+                                    "field_name": "declarator",
+                                    "children": []
                                 },
                                 {
-                                    "Type": "=",
-                                    "TextValue": "=",
-                                    "Span": [1, 7, 1, 8],
-                                    "FieldName": null,
-                                    "Children": []
+                                    "type": "=",
+                                    "value": "=",
+                                    "span": span(1, 7, 1, 8),
+                                    "field_name": null,
+                                    "children": []
                                 },
                                 {
-                                    "Type": "number_literal",
-                                    "TextValue": "1",
-                                    "Span": [1, 9, 1, 10],
-                                    "FieldName": "value",
-                                    "Children": []
+                                    "type": "number_literal",
+                                    "value": "1",
+                                    "span": span(1, 9, 1, 10),
+                                    "field_name": "value",
+                                    "children": []
                                 }
                             ]
                         },
                         {
-                            "Type": ";",
-                            "TextValue": ";",
-                            "Span": [1, 10, 1, 11],
-                            "FieldName": null,
-                            "Children": []
+                            "type": ";",
+                            "value": ";",
+                            "span": span(1, 10, 1, 11),
+                            "field_name": null,
+                            "children": []
                         }
                     ]
                 }
@@ -185,49 +189,51 @@ async fn test_web_ast_string() {
         .to_request();
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
-    // FieldName values mirror the JS grammar: `variable_declarator`
+    // field_name values mirror the JS grammar: `variable_declarator`
     // names its `name` and `value` children; `variable_declaration`
     // and its `var` keyword / `;` token are unnamed. Regression
-    // coverage for #244.
+    // coverage for #244. Span is a flat named object (#535).
+    let span =
+        |sr, sc, er, ec| json!({"start_row": sr, "start_col": sc, "end_row": er, "end_col": ec});
     let expected = json!({
         "id": "1234",
-        "root": {"Children": [{"Children": [{"Children": [],
-                                             "FieldName": null,
-                                             "Span": [1, 1, 1, 4],
-                                             "TextValue": "var",
-                                             "Type": "var"},
-                                            {"Children": [{"Children": [],
-                                                           "FieldName": "name",
-                                                           "Span": [1, 5, 1, 6],
-                                                           "TextValue": "x",
-                                                           "Type": "identifier"},
-                                                          {"Children": [],
-                                                           "FieldName": null,
-                                                           "Span": [1, 7, 1, 8],
-                                                           "TextValue": "=",
-                                                           "Type": "="},
-                                                          {"Children": [],
-                                                           "FieldName": "value",
-                                                           "Span": [1, 9, 1, 22],
-                                                           "TextValue": "\"hello world\"",
-                                                           "Type": "string"}],
-                                             "FieldName": null,
-                                             "Span": [1, 5, 1, 22],
-                                             "TextValue": "",
-                                             "Type": "variable_declarator"},
-                                            {"Children": [],
-                                             "FieldName": null,
-                                             "Span": [1, 22, 1, 23],
-                                             "TextValue": ";",
-                                             "Type": ";"}],
-                               "FieldName": null,
-                               "Span": [1, 1, 1, 23],
-                               "TextValue": "",
-                               "Type": "variable_declaration"}],
-                 "FieldName": null,
-                 "Span": [1, 1, 1, 23],
-                 "TextValue": "",
-                 "Type": "program"}
+        "root": {"children": [{"children": [{"children": [],
+                                             "field_name": null,
+                                             "span": span(1, 1, 1, 4),
+                                             "value": "var",
+                                             "type": "var"},
+                                            {"children": [{"children": [],
+                                                           "field_name": "name",
+                                                           "span": span(1, 5, 1, 6),
+                                                           "value": "x",
+                                                           "type": "identifier"},
+                                                          {"children": [],
+                                                           "field_name": null,
+                                                           "span": span(1, 7, 1, 8),
+                                                           "value": "=",
+                                                           "type": "="},
+                                                          {"children": [],
+                                                           "field_name": "value",
+                                                           "span": span(1, 9, 1, 22),
+                                                           "value": "\"hello world\"",
+                                                           "type": "string"}],
+                                             "field_name": null,
+                                             "span": span(1, 5, 1, 22),
+                                             "value": "",
+                                             "type": "variable_declarator"},
+                                            {"children": [],
+                                             "field_name": null,
+                                             "span": span(1, 22, 1, 23),
+                                             "value": ";",
+                                             "type": ";"}],
+                               "field_name": null,
+                               "span": span(1, 1, 1, 23),
+                               "value": "",
+                               "type": "variable_declaration"}],
+                 "field_name": null,
+                 "span": span(1, 1, 1, 23),
+                 "value": "",
+                 "type": "program"}
     });
     assert_eq!(res, expected);
 }
@@ -1199,7 +1205,7 @@ async fn test_web_ast_accepts_json_charset_suffix() {
     let body = test::read_body(resp).await;
     let parsed: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(parsed["id"], json!("ct-515"));
-    assert_eq!(parsed["root"]["Type"], json!("translation_unit"));
+    assert_eq!(parsed["root"]["type"], json!("translation_unit"));
 }
 
 #[actix_rt::test]
@@ -1367,7 +1373,7 @@ async fn test_web_v1_ast_matches_unprefixed_alias() {
 
     // The versioned route and the deprecated alias must be byte-identical.
     assert_eq!(v1_body, alias_body);
-    assert_eq!(v1_body["root"]["Type"], json!("translation_unit"));
+    assert_eq!(v1_body["root"]["type"], json!("translation_unit"));
 }
 
 #[actix_rt::test]
