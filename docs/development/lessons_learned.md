@@ -3569,3 +3569,45 @@ run-from-a-subdirectory). When a refactor's correctness depends on a
 parameter, vary that parameter in the tests — not just the inputs.
 
 ---
+
+## 68. A branch that looks unreachable may need a non-obvious grammar shape — sweep before skipping its test
+
+A defensive cross-language fix — adding a call that every sibling language
+module already makes — is hard to prove with a fail-on-revert test when the
+obvious inputs never reach the guarded path. The tempting conclusion is
+"this branch is unreachable, so no test is warranted." That conclusion is
+often wrong: the trigger exists but lives in a non-obvious grammar shape,
+because tree-sitter anchors **childless / zero-width leaves** to positions a
+source reader would not predict. Reasoning about reachability from the
+source text alone misses these; only the parse tree reveals them. The branch
+that looks dead under every hand-written example is live under one the
+grammar produces.
+
+**The Bash `Loc` leaf arm omitted `check_comment_ends_on_code_line` (#547,
+`492b86d6`).** Every other `Loc` impl — Elixir most directly, sharing the
+exact `child_count() == 0` leaf-gating shape — calls the reclassification
+helper before inserting a row into `ploc.lines`; Bash did not, so a row
+carrying both a comment and code was double-credited to `ploc` and the
+comment-only set, undercounting `blank`. The fix is one line, but proving it
+with a test that fails on revert looked impossible: an ordinary `# comment`
+runs to end-of-line and routes through the `is_comment_after_code_line`
+path, never the leaf arm. Sweeping ~20 candidate Bash shapes with the
+predicate instrumented surfaced the reachable trigger — `echo "$(\n  # c\n)"`,
+where tree-sitter-bash emits a **zero-width `word` leaf on the same physical
+row** as the comment inside the `$(...)` command substitution. With that
+input the test fails on revert (`blank` collapses 0↔1) and passes with the
+fix.
+
+**Lesson:** When a defensive mirror fix's guarded branch seems unreachable,
+do not skip the test — instrument the predicate (a temporary `eprintln!` at
+the call site) and sweep candidate grammar shapes empirically until one
+fires. Childless and zero-width leaves are the usual culprits, and they
+appear in positions the source text does not advertise (command
+substitutions, heredocs, interpolation wrappers). If after a genuine sweep
+no input reaches the branch, document that analysis at the call site rather
+than shipping a vacuous test — but treat "unreachable" as a hypothesis to
+disprove, not a default. This is the find-the-trigger counterpart to lesson #52
+(an arm that *looks* live is dead because of pre-order ordering) and complements
+the test-via-revert discipline in `.claude/rules/testing.md`.
+
+---
