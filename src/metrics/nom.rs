@@ -23,14 +23,11 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 
-use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Nom` metric suite.
@@ -60,26 +57,6 @@ impl Default for Stats {
             closures_max: 0,
             space_count: 1,
         }
-    }
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("nom", 10)?;
-        st.serialize_field("functions", &self.functions_sum())?;
-        st.serialize_field("closures", &self.closures_sum())?;
-        st.serialize_field("functions_average", &NonFinite(self.functions_average()))?;
-        st.serialize_field("closures_average", &NonFinite(self.closures_average()))?;
-        st.serialize_field("total", &self.total())?;
-        st.serialize_field("average", &NonFinite(self.average()))?;
-        st.serialize_field("functions_min", &self.functions_min())?;
-        st.serialize_field("functions_max", &self.functions_max())?;
-        st.serialize_field("closures_min", &self.closures_min())?;
-        st.serialize_field("closures_max", &self.closures_max())?;
-        st.end()
     }
 }
 

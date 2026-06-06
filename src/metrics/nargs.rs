@@ -23,13 +23,10 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
-use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `NArgs` metric.
@@ -64,29 +61,6 @@ impl Default for Stats {
             total_functions: 0,
             total_closures: 0,
         }
-    }
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("nargs", 10)?;
-        st.serialize_field("function_args", &self.fn_args_sum())?;
-        st.serialize_field("closure_args", &self.closure_args_sum())?;
-        st.serialize_field("function_args_average", &NonFinite(self.fn_args_average()))?;
-        st.serialize_field(
-            "closure_args_average",
-            &NonFinite(self.closure_args_average()),
-        )?;
-        st.serialize_field("total", &self.nargs_total())?;
-        st.serialize_field("average", &NonFinite(self.nargs_average()))?;
-        st.serialize_field("function_args_min", &self.fn_args_min())?;
-        st.serialize_field("function_args_max", &self.fn_args_max())?;
-        st.serialize_field("closure_args_min", &self.closure_args_min())?;
-        st.serialize_field("closure_args_max", &self.closure_args_max())?;
-        st.end()
     }
 }
 

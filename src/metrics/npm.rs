@@ -23,14 +23,11 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::{Checker, csharp_accessor_count};
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
-use crate::metrics::NonFinite;
 use crate::metrics::npa::{accessibility_ratio, python_is_block, ts_member_is_public};
 use crate::node::Node;
 use crate::*;
@@ -50,25 +47,6 @@ pub struct Stats {
     class_nm_sum: usize,
     interface_nm_sum: usize,
     is_class_space: bool,
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("npm", 9)?;
-        st.serialize_field("classes", &self.class_npm_sum())?;
-        st.serialize_field("interfaces", &self.interface_npm_sum())?;
-        st.serialize_field("class_methods", &self.class_nm_sum())?;
-        st.serialize_field("interface_methods", &self.interface_nm_sum())?;
-        st.serialize_field("class_coa", &NonFinite(self.class_coa()))?;
-        st.serialize_field("interface_coa", &NonFinite(self.interface_coa()))?;
-        st.serialize_field("total", &self.total_npm())?;
-        st.serialize_field("total_methods", &self.total_nm())?;
-        st.serialize_field("coa", &NonFinite(self.total_coa()))?;
-        st.end()
-    }
 }
 
 impl fmt::Display for Stats {

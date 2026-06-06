@@ -30,13 +30,10 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
-use crate::metrics::NonFinite;
 use crate::*;
 
 // TODO: Find a way to increment the cognitive complexity value
@@ -71,20 +68,6 @@ impl Default for Stats {
             total_space_functions: 1,
             boolean_seq: BoolSequence::default(),
         }
-    }
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("cognitive", 4)?;
-        st.serialize_field("sum", &self.cognitive_sum())?;
-        st.serialize_field("average", &NonFinite(self.cognitive_average()))?;
-        st.serialize_field("min", &self.cognitive_min())?;
-        st.serialize_field("max", &self.cognitive_max())?;
-        st.end()
     }
 }
 

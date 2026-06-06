@@ -23,6 +23,26 @@ for historical reference.
 
 ### Added
 
+- The serialized metric output is now **readable back**: a new public
+  `big_code_analysis::wire` module provides plain `Serialize`/`Deserialize`
+  structs (`wire::FuncSpace`, `wire::CodeMetrics`, `wire::Ops`,
+  `wire::FunctionSpan`, and one per metric) mirroring the exact JSON / YAML
+  / TOML / CBOR shape. The compute types' `Serialize` impls now delegate to
+  these structs (the single definition of the wire shape — output is
+  byte-identical), and the public types gain `to_wire()`
+  (`FuncSpace`/`CodeMetrics`/`Ops`/`FunctionSpan`). Read a tree back with, e.g.,
+  `serde_json::from_str::<wire::FuncSpace>(&json)`. Non-finite floats map
+  `null`↔`NaN` (the deserialize side of #531); integer-valued fields are `u64`
+  (#530); `wire::CodeMetrics` elides unselected metrics and exposes
+  `selected()` to rebuild the `MetricSet` from present keys. `SpaceKind`,
+  `SuppressionScope`, and `MetricKind` now also derive `Deserialize`, and the
+  crate enables serde_json's `float_roundtrip` feature so float values
+  round-trip bit-exactly through JSON. Additive — no serialized output or
+  existing accessor changes
+  ([#532](https://github.com/dekobon/big-code-analysis/issues/532), keystone of
+  the #510/#530/#531 serialization-schema cluster, part of
+  [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
+
 - `bca diff` and `bca diff-baseline` now accept `--output`/`-o <PATH>` (writing
   to the file when given, stdout when omitted) and `--strip-prefix <PREFIX>`
   (trimming the prefix from displayed file paths in the TTY and Markdown

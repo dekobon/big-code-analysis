@@ -205,6 +205,38 @@ guarded to return finite values today (#428, #438, and the
 Halstead/MI `log`/division guards), so this policy is a structural
 backstop rather than a behavior you should observe in practice.
 
+### Reading serialized output back (the `wire` module)
+
+The serialized metric tree can be read back into typed structs via the
+public `big_code_analysis::wire` module: `wire::FuncSpace`,
+`wire::CodeMetrics`, `wire::Ops`, `wire::FunctionSpan`, and one
+struct per metric, each deriving `Serialize` + `Deserialize`. These are
+the **single definition of the serialized shape** — the compute types'
+own `Serialize` impls delegate to them — so the document a compute type
+emits is exactly the document the matching `wire` type parses.
+
+**Round-trip contract.** For a value produced by this library and read
+back with *this library's* serde stack:
+
+- `serde_json::from_str::<wire::FuncSpace>(&serde_json::to_string(&fs))`
+  reconstructs the tree, and the result re-serializes byte-for-byte. The
+  same holds for YAML, TOML, and CBOR. Float magnitudes round-trip
+  bit-exactly because the crate enables serde_json's `float_roundtrip`
+  feature; CBOR carries raw IEEE-754 bits; YAML/TOML emit full precision.
+- Integer-valued fields are exact in every format.
+- Non-finite floats round-trip as `null`↔`NaN` (omitted-key↔`NaN` in
+  TOML); see the non-finite policy above.
+- `wire::CodeMetrics` round-trips the *selected* metric set: a metric
+  absent from the document stays absent, and `wire::CodeMetrics::selected()`
+  rebuilds the `MetricSet` from the present keys.
+
+The bit-exactness of float magnitudes is a property of *this library's*
+parser configuration, not of JSON text in general — a downstream consumer
+parsing the same document with a stock serde_json (no `float_roundtrip`)
+may differ by up to 1 ULP. Per the value-stability carve-out above, do
+not treat float magnitudes as a stable cross-version identity; compare
+them with a tolerance.
+
 Note that `bca --version` prints the CLI
 binary's own version, not the library version — to record the
 library version from a CLI run, capture it from `Cargo.lock` or

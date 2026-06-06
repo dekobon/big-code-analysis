@@ -23,13 +23,10 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
-use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `NExit` metric.
@@ -54,20 +51,6 @@ impl Default for Stats {
             exit_min: usize::MAX,
             exit_max: 0,
         }
-    }
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("nexits", 4)?;
-        st.serialize_field("sum", &self.exit_sum())?;
-        st.serialize_field("average", &NonFinite(self.exit_average()))?;
-        st.serialize_field("min", &self.exit_min())?;
-        st.serialize_field("max", &self.exit_max())?;
-        st.end()
     }
 }
 

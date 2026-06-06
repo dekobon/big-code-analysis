@@ -12,8 +12,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
-
 use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
@@ -26,7 +24,7 @@ use crate::output::dump_ops::*;
 use crate::traits::*;
 
 /// All operands and operators of a space.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Ops {
     /// The name of a function space.
     ///
@@ -52,7 +50,6 @@ pub struct Ops {
     /// construction. Always `false` for nested spaces and for top-level
     /// spaces with valid-UTF-8 paths. Skipped from JSON output when
     /// `false` so existing schemas keep their shape.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_was_lossy: bool,
     /// The first line of a function space.
     pub start_line: usize,
@@ -69,6 +66,14 @@ pub struct Ops {
 }
 
 impl Ops {
+    /// Project this tree into its [`crate::wire::Ops`] form — the
+    /// plain, `Deserialize`-capable record that defines the serialized
+    /// shape.
+    #[must_use]
+    pub fn to_wire(&self) -> crate::wire::Ops {
+        crate::wire::Ops::from(self)
+    }
+
     fn new<T: Getter>(node: &Node, code: &[u8], kind: SpaceKind) -> Self {
         let (start_position, end_position) = match kind {
             SpaceKind::Unit => {

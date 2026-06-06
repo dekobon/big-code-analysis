@@ -32,7 +32,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::checker::Checker;
 use crate::getter::Getter;
@@ -46,7 +46,7 @@ use crate::traits::{Callback, ParserTrait};
 /// identifiers in a `bca: suppress(...)` list produce a hard error so a
 /// typo cannot silently widen suppression scope to other metrics or be
 /// dropped on the floor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MetricKind {
     /// Cognitive complexity.
@@ -195,7 +195,7 @@ impl FromStr for MetricKind {
 /// means the marker effectively suppresses nothing (only possible via
 /// an empty `()` list, which is treated as a no-op rather than an
 /// error).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "metrics")]
 pub enum SuppressionScope {
     /// Suppress every metric.

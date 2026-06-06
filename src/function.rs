@@ -16,7 +16,6 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
 use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
 
 use crate::traits::*;
@@ -27,7 +26,7 @@ use crate::getter::Getter;
 use crate::tools::{color, intense_color};
 
 /// Function span data.
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct FunctionSpan {
     /// The function name
     pub name: String,
@@ -38,6 +37,16 @@ pub struct FunctionSpan {
     /// If `true`, an error is occurred in determining the span
     /// of a function
     pub error: bool,
+}
+
+impl FunctionSpan {
+    /// Project this span into its [`crate::wire::FunctionSpan`] form —
+    /// the plain, `Deserialize`-capable record that defines the serialized
+    /// shape.
+    #[must_use]
+    pub fn to_wire(&self) -> crate::wire::FunctionSpan {
+        crate::wire::FunctionSpan::from(self)
+    }
 }
 
 // Hidden from rustdoc because the signature exposes `ParserTrait`,

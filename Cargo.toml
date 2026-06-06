@@ -127,7 +127,11 @@ num-traits = "^0.2"
 petgraph = "^0.8"
 regex = "^1.7"
 serde.workspace = true
-serde_json.workspace = true
+# `float_roundtrip` makes serde_json's float *parser* bit-exact, so a value
+# serialized and read back through `wire` (#532) round-trips losslessly
+# (the default parser can be off by 1 ULP). Parse-only: serialized output
+# is unchanged, so no snapshot churn.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Pinned to match the version already locked transitively via grammar
 # crates (Cargo.lock). Used by the GitLab Code Climate writer to
 # compute stable per-violation fingerprints.

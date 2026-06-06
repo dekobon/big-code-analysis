@@ -27,8 +27,6 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
@@ -41,7 +39,6 @@ use crate::macros::{
     rust_bool_terminal_kinds, tcl_bool_terminal_kinds, tsx_bool_terminal_kinds,
     typescript_bool_terminal_kinds,
 };
-use crate::metrics::NonFinite;
 use crate::node::Node;
 use crate::*;
 
@@ -149,37 +146,6 @@ impl Default for Stats {
             space_count: 1,
             declaration: Vec::new(),
         }
-    }
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // `magnitude` is a derived Euclidean norm
-        // (sqrt(assignments^2 + branches^2 + conditions^2)); unlike the
-        // three components it is not accumulated per space, so it has no
-        // min/max/average projection — it is intentionally serialized as
-        // the rolled-up `magnitude` only (see #510).
-        let mut st = serializer.serialize_struct("abc", 13)?;
-        st.serialize_field("assignments", &self.assignments_sum())?;
-        st.serialize_field("branches", &self.branches_sum())?;
-        st.serialize_field("conditions", &self.conditions_sum())?;
-        st.serialize_field("magnitude", &NonFinite(self.magnitude_sum()))?;
-        st.serialize_field(
-            "assignments_average",
-            &NonFinite(self.assignments_average()),
-        )?;
-        st.serialize_field("branches_average", &NonFinite(self.branches_average()))?;
-        st.serialize_field("conditions_average", &NonFinite(self.conditions_average()))?;
-        st.serialize_field("assignments_min", &self.assignments_min())?;
-        st.serialize_field("assignments_max", &self.assignments_max())?;
-        st.serialize_field("branches_min", &self.branches_min())?;
-        st.serialize_field("branches_max", &self.branches_max())?;
-        st.serialize_field("conditions_min", &self.conditions_min())?;
-        st.serialize_field("conditions_max", &self.conditions_max())?;
-        st.end()
     }
 }
 
@@ -5592,7 +5558,7 @@ mod tests {
                 // `if (x)` contributes 1 condition (bare identifier).
                 // `System.Console.WriteLine(...)` is the only call → 1 branch.
                 // `*_sum()` is what the public JSON serializes as the
-                // headline value (see `impl Serialize for Stats`).
+                // headline value (see `crate::wire::Abc`).
                 assert_eq!(metric.abc.conditions_sum(), 1);
                 assert_eq!(metric.abc.branches_sum(), 1);
                 assert_eq!(metric.abc.assignments_sum(), 0);

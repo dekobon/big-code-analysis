@@ -23,14 +23,11 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
 use crate::langs::*;
 use crate::macros::{csharp_var_decl_kinds, csharp_var_declarator_kinds, implement_metric_trait};
-use crate::metrics::NonFinite;
 use crate::node::Node;
 use crate::*;
 
@@ -49,25 +46,6 @@ pub struct Stats {
     class_na_sum: usize,
     interface_na_sum: usize,
     is_class_space: bool,
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("npa", 9)?;
-        st.serialize_field("classes", &self.class_npa_sum())?;
-        st.serialize_field("interfaces", &self.interface_npa_sum())?;
-        st.serialize_field("class_attributes", &self.class_na_sum())?;
-        st.serialize_field("interface_attributes", &self.interface_na_sum())?;
-        st.serialize_field("class_cda", &NonFinite(self.class_cda()))?;
-        st.serialize_field("interface_cda", &NonFinite(self.interface_cda()))?;
-        st.serialize_field("total", &self.total_npa())?;
-        st.serialize_field("total_attributes", &self.total_na())?;
-        st.serialize_field("cda", &NonFinite(self.total_cda()))?;
-        st.end()
-    }
 }
 
 impl fmt::Display for Stats {

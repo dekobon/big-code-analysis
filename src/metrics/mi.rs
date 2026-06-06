@@ -16,8 +16,6 @@
 // bounded by the counts they came from (#530).
 #![allow(clippy::cast_precision_loss)]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use super::cyclomatic;
@@ -27,7 +25,6 @@ use super::loc;
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 
-use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Mi` metric.
@@ -42,19 +39,6 @@ pub struct Stats {
     /// Only `mi_sei` consumes this — the SEI MI formula uses `perCM` on
     /// the percentage scale; see issue #241.
     comments_percentage: f64,
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("mi", 3)?;
-        st.serialize_field("original", &NonFinite(self.mi_original()))?;
-        st.serialize_field("sei", &NonFinite(self.mi_sei()))?;
-        st.serialize_field("visual_studio", &NonFinite(self.mi_visual_studio()))?;
-        st.end()
-    }
 }
 
 impl fmt::Display for Stats {

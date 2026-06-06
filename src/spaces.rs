@@ -24,8 +24,7 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
-use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -60,7 +59,7 @@ use crate::output::dump_metrics::*;
 use crate::traits::*;
 
 /// The list of supported space kinds.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SpaceKind {
     /// An unknown space
@@ -150,84 +149,6 @@ pub struct CodeMetrics {
     pub selected: MetricSet,
 }
 
-impl Serialize for CodeMetrics {
-    // Per-metric serialization gated by `self.selected`. We
-    // pre-count the number of fields that will be emitted so the
-    // `SerializeStruct` header is accurate (formats like CBOR write
-    // the field count up front and reject mismatches at the end).
-    //
-    // The existing skip-when-disabled predicates for `wmc`, `npm`, and
-    // `npa` are honored alongside the selection mask: a metric is
-    // emitted iff it was selected AND not flagged as disabled by the
-    // metric itself.
-    #[allow(clippy::similar_names)] // wmc / npm / npa are domain terms
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let sel = self.selected;
-        let emit_wmc = sel.contains(Metric::Wmc) && !self.wmc.is_disabled();
-        let emit_npm = sel.contains(Metric::Npm) && !self.npm.is_disabled();
-        let emit_npa = sel.contains(Metric::Npa) && !self.npa.is_disabled();
-
-        // 10 always-on metrics (nargs, nexits, cognitive, cyclomatic,
-        // halstead, loc, nom, tokens, mi, abc) plus up to 3 from the
-        // class-only group (wmc, npm, npa). The count must track the
-        // serialize_field arms below 1:1 — CBOR writes the field
-        // count up front and rejects mismatches at end().
-        let always_on = [
-            Metric::NArgs,
-            Metric::Exit,
-            Metric::Cognitive,
-            Metric::Cyclomatic,
-            Metric::Halstead,
-            Metric::Loc,
-            Metric::Nom,
-            Metric::Tokens,
-            Metric::Mi,
-            Metric::Abc,
-        ];
-        let field_count = always_on.iter().filter(|m| sel.contains(**m)).count()
-            + usize::from(emit_wmc)
-            + usize::from(emit_npm)
-            + usize::from(emit_npa);
-
-        let mut st = serializer.serialize_struct("CodeMetrics", field_count)?;
-        // Each arm must match exactly one of the booleans counted into
-        // `field_count` above — drift here will make CBOR reject the
-        // payload at `st.end()`.
-        macro_rules! emit_if {
-            ($cond:expr, $key:literal, $field:expr) => {
-                if $cond {
-                    st.serialize_field($key, $field)?;
-                }
-            };
-        }
-        emit_if!(sel.contains(Metric::NArgs), "nargs", &self.nargs);
-        emit_if!(sel.contains(Metric::Exit), "nexits", &self.nexits);
-        emit_if!(
-            sel.contains(Metric::Cognitive),
-            "cognitive",
-            &self.cognitive
-        );
-        emit_if!(
-            sel.contains(Metric::Cyclomatic),
-            "cyclomatic",
-            &self.cyclomatic
-        );
-        emit_if!(sel.contains(Metric::Halstead), "halstead", &self.halstead);
-        emit_if!(sel.contains(Metric::Loc), "loc", &self.loc);
-        emit_if!(sel.contains(Metric::Nom), "nom", &self.nom);
-        emit_if!(sel.contains(Metric::Tokens), "tokens", &self.tokens);
-        emit_if!(sel.contains(Metric::Mi), "mi", &self.mi);
-        emit_if!(sel.contains(Metric::Abc), "abc", &self.abc);
-        emit_if!(emit_wmc, "wmc", &self.wmc);
-        emit_if!(emit_npm, "npm", &self.npm);
-        emit_if!(emit_npa, "npa", &self.npa);
-        st.end()
-    }
-}
-
 impl CodeMetrics {
     /// Construct a `CodeMetrics` whose `selected` mask is the given
     /// [`MetricSet`]. All metric fields are at their `Default` value;
@@ -265,6 +186,14 @@ impl fmt::Display for CodeMetrics {
 }
 
 impl CodeMetrics {
+    /// Project these metrics into their [`crate::wire::CodeMetrics`] form,
+    /// eliding metrics not in [`CodeMetrics::selected`] (and disabled
+    /// class-only metrics) exactly as the serialized output does.
+    #[must_use]
+    pub fn to_wire(&self) -> crate::wire::CodeMetrics {
+        crate::wire::CodeMetrics::from(self)
+    }
+
     /// Sum each metric component from `other` into `self` in place. Used to
     /// roll nested function-space metrics into their parent space.
     pub fn merge(&mut self, other: &CodeMetrics) {
@@ -293,7 +222,11 @@ impl CodeMetrics {
 }
 
 /// Function space data.
-#[derive(Debug, Clone, Serialize)]
+///
+/// `Serialize` is provided in [`crate::wire`] (it delegates to
+/// [`crate::wire::FuncSpace`], the single definition of the output shape);
+/// read the wire form back with `serde` via that module.
+#[derive(Debug, Clone)]
 pub struct FuncSpace {
     /// The name of a function space.
     ///
@@ -339,11 +272,19 @@ pub struct FuncSpace {
     /// behaviour change. The field is elided from JSON output when
     /// empty so the existing schema is unchanged for files without
     /// markers.
-    #[serde(default, skip_serializing_if = "SuppressionScope::is_empty")]
     pub suppressed: SuppressionScope,
 }
 
 impl FuncSpace {
+    /// Project this space into its [`crate::wire::FuncSpace`] form — the
+    /// plain, `Deserialize`-capable record that defines the serialized
+    /// shape. Serializing a `FuncSpace` produces exactly the same bytes as
+    /// serializing `self.to_wire()`.
+    #[must_use]
+    pub fn to_wire(&self) -> crate::wire::FuncSpace {
+        crate::wire::FuncSpace::from(self)
+    }
+
     fn new<T: Getter>(node: &Node, code: &[u8], kind: SpaceKind, selected: MetricSet) -> Self {
         let (start_position, end_position) = match kind {
             SpaceKind::Unit => {

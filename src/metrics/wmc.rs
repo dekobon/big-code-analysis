@@ -20,8 +20,6 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
@@ -51,19 +49,6 @@ pub struct Stats {
     class_wmc_sum: f64,
     interface_wmc_sum: f64,
     space_kind: SpaceKind,
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("wmc", 3)?;
-        st.serialize_field("classes", &self.class_wmc_sum())?;
-        st.serialize_field("interfaces", &self.interface_wmc_sum())?;
-        st.serialize_field("total", &self.total_wmc())?;
-        st.end()
-    }
 }
 
 impl fmt::Display for Stats {

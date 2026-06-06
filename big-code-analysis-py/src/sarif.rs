@@ -19,16 +19,20 @@
 //!
 //! Issue #269 lists two implementation paths: re-serialise the dict
 //! back to internal types (option 1) or capture offender records at
-//! analyse-time (option 2). The upstream `FuncSpace` type is
-//! `Serialize`-only — there is no `Deserialize` impl — so option 1
-//! as literally described is not possible without a behaviour-changing
-//! API addition on the library. The compromise this module ships is:
-//! walk the JSON shape directly from Rust (via `PyDict` navigation),
-//! emit [`OffenderRecord`]s from the values present in the dict, and
-//! delegate to the existing `write_sarif` writer. That keeps SARIF
-//! schema concerns on the Rust side (one source of truth) while
-//! avoiding both the API change and the duplicate offender cache that
-//! option 2 would require.
+//! analyse-time (option 2). When this module was written the upstream
+//! `FuncSpace` was `Serialize`-only, ruling out option 1; #532 has
+//! since added `big_code_analysis::wire::FuncSpace`
+//! (`Serialize` + `Deserialize`), so a typed round-trip is now
+//! possible. This module nonetheless still walks the JSON shape
+//! directly from Rust (via `PyDict` navigation), emits
+//! [`OffenderRecord`]s from the values present in the dict, and
+//! delegates to the existing `write_sarif` writer: the bindings
+//! already hold the metrics as a Python dict, so navigating it
+//! directly avoids re-serialising to text only to deserialise into
+//! `wire::FuncSpace`. Revisiting that trade-off is a possible
+//! follow-up now that option 1 is available. Either way SARIF schema
+//! concerns stay on the Rust side (one source of truth) and the
+//! duplicate offender cache that option 2 would require is avoided.
 //!
 //! # Threshold semantics
 //!

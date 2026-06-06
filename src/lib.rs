@@ -192,6 +192,13 @@ pub(crate) use crate::tools::check_func_space;
 /// through [`CodeMetrics`] on a [`FuncSpace`] instead.
 pub mod metrics;
 
+/// Plain, `Deserialize`-capable data-transfer structs mirroring the
+/// serialized metric wire shape. The compute types' `Serialize` impls
+/// delegate here, making these the single definition of the JSON / YAML /
+/// TOML / CBOR output format and the canonical way to read `bca` output
+/// back (`serde_json::from_str::<wire::FuncSpace>(…)`).
+pub mod wire;
+
 // --- Errors ---
 mod error;
 pub use crate::error::MetricsError;

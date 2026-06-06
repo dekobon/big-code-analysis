@@ -23,14 +23,11 @@
     clippy::cast_sign_loss
 )]
 
-use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 
-use crate::metrics::NonFinite;
 use crate::*;
 
 /// The `Tokens` metric: per-function and per-file count of tree-sitter
@@ -60,20 +57,6 @@ impl Default for Stats {
             tokens_max: 0,
             space_count: 1,
         }
-    }
-}
-
-impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut st = serializer.serialize_struct("tokens", 4)?;
-        st.serialize_field("tokens", &self.tokens_sum())?;
-        st.serialize_field("tokens_average", &NonFinite(self.tokens_average()))?;
-        st.serialize_field("tokens_min", &self.tokens_min())?;
-        st.serialize_field("tokens_max", &self.tokens_max())?;
-        st.end()
     }
 }
 
