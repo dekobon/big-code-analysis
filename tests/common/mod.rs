@@ -25,6 +25,12 @@ pub mod fixtures;
 #[allow(dead_code)]
 pub mod validators;
 
+/// Deterministic git-repo builder for change-history (VCS) tests.
+/// Gated behind the backend feature it exercises.
+#[cfg(feature = "vcs-git")]
+#[allow(dead_code)]
+pub mod vcs_fixture;
+
 #[allow(dead_code)]
 const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/", "repositories");
 const SNAPSHOT_PATH: &str = concat!(

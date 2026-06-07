@@ -6,6 +6,7 @@
 - [CLI Migration Guide](./migration.md)
 - [Commands](commands/README.md)
   - [Metrics](commands/metrics.md)
+  - [Change-history (VCS) metrics](commands/vcs.md)
   - [Report](commands/report.md)
   - [Check](commands/check.md)
   - [Suppression markers](commands/suppression.md)

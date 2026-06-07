@@ -119,8 +119,31 @@ include = [
 
 [dependencies]
 aho-corasick = "^1.0"
+# `bstr` carries the raw, possibly-non-UTF-8 bytes git stores for paths
+# and author identities through the VCS pipeline; UTF-8 conversion is
+# deferred to the output boundary with explicit error handling (per the
+# path rules in AGENTS.md). Gated behind `vcs-git`.
+bstr = { version = "^1.12", optional = true }
 crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
 csv.workspace = true
+# `gix` is the pure-Rust git implementation backing the `vcs-git`
+# backend (issue #328). The feature set is deliberately minimal:
+# `max-performance-safe` (zlib-ng without `unsafe`), `blob-diff` (line
+# churn), `mailmap` (identity canonicalisation), `revision` (rev-walk +
+# revspec parsing), `index` (working-tree path resolution). Gated behind
+# `vcs-git`.
+gix = { version = "^0.83", default-features = false, features = [
+  "max-performance-safe",
+  "blob-diff",
+  "mailmap",
+  "revision",
+  "index",
+  # `sha1` enables `gix-hash/sha1`, which gates the `ObjectId` hash
+  # kind. It is part of gix's default feature set; we pin
+  # `default-features = false` for a minimal surface, so it must be
+  # listed explicitly or `gix-hash::Kind` compiles with no variants.
+  "sha1",
+], optional = true }
 num-derive = "^0.4"
 num-format = "^0.4"
 num-traits = "^0.2"
@@ -186,6 +209,17 @@ tree-sitter-tcl = { workspace = true, optional = true }
 # both leaves their union enabled when either feature is on.
 [features]
 default = ["all-languages"]
+# Change-history (VCS) metrics (issue #328). `vcs` is the umbrella
+# feature mirroring `all-languages`: it turns on every shipped backend.
+# `vcs-git` is the one v1 backend (gitoxide). Future backends land as
+# additional leaves (`vcs-hg`, `vcs-jj`, …) folded into the umbrella,
+# so consumers that opt into `vcs` automatically pick them up without a
+# manifest edit. The generic `src/vcs/` types are gated on `vcs-git`
+# today because it is the only backend; the gate widens to
+# `any(feature = "vcs-git", feature = "vcs-hg", …)` when a second
+# backend lands.
+vcs = ["vcs-git"]
+vcs-git = ["dep:gix", "dep:bstr"]
 all-languages = [
   "bash",
   "cpp",

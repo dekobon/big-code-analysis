@@ -188,6 +188,19 @@ pub mod metrics;
 /// back (`serde_json::from_str::<wire::FuncSpace>(…)`).
 pub mod wire;
 
+// --- Change-history (VCS) metrics ---
+//
+// The project's first language-agnostic, non-AST metric family
+// (issue #328). Gated behind the `vcs-git` backend feature (the
+// `vcs` umbrella turns it on); the generic surface is backend-neutral
+// so future backends (#335) reuse it unchanged.
+/// Change-history (VCS) metrics derived from version-control history:
+/// churn, commit frequency, author count / ownership dilution, bug- and
+/// security-fix history, and an ordinal composite risk score. See
+/// [`vcs::build_history_index`].
+#[cfg(feature = "vcs-git")]
+pub mod vcs;
+
 // --- Errors ---
 mod error;
 pub use crate::error::MetricsError;

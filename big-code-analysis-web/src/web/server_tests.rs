@@ -1967,3 +1967,85 @@ async fn test_web_introspection_endpoints_reject_post_with_405() {
         assert_uniform_error_body(&test::read_body(resp).await, "");
     }
 }
+
+// --- POST /vcs (issue #328) ----------------------------------------------
+
+/// Build a throwaway git repo with one file committed ~5 days ago
+/// (within both default windows). Commit dates are relative to wall
+/// clock because `/vcs` uses wall-clock `now` by default.
+fn build_temp_repo() -> tempfile::TempDir {
+    use std::process::Command as StdCommand;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after epoch")
+        .as_secs();
+    let date = format!("@{} +0000", now - 5 * 86_400);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let git = |args: &[&str]| {
+        let ok = StdCommand::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_DATE", &date)
+            .status()
+            .expect("spawn git")
+            .success();
+        assert!(ok, "git {args:?} failed");
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    std::fs::write(dir.path().join("work.rs"), "fn a() {}\n").expect("write");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "add work"]);
+    dir
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_ranks_files() {
+    let repo = build_temp_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs").route(web::post().to(vcs_json))),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs")
+        .insert_header(ContentType::json())
+        .set_json(json!({ "id": "req-1", "repo_path": repo.path().to_str().unwrap() }))
+        .to_request();
+    let res: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(res["id"], "req-1");
+    assert_eq!(res["long_window_days"], 365);
+    let files = res["files"].as_array().expect("files array");
+    let work = files
+        .iter()
+        .find(|f| f["path"] == "work.rs")
+        .expect("work.rs ranked");
+    assert_eq!(work["commits_long"], 1);
+    assert_eq!(work["commits_recent"], 1);
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_outside_repo_is_400() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs").route(web::post().to(vcs_json))),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs")
+        .insert_header(ContentType::json())
+        .set_json(json!({ "id": "req-2", "repo_path": dir.path().to_str().unwrap() }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

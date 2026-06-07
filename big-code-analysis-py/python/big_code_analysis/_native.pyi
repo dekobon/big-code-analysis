@@ -132,6 +132,7 @@ def analyze(
     allow_lossy_path: bool = False,
     skip_generated: bool = True,
     metrics: Sequence[str] | None = None,
+    vcs: bool = False,
 ) -> dict[str, Any] | None:
     """Compute metrics for the file at ``path``.
 
@@ -252,6 +253,54 @@ def analyze(
         subclass (``FileNotFoundError``, ``PermissionError``,
         ``IsADirectoryError``, …) based on ``errno``, with
         ``err.errno`` and ``err.filename`` populated.
+
+    Pass ``vcs=True`` to attach a ``"vcs"`` block (change-history
+    metrics) to the file's ``metrics`` from a one-shot history walk of
+    the enclosing git repository (issue #328). A ``hotspot_score``
+    (complexity × recent churn) is included only when ``cyclomatic`` is
+    among the computed metrics (it is, unless restricted via
+    ``metrics=``). The block is omitted when the file is untracked,
+    binary, or outside any repository. For ranking a whole repository,
+    prefer :func:`vcs_metrics`, which walks history once.
+    """
+
+def vcs_metrics(
+    repo_path: str | os.PathLike[str],
+    /,
+    *,
+    long_window: str | None = None,
+    recent_window: str | None = None,
+    top: int | None = None,
+    reference: str | None = None,
+    risk_formula: str | None = None,
+    full_history: bool = False,
+    include_merges: bool = False,
+    follow_renames: bool = True,
+    exclude_bots: bool = True,
+    bot_pattern: str | None = None,
+    as_of: str | None = None,
+    emit_author_details: bool = False,
+    include_deleted: bool = False,
+) -> dict[str, Any]:
+    """Rank the files in a git repository by change-history risk.
+
+    The programmatic analogue of ``bca vcs`` (issue #328). ``repo_path``
+    is any path inside the working tree. Returns a ``dict`` with
+    ``long_window_days``, ``recent_window_days``, ``risk_score_version``,
+    ``vcs_schema_version``, ``truncated_shallow_clone``, and a ``files``
+    list of per-file metric dicts (path plus the flat ``vcs`` fields)
+    ranked by descending ``risk_score``.
+
+    Windows accept ``12mo`` / ``2y`` / ``8w`` / ``90d`` or ISO 8601
+    (``P1Y``). ``risk_formula`` is ``"weighted"`` (default) or
+    ``"percentile"``. ``as_of`` (RFC 3339 / ``@unix`` / git date) pins
+    the reference "now" for reproducible snapshots.
+
+    Raises
+    ------
+    ValueError
+        For a malformed window / timestamp / formula, or when
+        ``repo_path`` is not inside a git working tree.
     """
 
 def analyze_source(

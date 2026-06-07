@@ -51,6 +51,7 @@ mod metric_catalog;
 mod metric_diff;
 mod threshold_suggestion;
 mod thresholds;
+mod vcs_command;
 mod walk_seed;
 
 pub use commands::run;
@@ -277,9 +278,13 @@ struct GlobalOpts {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Compute per-file metrics and emit them in a structured format.
-    Metrics(StructuredArgs),
+    Metrics(MetricsArgs),
     /// Extract per-file operands and operators.
     Ops(StructuredArgs),
+    /// Rank files by change-history (VCS) risk: churn, commit and author
+    /// counts, ownership dilution, and bug- / security-fix history over a
+    /// git working tree (issue #328). Errors clearly outside a repo.
+    Vcs(Box<VcsArgs>),
     /// Generate an aggregated report across the analyzed source.
     Report(ReportArgs),
     /// Dump the AST to stdout.
@@ -349,6 +354,93 @@ struct StructuredArgs {
     /// Pretty-print JSON / TOML output.
     #[clap(long)]
     pretty: bool,
+}
+
+/// Risk-score formula selection for `bca vcs` (issue #328).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lower")]
+enum RiskFormulaArg {
+    /// Log-scaled weighted sum with categorical bumps (default).
+    Weighted,
+    /// Per-signal percentile rank within the analyzed set, averaged.
+    Percentile,
+}
+
+impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
+    fn from(arg: RiskFormulaArg) -> Self {
+        match arg {
+            RiskFormulaArg::Weighted => Self::Weighted,
+            RiskFormulaArg::Percentile => Self::Percentile,
+        }
+    }
+}
+
+/// Flags for `bca vcs` — change-history (VCS) metrics over a git
+/// working tree (issue #328). Path / include / exclude / exclude-tests /
+/// no-ignore are inherited from the global options.
+#[derive(Args, Debug)]
+struct VcsArgs {
+    /// Output format and destination (shared with `metrics`/`ops`). When
+    /// no format is given, a human-readable ranked table is printed.
+    #[clap(flatten)]
+    structured: StructuredArgs,
+    /// Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601
+    /// `P1Y`).
+    #[clap(long, default_value = "12mo")]
+    long_window: String,
+    /// Recent observation window.
+    #[clap(long, default_value = "90d")]
+    recent_window: String,
+    /// Show only the top N files by risk score (`0` = all).
+    #[clap(long, default_value_t = 50)]
+    top: usize,
+    /// Revision to analyze.
+    #[clap(long = "ref", default_value = "HEAD")]
+    reference: String,
+    /// Walk the full commit DAG rather than first-parent only.
+    #[clap(long)]
+    full_history: bool,
+    /// Include merge commits (skipped by default).
+    #[clap(long)]
+    include_merges: bool,
+    /// Do not follow file renames across history.
+    #[clap(long)]
+    no_follow_renames: bool,
+    /// Do not exclude bot author identities.
+    #[clap(long)]
+    no_exclude_bots: bool,
+    /// Override the bot-author exclusion regex.
+    #[clap(long)]
+    bot_pattern: Option<String>,
+    /// Reference "now" for reproducible runs (RFC 3339, `@unix`, or any
+    /// git date spelling). Defaults to wall-clock time.
+    #[clap(long)]
+    as_of: Option<String>,
+    /// Composite risk-score formula.
+    #[clap(long, value_enum, default_value_t = RiskFormulaArg::Weighted)]
+    risk_formula: RiskFormulaArg,
+    /// Emit SHA-256-hashed canonical author identities.
+    #[clap(long)]
+    emit_author_details: bool,
+    /// Emit stats for files deleted at the target ref.
+    #[clap(long)]
+    include_deleted: bool,
+}
+
+/// Flags for `bca metrics`: the shared structured-output set plus an
+/// opt-in to attach change-history (VCS) metrics to each file.
+#[derive(Args, Debug)]
+struct MetricsArgs {
+    #[clap(flatten)]
+    structured: StructuredArgs,
+    /// Also compute change-history (VCS) metrics and attach a `vcs`
+    /// block — plus a `hotspot_score` (cyclomatic × recent churn) — to
+    /// each file's metrics. Uses default windows (12mo / 90d, weighted
+    /// formula); for window / formula tuning use `bca vcs`. Outside a
+    /// git working tree this opt-in is skipped with a warning (the AST
+    /// metrics still emit, without the `vcs` block).
+    #[clap(long)]
+    vcs: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1091,6 +1183,12 @@ struct Config {
     /// hashing cost (only for offending functions) is paid only when the
     /// flag is set. Meaningful only for `Action::Check`.
     fuzzy_baseline: bool,
+    /// Pre-built change-history index, shared read-only across workers,
+    /// set by `bca metrics --vcs`. When present, the per-file metrics
+    /// dispatch attaches the matching `vcs` block (plus a hotspot score
+    /// derived from the file's cyclomatic sum) to each file-level space.
+    /// `None` for every other flow. Issue #328.
+    vcs_index: Option<Arc<big_code_analysis::vcs::HistoryIndex>>,
 }
 
 impl Config {
@@ -1128,6 +1226,8 @@ impl Config {
             // Defaults off; `run_check_walk` flips it on for the check
             // action when `--baseline-fuzzy-match` is set.
             fuzzy_baseline: false,
+            // Set by `run_command_metrics` only when `--vcs` is passed.
+            vcs_index: None,
         }
     }
 
@@ -1617,6 +1717,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 const SUBCOMMANDS: &[&str] = &[
     "metrics",
     "ops",
+    "vcs",
     "report",
     "dump",
     "find",

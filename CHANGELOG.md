@@ -23,6 +23,33 @@ for historical reference.
 
 ### Added
 
+- Change-history (VCS) metrics: a new, language-agnostic metric family
+  derived from git history rather than the AST (#328). A single history
+  walk produces per-file signals over two windows (default 12mo / 90d) —
+  distinct commits, line churn, distinct authors, top-author ownership
+  share, burst, bug-fix / security-fix / revert commit counts, file age
+  and last-modified days — combined into an ordinal, formula-versioned
+  composite `risk_score` (`--risk-formula weighted|percentile`), plus a
+  `hotspot_score` (complexity × recent churn) when AST metrics are
+  computed alongside. Built on [`gix`](https://github.com/GitoxideLabs/gitoxide)
+  behind the hierarchical `vcs = ["vcs-git"]` Cargo feature; the generic
+  `vcs` module is backend-neutral so future backends (#335) reuse it.
+  Surfaces:
+  - Library: `big_code_analysis::vcs::{build_history_index, Options,
+    Stats, HistoryIndex, …}`, `wire::Vcs`, and
+    `CodeMetrics::vcs: Option<vcs::Stats>` (all behind `vcs-git`).
+  - CLI: a new `bca vcs` subcommand (ranked list; JSON / YAML / TOML /
+    CBOR / CSV or a default table), plus `bca metrics --vcs` to attach a
+    `vcs` block to each file's metrics. `bca vcs` errors clearly outside
+    a git working tree; `--include` / `--exclude` / `--paths` are reused.
+  - Web: a new `POST /vcs` endpoint taking a server-side `repo_path`.
+  - Python: `vcs_metrics(repo_path, …)` and an opt-in `vcs=True` on
+    `analyze()`.
+
+  *Design note:* the issue proposed a `Metric::Vcs` enum variant +
+  `--metrics vcs`; VCS is file-level, has no per-function threshold, and
+  is not suppressible, so it is exposed via a dedicated `--vcs` flag
+  rather than overloading the per-function `Metric` bitfield.
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

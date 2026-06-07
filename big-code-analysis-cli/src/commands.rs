@@ -44,12 +44,12 @@ use crate::thresholds::{
 };
 use crate::{
     Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, ExemptionsArgs, FindArgs,
-    GlobalOpts, InitArgs, LineRange, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs,
-    PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die, die_io,
-    group_files_by_basename, legacy_hint, load_baseline, load_preproc_data, load_threshold_config,
-    read_exclude_patterns_from, resolve_walk_files, run_walk, run_walk_collecting,
-    run_walk_resolved, validate_output_path, write_atomic, write_output_or_stdout,
-    write_stdout_or_die,
+    GlobalOpts, InitArgs, LineRange, ListMetricsArgs, MetricsArgs, NodesArgs, OutputFormat,
+    PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die,
+    die_io, group_files_by_basename, legacy_hint, load_baseline, load_preproc_data,
+    load_threshold_config, read_exclude_patterns_from, resolve_walk_files, run_walk,
+    run_walk_collecting, run_walk_resolved, validate_output_path, write_atomic,
+    write_output_or_stdout, write_stdout_or_die,
 };
 
 fn run_check(
@@ -1424,6 +1424,7 @@ pub fn run() {
         Command::Functions => run_command_functions(cli.globals, preproc),
         Command::Metrics(args) => run_command_metrics(cli.globals, args, preproc),
         Command::Ops(args) => run_command_ops(cli.globals, args, preproc),
+        Command::Vcs(args) => crate::vcs_command::run(cli.globals, *args),
         Command::Report(args) => {
             run_command_report(cli.globals, args, manifest.as_ref(), preproc);
         }
@@ -1524,23 +1525,35 @@ fn require_output_is_dir(have_format: bool, output: Option<&Path>, command: &str
 
 fn run_command_metrics(
     globals: GlobalOpts,
-    args: StructuredArgs,
+    args: MetricsArgs,
     preproc: Option<Arc<PreprocResults>>,
 ) {
-    if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
+    let structured = args.structured;
+    if matches!(structured.output_format, Some(MetricsFormat::Cbor)) && structured.output.is_none()
+    {
         die(CBOR_STDOUT_ERROR);
     }
     require_output_is_dir(
-        args.output_format.is_some(),
-        args.output.as_deref(),
+        structured.output_format.is_some(),
+        structured.output.as_deref(),
         "metrics",
     );
+    // Build the change-history index once, before the per-file walk, so
+    // the dispatch can attach a `vcs` block to each file (issue #328).
+    // `--vcs` is additive: outside a repo `default_index` warns and
+    // returns `None`, so the AST metrics still emit (vcs block omitted).
+    let vcs_index = if args.vcs {
+        crate::vcs_command::default_index(&globals)
+    } else {
+        None
+    };
     let action = Action::Metrics {
-        format: args.output_format,
-        pretty: args.pretty,
+        format: structured.output_format,
+        pretty: structured.pretty,
     };
     let cfg = Config {
-        output: args.output,
+        output: structured.output,
+        vcs_index,
         ..Config::new(action, &globals, preproc)
     };
     run_walk(globals, cfg);

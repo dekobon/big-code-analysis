@@ -175,7 +175,12 @@ fn dispatch_metrics(
     pretty: bool,
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
-        if let Ok(space) = analyze_file(language, source, &path, pr, cfg.metrics_options()) {
+        if let Ok(mut space) = analyze_file(language, source, &path, pr, cfg.metrics_options()) {
+            // `bca metrics --vcs`: attach the file's change-history block
+            // (and hotspot) to its file-level metrics before emitting.
+            if let Some(index) = &cfg.vcs_index {
+                crate::vcs_command::inject(&mut space, &path, index);
+            }
             match fmt.dispatch() {
                 MetricsDispatch::Generic(g) => {
                     g.dump(space, path, cfg.output.as_ref(), pretty)?;
@@ -558,6 +563,7 @@ mod tests {
             exclude_tests: false,
             no_cyclomatic_try: false,
             fuzzy_baseline: false,
+            vcs_index: None,
         }
     }
 
