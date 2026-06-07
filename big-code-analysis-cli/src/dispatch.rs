@@ -20,17 +20,15 @@
 //! emitted (#568) — while the `&Path` is still forwarded as the C++
 //! preprocessor lookup key.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use std::io::Write;
-
-use big_code_analysis::LANG;
 use big_code_analysis::{
-    Ast, FuncSpace, MetricsError, MetricsOptions, PreprocResults, Source, dump_function_spans,
-    dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess, read_file_with_eol,
-    write_file,
+    Ast, FuncSpace, LANG, MetricsError, MetricsOptions, PreprocResults, Source,
+    dump_function_spans, dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess,
+    read_file_with_eol, write_file,
 };
 
 use crate::exemptions::FileMarkers;
