@@ -66,7 +66,7 @@ fn parse_ast(
     pr: Option<Arc<PreprocResults>>,
 ) -> Result<Ast, MetricsError> {
     Ast::parse(
-        Source::new(language, &source)
+        Source::from_bytes(language, source)
             .with_name(path.to_str().map(str::to_owned))
             .with_preproc_path(Some(path))
             .with_preproc(pr),

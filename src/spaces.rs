@@ -22,6 +22,7 @@
     clippy::cast_sign_loss
 )]
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -512,9 +513,11 @@ struct State<'a> {
 pub struct Source<'a> {
     /// The source language used to select the parser.
     pub(crate) lang: LANG,
-    /// Raw source bytes. `Source` borrows them so callers retain
-    /// ownership; `analyze` copies into the parser's owned buffer.
-    pub(crate) code: &'a [u8],
+    /// Raw source bytes, borrowed ([`Source::new`]) or owned
+    /// ([`Source::from_bytes`]). The parser needs an owned buffer:
+    /// borrowed bytes are copied at parse time, owned bytes move
+    /// through without a copy (the CLI walk's hot path).
+    pub(crate) code: Cow<'a, [u8]>,
     /// Display / identifier name for the top-level [`FuncSpace`].
     /// If `None`, the top-level [`FuncSpace::name`] is left `None`.
     pub(crate) name: Option<String>,
@@ -541,7 +544,23 @@ impl<'a> Source<'a> {
     pub fn new(lang: LANG, code: &'a [u8]) -> Self {
         Self {
             lang,
-            code,
+            code: Cow::Borrowed(code),
+            name: None,
+            preproc_path: None,
+            preproc: None,
+        }
+    }
+
+    /// Build a `Source` that owns `code`, so [`Ast::parse`] moves the
+    /// buffer into the parser instead of copying it. Prefer this over
+    /// [`Source::new`] when you already hold an owned `Vec<u8>` (e.g. a
+    /// just-read file), which saves one full-buffer copy per parse.
+    #[inline]
+    #[must_use]
+    pub fn from_bytes(lang: LANG, code: Vec<u8>) -> Self {
+        Self {
+            lang,
+            code: Cow::Owned(code),
             name: None,
             preproc_path: None,
             preproc: None,
@@ -674,7 +693,8 @@ impl Ast {
             preproc_path,
             preproc,
         } = source;
-        let inner = crate::langs::ast_parse_dispatch(lang, code, preproc_path, preproc)?;
+        let inner =
+            crate::langs::ast_parse_dispatch(lang, code.into_owned(), preproc_path, preproc)?;
         Ok(Self { inner, name })
     }
 

@@ -109,10 +109,9 @@ mod macros;
 // `langs` hosts the `mk_langs!` macro expansion. `LANG` is the only
 // public name; the per-language `<Lang>Code` tags and `<Lang>Parser`
 // aliases are `pub(crate)` parser machinery reached only through the
-// [`Ast`] seam, and `analyze_dispatch` is the doc-hidden language
-// dispatcher backing [`analyze`].
+// [`Ast`] seam.
 mod langs;
-pub use crate::langs::{LANG, analyze_dispatch, get_from_emacs_mode, get_from_ext};
+pub use crate::langs::{LANG, get_from_emacs_mode, get_from_ext};
 // `<Lang>Code` tags are reached crate-internally through `use crate::*`
 // in the per-language `Checker` / `Getter` / `Alterator` / metric impls.
 pub(crate) use crate::langs::{

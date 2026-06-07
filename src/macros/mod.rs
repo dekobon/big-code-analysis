@@ -537,7 +537,7 @@ macro_rules! mk_action {
         /// has to declare its parser tag once.
         pub(crate) fn ast_parse_dispatch(
             lang: LANG,
-            source: &[u8],
+            source: Vec<u8>,
             preproc_path: Option<&Path>,
             preproc: Option<Arc<PreprocResults>>,
         ) -> Result<AstInner, MetricsError> {
@@ -546,9 +546,10 @@ macro_rules! mk_action {
             // snippets with no preprocessor path, fall back to an
             // empty `Path` ("") which the lookup ignores. The empty
             // path is *not* leaked into `FuncSpace::name` — that
-            // is carried separately on `Ast`.
+            // is carried separately on `Ast`. `source` is taken by value
+            // so an owned `Source` (`Source::from_bytes`) moves its
+            // buffer straight into the parser instead of copying it.
             let preproc_path = preproc_path.unwrap_or(Path::new(""));
-            let source = source.to_vec();
             match lang {
                 $(
                     #[cfg(feature = $feature)]
@@ -582,20 +583,6 @@ macro_rules! mk_action {
             }
         }
 
-        /// Internal language-dispatch shim that backs [`analyze`].
-        /// Delegates to [`ast_parse_dispatch`] + [`AstInner::run_metrics`]
-        /// so the per-`LANG` match arm lives in exactly one place.
-        #[doc(hidden)]
-        pub fn analyze_dispatch(
-            lang: LANG,
-            source: &[u8],
-            name: Option<String>,
-            preproc_path: Option<&Path>,
-            preproc: Option<Arc<PreprocResults>>,
-            options: MetricsOptions,
-        ) -> Result<FuncSpace, MetricsError> {
-            ast_parse_dispatch(lang, source, preproc_path, preproc)?.run_metrics(name, options)
-        }
     };
 }
 
