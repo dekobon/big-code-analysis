@@ -79,10 +79,9 @@ assert!(sel.contains(Metric::Loc)); // auto-added dependency
 
 ## Default behaviour is unchanged
 
-`MetricsOptions::default()` selects every metric. The
-pre-#257 entry points (`analyze` without `with_only`, plus the
-deprecated `metrics` / `metrics_with_options` shims) produce
-byte-for-byte the same JSON they always did.
+`MetricsOptions::default()` selects every metric. Calling `analyze`
+(or `Ast::metrics`) without `with_only` produces byte-for-byte the
+same JSON it always did.
 
 ## What about "everything except *X*"?
 

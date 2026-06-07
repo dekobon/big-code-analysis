@@ -255,28 +255,23 @@ assert_eq!(functions, ["outer", "inner", "alone"]);
 
 `Node::child_by_field_name` walks the named grammar fields — the same
 fields that show up in the `field_name` key of the serialized AST
-(REST `/ast`, `AstCallback`). Field-based lookup is more robust than
+(REST `/ast`, [`Ast::dump`]). Field-based lookup is more robust than
 positional indexing because it does not depend on which children the
 grammar emits for anonymous tokens (commas, parentheses, …).
 
 [ast]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html
+[`Ast::dump`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.dump
 
 ## Want a serializable JSON tree?
 
 For pipelines that want a structured AST as data — diffing, queries on
-the wire, language-agnostic schema work — the
-[`AstCallback`][ast_callback] / [`AstNode`][astnode] family materializes
-the tree as a `Serialize`-able struct. This is what the REST `/ast`
-endpoint produces (`bca dump` uses a separate `Dump` callback that
-writes a human-readable form to stdout). Library consumers can call
-the JSON-shaped callback directly:
+the wire, language-agnostic schema work — [`Ast::dump`] materializes
+the tree as a `Serialize`-able [`AstResponse`][ast_response] of
+[`AstNode`][astnode]s. This is the same shape the REST `/ast`
+endpoint produces. Call it on the parse handle:
 
 ```rust,no_run
-use std::path::PathBuf;
-
-use big_code_analysis::{
-    AstCallback, AstCfg, AstPayload, LANG, action,
-};
+use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source};
 
 let payload = AstPayload {
     id: "snippet".to_owned(),
@@ -290,22 +285,21 @@ let cfg = AstCfg {
     comment: payload.comment,
     span: payload.span,
 };
-let response = action::<AstCallback>(
-    &LANG::Rust,
-    payload.code.into_bytes(),
-    &PathBuf::from(&payload.file_name),
-    None,
-    cfg,
-);
+let response = Ast::parse(
+    Source::new(LANG::Rust, payload.code.as_bytes())
+        .with_name(Some(payload.file_name.clone())),
+)
+.expect("rust feature enabled")
+.dump(cfg);
 let json = serde_json::to_string(&response).expect("AstResponse serializes");
 println!("{json}");
 ```
 
 For one-off in-process work, the `as_tree_sitter()` walker above is
-cheaper (no allocation per node). Reach for `AstCallback` when you
+cheaper (no allocation per node). Reach for [`Ast::dump`] when you
 need a serializable owned tree.
 
-[ast_callback]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstCallback.html
+[ast_response]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstResponse.html
 [astnode]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.AstNode.html
 
 ## Out of scope
@@ -313,8 +307,9 @@ need a serializable owned tree.
 - **Incremental reparse** — tree-sitter supports
   `tree_sitter::InputEdit` for incremental updates, but `Ast` is a
   snapshot. To reflect a source edit, build a fresh `Ast::parse` or
-  call `Parser::parse(&new_source, Some(&old_tree))` directly via the
-  re-exported `tree_sitter` and feed the result through
+  drive `tree_sitter::Parser::parse(&new_source, Some(&old_tree))`
+  directly via the re-exported `tree_sitter` and feed the result
+  through
   [`Ast::from_tree_sitter`](parse-once.md#adopting-a-caller-built-tree).
 - **The crate-internal `big_code_analysis::Node` wrapper.** It is
   exposed for the metric walker's traversal needs, but most of its

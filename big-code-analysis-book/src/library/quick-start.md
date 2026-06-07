@@ -53,17 +53,22 @@ set and matching patterns. `MetricsError` is `#[non_exhaustive]`, so
 always include a `_` arm when matching.
 
 Tip: `use big_code_analysis::prelude::*;` brings the recommended
-entry points (`analyze`, `Source`, `MetricsOptions`, `MetricsError`,
-`LANG`, `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`,
-`metrics_from_tree`) into scope in one line. Anything outside the
-prelude can still be reached by name — for example
+entry points (`analyze`, `Ast`, `Source`, `MetricsOptions`,
+`MetricsError`, `LANG`, `FuncSpace`, `CodeMetrics`, `SpaceKind`,
+`Metric`) into scope in one line. Anything outside the prelude can
+still be reached by name — for example
 `use big_code_analysis::guess_language;`.
 
-> The older `get_function_spaces(lang, bytes, path, pr)` and
-> `metrics_with_options(parser, path, options)` entry points are
-> still available but `#[deprecated]` — they derive the top-level
-> name from `path` via lossy UTF-8 conversion. Use them only when
-> you already have a `Parser<T>` in hand from another seam.
+> Need more than metrics from one parse — operators/operands, an AST
+> dump, a function-span list? Parse once with [`Ast::parse`] and call
+> the per-pass methods on the handle. See
+> [Parse once, run metrics many times](parse-once.md). If you already
+> drive your own `tree_sitter::Parser`, adopt the resulting tree with
+> [`Ast::from_tree_sitter`] (see
+> [Reusing an existing tree-sitter Tree](reuse-tree.md)).
+
+[`Ast::parse`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.parse
+[`Ast::from_tree_sitter`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.from_tree_sitter
 
 ## 3. What you got back
 

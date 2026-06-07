@@ -49,10 +49,19 @@ The headline items are:
 - The per-metric `Stats` structs gain `#[non_exhaustive]`, so
   field additions stop being a shape break in the strict SemVer
   sense.
-- The deprecated `metrics` / `metrics_with_options` shims (in
-  favour of `analyze`) are removed.
 - The accumulated metric-definition fixes that have shifted values
   across `1.x` get a clean re-baseline note.
+
+The path-positional callback dispatch (`action` / the `Callback`
+trait), the free `metrics` / `metrics_with_options` /
+`get_function_spaces` / `metrics_from_tree` / `get_ops` functions,
+and the generic `Parser<T>` / `ParserTrait` plumbing have already
+been removed from the public surface — [`analyze`] and [`Ast`] are
+now the single analysis seam, with `Parser` and the per-language
+parser/tag types demoted to `pub(crate)`.
+
+[`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
+[`Ast`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html
 
 `2.0` is not scheduled. Until then, `1.x` is the surface you should
 depend on.

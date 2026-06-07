@@ -3,7 +3,7 @@
 A common pain point is that callers who already drive
 [tree-sitter] for syntax highlighting, code folding, or queries
 end up parsing every file twice: once for their own tree, once
-inside `get_function_spaces`. The parse seam (issue [#251]) lets you
+inside the metric walker. The parse seam (issue [#251]) lets you
 hand `big-code-analysis` an already-parsed `tree_sitter::Tree` and
 get the same `FuncSpace` back without re-parsing.
 
@@ -13,9 +13,8 @@ get the same `FuncSpace` back without re-parsing.
 > [`MetricsOptions::with_only`][with_only] selections, custom
 > tree-sitter walks interleaved with metrics, `Ast::ops` for
 > operator/operand extraction, etc.). See
-> [Parse once, run metrics many times](parse-once.md). Unlike the
-> deprecated single-shot `metrics_from_tree`, it carries an explicit
-> `name: Option<String>` rather than deriving the top-level
+> [Parse once, run metrics many times](parse-once.md). It carries an
+> explicit `name: Option<String>` rather than deriving the top-level
 > [`FuncSpace::name`][fsn] from a path via lossy UTF-8 conversion.
 >
 > [with_only]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html#method.with_only
@@ -100,26 +99,18 @@ from bytes.
 [lang]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html
 [lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.tree_sitter_language
 
-## Lower-level: `Parser::from_tree` (internal)
+## The single tree-adoption seam
 
-`Ast::from_tree_sitter` is the documented entry point for tree
-reuse — it dispatches on a `LANG` and hides the generic parser
-plumbing entirely. The lower-level path goes through `Parser<T>` /
-`ParserTrait`, which are now `#[doc(hidden)]` (see issue #256). They
-remain `pub` so the in-tree macros (`mk_action!`, `action::<T>`,
-the `Callback` dispatch shared with the REST API) can refer to
-them, but they are not part of the documented surface and treating
-them as a stable extension point is at your own risk.
+[`Ast::from_tree_sitter`][aft] is *the* entry point for tree reuse —
+it dispatches on a `LANG` at runtime and hides the parser plumbing
+entirely. The former lower-level path (the generic `Parser<T>` /
+`ParserTrait` and the per-language `*Parser` / `*Code` tag types)
+is now crate-private (`pub(crate)`) and is no longer part of the
+public surface; see [STABILITY.md][stab]. Library consumers should
+adopt a tree through `Ast::from_tree_sitter`, which does not expose
+any per-language tag types or trait bounds.
 
-The per-language `*Parser` aliases (`RustParser`, `PythonParser`,
-…) emitted by `mk_langs!` are doc-hidden for the same reason —
-see [STABILITY.md][stab] for the escape-hatch caveat. For library
-consumers, the higher-level `Ast::from_tree_sitter` shown above is
-the right entry point because it dispatches on a `LANG` at runtime
-and does not expose any of the per-language tag types or trait
-bounds.
-
-[stab]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches
+[stab]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md
 
 ## Out of scope
 

@@ -28,8 +28,8 @@ big-code-analysis = { version = "1.1.0", default-features = false, features = ["
 ```
 
 The library still compiles, the `LANG` enum still has every
-variant, and `analyze` / `metrics_from_tree` / the rest of the
-dispatch surface still work for the enabled languages.
+variant, and `analyze` / `Ast` / the rest of the dispatch surface
+still work for the enabled languages.
 
 ## Supported features
 
@@ -71,9 +71,9 @@ trick that keeps consumer call sites unchanged.
 
 The `LANG` enum keeps every variant defined regardless of the
 active feature set — disabling a feature does not change the enum
-surface, the per-language `*Code` / `*Parser` type aliases, or any
-of the file-extension / emacs-mode detection helpers. Selecting a
-`LANG` whose feature is off only affects the dispatch path.
+surface or any of the file-extension / emacs-mode detection
+helpers. Selecting a `LANG` whose feature is off only affects the
+dispatch path.
 
 Every dispatch entry point that returns a `Result` surfaces the
 disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
@@ -81,10 +81,6 @@ disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
 - [`analyze`]
 - `Ast::parse` / `Ast::from_tree_sitter` (and the `metrics` / `ops`
   methods on the returned `Ast`)
-- [`action`]
-- [`metrics_from_tree`] (deprecated — use `Ast::from_tree_sitter`)
-- [`get_ops`] (deprecated — use `Ast::ops`)
-- [`get_function_spaces`] / [`get_function_spaces_with_options`] (deprecated)
 - [`LANG::tree_sitter_language`] — this returns
   `Result<tree_sitter::Language, MetricsError>` (changed in 0.0.26)
   rather than the previous `Language`
@@ -118,9 +114,4 @@ default feature set will be flagged in the changelog under
 **(breaking)**.
 
 [`analyze`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.analyze.html
-[`metrics_from_tree`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.metrics_from_tree.html
-[`action`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.action.html
-[`get_ops`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_ops.html
-[`get_function_spaces`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_function_spaces.html
-[`get_function_spaces_with_options`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_function_spaces_with_options.html
 [`LANG::tree_sitter_language`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/enum.LANG.html#method.tree_sitter_language

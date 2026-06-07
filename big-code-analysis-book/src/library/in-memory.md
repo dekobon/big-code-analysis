@@ -114,16 +114,17 @@ treat that as "skip" rather than as a hard error.
   read sibling files, follow `#include`s, or interpret a
   `.gitignore`. Feed it exactly the bytes you want analyzed.
 
-## Alternative: the path-positional shim
+## Reusing one parse for several passes
 
-For backwards compatibility, the older path-positional entry points
-([`get_function_spaces`] and [`metrics_with_options`]) still work
-but are `#[deprecated]` in favour of `analyze`. They derive
-`FuncSpace::name` from the supplied `&Path` via lossy UTF-8
-conversion and are otherwise equivalent.
+[`analyze`] is the one-shot entry point: bytes in, [`FuncSpace`] out.
+When you need more than metrics from a single parse — operators and
+operands, an AST dump, a function-span list — parse once with
+[`Ast::parse`] and call the per-pass methods on the returned handle
+(`metrics`, `ops`, `dump`, `functions`, …). See
+[Parse once, run metrics many times](parse-once.md).
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
+[`Ast::parse`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.parse
+[`FuncSpace`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [`Source`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
-[`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
-[`metrics_with_options`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.metrics_with_options.html
