@@ -534,3 +534,119 @@ fn ops_from_tree_sitter_carries_explicit_name() {
         "walk must run over the adopted tree"
     );
 }
+
+// ----- `Ast::strip_comments` / `functions` / `dump` seams (#567) ---------
+//
+// The `Ast`-based counterparts of the parser-generic `rm_comments` /
+// `function` free fns and the `AstCallback` dispatch (all retired in the
+// 2.0 reshape, #570). Anchored on concrete expectations rather than
+// parity against the soon-to-be-deleted paths, so the assertions survive
+// the removal (lesson #2).
+
+#[cfg(feature = "rust")]
+#[test]
+fn strip_comments_removes_comment_bytes() {
+    // A line comment precedes a function whose body is comment-free.
+    let source = b"// drop me\nfn f() { let x = 1; }\n";
+    let stripped = Ast::parse(Source::new(LANG::Rust, source))
+        .expect("rust feature enabled")
+        .strip_comments()
+        .expect("a strippable comment is present");
+    // The comment text is gone; the code survives.
+    assert!(!stripped.windows(2).any(|w| w == b"//"));
+    assert!(!stripped.windows(7).any(|w| w == b"drop me"));
+    assert!(stripped.windows(4).any(|w| w == b"fn f"));
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn strip_comments_returns_none_when_nothing_to_strip() {
+    // No comments → nothing to remove → None (not Some(unchanged)).
+    let stripped = Ast::parse(Source::new(LANG::Rust, b"fn f() {}\n"))
+        .expect("rust feature enabled")
+        .strip_comments();
+    assert!(stripped.is_none());
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn functions_returns_each_span_with_name() {
+    // Two top-level functions on known lines.
+    let source = b"fn alpha() {}\nfn beta() {}\n";
+    let funcs = Ast::parse(Source::new(LANG::Rust, source))
+        .expect("rust feature enabled")
+        .functions();
+    let names: Vec<&str> = funcs.iter().filter_map(|f| f.name.as_deref()).collect();
+    assert_eq!(names, vec!["alpha", "beta"]);
+    // `alpha` is line 1, `beta` is line 2 (1-based, per `function`).
+    assert_eq!(funcs[0].start_line, 1);
+    assert_eq!(funcs[1].start_line, 2);
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn dump_returns_root_node_tree() {
+    use big_code_analysis::AstCfg;
+
+    let resp = Ast::parse(Source::new(LANG::Rust, b"fn f() {}"))
+        .expect("rust feature enabled")
+        .dump(AstCfg {
+            id: "req-1".to_owned(),
+            comment: false,
+            span: false,
+        });
+    assert_eq!(resp.id, "req-1");
+    let root = resp.root.expect("a root node is produced");
+    // Rust's grammar roots at `source_file`; the lone `fn` is a child.
+    assert_eq!(root.r#type, "source_file");
+    assert!(
+        root.children.iter().any(|c| c.r#type == "function_item"),
+        "the function declaration must appear as a child node"
+    );
+    // `span: false` ⇒ no positions materialized on the root.
+    assert!(root.span.is_none());
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn count_matches_named_kinds() {
+    // Two `function_item`s among the file's nodes.
+    let ast = Ast::parse(Source::new(LANG::Rust, b"fn a() {}\nfn b() {}\n"))
+        .expect("rust feature enabled");
+    let (matching, total) = ast.count(&["function_item".to_owned()]);
+    assert_eq!(matching, 2);
+    assert!(total > matching, "total must include non-matching nodes");
+    // The `function` keyword filter resolves to the same `is_func`
+    // predicate, so it agrees with the exact-kind count here.
+    let (by_keyword, _) = ast.count(&["function".to_owned()]);
+    assert_eq!(by_keyword, 2);
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn find_returns_named_nodes() {
+    // `find` returns nodes borrowing the `Ast`, so it must outlive them.
+    let ast = Ast::parse(Source::new(LANG::Rust, b"fn a() {}\nfn b() {}\n"))
+        .expect("rust feature enabled");
+    let found = ast
+        .find(&["function_item".to_owned()])
+        .expect("find is infallible today");
+    // Both function declarations surface; `count` and `find` agree.
+    assert_eq!(found.len(), 2);
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn suppressions_collects_in_source_markers() {
+    use big_code_analysis::SuppressionScope;
+
+    // A function-scoped marker naming one metric on line 1.
+    let source = b"// bca: suppress(cyclomatic)\nfn f() { if true {} }\n";
+    let markers = Ast::parse(Source::new(LANG::Rust, source))
+        .expect("rust feature enabled")
+        .suppressions();
+    assert_eq!(markers.len(), 1);
+    assert_eq!(markers[0].line, 1);
+    // A named-metric marker is a `Some(...)` scope, not the `All` wildcard.
+    assert!(matches!(markers[0].scope, SuppressionScope::Some(_)));
+}

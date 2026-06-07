@@ -213,10 +213,17 @@ impl Callback for AstCallback {
     type Cfg = AstCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        AstResponse {
-            id: cfg.id,
-            root: build(parser, cfg.span, cfg.comment),
-        }
+        dump_inner(parser, cfg)
+    }
+}
+
+/// Build the AST dump for `parser` under `cfg`. Backs [`crate::Ast::dump`];
+/// the AST-extraction analogue of [`crate::spaces::metrics_inner`] /
+/// [`crate::ops::ops_inner`].
+pub(crate) fn dump_inner<T: ParserTrait>(parser: &T, cfg: AstCfg) -> AstResponse {
+    AstResponse {
+        id: cfg.id,
+        root: build(parser, cfg.span, cfg.comment),
     }
 }
 

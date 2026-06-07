@@ -23,6 +23,16 @@ for historical reference.
 
 ### Added
 
+- `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
+  `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
+  complete the parse-once `Ast` seam: comment removal, function-span
+  detection, AST-node dumping, node counting/finding, and suppression
+  scanning now have explicit-name, re-parse-free counterparts alongside
+  `Ast::metrics` / `Ast::ops`. `Ast` is now the single entry point for
+  every analysis operation. Output is identical to the existing
+  parser-generic free fns and the `action`/`Callback` dispatch (which
+  become redundant and are retired in the 2.0 surface reshape,
+  #566/#570) (#567, #571).
 - `ParseMetricError::input()` and `ParseLangError::input()` accessors
   return the rejected input string (previously `Display`-only) (#536).
 - `bca strip-comments` gains `--output`/`-o` to write a single file's
@@ -549,6 +559,13 @@ for historical reference.
 
 ### Changed
 
+- `bca` now analyzes each file through the explicit-name `analyze` /
+  `Ast::ops` seams instead of the deprecated path-positional shims
+  (`get_function_spaces_with_options`, `get_ops`). Behaviour is
+  unchanged for UTF-8 paths; for a non-UTF-8 path the emitted top-level
+  name is now empty rather than a lossy-mangled (`U+FFFD`) rendering of
+  the path bytes. Part of the `Ast`-seam unification (#566/#568); the
+  shims themselves are removed in the 2.0 surface reshape (#570).
 - **(breaking, deferred to 2.0)** Unified the two parallel metric enums:
   suppression now reuses the `Metric` enum and `MetricKind` is removed from
   the public API. `Metric` gains canonical-spelling serde (`nargs` /

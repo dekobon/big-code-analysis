@@ -505,6 +505,97 @@ macro_rules! mk_action {
                 }
             }
 
+            /// Strip comments from the held parse. Backs
+            /// [`crate::Ast::strip_comments`]; the comment-removal analogue
+            /// of [`Self::run_ops`].
+            pub(crate) fn run_strip_comments(&self) -> Option<Vec<u8>> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => crate::comment_rm::rm_comments(parser),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
+                }
+            }
+
+            /// Detect the span of every function in the held parse. Backs
+            /// [`crate::Ast::functions`].
+            pub(crate) fn run_functions(&self) -> Vec<crate::FunctionSpan> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => crate::function::function(parser),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
+                }
+            }
+
+            /// Build the AST dump for the held parse under `cfg`. Backs
+            /// [`crate::Ast::dump`].
+            pub(crate) fn run_dump(&self, cfg: crate::AstCfg) -> crate::AstResponse {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => crate::ast::dump_inner(parser, cfg),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => {
+                        let _ = cfg;
+                        match *self {}
+                    },
+                }
+            }
+
+            /// Count `(matching, total)` nodes for `filters` in the held
+            /// parse. Backs [`crate::Ast::count`].
+            pub(crate) fn run_count(&self, filters: &[String]) -> (usize, usize) {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => crate::count::count(parser, filters),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => {
+                        let _ = filters;
+                        match *self {}
+                    },
+                }
+            }
+
+            /// Find every node matching `filters` in the held parse. Backs
+            /// [`crate::Ast::find`]; the returned nodes borrow the held tree.
+            pub(crate) fn run_find(
+                &self,
+                filters: &[String],
+            ) -> Result<Vec<crate::Node<'_>>, MetricsError> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => crate::find::find(parser, filters),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => {
+                        let _ = filters;
+                        match *self {}
+                    },
+                }
+            }
+
+            /// Collect every in-source suppression marker in the held parse.
+            /// Backs [`crate::Ast::suppressions`].
+            pub(crate) fn run_suppressions(&self) -> Vec<crate::SuppressionMarker> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => crate::suppression::suppression_markers(parser),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
+                }
+            }
+
             pub(crate) fn language(&self) -> LANG {
                 match self {
                     $(

@@ -798,6 +798,106 @@ impl Ast {
     pub fn as_tree_sitter(&self) -> &tree_sitter::Tree {
         self.inner.ts_tree()
     }
+
+    /// Strip non-doc comments from the held parse, returning the source
+    /// with those byte ranges removed. `None` when there is nothing to
+    /// strip. Safe to call repeatedly; the tree is reused.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, LANG, Source};
+    ///
+    /// let stripped = Ast::parse(Source::new(LANG::Rust, b"// gone\nfn f() {}\n"))
+    ///     .expect("rust feature enabled")
+    ///     .strip_comments()
+    ///     .expect("a comment was present");
+    /// assert!(!stripped.windows(2).any(|w| w == b"//"));
+    /// ```
+    #[must_use]
+    pub fn strip_comments(&self) -> Option<Vec<u8>> {
+        self.inner.run_strip_comments()
+    }
+
+    /// Detect the span of every function in the held parse. Safe to call
+    /// repeatedly; the tree is reused.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, LANG, Source};
+    ///
+    /// let funcs = Ast::parse(Source::new(LANG::Rust, b"fn a() {}\nfn b() {}\n"))
+    ///     .expect("rust feature enabled")
+    ///     .functions();
+    /// assert_eq!(funcs.len(), 2);
+    /// ```
+    #[must_use]
+    pub fn functions(&self) -> Vec<crate::FunctionSpan> {
+        self.inner.run_functions()
+    }
+
+    /// Build the [`AstResponse`](crate::AstResponse) node tree for the held
+    /// parse under `cfg`. The `Source`-based counterpart of the deprecated
+    /// `AstCallback` dispatch. Safe to call repeatedly; the tree is reused.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, AstCfg, LANG, Source};
+    ///
+    /// let resp = Ast::parse(Source::new(LANG::Rust, b"fn f() {}"))
+    ///     .expect("rust feature enabled")
+    ///     .dump(AstCfg { id: String::new(), comment: false, span: false });
+    /// assert_eq!(resp.root.expect("root node").r#type, "source_file");
+    /// ```
+    #[must_use]
+    pub fn dump(&self, cfg: crate::AstCfg) -> crate::AstResponse {
+        self.inner.run_dump(cfg)
+    }
+
+    /// Count `(matching, total)` nodes in the held parse, where a node
+    /// matches when its kind is named in `filters` (the same vocabulary
+    /// the `bca count` CLI accepts — `all`, `call`, `comment`, `error`,
+    /// `string`, `function`, a numeric `kind_id`, or an exact
+    /// `node.kind()`). Safe to call repeatedly; the tree is reused.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, LANG, Source};
+    ///
+    /// let (matching, total) = Ast::parse(Source::new(LANG::Rust, b"fn f() {}"))
+    ///     .expect("rust feature enabled")
+    ///     .count(&["function_item".to_owned()]);
+    /// assert_eq!(matching, 1);
+    /// assert!(total > matching);
+    /// ```
+    #[must_use]
+    pub fn count(&self, filters: &[String]) -> (usize, usize) {
+        self.inner.run_count(filters)
+    }
+
+    /// Find every node in the held parse whose kind is named in
+    /// `filters`. The returned [`Node`]s borrow the held tree, so they
+    /// must be resolved against [`Ast::source`]. Safe to call
+    /// repeatedly; the tree is reused.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible; the [`Result`] wrapper is reserved for a
+    /// future strict-parsing mode (matching the other `Ast` walkers).
+    pub fn find(&self, filters: &[String]) -> Result<Vec<Node<'_>>, MetricsError> {
+        self.inner.run_find(filters)
+    }
+
+    /// Collect every in-source suppression marker (`// bca: suppress …`)
+    /// in the held parse, sorted by line. Safe to call repeatedly; the
+    /// tree is reused.
+    #[must_use]
+    pub fn suppressions(&self) -> Vec<crate::SuppressionMarker> {
+        self.inner.run_suppressions()
+    }
 }
 
 /// Compute every metric for a [`Source`].
