@@ -22,8 +22,8 @@
 //!   - `#lizard forgive global` ≡ `bca: suppress-file`.
 //!
 //! Markers are extracted from comment nodes during the AST walk in
-//! [`crate::spaces::metrics_with_options`] and attached to the matching
-//! [`crate::FuncSpace::suppressed`] field. Metric computation is
+//! [`crate::analyze`] / [`crate::Ast::metrics`] and attached to the
+//! matching [`crate::FuncSpace::suppressed`] field. Metric computation is
 //! unaffected — suppression is a *threshold-check* concern, not a
 //! *measurement* concern, so raw JSON / YAML output still reports every
 //! number.
@@ -558,7 +558,7 @@ pub struct SuppressionMarker {
 /// reports (issue #386).
 ///
 /// The walk mirrors the comment-scanning step in
-/// [`crate::spaces::metrics_with_options`]: it visits comment nodes,
+/// [`crate::analyze`] / [`crate::Ast::metrics`]: it visits comment nodes,
 /// parses each through [`parse_marker`], and records the successes.
 /// Malformed native markers are skipped silently here — the audit is a
 /// read-only listing of what *is* a marker, and the threshold walk is

@@ -25,10 +25,9 @@ use crate::traits::{LanguageInfo, Search};
 /// A parsed source tree wrapping a [`tree_sitter::Tree`].
 ///
 /// The "open parse seam" (see issue #251) is reached by external
-/// callers through [`crate::Parser::from_tree`] or
-/// [`crate::metrics_from_tree`], which accept a caller-built
-/// `tree_sitter::Tree` directly; this wrapper stays internal so
-/// the metric walker is the only thing that observes it.
+/// callers through [`crate::Ast::from_tree_sitter`], which accepts a
+/// caller-built `tree_sitter::Tree` directly; this wrapper stays
+/// internal so the metric walker is the only thing that observes it.
 #[derive(Clone, Debug)]
 pub(crate) struct Tree(OtherTree);
 

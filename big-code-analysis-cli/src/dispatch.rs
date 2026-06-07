@@ -14,8 +14,8 @@
 //! scrolling past nine unrelated arms.
 //!
 //! The metrics / ops helpers analyze each file through the
-//! explicit-name `Source` / `Ast` seams (`analyze`, `Ast::ops`). The
-//! display name is the file's UTF-8 path — `None` for a non-UTF-8 path,
+//! explicit-name `Ast` seam (`parse_ast` → `Ast::metrics` / `Ast::ops`).
+//! The display name is the file's UTF-8 path — `None` for a non-UTF-8 path,
 //! rather than the lossy-mangled name the retired path-positional shims
 //! emitted (#568) — while the `&Path` is still forwarded as the C++
 //! preprocessor lookup key.
@@ -28,9 +28,9 @@ use std::io::Write;
 
 use big_code_analysis::LANG;
 use big_code_analysis::{
-    Ast, FuncSpace, MetricsError, MetricsOptions, PreprocResults, Source, analyze,
-    dump_function_spans, dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess,
-    read_file_with_eol, write_file,
+    Ast, FuncSpace, MetricsError, MetricsOptions, PreprocResults, Source, dump_function_spans,
+    dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess, read_file_with_eol,
+    write_file,
 };
 
 use crate::exemptions::FileMarkers;
@@ -51,13 +51,7 @@ fn analyze_file(
     pr: Option<Arc<PreprocResults>>,
     options: MetricsOptions,
 ) -> Result<FuncSpace, MetricsError> {
-    analyze(
-        Source::new(language, &source)
-            .with_name(path.to_str().map(str::to_owned))
-            .with_preproc_path(Some(path))
-            .with_preproc(pr),
-        options,
-    )
+    parse_ast(language, source, path, pr)?.metrics(options)
 }
 
 /// Parse one already-read file into a reusable [`Ast`] via the
@@ -218,14 +212,7 @@ fn dispatch_ops(
     pretty: bool,
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
-        if let Ok(ops) = Ast::parse(
-            Source::new(language, &source)
-                .with_name(path.to_str().map(str::to_owned))
-                .with_preproc_path(Some(&path))
-                .with_preproc(pr),
-        )
-        .and_then(|ast| ast.ops())
-        {
+        if let Ok(ops) = parse_ast(language, source, &path, pr).and_then(|ast| ast.ops()) {
             // CSV is rejected upstream in `run()` for the Ops command,
             // so the dispatch here is always Generic. The match is
             // still exhaustive to keep the compiler honest if that
