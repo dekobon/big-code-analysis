@@ -596,6 +596,19 @@ macro_rules! mk_action {
                 }
             }
 
+            /// Borrow the root [`crate::Node`] of the held parse. Backs
+            /// [`crate::Ast::root_node`].
+            pub(crate) fn root_node(&self) -> crate::Node<'_> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => parser.root(),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
+                }
+            }
+
             pub(crate) fn language(&self) -> LANG {
                 match self {
                     $(

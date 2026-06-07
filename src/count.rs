@@ -140,6 +140,24 @@ impl CountCollector {
         Self(Arc::new(Mutex::new(count)))
     }
 
+    /// Add a per-file `(good, total)` tally into the shared collector.
+    ///
+    /// The aggregation is two monotonically-incremented counters, so a
+    /// peer worker that panicked mid-update leaves at worst a slightly
+    /// low tally — never an unsafe state. Recover the poisoned guard
+    /// (issue #445) and clear the poison so this and later callers — and
+    /// the collector's final [`CountCollector::into_count`] — degrade
+    /// rather than cascade into a pool-wide abort the way `.unwrap()`
+    /// would.
+    pub fn add(&self, good: usize, total: usize) {
+        let mut results = self.0.lock().unwrap_or_else(|poisoned| {
+            self.0.clear_poison();
+            poisoned.into_inner()
+        });
+        results.good += good;
+        results.total += total;
+    }
+
     /// Consumes the collector, returning the accumulated [`Count`].
     ///
     /// Call this only after every worker sharing a clone of this
@@ -191,20 +209,7 @@ impl Callback for Count {
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         let (good, total) = count(parser, cfg.filters.as_slice());
-        // The aggregation is two monotonically-incremented counters, so a
-        // peer worker that panicked mid-update leaves at worst a slightly
-        // low tally — never an unsafe state. Recover the poisoned guard
-        // (issue #445) so one panicked worker does not cascade into a
-        // pool-wide abort the way an `.unwrap()` would, and clear the
-        // poison so later peers and the collector's final
-        // `into_count()` also degrade rather than panic.
-        let stats = &cfg.stats.0;
-        let mut results = stats.lock().unwrap_or_else(|poisoned| {
-            stats.clear_poison();
-            poisoned.into_inner()
-        });
-        results.good += good;
-        results.total += total;
+        cfg.stats.add(good, total);
         Ok(())
     }
 }

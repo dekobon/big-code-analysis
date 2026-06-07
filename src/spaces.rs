@@ -898,6 +898,15 @@ impl Ast {
     pub fn suppressions(&self) -> Vec<crate::SuppressionMarker> {
         self.inner.run_suppressions()
     }
+
+    /// Borrow the root [`Node`] of the held parse for callers that drive
+    /// their own traversal (e.g. rendering an AST dump). Nodes obtained
+    /// from it must be resolved against [`Ast::source`].
+    #[must_use]
+    #[inline]
+    pub fn root_node(&self) -> Node<'_> {
+        self.inner.root_node()
+    }
 }
 
 /// Compute every metric for a [`Source`].

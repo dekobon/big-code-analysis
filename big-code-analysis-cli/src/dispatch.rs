@@ -24,12 +24,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use std::io::Write;
+
 use big_code_analysis::{LANG, ParserTrait};
 use big_code_analysis::{
-    Ast, CommentRm, CommentRmCfg, Count, CountCfg, Dump, DumpCfg, Find, FindCfg, FuncSpace,
-    Function, FunctionCfg, Metrics, MetricsCfg, MetricsError, MetricsOptions, NodeTypeFilters,
-    OpsCfg, OpsCode, PreprocParser, PreprocResults, Source, SuppressionScan, action, analyze,
-    guess_language, is_generated, preprocess, read_file_with_eol,
+    Ast, FuncSpace, MetricsError, MetricsOptions, PreprocParser, PreprocResults, Source, analyze,
+    dump_function_spans, dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess,
+    read_file_with_eol, write_file,
 };
 
 use crate::exemptions::FileMarkers;
@@ -56,6 +57,25 @@ fn analyze_file(
             .with_preproc_path(Some(path))
             .with_preproc(pr),
         options,
+    )
+}
+
+/// Parse one already-read file into a reusable [`Ast`] via the
+/// explicit-name [`Source`] seam, applying the same name / preprocessor
+/// wiring as [`analyze_file`]. Backs the non-format dispatch paths that
+/// need the parsed handle (dump, ops, comment-strip, function spans,
+/// find, count).
+fn parse_ast(
+    language: LANG,
+    source: Vec<u8>,
+    path: &Path,
+    pr: Option<Arc<PreprocResults>>,
+) -> Result<Ast, MetricsError> {
+    Ast::parse(
+        Source::new(language, &source)
+            .with_name(path.to_str().map(str::to_owned))
+            .with_preproc_path(Some(path))
+            .with_preproc(pr),
     )
 }
 
@@ -133,7 +153,6 @@ fn validate_and_resolve_file(
     Ok(Some((path, source, language)))
 }
 
-#[allow(deprecated)]
 fn dispatch_dump(
     language: LANG,
     source: Vec<u8>,
@@ -141,14 +160,11 @@ fn dispatch_dump(
     pr: Option<Arc<PreprocResults>>,
     cfg: &Config,
 ) -> std::io::Result<()> {
-    let dump_cfg = DumpCfg {
-        line_start: cfg.line_start,
-        line_end: cfg.line_end,
-    };
     // The CLI pins the library's `all-languages` feature, so
-    // `LanguageDisabled` from `action::<T>` is unreachable; the
-    // `expect` documents that invariant.
-    action::<Dump>(language, source, &path, pr, dump_cfg).expect(FEATURES_PINNED)
+    // `LanguageDisabled` from `Ast::parse` is unreachable; the `expect`
+    // documents that invariant.
+    let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    dump_node(ast.source(), &ast.root_node(), -1, cfg.line_start, cfg.line_end)
 }
 
 fn dispatch_metrics(
@@ -173,11 +189,16 @@ fn dispatch_metrics(
         }
         Ok(())
     } else {
-        // `action` needs both `&path` and a `MetricsCfg` carrying the path;
-        // clone into the cfg and keep the original borrow rather than reading
-        // the (now `pub(crate)`) `MetricsCfg::path` field back (#533).
-        let metrics_cfg = MetricsCfg::new(path.clone()).with_options(cfg.metrics_options());
-        action::<Metrics>(language, source, &path, pr, metrics_cfg).expect(FEATURES_PINNED)
+        // Human-readable metric dump: parse once, then render the tree.
+        // A walker error degrades to no output (matching the prior
+        // `Metrics` callback), never an `Err`.
+        match parse_ast(language, source, &path, pr)
+            .expect(FEATURES_PINNED)
+            .metrics(cfg.metrics_options())
+        {
+            Ok(space) => dump_root(&space),
+            Err(_) => Ok(()),
+        }
     }
 }
 
@@ -212,13 +233,18 @@ fn dispatch_ops(
         }
         Ok(())
     } else {
-        let ops_cfg = OpsCfg { path };
-        let path = ops_cfg.path.clone();
-        action::<OpsCode>(language, source, &path, pr, ops_cfg).expect(FEATURES_PINNED)
+        // Human-readable ops dump: a walker error degrades to no output
+        // (matching the prior `OpsCode` callback), never an `Err`.
+        match parse_ast(language, source, &path, pr)
+            .expect(FEATURES_PINNED)
+            .ops()
+        {
+            Ok(ops) => dump_ops(&ops),
+            Err(_) => Ok(()),
+        }
     }
 }
 
-#[allow(deprecated)]
 fn dispatch_strip_comments(
     language: LANG,
     source: Vec<u8>,
@@ -227,12 +253,6 @@ fn dispatch_strip_comments(
     in_place: bool,
     output: Option<&Path>,
 ) -> std::io::Result<()> {
-    let comment_cfg = CommentRmCfg {
-        in_place,
-        path,
-        output: output.map(Path::to_path_buf),
-    };
-    let path = comment_cfg.path.clone();
     // C++ comment removal goes through the dedicated Ccomment grammar
     // even when the file's primary language is Cpp.
     let lang = if language == LANG::Cpp {
@@ -240,21 +260,31 @@ fn dispatch_strip_comments(
     } else {
         language
     };
-    action::<CommentRm>(lang, source, &path, pr, comment_cfg).expect(FEATURES_PINNED)
+    let ast = parse_ast(lang, source, &path, pr).expect(FEATURES_PINNED);
+    if let Some(new_source) = ast.strip_comments() {
+        if in_place {
+            write_file(&path, &new_source)?;
+        } else if let Some(output) = output {
+            write_file(output, &new_source)?;
+        } else if let Ok(text) = std::str::from_utf8(&new_source) {
+            println!("{text}");
+        } else {
+            std::io::stdout().write_all(&new_source)?;
+        }
+    }
+    Ok(())
 }
 
-#[allow(deprecated)]
 fn dispatch_functions(
     language: LANG,
     source: Vec<u8>,
     path: PathBuf,
     pr: Option<Arc<PreprocResults>>,
 ) -> std::io::Result<()> {
-    let fn_cfg = FunctionCfg { path: path.clone() };
-    action::<Function>(language, source, &path, pr, fn_cfg).expect(FEATURES_PINNED)
+    let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    dump_function_spans(ast.functions(), &path)
 }
 
-#[allow(deprecated)]
 fn dispatch_find(
     language: LANG,
     source: Vec<u8>,
@@ -263,16 +293,22 @@ fn dispatch_find(
     cfg: &Config,
     filters: &Arc<[String]>,
 ) -> std::io::Result<()> {
-    let find_cfg = FindCfg {
-        path: path.clone(),
-        filters: NodeTypeFilters::new(filters),
-        line_start: cfg.line_start,
-        line_end: cfg.line_end,
-    };
-    action::<Find>(language, source, &path, pr, find_cfg).expect(FEATURES_PINNED)
+    let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    let found = ast.find(&filters[..]).expect("find is infallible today");
+    if !found.is_empty() {
+        println!("In file {}", path.display());
+        for node in &found {
+            dump_node(ast.source(), node, 1, cfg.line_start, cfg.line_end)?;
+        }
+        println!();
+    }
+    Ok(())
 }
 
-#[allow(deprecated)]
+// Returns Result<()> for dispatch-table uniformity with sibling
+// helpers that propagate I/O errors via `?`; the body never produces an
+// `Err` itself (the tally is accumulated into the shared collector).
+#[allow(clippy::unnecessary_wraps)]
 fn dispatch_count(
     language: LANG,
     source: Vec<u8>,
@@ -285,11 +321,11 @@ fn dispatch_count(
         .count_lock
         .clone()
         .expect("Count handler initializes count_lock before dispatch");
-    let count_cfg = CountCfg {
-        filters: NodeTypeFilters::new(filters),
-        stats,
-    };
-    action::<Count>(language, source, &path, pr, count_cfg).expect(FEATURES_PINNED)
+    let (good, total) = parse_ast(language, source, &path, pr)
+        .expect(FEATURES_PINNED)
+        .count(&filters[..]);
+    stats.add(good, total);
+    Ok(())
 }
 
 // Returns Result<()> for dispatch-table uniformity with sibling
@@ -447,8 +483,9 @@ fn dispatch_exemptions(
         }
         return Ok(());
     };
-    let markers =
-        action::<SuppressionScan>(language, source, &path, pr, ()).expect(FEATURES_PINNED);
+    let markers = parse_ast(language, source, &path, pr)
+        .expect(FEATURES_PINNED)
+        .suppressions();
     // Empty files are the dominant case (most source carries no
     // markers); skip the channel send and the per-file allocation when
     // there is nothing to report.

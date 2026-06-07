@@ -266,7 +266,9 @@ mod find;
 pub use crate::find::{Find, FindCfg, find};
 
 mod function;
-pub use crate::function::{Function, FunctionCfg, FunctionSpan, function};
+pub use crate::function::{
+    Function, FunctionCfg, FunctionSpan, dump_function_spans, function,
+};
 
 // --- AST dump ---
 mod ast;

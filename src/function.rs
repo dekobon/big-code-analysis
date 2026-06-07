@@ -180,23 +180,34 @@ pub struct Function {
     _guard: (),
 }
 
+/// Render `spans` for `path` to colored stdout (nothing when `spans`
+/// is empty). The `Ast`-seam-friendly counterpart of the `Function`
+/// callback's output half: callers obtain `spans` from
+/// [`crate::Ast::functions`] and render them without naming the parser
+/// surface. Mirrors the self-contained-stdout shape of
+/// [`crate::dump_root`] / [`crate::dump_ops`].
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] from writing to stdout.
+pub fn dump_function_spans(spans: Vec<FunctionSpan>, path: &Path) -> std::io::Result<()> {
+    // Skip the stdout lock entirely when there are no spans (the common
+    // case for config / data files in a whole-repo run). `dump_spans`
+    // self-guards too, so direct callers with an empty Vec are safe.
+    if spans.is_empty() {
+        return Ok(());
+    }
+    let stdout = StandardStream::stdout(ColorChoice::Always);
+    let mut stdout = stdout.lock();
+    dump_spans(spans, path, &mut stdout)
+}
+
 impl Callback for Function {
     type Res = std::io::Result<()>;
     type Cfg = FunctionCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        // Skip the stdout lock entirely when the parser produced no
-        // function spans (the common case for config / data files in
-        // a whole-repo run). `dump_spans` still self-guards for the
-        // same case so it can be called from tests that pass an
-        // empty Vec directly.
-        let spans = function(parser);
-        if spans.is_empty() {
-            return Ok(());
-        }
-        let stdout = StandardStream::stdout(ColorChoice::Always);
-        let mut stdout = stdout.lock();
-        dump_spans(spans, &cfg.path, &mut stdout)
+        dump_function_spans(function(parser), &cfg.path)
     }
 }
 
