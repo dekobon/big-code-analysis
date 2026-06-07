@@ -13,31 +13,51 @@
 //! can follow exactly the path a given subcommand takes without
 //! scrolling past nine unrelated arms.
 //!
-//! The metrics / ops helpers reach the deprecated path-positional
-//! shims (`get_function_spaces_with_options`, `get_ops`) because the
-//! CLI is the canonical path-based caller (it always holds the `&Path`
-//! for the file it just read) and migration to the explicit-name
-//! `Source` / `Ast` seams tracks issue #254's follow-up. The
-//! function-scope `#[allow(deprecated)]` keeps the helpers readable
-//! without per-call-site attributes.
+//! The metrics / ops helpers analyze each file through the
+//! explicit-name `Source` / `Ast` seams (`analyze`, `Ast::ops`). The
+//! display name is the file's UTF-8 path — `None` for a non-UTF-8 path,
+//! rather than the lossy-mangled name the retired path-positional shims
+//! emitted (#568) — while the `&Path` is still forwarded as the C++
+//! preprocessor lookup key.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use big_code_analysis::{
-    CommentRm, CommentRmCfg, Count, CountCfg, Dump, DumpCfg, Find, FindCfg, Function, FunctionCfg,
-    Metrics, MetricsCfg, NodeTypeFilters, OpsCfg, OpsCode, PreprocParser, PreprocResults,
-    SuppressionScan, action, guess_language, is_generated, preprocess, read_file_with_eol,
-};
 use big_code_analysis::{LANG, ParserTrait};
-#[allow(deprecated)]
-use big_code_analysis::{get_function_spaces_with_options, get_ops};
+use big_code_analysis::{
+    Ast, CommentRm, CommentRmCfg, Count, CountCfg, Dump, DumpCfg, Find, FindCfg, FuncSpace,
+    Function, FunctionCfg, Metrics, MetricsCfg, MetricsError, MetricsOptions, NodeTypeFilters,
+    OpsCfg, OpsCode, PreprocParser, PreprocResults, Source, SuppressionScan, action, analyze,
+    guess_language, is_generated, preprocess, read_file_with_eol,
+};
 
 use crate::exemptions::FileMarkers;
 use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};
 use crate::markdown_report::extract_summaries;
 use crate::{Action, Config, FEATURES_PINNED};
+
+/// Analyze one already-read file via the explicit-name [`Source`] seam.
+///
+/// The display name carried into [`FuncSpace::name`] is the UTF-8 form
+/// of `path` (`None` when the path is not valid UTF-8 — the
+/// path-positional shims this replaced instead emitted a lossy-mangled
+/// name). `path` is still forwarded as the C++ preprocessor lookup key.
+fn analyze_file(
+    language: LANG,
+    source: Vec<u8>,
+    path: &Path,
+    pr: Option<Arc<PreprocResults>>,
+    options: MetricsOptions,
+) -> Result<FuncSpace, MetricsError> {
+    analyze(
+        Source::new(language, &source)
+            .with_name(path.to_str().map(str::to_owned))
+            .with_preproc_path(Some(path))
+            .with_preproc(pr),
+        options,
+    )
+}
 
 pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     let Some((path, source, language)) = validate_and_resolve_file(path, cfg)? else {
@@ -131,7 +151,6 @@ fn dispatch_dump(
     action::<Dump>(language, source, &path, pr, dump_cfg).expect(FEATURES_PINNED)
 }
 
-#[allow(deprecated)]
 fn dispatch_metrics(
     language: LANG,
     source: Vec<u8>,
@@ -142,9 +161,7 @@ fn dispatch_metrics(
     pretty: bool,
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
-        if let Ok(space) =
-            get_function_spaces_with_options(language, source, &path, pr, cfg.metrics_options())
-        {
+        if let Ok(space) = analyze_file(language, source, &path, pr, cfg.metrics_options()) {
             match fmt.dispatch() {
                 MetricsDispatch::Generic(g) => {
                     g.dump(space, path, cfg.output.as_ref(), pretty)?;
@@ -164,7 +181,6 @@ fn dispatch_metrics(
     }
 }
 
-#[allow(deprecated)]
 fn dispatch_ops(
     language: LANG,
     source: Vec<u8>,
@@ -175,7 +191,14 @@ fn dispatch_ops(
     pretty: bool,
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
-        if let Ok(ops) = get_ops(language, source, &path, pr) {
+        if let Ok(ops) = Ast::parse(
+            Source::new(language, &source)
+                .with_name(path.to_str().map(str::to_owned))
+                .with_preproc_path(Some(&path))
+                .with_preproc(pr),
+        )
+        .and_then(|ast| ast.ops())
+        {
             // CSV is rejected upstream in `run()` for the Ops command,
             // so the dispatch here is always Generic. The match is
             // still exhaustive to keep the compiler honest if that
@@ -272,7 +295,7 @@ fn dispatch_count(
 // Returns Result<()> for dispatch-table uniformity with sibling
 // helpers that do propagate I/O errors via `?` (e.g. `dispatch_metrics`).
 // The body never produces an `Err` itself.
-#[allow(deprecated, clippy::unnecessary_wraps)]
+#[allow(clippy::unnecessary_wraps)]
 fn dispatch_report(
     language: LANG,
     source: Vec<u8>,
@@ -280,8 +303,7 @@ fn dispatch_report(
     pr: Option<Arc<PreprocResults>>,
     cfg: &Config,
 ) -> std::io::Result<()> {
-    if let Ok(space) =
-        get_function_spaces_with_options(language, source, &path, pr, cfg.metrics_options())
+    if let Ok(space) = analyze_file(language, source, &path, pr, cfg.metrics_options())
         && let Some(ref tx) = cfg.markdown_tx
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
@@ -327,7 +349,7 @@ fn dispatch_report(
 
 // Returns Result<()> for dispatch-table uniformity; never produces
 // an `Err` itself.
-#[allow(deprecated, clippy::unnecessary_wraps)]
+#[allow(clippy::unnecessary_wraps)]
 fn dispatch_check_file(
     language: LANG,
     source: Vec<u8>,
@@ -339,8 +361,7 @@ fn dispatch_check_file(
     // matching is active — the cost (one clone per file) is paid solely
     // by users who opted in via `--baseline-fuzzy-match`.
     let source_for_hash = cfg.fuzzy_baseline.then(|| source.clone());
-    if let Ok(space) =
-        get_function_spaces_with_options(language, source, &path, pr, cfg.metrics_options())
+    if let Ok(space) = analyze_file(language, source, &path, pr, cfg.metrics_options())
         && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
