@@ -129,8 +129,27 @@ section.
 - **Result shapes**
   - `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metrics` in
     `src/spaces.rs`. These are the JSON / YAML / TOML / CBOR
-    serialization roots and have downstream consumers.
+    serialization roots and have downstream consumers. `FuncSpace`
+    and `CodeMetrics` derive `PartialEq` (#552) so callers can
+    compare analyses structurally; `Eq` is omitted because the
+    nested `Stats` carry float fields (see the per-metric `Stats`
+    note below). `SpaceKind` additionally derives `Hash` (#552) so
+    it can key a `HashMap`/`HashSet`. These derive additions only
+    widen the trait set and are additive.
   - `FunctionSpan` in `src/function.rs`.
+- **Offender / catalog enums**
+  - `Severity` in `src/output/offenders.rs` (re-exported from the
+    crate root) — an ordered severity scale carrying
+    `#[non_exhaustive]`. As of #552 it derives `Hash`,
+    `PartialOrd`/`Ord` keyed on declaration order. Variants are
+    declared least-severe-first (`Warning` then `Error`), so the
+    derived ordering is `Error > Warning` — callers may rely on
+    `severities.iter().max()` selecting the worst tier and on
+    `>= Severity::Error` gating. Any future tier (`Info`/`Note`)
+    must be inserted in the correct severity position to preserve
+    this contract.
+  - `metric_catalog::Direction` — derives `Hash` (#552) so it can key
+    a `HashMap`/`HashSet`. Adding these derives is additive.
 - **Per-metric `Stats`** — one `Stats` struct under each
   `src/metrics/<metric>.rs` (`abc`, `cognitive`, `cyclomatic`,
   `exit`, `halstead`, `loc`, `mi`, `nargs`, `nom`, `npa`, `npm`,
@@ -152,6 +171,16 @@ section.
   exhaustive `match` / destructuring patterns against the struct.
   Code that follows those rules will keep compiling across every
   minor bump in `1.x`.
+
+  Every per-metric `Stats` derives `PartialEq` (#552), so callers can
+  compare two compute-side `Stats` directly without round-tripping
+  through `to_wire()`. `Eq` is intentionally **not** derived — the
+  float fields (ratios, averages, ABC `magnitude`, the derived
+  Halstead scores) preclude it. Comparing `Stats` from two analyses
+  of the *same* deterministic source is exact-equal-safe (identical
+  code path, identical `f64` bits); do not rely on cross-input float
+  equality. Adding `PartialEq` is additive: it only widens the
+  derived-trait set.
 - **Prelude** — `big_code_analysis::prelude` re-exports the
   recommended entry points (`analyze`, `Ast`, `Source`,
   `MetricsOptions`, `MetricsError`, `LANG`, `FuncSpace`,

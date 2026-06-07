@@ -63,7 +63,7 @@ use crate::traits::*;
 // or enum-style space), so this is marked `#[non_exhaustive]` to keep
 // such additions additive rather than a 2.0 break. CLI/web consumers
 // matching on it already carry a `_ =>` arm.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum SpaceKind {
@@ -114,7 +114,7 @@ impl fmt::Display for SpaceKind {
 /// `Serialize` output. The `selected` mask is the source of truth
 /// for which fields are populated — read it via
 /// [`CodeMetrics::selected`].
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct CodeMetrics {
     /// `NArgs` data
     pub nargs: nargs::Stats,
@@ -231,7 +231,7 @@ impl CodeMetrics {
 /// `Serialize` is provided in [`crate::wire`] (it delegates to
 /// [`crate::wire::FuncSpace`], the single definition of the output shape);
 /// read the wire form back with `serde` via that module.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FuncSpace {
     /// The name of a function space.
     ///
@@ -1472,6 +1472,7 @@ impl MetricsCfg {
 }
 
 /// Type tag identifying the metric-computation action; carries no data.
+#[derive(PartialEq)]
 pub struct Metrics {
     _guard: (),
 }

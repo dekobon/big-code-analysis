@@ -33,7 +33,7 @@ use crate::*;
 ///
 /// Original paper and definition:
 /// <https://www.researchgate.net/publication/3187649_Kemerer_CF_A_metric_suite_for_object_oriented_design_IEEE_Trans_Softw_Eng_206_476-493>
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Stats {
     cyclomatic: f64,
     // Cumulative cyclomatic carried by descendant Class / Interface

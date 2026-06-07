@@ -46,12 +46,25 @@ pub(crate) fn warn_non_utf8_path<'a>(format: &str, path: &'a Path) -> Option<&'a
 ///
 /// Defaults to [`Severity::Warning`] so producers can opt into
 /// `Error` explicitly for hard-fail gates.
+///
+/// # Ordering contract
+///
+/// `Severity` is an ordered scale: `Error > Warning`. The derived
+/// [`Ord`]/[`PartialOrd`] follow declaration order, so variants are
+/// declared least-severe-first (`Warning` then `Error`) to make the
+/// derived comparison match the intended severity ranking. Callers can
+/// rely on this to pick the worst severity in a set
+/// (`severities.iter().max()`) or to gate on `>= Severity::Error`. Any
+/// future tier (`Info`/`Note`) must be inserted in the correct severity
+/// position to preserve this scale.
 // An open severity scale: a future `Info` / `Note` tier (or any tier
 // between `Warning` and `Error`) lands as an additive variant rather
 // than a 2.0 break, so it carries `#[non_exhaustive]`. Variants stay in
-// severity order because #552 will add `Hash`/`Ord` keyed on
+// severity order because the derived `Ord` (added in #552) is keyed on
 // declaration order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum Severity {

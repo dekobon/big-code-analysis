@@ -28,7 +28,7 @@ use crate::macros::implement_metric_trait;
 use crate::*;
 
 /// The `Mi` metric.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Stats {
     halstead_length: f64,
     halstead_vocabulary: f64,

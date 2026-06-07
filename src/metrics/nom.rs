@@ -31,7 +31,7 @@ use crate::macros::implement_metric_trait;
 use crate::*;
 
 /// The `Nom` metric suite.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Stats {
     functions: usize,
     closures: usize,

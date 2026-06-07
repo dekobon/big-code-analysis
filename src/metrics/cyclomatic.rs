@@ -30,7 +30,7 @@ use crate::macros::implement_metric_trait;
 use crate::*;
 
 /// The `Cyclomatic` metric.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stats {
     cyclomatic_sum: f64,
     cyclomatic: f64,

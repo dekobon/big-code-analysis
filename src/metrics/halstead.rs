@@ -41,7 +41,7 @@ use crate::macros::implement_metric_trait;
 use crate::*;
 
 /// The `Halstead` metric suite.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Stats {
     u_operators: u64,
     operators: u64,
@@ -62,7 +62,7 @@ pub enum HalsteadType {
 /// Per-space operator / operand occurrence maps used to compute the
 /// Halstead `Stats` struct. One map per distinct operator (`kind_id`)
 /// and one per distinct operand (`text`); merged across nested spaces.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct HalsteadMaps<'a> {
     pub(crate) operators: HashMap<u16, u64>,
     /// Primitive-type operators stored by text so each distinct primitive

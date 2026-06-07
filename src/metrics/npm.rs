@@ -36,7 +36,7 @@ use crate::*;
 ///
 /// This metric counts the number of public methods
 /// of classes/interfaces.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Stats {
     class_npm: usize,
     interface_npm: usize,

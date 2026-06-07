@@ -46,7 +46,7 @@ use crate::*;
 // function is recursive or not.
 
 /// The `Cognitive Complexity` metric.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stats {
     structural: usize,
     structural_sum: usize,
@@ -255,7 +255,7 @@ fn compute_elixir_booleans(node: &Node, stats: &mut Stats) {
     });
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 struct BoolSequence {
     boolean_op: Option<(u16, usize)>,
 }

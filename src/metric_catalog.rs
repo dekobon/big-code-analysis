@@ -35,7 +35,7 @@
 /// Index family is the inverse — a *lower* value is worse. Code Climate
 /// uses this to invert the threshold-breach ratio, and the rule
 /// sentences use it to pick "exceeds" vs "falls below" phrasing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     /// A higher value is worse (cyclomatic, halstead.*, loc.*, …).
     HigherIsWorse,

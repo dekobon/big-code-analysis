@@ -39,7 +39,7 @@ use crate::*;
 /// Halstead operators/operands. Punctuation that Halstead skips
 /// (parentheses, semicolons, separators) does contribute, so
 /// `tokens` ≠ Halstead `N1 + N2`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Stats {
     tokens: usize,
     tokens_sum: usize,

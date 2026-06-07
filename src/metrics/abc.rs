@@ -104,7 +104,7 @@ use crate::*;
 /// See issue #395 for the Phase-1 cross-language policy
 /// alignment, #403 for the Phase-2 unary-conditional walker
 /// fan-out, and #404 for the Phase-3 book documentation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stats {
     assignments: f64,
     assignments_sum: f64,
@@ -122,7 +122,7 @@ pub struct Stats {
     declaration: Vec<DeclKind>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum DeclKind {
     Var,
     Const,

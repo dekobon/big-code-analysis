@@ -47,7 +47,7 @@ fn min_or_zero(v: usize) -> u64 {
 }
 
 /// The `SLoc` metric suite.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Sloc {
     start: usize,
     end: usize,
@@ -122,7 +122,7 @@ impl Sloc {
 }
 
 /// The `PLoc` metric suite.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Ploc {
     lines: HashSet<usize>,
     ploc_min: usize,
@@ -187,7 +187,7 @@ impl Ploc {
 }
 
 /// The `CLoc` metric suite.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Cloc {
     // Physical lines that are comment-only (no code). Feeds both
     // `cloc()` and the `blank` metric (`sloc - ploc - only.len()`).
@@ -281,7 +281,7 @@ impl Cloc {
 }
 
 /// The `LLoc` metric suite.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Lloc {
     logical_lines: usize,
     lloc_min: usize,
@@ -343,7 +343,7 @@ impl Lloc {
 }
 
 /// The `Loc` metric suite.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stats {
     sloc: Sloc,
     ploc: Ploc,
