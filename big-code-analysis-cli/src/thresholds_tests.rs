@@ -7,16 +7,16 @@
 use super::*;
 
 /// Locks the threshold-engine extractor vocabulary against
-/// `MetricKind::for_threshold_name` so the two stay in sync.
+/// `threshold_metric_for_name` so the two stay in sync.
 /// If a new threshold extractor is added without a matching
 /// suppression mapping (or vice versa), this test fails loudly
 /// rather than silently dropping suppression for the new metric.
 /// `tokens` is the documented exception: it is never suppressible
-/// (see `src/suppression.rs::for_threshold_name`).
+/// (see `src/suppression.rs::threshold_metric_for_name`).
 #[test]
 fn every_extractor_resolves_to_metric_kind_or_is_tokens() {
     for extractor in EXTRACTORS {
-        let is_suppressible = MetricKind::for_threshold_name(extractor.name).is_some();
+        let is_suppressible = threshold_metric_for_name(extractor.name).is_some();
         let expected = extractor.name != "tokens";
         assert_eq!(
             is_suppressible, expected,
@@ -325,7 +325,7 @@ fn violation_path_preserves_non_utf8_bytes() {
     assert!(rendered.contains("cyclomatic"), "{rendered}");
 }
 
-use big_code_analysis::{SpaceKind, SuppressionScope};
+use big_code_analysis::{Metric, SpaceKind, SuppressionScope};
 use std::collections::BTreeSet;
 
 /// Build a leaf `FuncSpace` with no children. Cyclomatic defaults to
@@ -349,7 +349,7 @@ fn threshold_set(name: &str, limit: f64) -> ThresholdSet {
     ThresholdSet::build(&raw).expect("threshold builds")
 }
 
-fn only_func_scope(metric: MetricKind) -> SuppressionScope {
+fn only_func_scope(metric: Metric) -> SuppressionScope {
     SuppressionScope::Some(BTreeSet::from([metric]))
 }
 
@@ -362,7 +362,7 @@ fn honor_policy_suppresses_matching_function_scope() {
     let s = space(
         "noisy",
         SpaceKind::Function,
-        only_func_scope(MetricKind::Cyclomatic),
+        only_func_scope(Metric::Cyclomatic),
     );
     threshold_set("cyclomatic", 0.0).evaluate_with_policy(
         Path::new("fixture.rs"),
@@ -388,7 +388,7 @@ fn report_suppressed_keeps_marked_violation_tagged() {
     let s = space(
         "noisy",
         SpaceKind::Function,
-        only_func_scope(MetricKind::Cyclomatic),
+        only_func_scope(Metric::Cyclomatic),
     );
     threshold_set("cyclomatic", 0.0).evaluate_with_policy(
         Path::new("fixture.rs"),
@@ -413,7 +413,7 @@ fn honor_policy_emits_for_non_matching_metric() {
     let s = space(
         "noisy",
         SpaceKind::Function,
-        only_func_scope(MetricKind::Cognitive),
+        only_func_scope(Metric::Cognitive),
     );
     threshold_set("cyclomatic", 0.0).evaluate_with_policy(
         Path::new("fixture.rs"),
@@ -434,7 +434,7 @@ fn ignore_policy_emits_despite_matching_marker() {
     let s = space(
         "noisy",
         SpaceKind::Function,
-        only_func_scope(MetricKind::Cyclomatic),
+        only_func_scope(Metric::Cyclomatic),
     );
     threshold_set("cyclomatic", 0.0).evaluate_with_policy(
         Path::new("fixture.rs"),
@@ -456,7 +456,7 @@ fn file_scope_silences_nested_function() {
     let mut unit = space(
         "fixture.rs",
         SpaceKind::Unit,
-        only_func_scope(MetricKind::Cyclomatic),
+        only_func_scope(Metric::Cyclomatic),
     );
     unit.spaces.push(space(
         "inner",
@@ -478,7 +478,7 @@ fn file_scope_silences_nested_function() {
 
 #[test]
 fn tokens_threshold_never_suppressed() {
-    // `MetricKind::for_threshold_name("tokens")` returns None, so
+    // `threshold_metric_for_name("tokens")` returns None, so
     // the evaluator cannot map the threshold name onto any
     // suppression metric family. Result: even a function carrying
     // `SuppressionScope::All` fails to silence a `tokens`
@@ -489,7 +489,7 @@ fn tokens_threshold_never_suppressed() {
     // We construct ThresholdSet manually with limit `-0.5` so
     // tokens_sum default of 0.0 still exceeds it, since
     // `ThresholdSet::build` rejects negative limits.
-    assert_eq!(MetricKind::for_threshold_name("tokens"), None);
+    assert_eq!(threshold_metric_for_name("tokens"), None);
 
     let extractor = EXTRACTORS
         .iter()

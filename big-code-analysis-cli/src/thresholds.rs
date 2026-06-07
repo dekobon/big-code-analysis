@@ -23,7 +23,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use big_code_analysis::{CodeMetrics, FuncSpace, MetricKind, SpaceKind, SuppressionPolicy};
+use big_code_analysis::{
+    CodeMetrics, FuncSpace, SpaceKind, SuppressionPolicy, threshold_metric_for_name,
+};
 use serde::Deserialize;
 
 use crate::baseline::Coverage;
@@ -743,7 +745,7 @@ impl ThresholdSet {
                 // suppressed alerts — but they still never count toward the
                 // gate or exit code (see `Violation::suppressed`).
                 let suppressed = honor
-                    && MetricKind::for_threshold_name(extractor.name).is_some_and(|kind| {
+                    && threshold_metric_for_name(extractor.name).is_some_and(|kind| {
                         file_scope.covers(kind) || current.suppressed.covers(kind)
                     });
                 if suppressed && !report_suppressed {

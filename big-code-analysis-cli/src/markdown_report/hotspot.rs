@@ -19,7 +19,7 @@
 
 use std::borrow::Cow;
 
-use big_code_analysis::{MetricKind, SuppressionPolicy};
+use big_code_analysis::{Metric, SuppressionPolicy};
 
 use super::{FunctionSummary, is_class_like, sort_by_metric_asc, sort_by_metric_desc, thousands};
 use crate::format_util::MetricScalar;
@@ -108,7 +108,7 @@ pub(crate) struct HotspotSpec {
     pub(crate) keep: fn(&FunctionSummary) -> bool,
     pub(crate) metric: fn(&FunctionSummary) -> f64,
     pub(crate) dir: SortDir,
-    pub(crate) metric_kind: MetricKind,
+    pub(crate) metric_kind: Metric,
     pub(crate) columns: &'static [Column],
     /// Cyclomatic is the one section with a trailing summary note.
     pub(crate) cc_note: bool,
@@ -165,7 +165,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.halstead_volume > 0.0 && s.sloc > 0,
         metric: |s| s.mi_visual_studio,
         dir: SortDir::Asc,
-        metric_kind: MetricKind::Mi,
+        metric_kind: Metric::Mi,
         columns: &[
             COL_FILE,
             Column {
@@ -185,7 +185,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.cyclomatic > 0.0,
         metric: |s| s.cyclomatic,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Cyclomatic,
+        metric_kind: Metric::Cyclomatic,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -204,7 +204,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.cognitive > 0.0,
         metric: |s| s.cognitive,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Cognitive,
+        metric_kind: Metric::Cognitive,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -223,7 +223,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.halstead_effort > 0.0,
         metric: |s| s.halstead_effort,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Halstead,
+        metric_kind: Metric::Halstead,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -254,7 +254,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.sloc > 0,
         metric: |s| s.sloc as f64,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Loc,
+        metric_kind: Metric::Loc,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -274,7 +274,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.nargs > 3,
         metric: |s| s.nargs as f64,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Nargs,
+        metric_kind: Metric::NArgs,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -297,7 +297,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| is_class_like(s.kind) && s.wmc > 0.0,
         metric: |s| s.wmc,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Wmc,
+        metric_kind: Metric::Wmc,
         columns: &[
             Column {
                 header: "Class",
@@ -331,15 +331,16 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         ],
         cc_note: false,
     },
-    // 7 — Functions with the most exit points (NEXITS). `MetricKind::Exit` is
-    // the suppression spelling of the threshold engine's `nexits`.
+    // 7 — Functions with the most exit points (NEXITS). `Metric::Nexits`
+    // is the canonical spelling shared by suppression and the threshold
+    // engine (post-#555 unification).
     HotspotSpec {
         title: HotspotTitle::Static("Functions with the most exit points (NEXITS)"),
         source: Source::Funcs,
         keep: |s| s.nexits > 0,
         metric: |s| s.nexits as f64,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Exit,
+        metric_kind: Metric::Nexits,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -362,7 +363,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.abc > 0.0,
         metric: |s| s.abc,
         dir: SortDir::Desc,
-        metric_kind: MetricKind::Abc,
+        metric_kind: Metric::Abc,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -574,10 +575,10 @@ mod tests {
     #[test]
     fn specs_count_and_actionable_splice() {
         assert_eq!(SPECS.len(), 9);
-        assert!(matches!(SPECS[5].metric_kind, MetricKind::Nargs)); // Many-Params
+        assert!(matches!(SPECS[5].metric_kind, Metric::NArgs)); // Many-Params
         assert!(matches!(
             SPECS[ACTIONABLE_SUMMARY_INDEX].metric_kind,
-            MetricKind::Wmc
+            Metric::Wmc
         ));
         assert!(
             SPECS[1].cc_note,

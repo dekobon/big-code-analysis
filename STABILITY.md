@@ -84,7 +84,25 @@ section.
     `MetricsOptions::with_only(&[Metric])` and read back through
     `CodeMetrics::selected()`. Its constructors (`empty`, `all`,
     `with`, `union`) and inspectors (`contains`) are stable; the
-    underlying integer representation is not.
+    underlying integer representation is not. `Metric` is the single
+    metric vocabulary for both selection and suppression: it now
+    derives `Ord`/`PartialOrd` (declaration order, so a
+    `BTreeSet<Metric>` iterates deterministically) and implements
+    `Serialize`/`Deserialize` as its canonical `Display` spelling
+    (`nargs`, `nexits`, `tokens`, …). **(breaking, 2.0)** #555 unified
+    the former parallel `suppression::MetricKind` enum onto `Metric`
+    and removed `MetricKind` from the public API. `SuppressionScope`
+    now carries `BTreeSet<Metric>`, so a serialized non-empty
+    suppressed scope spells the exit-point metric `nexits` (the
+    canonical name) rather than the old `exit`; deserialization still
+    reads the legacy `exit` alias. `tokens` has no threshold and is
+    rejected as non-suppressible (`Metric::suppressible()` enumerates
+    the silenceable set). The threshold-name resolver moved to the
+    free function `big_code_analysis::threshold_metric_for_name`
+    (formerly `MetricKind::for_threshold_name`). This also closes
+    the `MetricKind: FromStr<Err = ()>` gap (#554): suppression now
+    parses via `Metric::from_str`, which returns the descriptive
+    `ParseMetricError` naming the offending input.
   - `function`, `find`, `count`, `operands_and_operators`,
     `rm_comments` in their respective modules.
   - `NumJobs` in `src/concurrent_files.rs` (added in 1.x, #560) — the

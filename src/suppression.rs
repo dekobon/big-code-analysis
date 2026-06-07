@@ -30,49 +30,43 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
 use crate::checker::Checker;
 use crate::getter::Getter;
+use crate::metric_set::Metric;
 use crate::node::Node;
 use crate::traits::{Callback, ParserTrait};
 
-/// Stable metric identifier set that suppression markers can name.
+/// Resolve a sub-metric threshold name (e.g. `cyclomatic.modified`,
+/// `halstead.volume`, `loc.lloc`) to its parent [`Metric`].
 ///
-/// Names match the JSON field names emitted on [`crate::CodeMetrics`]
-/// (and on the per-metric `bca` threshold registry). Unknown
-/// identifiers in a `bca: suppress(...)` list produce a hard error so a
-/// typo cannot silently widen suppression scope to other metrics or be
-/// dropped on the floor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MetricKind {
-    /// Cognitive complexity.
-    Cognitive,
-    /// Cyclomatic complexity (both standard and modified variants).
-    Cyclomatic,
-    /// Halstead suite.
-    Halstead,
-    /// Lines-of-code suite (sloc, ploc, lloc, cloc, blank).
-    Loc,
-    /// Maintainability Index suite.
-    Mi,
-    /// Number of arguments.
-    Nargs,
-    /// Number of methods / functions.
-    Nom,
-    /// Number of public attributes.
-    Npa,
-    /// Number of public methods.
-    Npm,
-    /// ABC (assignments, branches, conditions) magnitude.
-    Abc,
-    /// Number of exit points.
-    Exit,
-    /// Weighted methods per class.
-    Wmc,
+/// The threshold engine uses dotted forms to address individual
+/// sub-metrics, but suppression markers only know about the top-level
+/// metric family — silencing `halstead` silences all of
+/// `halstead.volume`, `halstead.effort`, etc. This translation happens
+/// here so the threshold-check loop can ask one question ("does this
+/// scope cover this metric family?") instead of special-casing each
+/// dotted name.
+///
+/// Returns `None` for `tokens`: it has no configurable threshold and is
+/// deliberately absent from the suppressible vocabulary
+/// ([`Metric::suppressible`]), so a marker can never silence it.
+#[must_use]
+pub fn threshold_metric_for_name(name: &str) -> Option<Metric> {
+    // Strip the dotted sub-metric suffix if present. `name` like
+    // `halstead.volume` becomes `halstead`; `nom` stays as-is.
+    let family = name.split_once('.').map_or(name, |(prefix, _)| prefix);
+    // `tokens` is in the threshold registry but is not suppressible, so
+    // it maps to no metric family. Every other name parses via the
+    // canonical `Metric::from_str` — `nexits` is the spelling on both
+    // sides now, so no alias bridge is needed (the pre-unification
+    // `nexits -> exit` mapping retired with `MetricKind` in #555).
+    if family == "tokens" {
+        return None;
+    }
+    family.parse().ok()
 }
 
 /// Whether downstream consumers (threshold checking, audit logging)
@@ -103,90 +97,6 @@ impl SuppressionPolicy {
     }
 }
 
-impl MetricKind {
-    /// Resolve a sub-metric threshold name (e.g. `cyclomatic.modified`,
-    /// `halstead.volume`, `loc.lloc`) to its parent [`MetricKind`].
-    ///
-    /// The threshold engine uses dotted forms to address individual
-    /// sub-metrics, but suppression markers only know about the
-    /// top-level metric family — silencing `halstead` silences all of
-    /// `halstead.volume`, `halstead.effort`, etc. This translation
-    /// happens here so the threshold-check loop can ask one question
-    /// ("does this scope cover this metric family?") instead of
-    /// special-casing each dotted name.
-    #[must_use]
-    pub fn for_threshold_name(name: &str) -> Option<Self> {
-        // Strip the dotted sub-metric suffix if present. `name` like
-        // `halstead.volume` becomes `halstead`; `nom` stays as-is.
-        let family = name.split_once('.').map_or(name, |(prefix, _)| prefix);
-        // `nexits` is the threshold-engine spelling for what the
-        // suppression vocabulary calls `exit` (matching the issue's
-        // explicit list). Alias it here rather than splitting one
-        // metric into two suppression identifiers.
-        let canonical = match family {
-            "nexits" => "exit",
-            "tokens" => return None,
-            other => other,
-        };
-        Self::from_str(canonical).ok()
-    }
-
-    /// Canonical string form. Round-trips through [`FromStr`].
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Cognitive => "cognitive",
-            Self::Cyclomatic => "cyclomatic",
-            Self::Halstead => "halstead",
-            Self::Loc => "loc",
-            Self::Mi => "mi",
-            Self::Nargs => "nargs",
-            Self::Nom => "nom",
-            Self::Npa => "npa",
-            Self::Npm => "npm",
-            Self::Abc => "abc",
-            Self::Exit => "exit",
-            Self::Wmc => "wmc",
-        }
-    }
-
-    /// Every [`MetricKind`] variant, in alphabetical order. Used to
-    /// render the "known metrics:" hint in error messages; the test
-    /// `metric_kind_all_is_alphabetical` locks the order so the hint
-    /// stays predictable across releases.
-    pub const ALL: &'static [Self] = &[
-        Self::Abc,
-        Self::Cognitive,
-        Self::Cyclomatic,
-        Self::Exit,
-        Self::Halstead,
-        Self::Loc,
-        Self::Mi,
-        Self::Nargs,
-        Self::Nom,
-        Self::Npa,
-        Self::Npm,
-        Self::Wmc,
-    ];
-}
-
-impl fmt::Display for MetricKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for MetricKind {
-    type Err = ();
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|m| m.as_str() == s)
-            .ok_or(())
-    }
-}
-
 /// Which metrics a suppression marker covers.
 ///
 /// `All` means the marker omits an explicit metric list and therefore
@@ -201,7 +111,7 @@ pub enum SuppressionScope {
     /// Suppress every metric.
     All,
     /// Suppress only the listed metrics.
-    Some(BTreeSet<MetricKind>),
+    Some(BTreeSet<Metric>),
 }
 
 impl Default for SuppressionScope {
@@ -229,7 +139,7 @@ impl SuppressionScope {
 
     /// True when this scope suppresses `metric`.
     #[must_use]
-    pub fn covers(&self, metric: MetricKind) -> bool {
+    pub fn covers(&self, metric: Metric) -> bool {
         match self {
             Self::All => true,
             Self::Some(s) => s.contains(&metric),
@@ -294,6 +204,11 @@ pub(crate) enum SuppressionError {
     /// `bca: suppress(...)` listed an identifier that is not a known
     /// metric name.
     UnknownMetric(String),
+    /// `bca: suppress(...)` named a real metric that has no configurable
+    /// threshold and therefore cannot be suppressed (currently only
+    /// `tokens`). Distinct from [`Self::UnknownMetric`] so the author
+    /// learns the name parsed but is simply not silenceable.
+    NonSuppressibleMetric(String),
     /// `bca: suppress(...)` body could not be tokenized (e.g. unbalanced
     /// parentheses, stray characters).
     MalformedBody(String),
@@ -310,15 +225,24 @@ impl fmt::Display for SuppressionError {
                 "unknown bca directive verb '{v}'; expected `suppress` or `suppress-file`"
             ),
             Self::UnknownMetric(m) => {
-                let known = MetricKind::ALL
+                // The hint lists the suppressible metrics (every `Metric`
+                // except `tokens`), alphabetised so the order is stable
+                // across releases. `Metric::NAMES` is already alphabetical
+                // and excludes the `exit` alias, so filtering out `tokens`
+                // yields the right list directly.
+                let known = Metric::NAMES
                     .iter()
-                    .map(|k| k.as_str())
+                    .filter(|name| **name != "tokens")
+                    .copied()
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(
                     f,
                     "unknown metric '{m}' in bca suppression marker; known metrics: {known}"
                 )
+            }
+            Self::NonSuppressibleMetric(m) => {
+                write!(f, "metric '{m}' has no threshold and cannot be suppressed")
             }
             Self::MalformedBody(body) => {
                 write!(f, "malformed bca suppression marker body '{body}'")
@@ -520,8 +444,18 @@ fn parse_metric_list(inside: &str) -> Result<SuppressionScope, SuppressionError>
             // comment out parts of a list during editing.
             continue;
         }
-        let metric = MetricKind::from_str(name)
-            .map_err(|()| SuppressionError::UnknownMetric(name.to_owned()))?;
+        // Parse through the canonical `Metric` vocabulary (the same one
+        // selection uses) so suppression and selection never drift. A
+        // typo surfaces the offending token via `ParseMetricError`
+        // (#554). `tokens` parses fine but has no threshold, so reject
+        // it with a distinct, actionable error rather than silently
+        // accepting a no-op suppression.
+        let metric: Metric = name
+            .parse()
+            .map_err(|_| SuppressionError::UnknownMetric(name.to_owned()))?;
+        if metric == Metric::Tokens {
+            return Err(SuppressionError::NonSuppressibleMetric(name.to_owned()));
+        }
         set.insert(metric);
     }
     Ok(SuppressionScope::Some(set))
@@ -704,8 +638,8 @@ mod tests {
         let SuppressionScope::Some(metrics) = s.scope else {
             panic!("expected Some(...)");
         };
-        assert!(metrics.contains(&MetricKind::Cyclomatic));
-        assert!(metrics.contains(&MetricKind::Cognitive));
+        assert!(metrics.contains(&Metric::Cyclomatic));
+        assert!(metrics.contains(&Metric::Cognitive));
         assert_eq!(metrics.len(), 2);
     }
 
@@ -725,8 +659,8 @@ mod tests {
         let SuppressionScope::Some(metrics) = s.scope else {
             panic!("expected Some(...)");
         };
-        assert!(metrics.contains(&MetricKind::Halstead));
-        assert!(metrics.contains(&MetricKind::Loc));
+        assert!(metrics.contains(&Metric::Halstead));
+        assert!(metrics.contains(&Metric::Loc));
     }
 
     #[test]
@@ -734,12 +668,38 @@ mod tests {
         let err = parse_marker("// bca: suppress(no_such_metric)").unwrap_err();
         assert!(matches!(err, SuppressionError::UnknownMetric(_)));
         // The error must mention what was unknown so authors can
-        // diagnose typos without reading our source.
+        // diagnose typos without reading our source. This is the #554
+        // acceptance: the offending token is surfaced (it now flows out
+        // of `Metric::from_str`'s `ParseMetricError`, not a `()` error).
         let rendered = err.to_string();
         assert!(rendered.contains("no_such_metric"));
         // And it must list the known metrics so a fix is one
         // copy-paste away.
         assert!(rendered.contains("cyclomatic"));
+        // The non-suppressible `tokens` must NOT appear in the hint —
+        // suggesting it would be misleading.
+        assert!(
+            !rendered.contains("tokens"),
+            "hint must omit the non-suppressible `tokens`; got: {rendered}",
+        );
+    }
+
+    #[test]
+    fn native_tokens_is_not_suppressible() {
+        // `tokens` parses as a real `Metric` but has no threshold, so a
+        // marker naming it is rejected with a distinct, actionable error
+        // rather than silently accepted as a no-op suppression.
+        let err = parse_marker("// bca: suppress(tokens)").unwrap_err();
+        assert!(
+            matches!(&err, SuppressionError::NonSuppressibleMetric(m) if m == "tokens"),
+            "expected NonSuppressibleMetric(\"tokens\"); got: {err:?}",
+        );
+        let rendered = err.to_string();
+        assert!(rendered.contains("tokens"));
+        assert!(
+            rendered.contains("no threshold"),
+            "message must explain why tokens cannot be suppressed; got: {rendered}",
+        );
     }
 
     #[test]
@@ -810,7 +770,7 @@ mod tests {
     fn empty_metric_list_is_noop_not_error() {
         let s = parse_marker("// bca: suppress()").unwrap().unwrap();
         assert!(s.scope.is_empty());
-        assert!(!s.scope.covers(MetricKind::Cyclomatic));
+        assert!(!s.scope.covers(Metric::Cyclomatic));
     }
 
     #[test]
@@ -888,100 +848,93 @@ mod tests {
     }
 
     #[test]
-    fn metric_kind_round_trips() {
-        for &m in MetricKind::ALL {
-            assert_eq!(MetricKind::from_str(m.as_str()), Ok(m));
-        }
-    }
-
-    #[test]
-    fn metric_kind_all_is_alphabetical() {
-        assert!(
-            MetricKind::ALL.is_sorted_by_key(|m| m.as_str()),
-            "MetricKind::ALL must stay sorted so the error-hint ordering is stable; got {:?}",
-            MetricKind::ALL
-                .iter()
-                .map(|m| m.as_str())
-                .collect::<Vec<_>>(),
-        );
-    }
-
-    #[test]
     fn scope_merge_all_absorbs() {
-        let mut a = SuppressionScope::Some(BTreeSet::from([MetricKind::Loc]));
+        let mut a = SuppressionScope::Some(BTreeSet::from([Metric::Loc]));
         a.merge(&SuppressionScope::All);
         assert!(a.is_all());
 
         let mut b = SuppressionScope::All;
-        b.merge(&SuppressionScope::Some(BTreeSet::from([MetricKind::Loc])));
+        b.merge(&SuppressionScope::Some(BTreeSet::from([Metric::Loc])));
         assert!(b.is_all());
     }
 
     #[test]
     fn scope_merge_some_unions() {
-        let mut a = SuppressionScope::Some(BTreeSet::from([MetricKind::Loc]));
-        a.merge(&SuppressionScope::Some(BTreeSet::from([
-            MetricKind::Cognitive,
-        ])));
-        assert!(a.covers(MetricKind::Loc));
-        assert!(a.covers(MetricKind::Cognitive));
-        assert!(!a.covers(MetricKind::Cyclomatic));
+        let mut a = SuppressionScope::Some(BTreeSet::from([Metric::Loc]));
+        a.merge(&SuppressionScope::Some(BTreeSet::from([Metric::Cognitive])));
+        assert!(a.covers(Metric::Loc));
+        assert!(a.covers(Metric::Cognitive));
+        assert!(!a.covers(Metric::Cyclomatic));
     }
 
     #[test]
     fn scope_covers_respects_all_vs_some() {
-        assert!(SuppressionScope::All.covers(MetricKind::Cyclomatic));
-        let some = SuppressionScope::Some(BTreeSet::from([MetricKind::Loc]));
-        assert!(some.covers(MetricKind::Loc));
-        assert!(!some.covers(MetricKind::Cyclomatic));
+        assert!(SuppressionScope::All.covers(Metric::Cyclomatic));
+        let some = SuppressionScope::Some(BTreeSet::from([Metric::Loc]));
+        assert!(some.covers(Metric::Loc));
+        assert!(!some.covers(Metric::Cyclomatic));
+    }
+
+    #[test]
+    fn scope_serialization_uses_canonical_names_and_stable_order() {
+        // The serialized `Some` scope must (a) spell metrics with their
+        // canonical names — `nexits`, not `n_exits` or the legacy `exit`
+        // — and (b) iterate in deterministic `Ord` (declaration) order so
+        // snapshots are stable. Insert in scrambled order to prove the
+        // ordering comes from `BTreeSet<Metric>`, not insertion order.
+        let scope = SuppressionScope::Some(BTreeSet::from([
+            Metric::Wmc,
+            Metric::Nexits,
+            Metric::NArgs,
+            Metric::Cognitive,
+        ]));
+        let json = serde_json::to_string(&scope).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"some","metrics":["cognitive","nargs","nexits","wmc"]}"#,
+        );
+        // Round-trips back to the same scope.
+        let back: SuppressionScope = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, scope);
     }
 
     #[test]
     fn for_threshold_name_maps_dotted_subnames_to_families() {
         // Cyclomatic.modified and cyclomatic both fall under
-        // MetricKind::Cyclomatic — silencing `cyclomatic` covers the
+        // Metric::Cyclomatic — silencing `cyclomatic` covers the
         // modified variant too. Same for halstead.* and loc.*.
         assert_eq!(
-            MetricKind::for_threshold_name("cyclomatic"),
-            Some(MetricKind::Cyclomatic)
+            threshold_metric_for_name("cyclomatic"),
+            Some(Metric::Cyclomatic)
         );
         assert_eq!(
-            MetricKind::for_threshold_name("cyclomatic.modified"),
-            Some(MetricKind::Cyclomatic)
+            threshold_metric_for_name("cyclomatic.modified"),
+            Some(Metric::Cyclomatic)
         );
         assert_eq!(
-            MetricKind::for_threshold_name("halstead.volume"),
-            Some(MetricKind::Halstead)
+            threshold_metric_for_name("halstead.volume"),
+            Some(Metric::Halstead)
         );
-        assert_eq!(
-            MetricKind::for_threshold_name("loc.lloc"),
-            Some(MetricKind::Loc)
-        );
+        assert_eq!(threshold_metric_for_name("loc.lloc"), Some(Metric::Loc));
     }
 
     #[test]
-    fn for_threshold_name_aliases_nexits_to_exit() {
-        // The threshold engine surfaces this metric as `nexits`; the
-        // suppression vocabulary uses `exit`. The translation must
-        // happen here so `bca: suppress(exit)` silences a `nexits`
-        // threshold violation as authors expect.
-        assert_eq!(
-            MetricKind::for_threshold_name("nexits"),
-            Some(MetricKind::Exit)
-        );
+    fn for_threshold_name_resolves_nexits_canonically() {
+        // Post-#555 the suppression vocabulary uses the same canonical
+        // `nexits` spelling as the threshold engine — no `exit` alias
+        // bridge. `bca: suppress(nexits)` silences a `nexits` threshold
+        // violation directly.
+        assert_eq!(threshold_metric_for_name("nexits"), Some(Metric::Nexits));
     }
 
     #[test]
     fn for_threshold_name_returns_none_for_unknown() {
-        // `tokens` is in the threshold registry but explicitly absent
-        // from the suppression metric set (the issue's list does not
-        // include it). Treat as "no metric family" so a marker can't
-        // silence the threshold; this is conservative — the issue
-        // says unknown identifiers must error, but here we're going
-        // the other direction (threshold-name → MetricKind) so the
-        // safe choice is "no mapping, no silencing".
-        assert_eq!(MetricKind::for_threshold_name("tokens"), None);
-        assert_eq!(MetricKind::for_threshold_name("no_such_metric"), None);
+        // `tokens` is in the threshold registry but is non-suppressible
+        // (no configurable threshold). Treat as "no metric family" so a
+        // marker can't silence the threshold; this mirrors the parse-side
+        // rejection of `bca: suppress(tokens)`.
+        assert_eq!(threshold_metric_for_name("tokens"), None);
+        assert_eq!(threshold_metric_for_name("no_such_metric"), None);
     }
 
     #[test]
@@ -1040,8 +993,8 @@ mod tests {
         let SuppressionScope::Some(metrics) = &markers[0].scope else {
             panic!("expected an explicit metric set");
         };
-        assert!(metrics.contains(&MetricKind::Cyclomatic));
-        assert!(metrics.contains(&MetricKind::Cognitive));
+        assert!(metrics.contains(&Metric::Cyclomatic));
+        assert!(metrics.contains(&Metric::Cognitive));
         assert_eq!(metrics.len(), 2);
     }
 

@@ -210,8 +210,8 @@ pub use crate::metric_set::{Metric, MetricSet, ParseMetricError};
 // --- Suppression markers ---
 mod suppression;
 pub use crate::suppression::{
-    MetricKind, SuppressionDialect, SuppressionMarker, SuppressionPolicy, SuppressionScan,
-    SuppressionScope, SuppressionTarget, suppression_markers,
+    SuppressionDialect, SuppressionMarker, SuppressionPolicy, SuppressionScan, SuppressionScope,
+    SuppressionTarget, suppression_markers, threshold_metric_for_name,
 };
 
 /// Canonical metric catalog: offender sub-metric ids with their

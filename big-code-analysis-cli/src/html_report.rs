@@ -846,7 +846,7 @@ mod validators_for_tests;
 mod tests {
     use super::validators_for_tests::assert_html_well_formed;
     use super::*;
-    use big_code_analysis::{LANG, MetricKind};
+    use big_code_analysis::{LANG, Metric};
 
     fn make_summary(name: &str, file: &str, kind: SpaceKind, language: LANG) -> FunctionSummary {
         FunctionSummary {
@@ -1328,7 +1328,7 @@ mod tests {
         let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         func.cyclomatic = 25.0;
         func.cognitive = 18.0;
-        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let honored = generate_html_report(
             &[unit_clone(&unit), func_clone(&func)],
@@ -1370,7 +1370,7 @@ mod tests {
         visible.cyclomatic = 5.0;
         let mut hot = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         hot.cyclomatic = 25.0;
-        hot.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+        hot.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let honored = generate_html_report(&[unit, visible, hot], 20, SuppressionPolicy::Honor);
         let cc = html_section(&honored, "Cyclomatic Complexity Hotspots");

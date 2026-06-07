@@ -9,7 +9,7 @@
 #![allow(clippy::needless_raw_string_hashes)]
 
 use big_code_analysis::{
-    FuncSpace, LANG, MetricKind, MetricsOptions, Source, SuppressionScope, analyze,
+    FuncSpace, LANG, Metric, MetricsOptions, Source, SuppressionScope, analyze,
 };
 
 fn analyze_lang(source: &str, path: &str) -> FuncSpace {
@@ -56,7 +56,7 @@ def noisy(x):
     let space = analyze_lang(src, "fixture.py");
     let noisy = find_function(&space, "noisy").expect("noisy function should be present");
     assert!(
-        noisy.suppressed.covers(MetricKind::Cyclomatic),
+        noisy.suppressed.covers(Metric::Cyclomatic),
         "marker did not attach to noisy",
     );
     let quiet = find_function(&space, "quiet").expect("quiet function should be present");
@@ -86,19 +86,19 @@ int noisy(int x) {
 "#;
     let space = analyze_lang(src, "fixture.cpp");
     let noisy = find_function(&space, "noisy").expect("noisy function should be present");
-    assert!(noisy.suppressed.covers(MetricKind::Cognitive));
-    assert!(noisy.suppressed.covers(MetricKind::Cyclomatic));
-    assert!(!noisy.suppressed.covers(MetricKind::Halstead));
+    assert!(noisy.suppressed.covers(Metric::Cognitive));
+    assert!(noisy.suppressed.covers(Metric::Cyclomatic));
+    assert!(!noisy.suppressed.covers(Metric::Halstead));
     // Symmetry with the Python sibling test: a function-scoped marker
     // must not bubble up to the file's Unit space. Without this
     // assertion a regression that attached every marker to the
     // top-level space would still pass the noisy-side checks.
     assert!(
-        !space.suppressed.covers(MetricKind::Cognitive),
+        !space.suppressed.covers(Metric::Cognitive),
         "function-scoped marker should not bubble to file scope",
     );
     assert!(
-        !space.suppressed.covers(MetricKind::Cyclomatic),
+        !space.suppressed.covers(Metric::Cyclomatic),
         "function-scoped marker should not bubble to file scope",
     );
 }
@@ -128,9 +128,9 @@ def fine():
     return 1
 "#;
     let space = analyze_lang(src, "fixture.py");
-    assert!(space.suppressed.covers(MetricKind::Loc));
-    assert!(space.suppressed.covers(MetricKind::Halstead));
-    assert!(!space.suppressed.covers(MetricKind::Cyclomatic));
+    assert!(space.suppressed.covers(Metric::Loc));
+    assert!(space.suppressed.covers(Metric::Halstead));
+    assert!(!space.suppressed.covers(Metric::Cyclomatic));
     // The function should not have inherited the file-scope marker:
     // file scope is resolved at threshold-check time, not by physical
     // propagation through the space tree.
@@ -187,7 +187,7 @@ fn outer() -> i32 {
     let space = analyze_lang(src, "fixture.rs");
     let outer = find_function(&space, "outer").expect("outer should be present");
     let inner = find_function(&space, "inner").expect("inner should be present");
-    assert!(inner.suppressed.covers(MetricKind::Cyclomatic));
+    assert!(inner.suppressed.covers(Metric::Cyclomatic));
     assert!(
         outer.suppressed.is_empty(),
         "outer should not inherit inner's marker",
@@ -197,7 +197,7 @@ fn outer() -> i32 {
     // refactor switched `SuppressionScope` to a default that returned
     // `false` from `is_empty()` despite covering Cyclomatic.
     assert!(
-        !outer.suppressed.covers(MetricKind::Cyclomatic),
+        !outer.suppressed.covers(Metric::Cyclomatic),
         "outer should not cover Cyclomatic",
     );
 }
@@ -334,8 +334,8 @@ fn busy() -> i32 {
 "#;
     let space = analyze_lang(src, "fixture.rs");
     let busy = find_function(&space, "busy").expect("busy should be present");
-    assert!(busy.suppressed.covers(MetricKind::Cyclomatic));
-    assert!(busy.suppressed.covers(MetricKind::Cognitive));
+    assert!(busy.suppressed.covers(Metric::Cyclomatic));
+    assert!(busy.suppressed.covers(Metric::Cognitive));
 }
 
 #[test]
@@ -354,7 +354,7 @@ fn suppression_attaches_to_correct_sibling_on_same_line() {
     let a = find_function(&space, "a").expect("function a should be present");
     let b = find_function(&space, "b").expect("function b should be present");
     assert!(
-        b.suppressed.covers(MetricKind::Cyclomatic),
+        b.suppressed.covers(Metric::Cyclomatic),
         "marker did not attach to b (b.suppressed = {:?})",
         b.suppressed,
     );
@@ -362,7 +362,7 @@ fn suppression_attaches_to_correct_sibling_on_same_line() {
     // alone would still pass if a future refactor made `is_empty`
     // return true for a scope that covers Cyclomatic.
     assert!(
-        !a.suppressed.covers(MetricKind::Cyclomatic),
+        !a.suppressed.covers(Metric::Cyclomatic),
         "marker leaked to sibling a (a.suppressed = {:?})",
         a.suppressed,
     );
@@ -386,7 +386,7 @@ fn suppression_after_function_open_brace_attaches_to_function() {
     let space = analyze_lang(src, "fixture.cpp");
     let noisy = find_function(&space, "noisy").expect("noisy should be present");
     assert!(
-        noisy.suppressed.covers(MetricKind::Cognitive),
+        noisy.suppressed.covers(Metric::Cognitive),
         "marker on opening-brace line failed to attach (suppressed = {:?})",
         noisy.suppressed,
     );
@@ -410,7 +410,7 @@ fn suppression_at_start_of_function_body() {
     let space = analyze_lang(src, "fixture.cpp");
     let noisy = find_function(&space, "noisy").expect("noisy should be present");
     assert!(
-        noisy.suppressed.covers(MetricKind::Cyclomatic),
+        noisy.suppressed.covers(Metric::Cyclomatic),
         "marker at start of body failed to attach (suppressed = {:?})",
         noisy.suppressed,
     );
@@ -463,7 +463,7 @@ fn default_scope_does_not_cover_any_metric() {
     // threshold engine's invariant "evaluate with no markers ≡
     // evaluate ignoring markers" holds.
     let s = SuppressionScope::default();
-    for &m in MetricKind::ALL {
+    for m in Metric::suppressible() {
         assert!(!s.covers(m), "default scope unexpectedly covers {m}");
     }
 }
@@ -532,7 +532,7 @@ fn deeply_nested_function_suppression_does_not_overflow_stack() {
     let innermost =
         innermost.unwrap_or_else(|| panic!("innermost function {target_name} should be present"));
     assert!(
-        innermost.suppressed.covers(MetricKind::Cyclomatic),
+        innermost.suppressed.covers(Metric::Cyclomatic),
         "marker on innermost body must attach to innermost function",
     );
     // Belt-and-braces: a function-scoped marker must not bubble to

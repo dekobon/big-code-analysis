@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use big_code_analysis::{
-    MetricKind, SuppressionDialect, SuppressionMarker, SuppressionScope, SuppressionTarget,
+    Metric, SuppressionDialect, SuppressionMarker, SuppressionScope, SuppressionTarget,
 };
 use serde_json::Value;
 
@@ -29,7 +29,7 @@ fn marker(
     }
 }
 
-fn metric_scope(metrics: &[MetricKind]) -> SuppressionScope {
+fn metric_scope(metrics: &[Metric]) -> SuppressionScope {
     SuppressionScope::Some(metrics.iter().copied().collect::<BTreeSet<_>>())
 }
 
@@ -62,7 +62,7 @@ fn sample_report() -> ExemptionsReport {
                     45,
                     SuppressionTarget::Function,
                     SuppressionDialect::Lizard,
-                    metric_scope(&[MetricKind::Cyclomatic, MetricKind::Cognitive]),
+                    metric_scope(&[Metric::Cyclomatic, Metric::Cognitive]),
                     Some("helper_fn"),
                 ),
             },

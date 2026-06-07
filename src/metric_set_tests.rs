@@ -202,6 +202,108 @@ fn nexits_canonical_spelling_is_consistent() {
 }
 
 #[test]
+fn serde_uses_canonical_display_spelling() {
+    // The hand-written serde impls must emit the canonical `Display`
+    // spelling, NOT serde's `rename_all = "snake_case"` form (which
+    // would yield `n_args` / `n_exits`). `nargs` and `nexits` are the
+    // exact pair that distinguishes the two.
+    assert_eq!(serde_json::to_string(&Metric::NArgs).unwrap(), "\"nargs\"",);
+    assert_eq!(
+        serde_json::to_string(&Metric::Nexits).unwrap(),
+        "\"nexits\"",
+    );
+    // Deserialize back to the same variant.
+    assert_eq!(
+        serde_json::from_str::<Metric>("\"nargs\"").unwrap(),
+        Metric::NArgs,
+    );
+    assert_eq!(
+        serde_json::from_str::<Metric>("\"nexits\"").unwrap(),
+        Metric::Nexits,
+    );
+}
+
+#[test]
+fn serde_round_trips_every_variant() {
+    for &m in ALL_VARIANTS {
+        let json = serde_json::to_string(&m).unwrap();
+        let back: Metric = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m, "serde round-trip mismatch for {m}");
+    }
+}
+
+#[test]
+fn serde_round_trips_every_variant_through_non_borrowing_format() {
+    // Regression for the `<&str>::deserialize` bug (#555 review): a
+    // borrowing deserialize rejects reader-based / non-self-describing
+    // formats, which is exactly how `Metric` reaches the wire as the
+    // element type of `SuppressionScope::Some`'s `BTreeSet` in CBOR /
+    // YAML / TOML output. CBOR (`ciborium`) is reader-based and cannot
+    // hand back a borrowed `&str`, so it fails fast if the impl ever
+    // regresses to `<&str>::deserialize`.
+    for &m in ALL_VARIANTS {
+        let mut buf = Vec::new();
+        ciborium::into_writer(&m, &mut buf).unwrap();
+        let back: Metric = ciborium::from_reader(buf.as_slice()).unwrap();
+        assert_eq!(back, m, "CBOR round-trip mismatch for {m}");
+    }
+}
+
+#[test]
+fn deserialize_accepts_legacy_exit_alias() {
+    // Reading a pre-#536 serialized scope that spelled the metric
+    // `exit` must still resolve to `Metric::Nexits` for back-compat.
+    assert_eq!(
+        serde_json::from_str::<Metric>("\"exit\"").unwrap(),
+        Metric::Nexits,
+    );
+}
+
+#[test]
+fn deserialize_rejects_unknown_naming_the_input() {
+    // The serde error must carry the rejected token (via
+    // `ParseMetricError`) so a malformed scope is diagnosable.
+    let err = serde_json::from_str::<Metric>("\"no_such_metric\"").unwrap_err();
+    assert!(
+        err.to_string().contains("no_such_metric"),
+        "serde error must name the offending input; got: {err}",
+    );
+}
+
+#[test]
+fn btree_set_iteration_is_declaration_order() {
+    use std::collections::BTreeSet;
+    // `Ord` follows declaration order; a `BTreeSet<Metric>` therefore
+    // iterates deterministically. Insert in scrambled order and confirm
+    // the iteration order matches the enum declaration order, not the
+    // insertion order or alphabetical order.
+    let set: BTreeSet<Metric> =
+        BTreeSet::from([Metric::Wmc, Metric::Cognitive, Metric::Nexits, Metric::Abc]);
+    let ordered: Vec<Metric> = set.into_iter().collect();
+    assert_eq!(
+        ordered,
+        vec![Metric::Cognitive, Metric::Nexits, Metric::Abc, Metric::Wmc],
+    );
+}
+
+#[test]
+fn suppressible_excludes_tokens_only() {
+    let suppressible: Vec<Metric> = Metric::suppressible().collect();
+    assert!(
+        !suppressible.contains(&Metric::Tokens),
+        "tokens has no threshold and must not be suppressible",
+    );
+    // Every other variant is suppressible.
+    for &m in ALL_VARIANTS {
+        if m == Metric::Tokens {
+            continue;
+        }
+        assert!(suppressible.contains(&m), "{m} must be suppressible");
+    }
+    assert_eq!(suppressible.len(), ALL_VARIANTS.len() - 1);
+}
+
+#[test]
 fn from_str_rejects_uppercase() {
     let err = "Loc".parse::<Metric>().unwrap_err();
     assert_eq!(err.to_string(), "unknown metric: Loc");

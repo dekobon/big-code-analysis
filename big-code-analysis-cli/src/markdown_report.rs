@@ -30,9 +30,7 @@ pub(crate) use hotspot::Align;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use big_code_analysis::{
-    FuncSpace, LANG, MetricKind, SpaceKind, SuppressionPolicy, SuppressionScope,
-};
+use big_code_analysis::{FuncSpace, LANG, Metric, SpaceKind, SuppressionPolicy, SuppressionScope};
 
 use crate::format_util::strip_path_prefix;
 
@@ -46,7 +44,7 @@ pub(crate) struct FunctionSummary {
     /// Effective suppression scope for this space: the enclosing file's
     /// `suppress-file` scope merged with the space's own `bca: suppress`
     /// markers. A hotspot table omits this entry when the table's
-    /// [`MetricKind`] is covered here and the report honors markers
+    /// [`Metric`] is covered here and the report honors markers
     /// (the default; `--no-suppress` opts back in). Mirrors the gate's
     /// `ThresholdSet::evaluate_with_policy` logic so the published report
     /// agrees with `bca check` and the SARIF emitter (issue #501).
@@ -95,7 +93,7 @@ impl FunctionSummary {
     /// [`SuppressionPolicy::Ignore`] (`--no-suppress`) nothing is hidden,
     /// giving the raw audit view. Mirrors the gate's per-metric check in
     /// `ThresholdSet::evaluate_with_policy` (issue #501).
-    pub(crate) fn is_hidden_for(&self, kind: MetricKind, policy: SuppressionPolicy) -> bool {
+    pub(crate) fn is_hidden_for(&self, kind: Metric, policy: SuppressionPolicy) -> bool {
         matches!(policy, SuppressionPolicy::Honor) && self.suppressed.covers(kind)
     }
 }
@@ -359,7 +357,7 @@ fn push_separator(out: &mut String, align: Align, width: usize) {
 /// can reach it via `crate::markdown_report::rich_fixture()`.
 #[cfg(test)]
 pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
-    use big_code_analysis::{LANG, MetricKind, SpaceKind, SuppressionScope};
+    use big_code_analysis::{LANG, Metric, SpaceKind, SuppressionScope};
     use std::collections::BTreeSet;
 
     let base = |name: &str, file: &str, kind: SpaceKind, language: LANG, start_line: usize| {
@@ -488,7 +486,7 @@ pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
             50.0,
         ),
     );
-    secret.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+    secret.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
     v.push(secret);
 
     // Rust class-like (WMC table; drawn from the full all-kinds slice).
@@ -1743,7 +1741,7 @@ mod tests {
         let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         func.cyclomatic = 25.0;
         func.cognitive = 18.0;
-        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
 
@@ -1766,7 +1764,7 @@ mod tests {
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
         let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         func.cyclomatic = 25.0;
-        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Ignore);
         let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
@@ -1809,9 +1807,10 @@ mod tests {
         );
     }
 
-    /// The `exit` MetricKind aliases the `nexits` hotspot table: a
-    /// `bca: suppress(exit)` marker must drop the function from the
-    /// NEXITS table (matching `MetricKind::for_threshold_name`'s alias).
+    /// `Metric::Nexits` keys the NEXITS hotspot table: a
+    /// `bca: suppress(nexits)` marker must drop the function from that
+    /// table (post-#555 the suppression and threshold vocabularies share
+    /// the canonical `nexits` spelling — no `exit` alias).
     #[test]
     fn exit_suppression_drops_function_from_nexits_table() {
         const NEXITS_HEADER: &str = "### Functions with the most exit points (NEXITS)";
@@ -1822,7 +1821,7 @@ mod tests {
         func.cognitive = 0.0;
         func.abc = 0.0;
         func.halstead_effort = 0.0;
-        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Exit]));
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Nexits]));
 
         let summaries = vec![unit, func];
 
@@ -1848,9 +1847,9 @@ mod tests {
     #[test]
     fn extract_summaries_folds_file_scope_into_functions() {
         let mut root = make_space("root.rs", SpaceKind::Unit, 1, 20);
-        root.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Halstead]));
+        root.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Halstead]));
         let mut func = make_space("f", SpaceKind::Function, 2, 8);
-        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
         root.spaces.push(func);
 
         let mut out = Vec::new();
@@ -1861,16 +1860,10 @@ mod tests {
         // its own scope (cyclomatic).
         let f = &out[1];
         assert_eq!(f.name, "f");
+        assert!(f.suppressed.covers(Metric::Halstead), "file scope merged");
+        assert!(f.suppressed.covers(Metric::Cyclomatic), "own scope kept");
         assert!(
-            f.suppressed.covers(MetricKind::Halstead),
-            "file scope merged"
-        );
-        assert!(
-            f.suppressed.covers(MetricKind::Cyclomatic),
-            "own scope kept"
-        );
-        assert!(
-            !f.suppressed.covers(MetricKind::Cognitive),
+            !f.suppressed.covers(Metric::Cognitive),
             "unrelated metric untouched"
         );
     }

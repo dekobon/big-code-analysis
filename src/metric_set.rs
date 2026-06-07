@@ -23,8 +23,15 @@ use std::str::FromStr;
 /// `match` against the existing variants and either a wildcard arm or
 /// the `m if !MetricSet::all().contains(m)` guard to stay
 /// forwards-compatible.
+///
+/// `Ord` follows declaration order, not the [`Display`](fmt::Display)
+/// spelling. It exists so [`Metric`] can key a `BTreeSet` — notably the
+/// suppression scope (`SuppressionScope::Some`) — with a deterministic,
+/// stable iteration order across runs. Do not rely on the ordering being
+/// alphabetical; reorder the variants only with a deliberate review of
+/// every serialized `BTreeSet<Metric>` snapshot.
 #[non_exhaustive]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Metric {
     /// Cognitive complexity ([`crate::cognitive::Stats`]).
     Cognitive,
@@ -137,6 +144,37 @@ impl Metric {
         "tokens",
         "wmc",
     ];
+
+    /// Every metric except [`Metric::Tokens`], in declaration order.
+    ///
+    /// `tokens` is the one metric with no configurable threshold, so it
+    /// is the one metric that cannot be named in a suppression marker
+    /// (`bca: suppress(tokens)` is rejected). This is the single source
+    /// of truth for the suppressible vocabulary: the suppression
+    /// parser's "known metrics" hint and the threshold-name resolver
+    /// both derive from it rather than hardcoding the list.
+    pub fn suppressible() -> impl Iterator<Item = Metric> {
+        Self::ALL.iter().copied().filter(|m| *m != Self::Tokens)
+    }
+
+    /// Every [`Metric`] variant, in declaration order. Drives
+    /// [`Metric::suppressible`] and any consumer that needs to iterate
+    /// the full set without re-deriving it from `NAMES`.
+    const ALL: &'static [Self] = &[
+        Self::Cognitive,
+        Self::Cyclomatic,
+        Self::Halstead,
+        Self::Loc,
+        Self::Nom,
+        Self::Tokens,
+        Self::NArgs,
+        Self::Nexits,
+        Self::Abc,
+        Self::Npm,
+        Self::Npa,
+        Self::Mi,
+        Self::Wmc,
+    ];
 }
 
 impl fmt::Display for Metric {
@@ -225,6 +263,36 @@ impl FromStr for Metric {
             "wmc" => Ok(Self::Wmc),
             _ => Err(ParseMetricError(s.to_owned())),
         }
+    }
+}
+
+// Serialize/Deserialize are hand-written rather than derived so the wire
+// form is the canonical [`Display`] spelling (`nargs`, `nexits`,
+// `tokens`, …) — the same vocabulary used in JSON output keys, error
+// messages, and `Metric::NAMES`. A `#[derive(Serialize)]` with
+// `rename_all = "snake_case"` would emit `n_args` / `n_exits` instead,
+// diverging from every other surface. Routing through `Display`/`FromStr`
+// keeps the spelling single-sourced. `Metric` reaches the wire as the
+// element type of `SuppressionScope::Some`'s `BTreeSet`.
+impl serde::Serialize for Metric {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Metric {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // `Cow<str>` borrows from self-describing, zero-copy formats
+        // (JSON without escapes) and owns from reader-based or
+        // non-borrowing ones (CBOR, YAML, TOML, JSON with escapes).
+        // `<&str>` would reject every non-borrowing format, which is
+        // exactly how `BTreeSet<Metric>` reaches the wire inside a
+        // `SuppressionScope::Some` CBOR/YAML/TOML payload.
+        let s = std::borrow::Cow::<str>::deserialize(deserializer)?;
+        // `from_str` accepts the legacy `"exit"` alias as well as the
+        // canonical `"nexits"`, so reading a pre-rename serialized scope
+        // still resolves to `Metric::Nexits`.
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 

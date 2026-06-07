@@ -318,7 +318,7 @@ fn scope_metrics(scope: &SuppressionScope) -> String {
         SuppressionScope::Some(set) if set.is_empty() => "none".to_owned(),
         SuppressionScope::Some(set) => set
             .iter()
-            .map(|m| m.as_str())
+            .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(", "),
     }
