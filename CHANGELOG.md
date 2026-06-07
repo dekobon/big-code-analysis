@@ -33,6 +33,34 @@ for historical reference.
   endpoints (with unprefixed `/version` and `/languages` aliases),
   mirroring the Python `__version__` / `supported_languages()` /
   `language_extensions()` surface (#541).
+- `bca-web --num-jobs` now accepts `<N|auto>` and defaults to a
+  cgroup-quota- / cpuset-aware `auto`, matching the `bca` CLI. The
+  clap-agnostic `NumJobs` worker-count selector (`FromStr` + `resolve()`)
+  is now public library API, re-exported from `big_code_analysis`; its
+  `FromStr::Err` is the named `ParseNumJobsError` (`Zero` /
+  `NotAPositiveInteger`, each exposing the rejected `input()`,
+  `Display + Error`), matching the `ParseMetricError` / `ParseLangError`
+  convention (#560).
+- Derived `PartialEq` on the compute-side per-metric `Stats` types (abc,
+  cognitive, cyclomatic, exit, halstead, loc, mi, nargs, nom, npa, npm,
+  tokens, wmc) and on `CodeMetrics` / `FuncSpace` / `Metrics`, so callers
+  can compare analyses without round-tripping through `to_wire()` (`Eq`
+  omitted due to float fields); derived `Hash` on `SpaceKind` and
+  `metric_catalog::Direction`; derived `Hash` + `PartialOrd` / `Ord` on
+  `Severity` (ordered scale: `Error > Warning`, following declaration
+  order) (#552).
+- `ConcurrentErrors` now implements `Display` + `std::error::Error`, so it
+  composes with `?` into `Box<dyn Error>` / `anyhow` and participates in a
+  `source()` chain (#553).
+- Documented the workspace-wide `bca` exit-code convention (0 success,
+  1 tool error, 2 `check` gate, 3-5 `check --strict-exit-codes`) in
+  top-level `bca --help` and the book, pinned by exit-code tests (#561).
+- `STABILITY.md` now locks the output-format contracts: `CSV_HEADER`
+  column order, the SARIF 2.1.0 schema version + canonical URI, the
+  code-climate field set and fingerprint algorithm, the AST JSON shape
+  (one-way `Serialize`-only), and the round-trip vs one-way format split;
+  `wire::CyclomaticModified` is named in the serialized-shape enumeration
+  (#559).
 - Library: `big_code_analysis::VERSION` constant exposing the crate
   version (#541).
 - Python: `Lang` and `MetricName` `StrEnum`s (generated from the live
@@ -52,7 +80,7 @@ for historical reference.
   `null`↔`NaN` (the deserialize side of #531); integer-valued fields are `u64`
   (#530); `wire::CodeMetrics` elides unselected metrics and exposes
   `selected()` to rebuild the `MetricSet` from present keys. `SpaceKind`,
-  `SuppressionScope`, and `MetricKind` now also derive `Deserialize`, and the
+  `SuppressionScope`, and `Metric` now also derive `Deserialize`, and the
   crate enables serde_json's `float_roundtrip` feature so float values
   round-trip bit-exactly through JSON. Additive — no serialized output or
   existing accessor changes
@@ -521,6 +549,33 @@ for historical reference.
 
 ### Changed
 
+- **(breaking, deferred to 2.0)** Unified the two parallel metric enums:
+  suppression now reuses the `Metric` enum and `MetricKind` is removed from
+  the public API. `Metric` gains canonical-spelling serde (`nargs` /
+  `nexits`, not `n_args`) and declaration-order `Ord`; the suppressed-scope
+  serialization uses canonical names (`nexits`, not `exit`) and the
+  `nexits→exit` alias bridge is gone; `tokens` is non-suppressible
+  (rejected with a clear error). Suppression parsing now surfaces the
+  offending token via `ParseMetricError` instead of `Err = ()`, closing
+  #554 (#555, #554).
+- **(breaking, deferred to 2.0)** `Node`'s inner `tree_sitter::Node` is no
+  longer a `pub` tuple field; reach it via the new
+  `Node::as_tree_sitter(&self) -> tree_sitter::Node<'a>` accessor
+  (value-not-stable, mirroring `Ast::as_tree_sitter`) (#556).
+- **(breaking, deferred to 2.0)** Marked the remaining open public enums
+  `#[non_exhaustive]` (`Severity`, `SpaceKind`, `SuppressionDialect`);
+  documented the deliberately-closed suppression enums (`SuppressionPolicy`,
+  `SuppressionScope`, `SuppressionTarget`) (#551).
+- **(breaking, deferred to 2.0)** `ConcurrentErrors` is now
+  `#[non_exhaustive]` and its `Sender` / `Thread` variants carry a boxed
+  `std::error::Error + Send + Sync` source instead of a `String` (so
+  `source()` chains); `Producer` / `Receiver` remain message-only (their
+  cause is a thread-panic payload, not an `Error`) (#553).
+- **(breaking, deferred to 2.0)** The `/comment` endpoint now returns `200`
+  with a uniform empty payload across both content types for the "no
+  comments" outcome — JSON returns `{code: []}` and octet-stream returns
+  `200` with an empty body, replacing the former octet-stream `204 No
+  Content` (#558).
 - CBOR output (`bca metrics --format cbor`) now serializes via
   `ciborium` instead of the unmaintained `serde_cbor`
   (RUSTSEC-2021-0127). Output remains valid CBOR; no public API or
@@ -1325,6 +1380,16 @@ for historical reference.
 
 ### Fixed
 
+- ABC: the Fitzpatrick unary-condition walker is now wired for Kotlin,
+  Ruby, and Elixir, so bare `&&` / `||` chain operands count toward
+  `abc.conditions` / `magnitude` (Elixir ABC now agrees with cyclomatic).
+  Re-baselines ABC conditions for these languages; existing per-language
+  outputs containing logical-operator chains report higher condition
+  counts (#557).
+- The two Halstead labels in the human `dump` output (`estimated program
+  length`, `purity ratio`) now use the underscore keys
+  (`estimated_program_length`, `purity_ratio`) that match the JSON/CSV key
+  scheme used by every other field (#562).
 - Windows CI: the Python bindings' `enums_module_matches_checked_in`
   drift gate no longer fails on Windows runners. The generated
   `_enums.py` is byte-compared against `render_enums_module()` output
