@@ -56,10 +56,11 @@ pub struct WebFunctionCfg {
 /// infallible [`WebFunctionResponse`] `Serialize` impl.
 pub fn function_spans(
     language: LANG,
-    code: &[u8],
+    code: Vec<u8>,
     cfg: WebFunctionCfg,
 ) -> Result<Value, MetricsError> {
-    let ast = Ast::parse(Source::new(language, code))?;
+    // By value so the request buffer moves into the parser (no copy).
+    let ast = Ast::parse(Source::from_bytes(language, code))?;
     let spans = ast.functions();
     Ok(serde_json::to_value(WebFunctionResponse {
         id: cfg.id,

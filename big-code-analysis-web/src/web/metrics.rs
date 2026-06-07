@@ -107,11 +107,14 @@ impl WebMetricsCfg {
 /// is disabled — impossible in the feature-pinned server build.
 pub fn compute_metrics(
     language: LANG,
-    code: &[u8],
+    code: Vec<u8>,
     cfg: WebMetricsCfg,
 ) -> Result<Option<WebMetricsResponse>, MetricsError> {
-    let ast =
-        Ast::parse(Source::new(language, code).with_name(cfg.path.to_str().map(str::to_owned)))?;
+    // Take `code` by value so the request buffer moves into the parser
+    // without a copy (matches the CLI's `Source::from_bytes` hot path).
+    let ast = Ast::parse(
+        Source::from_bytes(language, code).with_name(cfg.path.to_str().map(str::to_owned)),
+    )?;
     Ok(ast
         .metrics(MetricsOptions::default().with_exclude_tests(cfg.exclude_tests))
         .ok()

@@ -54,10 +54,11 @@ pub struct WebCommentCfg {
 /// is disabled — impossible in the feature-pinned server build.
 pub fn strip_comments(
     language: LANG,
-    code: &[u8],
+    code: Vec<u8>,
     cfg: WebCommentCfg,
 ) -> Result<WebCommentResponse, MetricsError> {
-    let ast = Ast::parse(Source::new(language, code))?;
+    // By value so the request buffer moves into the parser (no copy).
+    let ast = Ast::parse(Source::from_bytes(language, code))?;
     Ok(WebCommentResponse {
         id: cfg.id,
         language: cfg.language,
