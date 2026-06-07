@@ -539,6 +539,13 @@ contract points are:
   used by the CLI JSON output and the Python bindings — the comment
   endpoint reports the *guessed* language, not its internal
   `ccomment` grammar swap.
+- **Empty `/comment` result.** When the source has no removable
+  comments, both content-type variants signal it as `200` with an
+  empty payload — the JSON variant returns `{… "code": []}` (empty
+  byte array) and the octet-stream variant returns an empty body. The
+  former `204 No Content` on the octet-stream variant was removed as a
+  `2.0`-line break (#558) so the empty outcome shares one status code
+  and one envelope shape across `Accept` types.
 - **Uniform errors.** Every error path returns the JSON body
   `{error, id}` with an appropriate status; no endpoint emits a bare
   `text/plain` error. The `id` is always present.

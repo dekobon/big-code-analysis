@@ -23,8 +23,11 @@ pub struct WebCommentResponse {
     pub language: String,
     /// Source code without comments.
     ///
-    /// If `None`, no comments were found in the source code.
-    pub code: Option<Vec<u8>>,
+    /// When no comments were found, this is the empty byte sequence so
+    /// the "no comments" outcome shares the success envelope of a
+    /// non-empty result (`200` with an empty payload) across both the
+    /// JSON and octet-stream variants — see issue #558.
+    pub code: Vec<u8>,
 }
 
 /// Source code information.
@@ -55,7 +58,10 @@ impl Callback for WebCommentCallback {
         WebCommentResponse {
             id: cfg.id,
             language: cfg.language,
-            code: rm_comments(parser),
+            // `rm_comments` yields `None` when there is nothing to
+            // strip; collapse that to an empty payload so the response
+            // shape is uniform regardless of comment presence (#558).
+            code: rm_comments(parser).unwrap_or_default(),
         }
     }
 }

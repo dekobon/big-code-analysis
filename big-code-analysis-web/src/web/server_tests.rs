@@ -316,11 +316,12 @@ async fn test_web_comment_json_no_comment() {
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
 
-    // No comment in the code so the code is null
+    // No comment in the code, so `code` is the empty byte array — the
+    // success envelope stays uniform with a non-empty result (#558).
     let expected = json!({
         "id": "1234",
         "language": "cpp",
-        "code": (),
+        "code": [],
     });
 
     assert_eq!(res, expected);
@@ -398,14 +399,71 @@ async fn test_web_comment_plain_no_comment() {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    // No comments to strip now returns `200` with an empty body, mirroring
+    // the JSON variant's `200 {code: []}` rather than `204` (#558).
+    assert_eq!(resp.status(), StatusCode::OK);
 
     let res = test::read_body(resp).await;
-
-    // No comment in the code so the code is empty
     let expected = Bytes::from_static(b"");
 
     assert_eq!(res, expected);
+}
+
+/// Empty-result parity (#558): an input with no removable comments must
+/// return the *same* status code across both content-type variants, with
+/// a uniform empty payload (JSON `{code: []}`, octet-stream empty body).
+#[actix_rt::test]
+async fn test_web_comment_empty_result_parity() {
+    let json_app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/comment")
+                .guard(guard::Header("content-type", "application/json"))
+                .route(web::post().to(comment_removal_json)),
+        ),
+    )
+    .await;
+    let json_req = test::TestRequest::post()
+        .uri("/comment")
+        .set_json(WebCommentPayload {
+            id: "1234".to_string(),
+            file_name: "foo.c".to_string(),
+            code: "int x = 1;".to_string(),
+        })
+        .to_request();
+    let json_resp = test::call_service(&json_app, json_req).await;
+    let json_status = json_resp.status();
+    let json_body: Value =
+        serde_json::from_slice(&test::read_body(json_resp).await).expect("JSON body");
+
+    let plain_app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/comment")
+                .guard(guard::Header("content-type", "application/octet-stream"))
+                .route(web::post().to(comment_removal_plain)),
+        ),
+    )
+    .await;
+    let plain_req = test::TestRequest::post()
+        .uri("/comment?file_name=foo.c")
+        .insert_header(ContentType::octet_stream())
+        .set_payload("int x = 1;")
+        .to_request();
+    let plain_resp = test::call_service(&plain_app, plain_req).await;
+    let plain_status = plain_resp.status();
+    let plain_body = test::read_body(plain_resp).await;
+
+    // Both variants agree on the status code for the empty result.
+    assert_eq!(json_status, StatusCode::OK);
+    assert_eq!(plain_status, StatusCode::OK);
+    assert_eq!(json_status, plain_status);
+
+    // Both variants agree on what "empty" looks like: the JSON `code`
+    // key is the empty byte array; the octet-stream body is empty bytes.
+    assert_eq!(
+        json_body,
+        json!({ "id": "1234", "language": "cpp", "code": [] })
+    );
+    assert_eq!(plain_body, Bytes::from_static(b""));
 }
 
 // Inspired from https://hg.mozilla.org/mozilla-central/file/9b2a99adc05e53cd4010de512f50118594756650/extensions/java/xpcom/tests/testparams/TestParams.java#l64.

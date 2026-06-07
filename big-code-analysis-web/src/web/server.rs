@@ -340,15 +340,13 @@ async fn comment_removal_plain(
                 .expect(FEATURES_PINNED)
         })
         .await?;
-        if let Some(res_code) = res.code {
-            Ok(HttpResponse::Ok()
-                .append_header((http::header::CONTENT_TYPE, "application/octet-stream"))
-                .body(res_code))
-        } else {
-            Ok(HttpResponse::NoContent()
-                .append_header((http::header::CONTENT_TYPE, "application/octet-stream"))
-                .body(()))
-        }
+        // The "no comments to strip" outcome is the empty byte
+        // sequence; both content types report it as `200` with an empty
+        // payload rather than the JSON variant `200` diverging from a
+        // `204 No Content` here (#558).
+        Ok(HttpResponse::Ok()
+            .append_header((http::header::CONTENT_TYPE, "application/octet-stream"))
+            .body(res.code))
     } else {
         // Even on the octet-stream endpoint, errors use the uniform JSON
         // body so clients parse one error shape everywhere (#541).

@@ -133,6 +133,16 @@ implode'` (ASCII/UTF-8) or the equivalent in your client. The
 raw response body (no envelope), which is simpler for shell pipelines;
 its *errors* still use the uniform JSON error body above.
 
+When the source contains no removable comments, both variants signal
+the empty result with a `200` status and an empty payload: the JSON
+variant returns `"code": []` (an empty byte array) and the
+octet-stream variant returns an empty body. The status code and
+envelope shape are therefore identical regardless of the requested
+`Content-Type` (the octet-stream variant no longer returns `204 No
+Content` — see [#558]).
+
+[#558]: https://github.com/dekobon/big-code-analysis/issues/558
+
 ### 3. Retrieve Function Spans
 
 This endpoint retrieves the spans of functions in the provided source code.
