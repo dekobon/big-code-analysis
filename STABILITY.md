@@ -69,15 +69,13 @@ section.
     `with_*` setters. Only that builder API is the contract — the field
     set, names, and types (e.g. `code: &[u8]`, `name: String`) are
     free to change and are **not** SemVer-protected (#533).
-  - `metrics`, `metrics_with_options` in `src/spaces.rs` —
-    deprecated in favour of `analyze`. The deprecation shim is kept
-    for the lifetime of the `1.x` line and will be removed at
-    `2.0`; the deprecation attribute itself is part of the contract.
-  - `MetricsOptions`, `MetricsCfg` — both carry `#[non_exhaustive]`
-    and, like `Source`, have private (`pub(crate)`) fields as of
-    `2.0`. Construct via `MetricsOptions::default()` /
-    `MetricsCfg::new` plus `with_*` setters; the contract is the
-    builder methods, not the field representation (#533).
+  - `MetricsOptions` carries `#[non_exhaustive]` and, like `Source`,
+    has private (`pub(crate)`) fields as of `2.0`. Construct via
+    `MetricsOptions::default()` plus `with_*` setters; the contract is
+    the builder methods, not the field representation (#533). The
+    parser-generic `metrics` / `metrics_with_options` functions and the
+    `MetricsCfg` builder were removed at `2.0` in favour of `analyze` /
+    `Ast`.
   - `Metric`, `MetricSet` in `src/metric_set.rs` — `Metric` carries
     `#[non_exhaustive]`, so adding variants is additive. `MetricSet`
     is the opaque bitfield consumed by
@@ -103,8 +101,14 @@ section.
     the `MetricKind: FromStr<Err = ()>` gap (#554): suppression now
     parses via `Metric::from_str`, which returns the descriptive
     `ParseMetricError` naming the offending input.
-  - `function`, `find`, `count`, `operands_and_operators`,
-    `rm_comments` in their respective modules.
+  - The per-file function-listing, finding, counting, and
+    comment-stripping operations are reached through the [`Ast`]
+    seam (`Ast::functions`, `Ast::find`, `Ast::count`,
+    `Ast::strip_comments`). As of `2.0` the underlying free
+    functions (`function`, `find`, `count`, `rm_comments`) are
+    `pub(crate)`, not part of the public surface, and the
+    parser-generic `operands_and_operators` function was removed in
+    favour of `Ast::ops`.
   - `NumJobs` in `src/concurrent_files.rs` (added in 1.x, #560) — the
     shared `<N|auto>` worker-count selector for `ConcurrentRunner`,
     used by both the `bca` CLI and the `bca-web` server. A
@@ -184,7 +188,9 @@ section.
 - **Prelude** — `big_code_analysis::prelude` re-exports the
   recommended entry points (`analyze`, `Ast`, `Source`,
   `MetricsOptions`, `MetricsError`, `LANG`, `FuncSpace`,
-  `CodeMetrics`, `SpaceKind`, `Metric`, `metrics_from_tree`). New
+  `CodeMetrics`, `SpaceKind`, `Metric`). The `metrics_from_tree`
+  entry was removed at `2.0` along with the free function it named;
+  tree adoption now goes through `Ast::from_tree_sitter`. New
   items may be added; nothing in the set is removed before `2.0`.
 - **Per-language Cargo features** — the feature set
   (`all-languages`, plus per-language features `rust`,
@@ -203,18 +209,16 @@ The following are explicitly **not** part of the shape contract:
   `mk_langs!` macro emits them, but they are intended to be reached
   through `LANG` rather than referenced by name.
 - `Parser` and the per-language `Checker` / `Getter` / `Alterator`
-  trait impls — these are internal extension points. `ParserTrait`
-  itself is `#[doc(hidden)]`; the per-metric compute traits
+  trait impls — these are internal plumbing. As of `2.0` they are
+  `pub(crate)`, not a public extension surface: `ParserTrait`,
+  `Parser<T>`, `Filter`, `Cursor`, and the per-metric compute traits
   (`Cognitive`, `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`,
-  `NArgs`, `Exit`, `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`) are
-  similarly doc-hidden. `Parser<T>` and `Filter` are doc-hidden for
-  the same reason. `Callback` and `LanguageInfo` are doc-hidden too
-  (#534): `Callback::call` is bound on the hidden `ParserTrait`, and
-  `LanguageInfo` is reachable from documented API only through the
-  hidden `Parser` — both share `ParserTrait`'s holding-pattern
-  visibility. None of these appear in the curated rustdoc and
-  none are part of the stability contract — treat them as internal
-  plumbing.
+  `NArgs`, `Exit`, `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`) were all
+  demoted from their former `#[doc(hidden)]`-but-`pub` state to
+  `pub(crate)`. `LanguageInfo` was likewise demoted to `pub(crate)`,
+  and the `Callback` trait / `AstCallback` dispatch were removed at
+  `2.0`. None of these are reachable from the public API or appear in
+  the curated rustdoc — treat them as internal plumbing.
 
 [changelog]: ./CHANGELOG.md
 
@@ -358,7 +362,7 @@ reach the raw tree-sitter surface.
   Consumers who construct trees themselves should depend on the
   re-export rather than adding a sibling `tree-sitter` dependency
   — that guarantees the `tree_sitter::Tree` they pass into
-  `Parser::from_tree` / `metrics_from_tree` agrees with the
+  `Ast::from_tree_sitter` agrees with the
   version the metric walker was compiled against. The re-export
   follows our pin: bumping `tree-sitter` to a new version is a
   minor bump on our side and will move every type in this module.
@@ -371,28 +375,31 @@ reach the raw tree-sitter surface.
   per-language Cargo feature is off. The language identity follows
   the grammar pin (`tree-sitter-rust = "=0.24.2"`, …) and will
   change whenever those pins move, typically under a minor bump.
-- **`Parser::from_tree`** / **`metrics_from_tree`** are the two
-  public entry points of the parse seam. Both accept a caller-
-  built `tree_sitter::Tree` directly; the internal `Tree` wrapper
-  used by the metric walker stays crate-private, so the only
-  type a consumer ever sees on this seam is `tree_sitter::Tree`
-  itself. Both follow the `tree-sitter` pin in the same value-
-  not-stable sense as the re-export above.
-- **`Ast`** is the parse-once seam. `Ast::parse` mirrors `analyze`,
-  `Ast::from_tree_sitter` mirrors `metrics_from_tree`, `Ast::ops`
-  mirrors `get_ops`, and `Ast::as_tree_sitter` exposes the held
-  `tree_sitter::Tree` — that single method follows the
-  `tree-sitter` pin in the same value-not-stable sense as the
-  `tree_sitter` re-export. The rest of `Ast`'s API surface
-  (`parse`, `from_tree_sitter`, `metrics`, `ops`, `language`,
-  `source`, `name`) is shape-stable. The language-dispatched
-  `AstInner` enum and the matching `ast_*_dispatch` helpers stay
-  `pub(crate)`; only `Ast` is exposed. The path-positional
-  `metrics` / `metrics_with_options` / `get_function_spaces*` /
-  `metrics_from_tree` / `get_ops` / `operands_and_operators`
-  entry points are all `#[deprecated]` in favour of these
-  explicit-name `Source` / `Ast` seams (they derive identity from
-  a lossy path) and are slated for removal at `2.0`.
+- **`Ast::from_tree_sitter`** is the public entry point of the parse
+  seam. It accepts a caller-built `tree_sitter::Tree` directly; the
+  internal `Tree` wrapper used by the metric walker stays
+  crate-private, so the only type a consumer ever sees on this seam
+  is `tree_sitter::Tree` itself. It follows the `tree-sitter` pin in
+  the same value-not-stable sense as the re-export above. The former
+  `Parser::from_tree` / `metrics_from_tree` entry points were removed
+  at `2.0` (`Parser::from_tree` demoted to `pub(crate)` along with
+  `Parser`; the parser-generic `metrics_from_tree` deleted) in favour
+  of this single explicit-name seam.
+- **`Ast`** is the parse-once seam — and, as of `2.0`, the single
+  public analysis entry point. `Ast::as_tree_sitter` exposes the held
+  `tree_sitter::Tree` — that single method follows the `tree-sitter`
+  pin in the same value-not-stable sense as the `tree_sitter`
+  re-export. The rest of `Ast`'s API surface (`parse`,
+  `from_tree_sitter`, `metrics`, `ops`, `strip_comments`, `functions`,
+  `dump`, `count`, `find`, `suppressions`, `language`, `source`,
+  `name`) is shape-stable. The language-dispatched `AstInner` enum and
+  the matching `ast_*_dispatch` helpers stay `pub(crate)`; only `Ast`
+  is exposed. At `2.0` the path-positional `get_function_spaces*` /
+  `metrics_from_tree` / `get_ops` shims, the parser-generic `metrics` /
+  `metrics_with_options` / `operands_and_operators` functions, and the
+  `action` / `Callback` dispatch were all removed in favour of these
+  explicit-name `Source` / `Ast` seams (the old path-positional forms
+  derived identity from a lossy path).
 - **`#[doc(hidden)]` items** are part of the macro / internal
   plumbing surface. They are not covered by any stability promise
   and may be removed or renamed in a patch bump.
@@ -562,7 +569,7 @@ violation.
 #### AST / dump JSON
 
 `dump_*` and the `AstNode` / `Span` types (re-exported with
-`AstPayload` / `AstResponse` / `AstCfg` / `AstCallback`) serialize a
+`AstPayload` / `AstResponse` / `AstCfg`) serialize a
 **one-way projection** of the parse tree — `Serialize` only, by
 design. There is intentionally **no** `Deserialize`: the AST output is
 a debugging / inspection view like CSV and SARIF, not a wire format you
@@ -900,10 +907,13 @@ loose ends that will be tightened at `2.0`:
   source; `ConcurrentRunner::run` already required it.
 - The language-dispatch surface is normalized (#507): every getter
   drops its Java-style `get_` prefix (`LANG::name`,
-  `tree_sitter_language`, `extensions`; the `LanguageInfo` /
-  `ParserTrait` / `Parser` accessors) and the `action` /
-  `get_function_spaces*` / `metrics_from_tree` / `get_ops` dispatchers
-  take `lang: LANG` by value instead of `&LANG`.
+  `tree_sitter_language`, `extensions`). The `LanguageInfo` /
+  `ParserTrait` / `Parser` accessors that were also renamed here were
+  subsequently demoted to `pub(crate)` at `2.0`, and the former
+  `action` / `get_function_spaces*` / `metrics_from_tree` / `get_ops`
+  dispatchers were removed at `2.0` in favour of the `Ast` seam
+  (`analyze` / `Ast::metrics`, `Ast::from_tree_sitter`, `Ast::ops`);
+  they no longer take `lang: LANG` because they no longer exist.
 - The default JavaScript grammar switches to upstream
   `tree-sitter-javascript` (#507): `LANG::Javascript` becomes the
   default for `.js` / `.mjs` / `.cjs` / `.jsx`, the Mozilla fork
