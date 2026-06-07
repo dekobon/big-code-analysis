@@ -107,8 +107,8 @@ impl fmt::Display for Stats {
              unique_operands: {}, \
              total_operands: {}, \
              length: {}, \
-             estimated program length: {}, \
-             purity ratio: {}, \
+             estimated_program_length: {}, \
+             purity_ratio: {}, \
              size: {}, \
              volume: {}, \
              difficulty: {}, \
@@ -3666,5 +3666,33 @@ f() {
             "bare $x must be exactly one operand (inner id leaf not double-counted); operands were {:?}",
             ops.operands
         );
+    }
+
+    /// Regression for #563: the two Halstead `Display` labels must use the
+    /// underscore key that matches the JSON/CSV field name, so a user can grep
+    /// the same token across `Display` and JSON. The space-separated forms
+    /// (`estimated program length` / `purity ratio`) were the only outliers,
+    /// mirroring the `dump` fix in #562.
+    #[test]
+    fn display_halstead_labels_use_underscore_keys() {
+        check_metrics::<CppParser>("int a = 42;", "foo.cpp", |metric| {
+            let out = metric.halstead.to_string();
+            assert!(
+                out.contains("estimated_program_length: "),
+                "Display must use the underscore key `estimated_program_length`:\n{out}"
+            );
+            assert!(
+                out.contains("purity_ratio: "),
+                "Display must use the underscore key `purity_ratio`:\n{out}"
+            );
+            assert!(
+                !out.contains("estimated program length"),
+                "Display must not emit the space-separated `estimated program length`:\n{out}"
+            );
+            assert!(
+                !out.contains("purity ratio"),
+                "Display must not emit the space-separated `purity ratio`:\n{out}"
+            );
+        });
     }
 }

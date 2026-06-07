@@ -1390,6 +1390,11 @@ for historical reference.
   length`, `purity ratio`) now use the underscore keys
   (`estimated_program_length`, `purity_ratio`) that match the JSON/CSV key
   scheme used by every other field (#562).
+- `<halstead::Stats as Display>` now emits the same two labels with
+  underscore keys (`estimated_program_length`, `purity_ratio`) instead of
+  the space-separated forms, matching the JSON/CSV scheme and the post-#562
+  `dump` output — the second human-readable surface #562 left out of scope
+  (#563).
 - Windows CI: the Python bindings' `enums_module_matches_checked_in`
   drift gate no longer fails on Windows runners. The generated
   `_enums.py` is byte-compared against `render_enums_module()` output
