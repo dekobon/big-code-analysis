@@ -142,6 +142,18 @@ pub struct CodeMetrics {
     pub npm: npm::Stats,
     /// `Npa` data
     pub npa: npa::Stats,
+    /// Change-history (VCS) data for this file.
+    ///
+    /// Unlike every other field, this is *not* AST-derived and *not*
+    /// computed during the analysis walk: it is a per-file signal set
+    /// injected by the caller after [`analyze`] from a
+    /// [`crate::vcs::HistoryIndex`]. Only the top-level (file-level)
+    /// [`FuncSpace`]'s metrics ever carry it; nested function spaces
+    /// leave it `None`. `None` also distinguishes an untracked file
+    /// from a tracked one with zero in-window activity. Gated behind
+    /// the `vcs-git` backend feature.
+    #[cfg(feature = "vcs-git")]
+    pub vcs: Option<crate::vcs::Stats>,
     /// Which metrics were actually computed for this space.
     ///
     /// Default is [`MetricSet::all`] — every metric was run, matching

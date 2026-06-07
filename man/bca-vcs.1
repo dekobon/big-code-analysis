@@ -1,0 +1,87 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-VCS 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
+.SH NAME
+bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
+.SH SYNOPSIS
+\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
+.SH OPTIONS
+.TP
+\fB\-O\fR, \fB\-\-format\fR \fI<OUTPUT_FORMAT>\fR
+Output format. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+cbor
+.IP \(bu 2
+csv
+.IP \(bu 2
+json
+.IP \(bu 2
+toml
+.IP \(bu 2
+yaml
+.RE
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output directory. Filenames mirror input paths plus the format extension. Stdout if omitted (CBOR requires this flag)
+.TP
+\fB\-\-pretty\fR
+Pretty\-print JSON / TOML output
+.TP
+\fB\-\-long\-window\fR \fI<LONG_WINDOW>\fR [default: 12mo]
+Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`)
+.TP
+\fB\-\-recent\-window\fR \fI<RECENT_WINDOW>\fR [default: 90d]
+Recent observation window
+.TP
+\fB\-\-top\fR \fI<TOP>\fR [default: 50]
+Show only the top N files by risk score (`0` = all)
+.TP
+\fB\-\-ref\fR \fI<REFERENCE>\fR [default: HEAD]
+Revision to analyze
+.TP
+\fB\-\-full\-history\fR
+Walk the full commit DAG rather than first\-parent only
+.TP
+\fB\-\-include\-merges\fR
+Include merge commits (skipped by default)
+.TP
+\fB\-\-no\-follow\-renames\fR
+Do not follow file renames across history
+.TP
+\fB\-\-no\-exclude\-bots\fR
+Do not exclude bot author identities
+.TP
+\fB\-\-bot\-pattern\fR \fI<BOT_PATTERN>\fR
+Override the bot\-author exclusion regex
+.TP
+\fB\-\-as\-of\fR \fI<AS_OF>\fR
+Reference "now" for reproducible runs (RFC 3339, `@unix`, or any git date spelling). Defaults to wall\-clock time
+.TP
+\fB\-\-risk\-formula\fR \fI<RISK_FORMULA>\fR [default: weighted]
+Composite risk\-score formula
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+weighted: Log\-scaled weighted sum with categorical bumps (default)
+.IP \(bu 2
+percentile: Per\-signal percentile rank within the analyzed set, averaged
+.RE
+.TP
+\fB\-\-emit\-author\-details\fR
+Emit SHA\-256\-hashed canonical author identities
+.TP
+\fB\-\-include\-deleted\fR
+Emit stats for files deleted at the target ref
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)

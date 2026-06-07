@@ -4,7 +4,7 @@
 .SH NAME
 bca\-metrics \- Compute per\-file metrics and emit them in a structured format
 .SH SYNOPSIS
-\fBbca\-metrics\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-metrics\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-vcs\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Compute per\-file metrics and emit them in a structured format
 .SH OPTIONS
@@ -33,6 +33,9 @@ Output directory. Filenames mirror input paths plus the format extension. Stdout
 .TP
 \fB\-\-pretty\fR
 Pretty\-print JSON / TOML output
+.TP
+\fB\-\-vcs\fR
+Also compute change\-history (VCS) metrics and attach a `vcs` block — plus a `hotspot_score` (cyclomatic × recent churn) — to each file\*(Aqs metrics. Uses default windows (12mo / 90d, weighted formula); for window / formula tuning use `bca vcs`. Outside a git working tree this opt\-in is skipped with a warning (the AST metrics still emit, without the `vcs` block)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

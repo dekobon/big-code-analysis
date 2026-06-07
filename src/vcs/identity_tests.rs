@@ -1,0 +1,69 @@
+use super::*;
+use crate::vcs::options::DEFAULT_BOT_PATTERN;
+
+#[test]
+fn same_email_different_name_is_one_identity() {
+    let a = AuthorId::new(b"Ada Lovelace", b"ada@example.com");
+    let b = AuthorId::new(b"A. Lovelace", b"ada@example.com");
+    assert_eq!(a, b);
+}
+
+#[test]
+fn email_is_case_insensitive() {
+    let a = AuthorId::new(b"Ada", b"Ada@Example.COM");
+    let b = AuthorId::new(b"Ada", b"ada@example.com");
+    assert_eq!(a, b);
+}
+
+#[test]
+fn distinct_emails_are_distinct_identities() {
+    let a = AuthorId::new(b"Ada", b"ada@example.com");
+    let b = AuthorId::new(b"Grace", b"grace@example.com");
+    assert_ne!(a, b);
+}
+
+#[test]
+fn empty_email_falls_back_to_name() {
+    let a = AuthorId::new(b"Ada Lovelace", b"");
+    let b = AuthorId::new(b"ada lovelace", b"");
+    assert_eq!(a, b);
+    // ...and is distinct from an email-keyed identity.
+    assert_ne!(a, AuthorId::new(b"Ada", b"ada@example.com"));
+}
+
+#[test]
+fn hashed_is_stable_and_irreversible_looking() {
+    let id = AuthorId::new(b"Ada", b"ada@example.com");
+    let h1 = id.hashed();
+    let h2 = AuthorId::new(b"different name", b"ada@example.com").hashed();
+    // Hash keys off the canonical email, so the same email hashes equal
+    // regardless of display name.
+    assert_eq!(h1, h2);
+    // SHA-256 hex is 64 chars.
+    assert_eq!(h1.len(), 64);
+    // The digest depends on the canonical email: a different email
+    // hashes differently (so the hash is not a constant, and pins that
+    // the email — not the name — is the pre-image).
+    assert_ne!(h1, AuthorId::new(b"Ada", b"grace@example.com").hashed());
+}
+
+#[test]
+fn default_bot_pattern_matches_known_bots() {
+    let filter = BotFilter::new(DEFAULT_BOT_PATTERN).expect("default pattern compiles");
+    assert!(filter.is_bot(
+        b"dependabot[bot]",
+        b"49699333+dependabot[bot]@users.noreply.github.com"
+    ));
+    assert!(filter.is_bot(b"renovate[bot]", b"renovate@whitesourcesoftware.com"));
+    assert!(filter.is_bot(b"github-actions[bot]", b""));
+    // A human is not a bot.
+    assert!(!filter.is_bot(b"Ada Lovelace", b"ada@example.com"));
+}
+
+#[test]
+fn invalid_bot_pattern_is_rejected() {
+    assert!(matches!(
+        BotFilter::new("(unclosed"),
+        Err(Error::InvalidBotPattern(_))
+    ));
+}

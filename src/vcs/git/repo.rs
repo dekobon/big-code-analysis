@@ -1,0 +1,123 @@
+// bca: suppress-file(halstead, nargs, exit)
+// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
+// gix open/diff plumbing with many `?` error maps), not per-function
+// logic complexity (cognitive/cyclomatic stay enforced).
+
+//! Repository discovery and target-tree file enumeration.
+
+use std::collections::HashMap;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
+
+use super::diff_err;
+use crate::vcs::error::Error;
+
+/// A discovered repository plus the facts the walk needs up front.
+pub(crate) struct OpenRepo {
+    /// The opened repository handle.
+    pub repo: gix::Repository,
+    /// Working-tree root, canonicalised; `None` for bare repos.
+    pub workdir: Option<PathBuf>,
+    /// Whether the repository is a shallow clone (history truncated).
+    pub shallow: bool,
+}
+
+/// Discover and open the repository containing `root`.
+///
+/// # Errors
+///
+/// Returns [`Error::NotARepository`] when no repository encloses
+/// `root`, or [`Error::OpenRepository`] for any other open failure
+/// (corrupt repo, permission denied, …).
+pub(crate) fn open(root: &Path) -> Result<OpenRepo, Error> {
+    let repo = gix::discover(root).map_err(|e| map_discover_error(root, &e))?;
+    let shallow = repo.is_shallow();
+    // Canonicalise the work dir so absolute-path lookups (used by
+    // `bca metrics --metrics vcs`) strip a matching prefix even when
+    // the caller passed a symlinked or relative root.
+    let workdir = repo
+        .workdir()
+        .map(|w| w.canonicalize().unwrap_or_else(|_| w.to_path_buf()));
+    Ok(OpenRepo {
+        repo,
+        workdir,
+        shallow,
+    })
+}
+
+/// Map a discovery failure to a typed error, distinguishing "no
+/// repository here" (a clean user-facing condition) from genuine open
+/// failures.
+fn map_discover_error(root: &Path, error: &gix::discover::Error) -> Error {
+    use gix::discover::upwards::Error as Upwards;
+    if let gix::discover::Error::Discover(
+        Upwards::NoGitRepository { .. }
+        | Upwards::NoGitRepositoryWithinCeiling { .. }
+        | Upwards::NoGitRepositoryWithinFs { .. }
+        | Upwards::NoTrustedGitRepository { .. },
+    ) = error
+    {
+        return Error::NotARepository(root.to_path_buf());
+    }
+    Error::OpenRepository(error.to_string())
+}
+
+/// Enumerate every tracked text file at `target_tree`, mapping its
+/// repository-relative path to its line count (SLOC).
+///
+/// Binary blobs (line counts unavailable) and symlinks are skipped, as
+/// the issue specifies. Implemented as a diff of the empty tree against
+/// the target tree: every file then appears as an `Addition` whose
+/// "added" line count is the file's total line count.
+///
+/// # Errors
+///
+/// Returns [`Error::Diff`] if the diff machinery fails, or if a path is
+/// not valid UTF-8 on a platform that requires it.
+pub(crate) fn enumerate_target_files(
+    repo: &gix::Repository,
+    target_tree: &gix::Tree<'_>,
+) -> Result<HashMap<PathBuf, u64>, Error> {
+    let empty = repo.empty_tree();
+    let mut cache = repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?;
+    let mut files = HashMap::new();
+
+    empty
+        .changes()
+        .map_err(diff_err)?
+        .options(|opts| {
+            opts.track_path();
+            // No rewrite tracking needed: every entry is a fresh
+            // addition relative to the empty tree.
+            opts.track_rewrites(None);
+        })
+        .for_each_to_obtain_tree(target_tree, |change| -> Result<ControlFlow<()>, Error> {
+            let entry_mode = change.entry_mode();
+            if entry_mode.is_blob() && !entry_mode.is_link() {
+                let path = bstr_to_path(change.location())?;
+                if let Some(stats) = change
+                    .diff(&mut cache)
+                    .map_err(diff_err)?
+                    .line_counts()
+                    .map_err(diff_err)?
+                {
+                    // `after` is the destination line count — i.e. the
+                    // file's SLOC, since the source (empty tree) is 0.
+                    files.insert(path, stats.after as u64);
+                }
+            }
+            Ok(ControlFlow::Continue(()))
+        })
+        .map_err(diff_err)?;
+
+    Ok(files)
+}
+
+/// Convert a git path (raw bytes) to a `PathBuf`, erroring rather than
+/// lossily mangling a non-UTF-8 path that is used as a map key
+/// (per the path rules in AGENTS.md).
+pub(crate) fn bstr_to_path(location: &bstr::BStr) -> Result<PathBuf, Error> {
+    gix::path::try_from_bstr(location)
+        .map(std::borrow::Cow::into_owned)
+        .map_err(|_| Error::Diff(format!("path {location:?} is not valid UTF-8")))
+}

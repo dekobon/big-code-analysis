@@ -37,8 +37,14 @@ crate-type = ["cdylib", "rlib"]
 default = ["pyo3/auto-initialize"]
 
 [dependencies]
-big-code-analysis = { path = "..", default-features = true }
+# `vcs` adds the change-history backend for `vcs_metrics()` and the
+# `analyze(..., vcs=True)` opt-in (issue #328), on top of the default
+# `all-languages`.
+big-code-analysis = { path = "..", default-features = true, features = ["vcs"] }
 pyo3 = { workspace = true }
+# `serde` (derive) builds the `vcs_metrics()` report struct that is
+# serialized to JSON and handed to the conversion layer (issue #328).
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

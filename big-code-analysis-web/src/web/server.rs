@@ -1,5 +1,5 @@
-// bca: suppress-file(halstead, nargs, exit, abc, nom)
-// Actix server setup + handlers; the file-aggregate halstead/nargs/exit/nom and
+// bca: suppress-file(halstead, nargs, exit, abc, nom, loc)
+// Actix server setup + handlers; the file-aggregate halstead/nargs/exit/nom/loc and
 // the route-registration closure's abc (one `.service()`/`.route()` per endpoint)
 // are declarative many-fn aggregation artifacts, not per-function logic
 // complexity. The per-endpoint handlers plus the content-type guard helpers
@@ -25,7 +25,9 @@ use tokio::sync::Semaphore;
 use super::comment::{WebCommentCfg, WebCommentInfo, WebCommentPayload, strip_comments};
 use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
 use super::metrics::{WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
+use super::vcs::{WebVcsPayload, compute_vcs};
 
+use big_code_analysis::vcs::Error as VcsError;
 use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language};
 
 const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
@@ -104,6 +106,11 @@ const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 /// this `500` is unreachable today and exists to keep failures off the
 /// `200` path if that changes (issue #517).
 const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
+/// Error body when `repo_path` is not a git working tree, or a window /
+/// timestamp / formula is malformed (a client mistake → `400`).
+const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, or a window / timestamp / formula is malformed";
+/// Error body when the history walk itself fails (server-side → `500`).
+const VCS_FAILED: &str = "Failed to walk change history for the supplied repository";
 
 /// Default parse timeout used by [`run`].
 pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
@@ -396,6 +403,37 @@ async fn metrics_json(
     }
 }
 
+async fn vcs_json(
+    item: web::Json<WebVcsPayload>,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let payload = item.into_inner();
+    let payload_id = payload.id.clone();
+    // The history walk is blocking I/O, so it runs on the same
+    // timeout-guarded blocking pool as the parse endpoints.
+    let result = run_parse(&config, &payload_id, move || compute_vcs(payload)).await?;
+    match result {
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Err(error) => {
+            // Bad path / window / timestamp / pattern are client mistakes
+            // (`400`); an actual walk failure is a `500`. The real error
+            // is logged server-side; the client sees the uniform body.
+            let (status, body) = match error {
+                VcsError::NotARepository(_)
+                | VcsError::InvalidWindow(_)
+                | VcsError::InvalidTimestamp(_)
+                | VcsError::InvalidFormula(_)
+                | VcsError::InvalidBotPattern(_) => {
+                    (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST)
+                }
+                _ => (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED),
+            };
+            tracing::warn!(payload_id = %payload_id, error = %error, "vcs request failed");
+            Ok(json_error(status, body, payload_id))
+        }
+    }
+}
+
 async fn metrics_plain(
     body: web::Payload,
     info: Query<WebMetricsInfo>,
@@ -653,6 +691,7 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
             .route(web::post().guard(octet_guard()).to(metrics_plain))
             .default_service(web::route().to(guarded_post_fallback)),
     )
+    .service(web::resource("/vcs").route(web::post().guard(json_guard()).to(vcs_json)))
     .service(
         web::resource("/function")
             .route(web::post().guard(json_guard()).to(function_json))

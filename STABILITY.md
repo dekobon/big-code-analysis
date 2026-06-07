@@ -199,6 +199,22 @@ section.
   `2.0` break. The `all-languages` default is permanent within
   `1.x`.
 
+Change-history (VCS) metrics (#328) are an **opt-in, additive**
+surface gated behind the `vcs = ["vcs-git"]` Cargo feature (off by
+default for the library; on by default for the `bca` / `bca-web` /
+Python builds). When enabled, the following join the shape contract:
+the `big_code_analysis::vcs` module (`build_history_index`, `Options`,
+`Stats`, `HistoryIndex`, `RiskFormula`, `parse_window`,
+`parse_timestamp`), `wire::Vcs`, `CodeMetrics::vcs`, the `bca vcs`
+subcommand and `bca metrics --vcs` flag, the `POST /vcs` REST endpoint,
+and the Python `vcs_metrics()` function plus the `analyze(vcs=True)`
+keyword. The composite `risk_score` is **ordinal, not cardinal** — only
+relative ranks are meaningful — and is formula-versioned
+(`risk_score_version`): the formula may change within `1.x`, but any
+change bumps that field, and the serialized field *set* is versioned by
+`vcs_schema_version`. Per-file score *magnitudes* therefore carry the
+same "not byte-stable across bumps" caveat as every other metric value.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

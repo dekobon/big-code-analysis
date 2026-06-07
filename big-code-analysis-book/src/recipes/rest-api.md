@@ -123,6 +123,38 @@ boolean (set when the parser flagged the function span as
 malformed) — enough for an editor to draw a function navigator
 without re-parsing the file locally.
 
+## Rank a repository by change-history risk
+
+The `/vcs` endpoint analyses a git working tree that already exists on
+the **server's** filesystem (change history has no in-request
+representation), and returns the files ranked by composite risk score.
+See [Change-history (VCS) metrics](../commands/vcs.md) for the signal
+and formula reference.
+
+> **Security:** unlike the other endpoints, `/vcs` takes a server-side
+> `repo_path` and will walk any git repository the server process can
+> read, returning that repo's file paths and change signals. Do not
+> expose `/vcs` to untrusted clients without an authorization layer; the
+> default `127.0.0.1` bind keeps it local.
+
+```bash
+curl -s http://127.0.0.1:8080/v1/vcs \
+    -H 'Content-Type: application/json' \
+    -d '{
+          "id": "risk-1",
+          "repo_path": "/srv/checkouts/my-project",
+          "top": 20
+        }' \
+  | jq '.files[] | {path, risk_score, churn_recent}'
+```
+
+The body accepts the same knobs as `bca vcs` (`long_window`,
+`recent_window`, `top`, `ref`, `risk_formula`, `full_history`,
+`include_merges`, `follow_renames`, `exclude_bots`, `bot_pattern`,
+`as_of`, `emit_author_details`, `include_deleted`) as optional fields.
+A `repo_path` that is not a git working tree, or a malformed window /
+timestamp / formula, returns `400` with the uniform JSON error body.
+
 ## Calling the API from CI
 
 The server starts in milliseconds, so for short-lived CI jobs it's

@@ -31,6 +31,7 @@ mod codegen;
 mod conversion;
 mod language;
 mod sarif;
+mod vcs;
 
 use std::path::PathBuf;
 
@@ -181,8 +182,8 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// metrics are absent (not `None`) from the result dict; derived
 /// metrics (`mi`, `wmc`) pull their dependencies in automatically.
 #[pyfunction]
-#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None))]
-#[allow(clippy::needless_pass_by_value)]
+#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false))]
+#[allow(clippy::needless_pass_by_value, clippy::fn_params_excessive_bools)]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
 // path conversion: `FromPyObject` materializes a fresh `PathBuf`
 // out of the `os.PathLike` argument, and there is no borrow to
@@ -194,6 +195,7 @@ fn analyze(
     allow_lossy_path: bool,
     skip_generated: bool,
     metrics: Option<Vec<String>>,
+    vcs: bool,
 ) -> PyResult<Option<Bound<'_, PyAny>>> {
     // Resolve `metrics=` *before* `py.detach` so a bad name aborts
     // before any file I/O (issue #268 requires the validation to
@@ -214,10 +216,24 @@ fn analyze(
     // `json_string_to_py` materialises the Python `dict`. In PyO3
     // 0.28 the spelling is `Python::detach` (renamed from
     // `allow_threads`).
-    py.detach(|| analysis::analyze_path(&path, opts))
-        .map_err(analysis_error_to_py)?
-        .map(|json| conversion::json_string_to_py(py, &json))
-        .transpose()
+    let result = py
+        .detach(|| analysis::analyze_path(&path, opts))
+        .map_err(analysis_error_to_py)?;
+    // `vcs=True` (#328) attaches a `vcs` block to the file's metrics from
+    // a one-shot history walk of its repository. Done after the GIL is
+    // re-acquired because the injection helper builds Python errors; for
+    // whole-repo ranking prefer `vcs_metrics()`, which walks history once.
+    match result {
+        None => Ok(None),
+        Some(json) => {
+            let json = if vcs {
+                crate::vcs::inject_vcs(json, &path)?
+            } else {
+                json
+            };
+            conversion::json_string_to_py(py, &json).map(Some)
+        }
+    }
     // Keyword-only kwargs stay split at the PyO3 boundary (PyO3 has
     // no struct-literal binding for `#[pyo3(signature)]`); the
     // `AnalyzeOptions` struct lives on the Rust side of the FFI so
@@ -338,6 +354,61 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
         .ok_or_else(|| UnsupportedLanguageError::new_err(language.to_owned()))
 }
 
+/// Rank the files in a git repository by change-history (VCS) risk
+/// (issue #328).
+///
+/// `repo_path` is any path inside the working tree. Returns a dict with
+/// the window lengths, version stamps, a `truncated_shallow_clone`
+/// flag, and a `files` list ranked by descending `risk_score` — the
+/// programmatic analogue of `bca vcs`. Raises `ValueError` for a
+/// malformed window / timestamp / formula, or when `repo_path` is not a
+/// git working tree.
+///
+/// The history walk holds the GIL; for per-file AST + VCS in one pass
+/// use `analyze(path, vcs=True)`.
+#[pyfunction]
+#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false))]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools
+)]
+fn vcs_metrics(
+    py: Python<'_>,
+    repo_path: PathBuf,
+    long_window: Option<String>,
+    recent_window: Option<String>,
+    top: Option<usize>,
+    reference: Option<String>,
+    risk_formula: Option<String>,
+    full_history: bool,
+    include_merges: bool,
+    follow_renames: bool,
+    exclude_bots: bool,
+    bot_pattern: Option<String>,
+    as_of: Option<String>,
+    emit_author_details: bool,
+    include_deleted: bool,
+) -> PyResult<Bound<'_, PyAny>> {
+    let params = vcs::VcsParams {
+        long_window,
+        recent_window,
+        top,
+        reference,
+        risk_formula,
+        full_history,
+        include_merges,
+        follow_renames,
+        exclude_bots,
+        bot_pattern,
+        as_of,
+        emit_author_details,
+        include_deleted,
+    };
+    let json = vcs::vcs_report_json(&repo_path, &params)?;
+    conversion::json_string_to_py(py, &json)
+}
+
 /// `big_code_analysis._native` module entry point.
 ///
 /// Re-exported by the pure-Python `big_code_analysis` package so
@@ -362,6 +433,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ParseError", m.py().get_type::<ParseError>())?;
     m.add_class::<PyAnalysisError>()?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
+    m.add_function(wrap_pyfunction!(vcs_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_batch, m)?)?;
     m.add_function(wrap_pyfunction!(language_for_file, m)?)?;

@@ -73,7 +73,7 @@ fn metrics_with_format_parses() {
 // wrong field — or dropped the alias — is caught.
 fn metrics_output_format(argv: &[&str]) -> Option<MetricsFormat> {
     match parse(argv).expect("metrics invocation parses").command {
-        Command::Metrics(args) => args.output_format,
+        Command::Metrics(args) => args.structured.output_format,
         other => panic!("expected Command::Metrics, got {other:?}"),
     }
 }

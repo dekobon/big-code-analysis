@@ -639,6 +639,89 @@ impl From<&wmc::Stats> for Wmc {
 // Container wire structs.
 // ---------------------------------------------------------------------------
 
+/// Wire form of [`crate::vcs::Stats`] — per-file change-history metrics.
+///
+/// Flat by design: the field names are the JSON output keys verbatim.
+/// All scores are ordinal. `hotspot_score` and `author_ids` are elided
+/// when absent (no AST metrics alongside, and `--emit-author-details`
+/// off, respectively). Gated behind the `vcs-git` backend feature.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Vcs {
+    /// Output-shape version.
+    pub vcs_schema_version: u32,
+    /// Composite-formula version.
+    pub risk_score_version: u32,
+    /// Long window length, in days.
+    pub long_window_days: u32,
+    /// Recent window length, in days.
+    pub recent_window_days: u32,
+    /// Distinct commits in the long window.
+    pub commits_long: u32,
+    /// Distinct commits in the recent window.
+    pub commits_recent: u32,
+    /// Σ(added + deleted) lines in the long window.
+    pub churn_long: u64,
+    /// Σ(added + deleted) lines in the recent window.
+    pub churn_recent: u64,
+    /// Distinct authors in the long window.
+    pub authors_long: u32,
+    /// Distinct authors in the recent window.
+    pub authors_recent: u32,
+    /// Top-author edit share in `[0, 1]`.
+    pub ownership_top_share: f64,
+    /// `commits_recent / commits_long`, clamped to `[0, 1]`.
+    pub burst: f64,
+    /// Long-window bug-fix commit count.
+    pub bug_fix_commits: u32,
+    /// Long-window security-fix commit count.
+    pub security_fix_commits: u32,
+    /// Long-window revert commit count.
+    pub revert_commits: u32,
+    /// Days since the file's first in-window commit (capped at window).
+    pub age_days: u32,
+    /// Days since the file's most recent in-window commit.
+    pub last_modified_days: u32,
+    /// Ordinal composite risk score.
+    pub risk_score: f64,
+    /// Complexity × recent-churn hotspot score, when AST metrics were
+    /// computed alongside the history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotspot_score: Option<f64>,
+    /// SHA-256-hashed canonical author identities, under
+    /// `--emit-author-details`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_ids: Option<Vec<String>>,
+}
+
+#[cfg(feature = "vcs-git")]
+impl From<&crate::vcs::Stats> for Vcs {
+    fn from(s: &crate::vcs::Stats) -> Self {
+        Self {
+            vcs_schema_version: s.vcs_schema_version,
+            risk_score_version: s.risk_score_version,
+            long_window_days: s.long_window_days,
+            recent_window_days: s.recent_window_days,
+            commits_long: s.commits_long,
+            commits_recent: s.commits_recent,
+            churn_long: s.churn_long,
+            churn_recent: s.churn_recent,
+            authors_long: s.authors_long,
+            authors_recent: s.authors_recent,
+            ownership_top_share: s.ownership_top_share,
+            burst: s.burst,
+            bug_fix_commits: s.bug_fix_commits,
+            security_fix_commits: s.security_fix_commits,
+            revert_commits: s.revert_commits,
+            age_days: s.age_days,
+            last_modified_days: s.last_modified_days,
+            risk_score: s.risk_score,
+            hotspot_score: s.hotspot_score,
+            author_ids: s.author_ids.clone(),
+        }
+    }
+}
+
 /// Wire form of [`crate::spaces::CodeMetrics`].
 ///
 /// Each metric is an `Option` skipped when `None`: an unselected metric
@@ -689,6 +772,11 @@ pub struct CodeMetrics {
     /// `Npa` metric, if selected and not disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub npa: Option<Npa>,
+    /// Change-history (VCS) metrics, present only for the file-level
+    /// space when a history walk supplied them. Gated behind `vcs-git`.
+    #[cfg(feature = "vcs-git")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcs: Option<Vcs>,
 }
 
 impl From<&crate::spaces::CodeMetrics> for CodeMetrics {
@@ -712,6 +800,10 @@ impl From<&crate::spaces::CodeMetrics> for CodeMetrics {
             wmc: (on(Metric::Wmc) && !c.wmc.is_disabled()).then(|| Wmc::from(&c.wmc)),
             npm: (on(Metric::Npm) && !c.npm.is_disabled()).then(|| Npm::from(&c.npm)),
             npa: (on(Metric::Npa) && !c.npa.is_disabled()).then(|| Npa::from(&c.npa)),
+            // VCS data is injected post-analysis, so its presence — not
+            // the selection mask — governs emission.
+            #[cfg(feature = "vcs-git")]
+            vcs: c.vcs.as_ref().map(Vcs::from),
         }
     }
 }
