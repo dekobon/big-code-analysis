@@ -111,6 +111,16 @@ Audit everything the `bca check` gate skips in one view: in\-source suppression 
 bca\-help(1)
 Print this message or the help of the given subcommand(s)
 .SH EXTRA
+Exit codes:
+  0  success
+  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)
+  2  `check` gate: thresholds exceeded (default contract)
+  3\-5  `check \-\-strict\-exit\-codes` only: tiered violation severity
+
+Exit code 1 is always a tool error, never a metric signal; codes 2\-5 are
+emitted by the `check` subcommand alone. Every other subcommand exits 0 on
+success and 1 on error.
+
 Migrating from the flag\-style CLI? See the migration guide:
   big\-code\-analysis\-book/src/migration.md
 .SH VERSION

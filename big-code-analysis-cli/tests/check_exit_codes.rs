@@ -302,6 +302,46 @@ fn strict_soft_encroachment_exits_two_not_five() {
         .code(2);
 }
 
+// -- Workspace-wide convention (#561) -------------------------------------
+//
+// The 0/1 split is documented as a cross-subcommand contract (top-level
+// `bca --help` "Exit codes" section + book `commands/README.md`): 0 on
+// success, 1 on a tool error, and 1 is *never* a metric signal — codes
+// 2-5 are reserved for the `check` gate above. These two tests pin the
+// non-`check` side of that contract so a future regression that, say,
+// made `metrics` exit non-zero on success or collapsed a tool error to
+// 0 would fail here.
+
+#[test]
+fn metrics_clean_run_exits_zero() {
+    let dir = TempDir::new().unwrap();
+    let src = write_branchy(&dir, 5);
+
+    cli(dir.path())
+        .args(["--paths", &src, "metrics"])
+        .assert()
+        .code(0);
+}
+
+#[test]
+fn tool_error_exits_one_not_metric_signal() {
+    // An invalid include glob is a tool error on a non-`check`
+    // subcommand: it must take the `die` path (exit 1), never 0 and
+    // never the 2-5 band the `check` gate owns.
+    let (dir, mut cmd) = common::cli_hermetic();
+
+    cmd.args([
+        "-I",
+        "[",
+        "--paths",
+        dir.path().to_str().unwrap(),
+        "metrics",
+    ])
+    .assert()
+    .code(1)
+    .stderr(predicate::str::contains("invalid glob pattern"));
+}
+
 // -- Manifest opt-in ------------------------------------------------------
 
 /// Create a fixture repo with a `.git` marker so manifest discovery

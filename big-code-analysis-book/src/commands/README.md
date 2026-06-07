@@ -38,6 +38,26 @@ repository README.
 The wheel build and publish matrix is defined in
 [`.github/workflows/python-cli-wheels.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/python-cli-wheels.yml).
 
+## Exit codes
+
+`bca` follows one exit-code convention across every subcommand, so CI
+scripts can branch on the process status without inspecting output:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Success. |
+| `1`  | Tool error — a bad flag / threshold / glob spec, unreadable input, or a parse failure. **Never** a metric signal. |
+| `2`  | [`check`](check.md) gate: one or more thresholds were exceeded (default contract). |
+| `3`–`5` | [`check --strict-exit-codes`](check.md#tiered-exit-codes---strict-exit-codes) only: tiered violation severity (new-only / regression-only / mixed / hard-breach). |
+
+Only the [`check`](check.md) subcommand ever emits codes `2`–`5`; they
+report a metric-threshold result, not a failure of the tool. Every
+other subcommand — `metrics`, `ops`, `report`, `diff`,
+`diff-baseline`, `exemptions`, `init`, and the rest — exits `0` on
+success and `1` on error. Because `1` is reserved for tool errors, CI
+can always distinguish "the gate found a regression" (`2`–`5`) from
+"the tool itself crashed" (`1`).
+
 ## Metrics
 
 Metrics provide quantitative measures about source code, which can help in:
