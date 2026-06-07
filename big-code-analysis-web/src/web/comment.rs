@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use big_code_analysis::{Callback, ParserTrait, rm_comments};
+use big_code_analysis::{Ast, LANG, MetricsError, Source};
 
 /// Payload containing source code with comments to be removed.
 #[derive(Debug, Deserialize, Serialize)]
@@ -46,22 +46,24 @@ pub struct WebCommentCfg {
     pub language: String,
 }
 
-/// Unit structure to implement the `Callback` trait.
-#[derive(Debug)]
-pub struct WebCommentCallback;
-
-impl Callback for WebCommentCallback {
-    type Res = WebCommentResponse;
-    type Cfg = WebCommentCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        WebCommentResponse {
-            id: cfg.id,
-            language: cfg.language,
-            // `rm_comments` yields `None` when there is nothing to
-            // strip; collapse that to an empty payload so the response
-            // shape is uniform regardless of comment presence (#558).
-            code: rm_comments(parser).unwrap_or_default(),
-        }
-    }
+/// Strip comments from `code` in `language` under `cfg`.
+///
+/// # Errors
+///
+/// Returns [`MetricsError::LanguageDisabled`] when `language`'s feature
+/// is disabled — impossible in the feature-pinned server build.
+pub fn strip_comments(
+    language: LANG,
+    code: &[u8],
+    cfg: WebCommentCfg,
+) -> Result<WebCommentResponse, MetricsError> {
+    let ast = Ast::parse(Source::new(language, code))?;
+    Ok(WebCommentResponse {
+        id: cfg.id,
+        language: cfg.language,
+        // `strip_comments` yields `None` when there is nothing to
+        // strip; collapse that to an empty payload so the response
+        // shape is uniform regardless of comment presence (#558).
+        code: ast.strip_comments().unwrap_or_default(),
+    })
 }

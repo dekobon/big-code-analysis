@@ -5,7 +5,7 @@
 // complexity. The per-endpoint handlers plus the content-type guard helpers
 // (#515) push the file's method count past the per-file nom cap.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -22,11 +22,11 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
-use super::comment::{WebCommentCallback, WebCommentCfg, WebCommentInfo, WebCommentPayload};
-use super::function::{WebFunctionCallback, WebFunctionCfg, WebFunctionInfo, WebFunctionPayload};
-use super::metrics::{WebMetricsCallback, WebMetricsCfg, WebMetricsInfo, WebMetricsPayload};
+use super::comment::{WebCommentCfg, WebCommentInfo, WebCommentPayload, strip_comments};
+use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
+use super::metrics::{WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
 
-use big_code_analysis::{AstCallback, AstCfg, AstPayload, LANG, action, guess_language};
+use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language};
 
 const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
 
@@ -262,7 +262,9 @@ async fn ast_parser(
             span: payload.span,
         };
         let result = run_parse(&config, &payload_id, move || {
-            action::<AstCallback>(language, buf, Path::new(""), None, cfg).expect(FEATURES_PINNED)
+            Ast::parse(Source::new(language, &buf))
+                .expect(FEATURES_PINNED)
+                .dump(cfg)
         })
         .await?;
         // `root == None` previously surfaced as a `200` carrying
@@ -305,7 +307,7 @@ async fn comment_removal_json(
         };
         let language = comment_language(language);
         let result = run_parse(&config, &payload_id, move || {
-            action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
+            strip_comments(language, &buf, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -336,7 +338,7 @@ async fn comment_removal_plain(
         // The octet-stream variants carry no request id in the body, so log
         // correlation falls back to the `TracingLogger` request span.
         let res = run_parse(&config, "", move || {
-            action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
+            strip_comments(language, &buf, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -374,7 +376,7 @@ async fn metrics_json(
         let payload_id = payload.id.clone();
         let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
         let response = run_parse(&config, &payload_id, move || {
-            action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
+            compute_metrics(language, &buf, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -421,7 +423,7 @@ async fn metrics_plain(
         // Same `exclude_tests` rationale as the JSON variant above.
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
         let response = run_parse(&config, "", move || {
-            action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
+            compute_metrics(language, &buf, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -459,7 +461,7 @@ async fn function_json(
             language: language.name().to_string(),
         };
         let result = run_parse(&config, &payload_id, move || {
-            action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
+            function_spans(language, &buf, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -487,7 +489,7 @@ async fn function_plain(
             language: language.name().to_string(),
         };
         let result = run_parse(&config, "", move || {
-            action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
+            function_spans(language, &buf, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;

@@ -5,9 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[allow(deprecated)]
-use big_code_analysis::metrics_with_options;
-use big_code_analysis::{Callback, FuncSpace, MetricsOptions, ParserTrait};
+use big_code_analysis::{Ast, FuncSpace, LANG, MetricsError, MetricsOptions, Source};
 
 /// Payload containing source code used to compute metrics.
 #[derive(Debug, Deserialize, Serialize)]
@@ -96,29 +94,26 @@ impl WebMetricsCfg {
     }
 }
 
-/// Unit structure to implement the `Callback` trait.
-pub struct WebMetricsCallback;
-
-impl Callback for WebMetricsCallback {
-    /// `None` signals that metric computation failed; the HTTP handler
-    /// maps it to a `5xx` status (issue #517) rather than the former
-    /// `200`-with-`spaces: null` body.
-    type Res = Option<WebMetricsResponse>;
-    type Cfg = WebMetricsCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        // The web crate has a `ParserTrait` in hand (driven by the
-        // shared `action` callback dispatch), not raw bytes, so the
-        // path-positional `metrics_with_options` shim is still the
-        // right seam here. The deprecation points callers at
-        // `analyze(Source { ... }, ...)`; the parser-trait flavour
-        // remains until issue #256 reshapes the parser surface.
-        #[allow(deprecated)]
-        metrics_with_options(
-            parser,
-            &cfg.path,
-            MetricsOptions::default().with_exclude_tests(cfg.exclude_tests),
-        )
+/// Compute metrics for `code` in `language` under `cfg`.
+///
+/// `Ok(None)` signals that metric computation failed; the HTTP handler
+/// maps it to a `5xx` status (issue #517) rather than the former
+/// `200`-with-`spaces: null` body. The display name is the request
+/// `file_name` (always valid UTF-8 from the JSON body).
+///
+/// # Errors
+///
+/// Returns [`MetricsError::LanguageDisabled`] when `language`'s feature
+/// is disabled — impossible in the feature-pinned server build.
+pub fn compute_metrics(
+    language: LANG,
+    code: &[u8],
+    cfg: WebMetricsCfg,
+) -> Result<Option<WebMetricsResponse>, MetricsError> {
+    let ast =
+        Ast::parse(Source::new(language, code).with_name(cfg.path.to_str().map(str::to_owned)))?;
+    Ok(ast
+        .metrics(MetricsOptions::default().with_exclude_tests(cfg.exclude_tests))
         .ok()
         .map(|mut s| {
             if cfg.unit {
@@ -129,6 +124,5 @@ impl Callback for WebMetricsCallback {
                 language: cfg.language,
                 spaces: s,
             }
-        })
-    }
+        }))
 }

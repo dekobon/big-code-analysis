@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 
-use big_code_analysis::{Callback, FunctionSpan, ParserTrait, function};
+use big_code_analysis::{Ast, FunctionSpan, LANG, MetricsError, Source};
 
 /// Payload containing source code with function spans to be retrieved.
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,20 +42,29 @@ pub struct WebFunctionCfg {
     pub language: String,
 }
 
-/// Unit structure to implement the `Callback` trait.
-pub struct WebFunctionCallback;
-
-impl Callback for WebFunctionCallback {
-    type Res = Value;
-    type Cfg = WebFunctionCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        let spans = function(parser);
-        serde_json::to_value(WebFunctionResponse {
-            id: cfg.id,
-            language: cfg.language,
-            spans,
-        })
-        .expect("WebFunctionResponse has a static, infallible Serialize impl")
-    }
+/// Retrieve function spans for `code` in `language` under `cfg`,
+/// serialized to a JSON [`Value`].
+///
+/// # Errors
+///
+/// Returns [`MetricsError::LanguageDisabled`] when `language`'s feature
+/// is disabled — impossible in the feature-pinned server build.
+///
+/// # Panics
+///
+/// Does not panic in practice: the only `expect` guards the static,
+/// infallible [`WebFunctionResponse`] `Serialize` impl.
+pub fn function_spans(
+    language: LANG,
+    code: &[u8],
+    cfg: WebFunctionCfg,
+) -> Result<Value, MetricsError> {
+    let ast = Ast::parse(Source::new(language, code))?;
+    let spans = ast.functions();
+    Ok(serde_json::to_value(WebFunctionResponse {
+        id: cfg.id,
+        language: cfg.language,
+        spans,
+    })
+    .expect("WebFunctionResponse has a static, infallible Serialize impl"))
 }
