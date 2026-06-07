@@ -542,12 +542,18 @@ fn find_returns_named_nodes() {
         .expect("find is infallible today");
     // Both function declarations surface; `count` and `find` agree.
     assert_eq!(found.len(), 2);
+    // Negative control: a non-matching kind yields nothing — proves `find`
+    // actually applies the filter rather than returning every node.
+    let none = ast
+        .find(&["no_such_node_kind".to_owned()])
+        .expect("find is infallible today");
+    assert!(none.is_empty());
 }
 
 #[cfg(feature = "rust")]
 #[test]
 fn suppressions_collects_in_source_markers() {
-    use big_code_analysis::SuppressionScope;
+    use big_code_analysis::{Metric, SuppressionScope};
 
     // A function-scoped marker naming one metric on line 1.
     let source = b"// bca: suppress(cyclomatic)\nfn f() { if true {} }\n";
@@ -556,6 +562,12 @@ fn suppressions_collects_in_source_markers() {
         .suppressions();
     assert_eq!(markers.len(), 1);
     assert_eq!(markers[0].line, 1);
-    // A named-metric marker is a `Some(...)` scope, not the `All` wildcard.
-    assert!(matches!(markers[0].scope, SuppressionScope::Some(_)));
+    // The scope is the exact named set written (`cyclomatic`), not the `All`
+    // wildcard and not some other metric — asserting only `Some(_)` would
+    // pass even if the marker parsed to the wrong metric.
+    let SuppressionScope::Some(metrics) = &markers[0].scope else {
+        panic!("expected a named-metric scope, not the `All` wildcard");
+    };
+    assert_eq!(metrics.len(), 1);
+    assert!(metrics.contains(&Metric::Cyclomatic));
 }
