@@ -44,7 +44,7 @@ path = "big-code-analysis-web/src/web/server.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 806.0
+value = 804.0
 
 [[entry]]
 path = "src/count.rs"
@@ -58,7 +58,7 @@ path = "src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 53416.50418058527
+value = 53762.1541099068
 
 [[entry]]
 path = "src/preproc.rs"
