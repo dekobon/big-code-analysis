@@ -26,7 +26,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::langs::LANG;
@@ -55,7 +55,6 @@ use crate::npm::{self, Npm};
 use crate::tokens::{self, Tokens};
 use crate::wmc::{self, Wmc};
 
-use crate::output::dump_metrics::*;
 use crate::traits::*;
 
 /// The list of supported space kinds.
@@ -241,10 +240,7 @@ pub struct FuncSpace {
     /// library no longer derives this from a `&Path` or applies lossy
     /// UTF-8 conversion; callers are expected to pass an
     /// already-stringified identifier (or `None` if they have no
-    /// meaningful name to attach). The deprecated entry points
-    /// `get_function_spaces` / [`metrics_with_options`] continue to
-    /// derive a lossy string from the `&Path` argument for backwards
-    /// compatibility.
+    /// meaningful name to attach).
     ///
     /// For nested spaces, `None` means an error occurred in parsing the
     /// name of the function space from the AST.
@@ -302,10 +298,9 @@ impl FuncSpace {
             _ => (node.start_row() + 1, node.end_row() + 1),
         };
 
-        // The top-level Unit's name is overwritten by `metrics_with_options`
-        // (when called with an explicit name) before returning, so
-        // computing it here is wasted work. Other kinds keep the
-        // AST-derived name.
+        // The top-level Unit's name is overwritten by `metrics_inner`
+        // with the caller-supplied name before returning, so computing
+        // it here is wasted work. Other kinds keep the AST-derived name.
         let name = (kind != SpaceKind::Unit)
             .then(|| {
                 T::get_func_space_name(node, code)
@@ -489,12 +484,10 @@ struct State<'a> {
 ///
 /// `Source` decouples the *display name* of the top-level
 /// [`FuncSpace`] (`Source::name`) from the optional *filesystem path*
-/// used by the C++ preprocessor lookup (`Source::preproc_path`). The
-/// older path-positional entry points (`get_function_spaces`,
-/// `metrics_with_options`) conflate the two and derive the name via
-/// lossy UTF-8 conversion of the path; for in-memory snippets, code
-/// fetched over the network, or test fixtures, callers can now pass
-/// `Source` directly without manufacturing a `Path`.
+/// used by the C++ preprocessor lookup (`Source::preproc_path`). For
+/// in-memory snippets, code fetched over the network, or test
+/// fixtures, callers pass `Source` directly without manufacturing a
+/// `Path`.
 ///
 /// Marked `#[non_exhaustive]` so future input fields can land
 /// additively. Downstream callers must construct via
@@ -588,10 +581,9 @@ impl<'a> Source<'a> {
 /// custom `tree_sitter` traversal via [`Ast::as_tree_sitter`], or cached
 /// across configuration changes in an analysis pipeline.
 ///
-/// Build one via [`Ast::parse`] (mirrors [`analyze`]) or
-/// [`Ast::from_tree_sitter`] (mirrors [`crate::metrics_from_tree`] but
-/// with an explicit display name instead of a lossy path-to-string
-/// conversion).
+/// Build one via [`Ast::parse`] (the seam behind [`analyze`]) or
+/// [`Ast::from_tree_sitter`] to reuse a caller-supplied
+/// [`tree_sitter::Tree`], carrying an explicit display name.
 ///
 /// `Ast` is a snapshot — it does not pick up changes to the source after
 /// construction. Incremental reparse via [`tree_sitter::InputEdit`] is out
@@ -686,10 +678,9 @@ impl Ast {
         Ok(Self { inner, name })
     }
 
-    /// Adopt a caller-built [`tree_sitter::Tree`]. The `Source`-flavored
-    /// counterpart of [`crate::metrics_from_tree`]: same tree-reuse semantics, but
-    /// with `name: Option<String>` carried end-to-end instead of derived
-    /// from a path via lossy UTF-8 conversion.
+    /// Adopt a caller-built [`tree_sitter::Tree`], reusing it instead of
+    /// running the bundled parser, with `name: Option<String>` carried
+    /// end-to-end.
     ///
     /// The supplied `tree` must have been produced from `code` with the
     /// [`tree_sitter::Language`] returned by
@@ -729,8 +720,7 @@ impl Ast {
 
     /// Return every operator and operand of each space in the held parse.
     ///
-    /// The `Source`-based counterpart of the deprecated [`crate::get_ops`]:
-    /// the top-level [`crate::Ops::name`] is the `Source::name` supplied
+    /// The top-level [`crate::Ops::name`] is the `Source::name` supplied
     /// to [`Ast::parse`] / [`Ast::from_tree_sitter`] — carried explicitly
     /// rather than derived from a filesystem path via lossy UTF-8
     /// conversion, so [`crate::Ops::name_was_lossy`] is never set on this
@@ -911,10 +901,9 @@ impl Ast {
 
 /// Compute every metric for a [`Source`].
 ///
-/// This is the recommended library entry point. Unlike the
-/// deprecated [`metrics`] / [`metrics_with_options`] family it does
-/// not conflate the top-level [`FuncSpace::name`] with a filesystem
-/// path: callers supply an explicit `Source::name` and an optional
+/// This is the recommended library entry point. It does not conflate
+/// the top-level [`FuncSpace::name`] with a filesystem path: callers
+/// supply an explicit `Source::name` and an optional
 /// `Source::preproc_path` for C++ preprocessor lookup.
 ///
 /// `options` controls per-traversal flags (e.g.
@@ -946,114 +935,6 @@ impl Ast {
 /// ```
 pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
     Ast::parse(source)?.metrics(options)
-}
-
-/// Returns all function spaces data of a code. This function needs a parser to
-/// be created a priori in order to work.
-///
-/// Equivalent to calling [`metrics_with_options`] with
-/// [`MetricsOptions::default`] — every node is visited and counted.
-/// Existing callers (including `get_function_spaces` and the
-/// `Metrics` callback used by the CLI) keep their previous behaviour
-/// through this entry point. Pass an explicit [`MetricsOptions`]
-/// (e.g. `exclude_tests: true`) to opt in to subtree filtering.
-///
-/// # Deprecated
-///
-/// Prefer [`analyze`], which accepts a [`Source`] carrying an explicit
-/// display name distinct from any on-disk path.
-///
-/// # Errors
-///
-/// The return type carries [`MetricsError::EmptyRoot`] for forward
-/// compatibility, but the walker always pushes a synthetic top-level
-/// [`SpaceKind::Unit`][crate::SpaceKind] `FuncSpace` before walking,
-/// so this function does not return `Err` in practice today (see
-/// the variant doc).
-///
-/// # Examples
-///
-/// ```
-/// use std::path::Path;
-///
-/// # #[allow(deprecated)]
-/// use big_code_analysis::{CppParser, metrics, ParserTrait};
-///
-/// let source_code = "int a = 42;";
-///
-/// // The path to a dummy file used to contain the source code
-/// let path = Path::new("foo.c");
-/// let source_as_vec = source_code.as_bytes().to_vec();
-///
-/// // The parser of the code, in this case a CPP parser
-/// let parser = CppParser::new(source_as_vec, &path, None);
-///
-/// // Gets all function spaces data of the code contained in foo.c
-/// # #[allow(deprecated)]
-/// metrics(&parser, &path).unwrap();
-/// ```
-#[deprecated(
-    since = "0.0.26",
-    note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
-)]
-// Hidden from rustdoc because the signature exposes `ParserTrait` and
-// `Parser<T>` — both demoted to `#[doc(hidden)]` per issue #256. The
-// deprecation note already redirects callers to `analyze` / `Source`,
-// which is the documented surface.
-#[doc(hidden)]
-pub fn metrics<'a, T: ParserTrait>(
-    parser: &'a T,
-    path: &'a Path,
-) -> Result<FuncSpace, MetricsError> {
-    #[allow(deprecated)]
-    metrics_with_options(parser, path, MetricsOptions::default())
-}
-
-/// Like [`metrics`], but consults `options` while walking the AST.
-///
-/// Setting `options.exclude_tests = true` calls the language
-/// [`Checker`]'s `should_skip_subtree` hook on every node and prunes
-/// matching subtrees before any per-metric `compute` runs. The hook
-/// defaults to `false` for every language, so passing
-/// `exclude_tests = true` is a no-op except where a language module
-/// overrides it (today: `RustCode`, which filters Rust `#[test]` /
-/// `#[cfg(test)]` items).
-///
-/// Comment nodes are additionally scanned for in-source suppression
-/// markers (see [`crate::suppression`]); any matches are attached to
-/// the enclosing [`FuncSpace::suppressed`]. Malformed `bca:` markers
-/// produce a warning to stderr — they do not abort the walk, so a
-/// single typo in one file cannot derail a workspace-wide run.
-///
-/// # Deprecated
-///
-/// Prefer [`analyze`], which accepts a [`Source`] carrying an explicit
-/// display name distinct from any on-disk path. This entry point
-/// remains for backwards compatibility for one minor release; it
-/// derives [`FuncSpace::name`] from `path` via lossy UTF-8 conversion.
-///
-/// # Errors
-///
-/// The return type carries [`MetricsError::EmptyRoot`] for forward
-/// compatibility, but the walker always pushes a synthetic top-level
-/// [`SpaceKind::Unit`][crate::SpaceKind] `FuncSpace` before walking,
-/// so this function does not return `Err` in practice today (see
-/// the variant doc).
-#[deprecated(
-    since = "0.0.26",
-    note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion and will be removed in a future release."
-)]
-// Hidden from rustdoc — see `metrics` above for the rationale (#256).
-#[doc(hidden)]
-pub fn metrics_with_options<'a, T: ParserTrait>(
-    parser: &'a T,
-    path: &'a Path,
-    options: MetricsOptions,
-) -> Result<FuncSpace, MetricsError> {
-    // Backwards-compat shim: derive the top-level name from `path` via
-    // lossy UTF-8 conversion, matching pre-#254 behaviour. The new
-    // `analyze` entry point lets callers supply a name explicitly.
-    metrics_inner(parser, Some(path.to_string_lossy().into_owned()), options)
 }
 
 // Per-node metric dispatch. Each `compute` call is paired with a bit
@@ -1363,14 +1244,14 @@ fn apply_suppression(state_stack: &mut [State], suppression: &Suppression) {
     }
 }
 
-/// Per-traversal options for [`metrics_with_options`].
+/// Per-traversal options for [`analyze`] / [`Ast::metrics`].
 ///
 /// Marked `#[non_exhaustive]` so future option fields can land
 /// additively. Downstream callers must construct via the builder
 /// methods rather than struct-literal syntax (rustc rejects external
 /// struct literals on non-exhaustive types with E0639, including the
 /// `..Default::default()` spread form). The defaults preserve every
-/// metric value emitted by the pre-#182 [`metrics`] entry point.
+/// metric value emitted by the pre-#182 [`analyze`] entry point.
 ///
 /// ```
 /// use big_code_analysis::MetricsOptions;
@@ -1405,7 +1286,7 @@ pub struct MetricsOptions {
 
 impl Default for MetricsOptions {
     /// Defaults preserve every metric value emitted by the pre-#182
-    /// [`metrics`] entry point: every metric selected, tests
+    /// [`analyze`] entry point: every metric selected, tests
     /// included, and Rust `?` counted toward cyclomatic (#409).
     fn default() -> Self {
         Self {
@@ -1533,86 +1414,12 @@ impl MetricsOptions {
     }
 }
 
-/// Configuration options for computing the metrics of a code.
-///
-/// Marked `#[non_exhaustive]` so future config fields can land
-/// additively. Downstream callers must construct via the builder
-/// methods rather than struct-literal syntax (rustc rejects external
-/// struct literals on non-exhaustive types with E0639, including the
-/// `..Default::default()` spread form).
-///
-/// ```
-/// use std::path::PathBuf;
-/// use big_code_analysis::{MetricsCfg, MetricsOptions};
-///
-/// let cfg = MetricsCfg::new(PathBuf::from("lib.rs"))
-///     .with_options(MetricsOptions::default().with_exclude_tests(true));
-/// ```
-#[derive(Debug, Default)]
-#[non_exhaustive]
-pub struct MetricsCfg {
-    /// Path to the file containing the code
-    pub(crate) path: PathBuf,
-    /// Per-traversal options forwarded to [`metrics_with_options`].
-    pub(crate) options: MetricsOptions,
-}
-
-impl MetricsCfg {
-    /// Build a `MetricsCfg` for `path` with default options. Chain
-    /// [`MetricsCfg::with_options`] to override the per-traversal
-    /// flags. Required because `MetricsCfg` is `#[non_exhaustive]` —
-    /// downstream crates cannot use the struct-literal form.
-    #[inline]
-    #[must_use]
-    pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            ..Default::default()
-        }
-    }
-
-    /// Builder-style setter for `MetricsCfg::options`.
-    #[inline]
-    #[must_use]
-    pub fn with_options(mut self, options: MetricsOptions) -> Self {
-        self.options = options;
-        self
-    }
-}
-
-/// Type tag identifying the metric-computation action; carries no data.
-#[derive(PartialEq)]
-pub struct Metrics {
-    _guard: (),
-}
-
-impl Callback for Metrics {
-    type Res = std::io::Result<()>;
-    type Cfg = MetricsCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        // `MetricsCfg::path` is the legacy filesystem-keyed identity
-        // for this callback. The new `analyze` entry point fully
-        // supersedes the path-positional API, but this internal
-        // callback site still has a `&Path` in hand, so use the
-        // shared `metrics_inner` directly with a lossy-string name —
-        // matching pre-#254 behaviour byte-for-byte.
-        let name = Some(cfg.path.to_string_lossy().into_owned());
-        match metrics_inner(parser, name, cfg.options) {
-            Ok(space) => dump_root(&space),
-            Err(_) => Ok(()),
-        }
-    }
-}
-
 #[cfg(test)]
-// The lossy-path / synthetic-Unit tests below intentionally exercise
-// the deprecated path-positional entry points so we have regression
-// coverage on the shim even after the recommended seam moved to
-// `analyze(Source { ... }, ...)`. Scope the deprecation allowance to
-// the whole module so individual tests do not need per-call
-// attributes.
-#[allow(deprecated)]
+// The lossy-path / synthetic-Unit tests below drive the internal
+// `metrics_inner` walk core directly (the `Ast`-seam-friendly
+// counterpart of the retired path-positional entry points) so they
+// keep regression coverage on the synthetic top-level Unit and the
+// lossy-name handling.
 #[allow(
     clippy::float_cmp,
     clippy::cast_precision_loss,
@@ -1625,7 +1432,7 @@ impl Callback for Metrics {
 )]
 mod tests {
     use crate::MetricsOptions;
-    use crate::metrics;
+    use crate::spaces::metrics_inner;
     use crate::{CppParser, ParserTrait, SpaceKind, check_func_space};
 
     /// `SpaceKind` is `#[non_exhaustive]` (#551); the attribute is a
@@ -1745,7 +1552,12 @@ mod tests {
             "test premise broken: grammar must yield ERROR root for this snippet"
         );
 
-        let space = metrics(&parser, &path).unwrap();
+        let space = metrics_inner(
+            &parser,
+            path.to_str().map(str::to_owned),
+            MetricsOptions::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             space.kind,
@@ -1802,7 +1614,12 @@ mod tests {
     fn assert_top_level_space_is_unit_contract<P: ParserTrait>(source: &str, filename: &str) {
         let path = std::path::PathBuf::from(filename);
         let parser = P::new(source.as_bytes().to_vec(), &path, None);
-        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+        let space = metrics_inner(
+            &parser,
+            path.to_str().map(str::to_owned),
+            MetricsOptions::default(),
+        )
+        .expect("metrics must yield a top-level space");
         assert_eq!(
             space.kind,
             SpaceKind::Unit,
@@ -1934,7 +1751,12 @@ mod tests {
         let src = "enum Color { Red, Green, Blue }\n";
         let path = std::path::PathBuf::from("Color.cs");
         let parser = crate::CsharpParser::new(src.as_bytes().to_vec(), &path, None);
-        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+        let space = metrics_inner(
+            &parser,
+            path.to_str().map(str::to_owned),
+            MetricsOptions::default(),
+        )
+        .expect("metrics must yield a top-level space");
 
         let enum_space = space.spaces.first().expect("enum must open a child space");
         assert_eq!(enum_space.kind, SpaceKind::Class);
@@ -2020,7 +1842,12 @@ mod tests {
         let src = "defmodule Foo.Bar do\n  def hello(x), do: x\n  defp helper, do: :ok\n  defmodule Inner do\n    def i, do: 1\n  end\nend\n";
         let path = std::path::PathBuf::from("foo.ex");
         let parser = crate::ElixirParser::new(src.as_bytes().to_vec(), &path, None);
-        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+        let space = metrics_inner(
+            &parser,
+            path.to_str().map(str::to_owned),
+            MetricsOptions::default(),
+        )
+        .expect("metrics must yield a top-level space");
 
         // Top-level Unit -> file name.
         assert_eq!(space.name.as_deref(), Some("foo.ex"));
@@ -2089,54 +1916,16 @@ mod tests {
         );
     }
 
-    /// Regression for issue #128 — the deprecated path-positional
-    /// entry point still derives the top-level name from `path` via
-    /// lossy UTF-8 conversion. Even when the original bytes are not
-    /// valid UTF-8 on Linux (valid on ext4/tmpfs/etc.), the top-level
-    /// name must be `Some(...)` (never the parse-error sentinel
-    /// `None`) so downstream JSON consumers can distinguish the two
-    /// cases.
-    ///
-    /// After #254, callers who want to avoid the lossy round-trip
-    /// pass an explicit `Source::name` to [`analyze`] (see the
-    /// `analyze_in_memory_snippet_carries_caller_supplied_name`
-    /// test below).
-    #[cfg(unix)]
-    #[test]
-    fn non_utf8_path_yields_lossy_top_level_name() {
-        use std::ffi::OsStr;
-        use std::os::unix::ffi::OsStrExt;
-        use std::path::PathBuf;
-
-        // Bytes that are not valid UTF-8 (lone continuation + invalid
-        // start byte) framed with ASCII so the resulting filename
-        // unambiguously contains the U+FFFD replacement character after
-        // lossy conversion.
-        let raw_bytes: &[u8] = b"foo_\xFF\xFE_bar.rs";
-        let path = PathBuf::from(OsStr::from_bytes(raw_bytes));
-        assert!(
-            path.to_str().is_none(),
-            "test premise broken: path must be non-UTF-8 for this test to be meaningful"
-        );
-
-        let source = "int a = 42;";
-        let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-        #[allow(deprecated)]
-        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
-
-        let name = space
-            .name
-            .as_deref()
-            .expect("top-level FuncSpace name must be Some, not the parse-error sentinel None");
-        assert!(
-            name.contains('\u{FFFD}'),
-            "expected U+FFFD replacement char in lossy name, got {name:?}"
-        );
-        assert!(
-            name.starts_with("foo_") && name.ends_with("_bar.rs"),
-            "lossy name must preserve the surrounding ASCII bytes, got {name:?}"
-        );
-    }
+    // The former `non_utf8_path_yields_lossy_top_level_name` test
+    // (issue #128) pinned the lossy-UTF-8 name derivation performed by
+    // the path-positional `metrics_with_options` shim, retired with the
+    // rest of the path-positional surface in #570. The `Ast` /
+    // `metrics_inner` seam carries an explicit `Option<String>` name
+    // end-to-end and never derives one from a `&Path`, so there is no
+    // production code path left to regress; callers own any lossy
+    // path-to-string conversion. The explicit-name contract is covered
+    // by the `analyze_in_memory_snippet_carries_caller_supplied_name`
+    // test below.
 
     /// `analyze` with a caller-supplied `Source::name` skips the
     /// lossy round-trip entirely — the top-level name is whatever
@@ -2289,16 +2078,16 @@ mod tests {
     // because Halstead floats are bit-brittle (lessons_learned.md).
 
     mod exclude_tests_rust {
-        use crate::metrics_with_options;
+        use crate::spaces::metrics_inner;
         use crate::{MetricsOptions, ParserTrait, RustParser};
         use std::path::PathBuf;
 
         fn analyse(source: &str, exclude_tests: bool) -> crate::FuncSpace {
             let path = PathBuf::from("lib.rs");
             let parser = RustParser::new(source.as_bytes().to_vec(), &path, None);
-            metrics_with_options(
+            metrics_inner(
                 &parser,
-                &path,
+                path.to_str().map(str::to_owned),
                 MetricsOptions::default().with_exclude_tests(exclude_tests),
             )
             .expect("metrics must yield a top-level space")
@@ -2530,7 +2319,7 @@ mod tests {
     // they don't override `should_skip_subtree`. This is the
     // "spot-check non-Rust" check from issue #182.
     mod exclude_tests_non_rust {
-        use crate::metrics_with_options;
+        use crate::spaces::metrics_inner;
         use crate::{CppParser, MetricsOptions, ParserTrait};
         use std::path::PathBuf;
 
@@ -2542,16 +2331,16 @@ int helper() { return 2; }
 ";
             let path = PathBuf::from("foo.cpp");
             let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-            let baseline = metrics_with_options(
+            let baseline = metrics_inner(
                 &parser,
-                &path,
+                path.to_str().map(str::to_owned),
                 MetricsOptions::default().with_exclude_tests(false),
             )
             .expect("baseline must yield a top-level space");
             let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-            let pruned = metrics_with_options(
+            let pruned = metrics_inner(
                 &parser,
-                &path,
+                path.to_str().map(str::to_owned),
                 MetricsOptions::default().with_exclude_tests(true),
             )
             .expect("pruned must yield a top-level space");

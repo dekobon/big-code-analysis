@@ -13,10 +13,10 @@
 
 use crate::*;
 
-#[doc(hidden)]
 /// A trait to create a richer `AST` node for a programming language, mainly
-/// thought to be sent on the network.
-pub trait Alterator
+/// thought to be sent on the network. Crate-internal extension over
+/// [`Checker`], used only by the per-language `Parser<T>` impls.
+pub(crate) trait Alterator
 where
     Self: Checker,
 {
@@ -550,7 +550,7 @@ mod tests {
             comment: false,
             span: false,
         };
-        let resp = crate::AstCallback::call(cfg, &parser);
+        let resp = crate::ast::dump_inner(&parser, cfg);
         resp.root.expect("parser should produce a root AST node")
     }
 

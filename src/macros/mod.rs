@@ -209,10 +209,10 @@ macro_rules! mk_lang {
             ///
             /// Useful when feeding a caller-built
             /// [`tree_sitter::Parser`] into the
-            /// [`crate::metrics_from_tree`] / [`crate::Parser::from_tree`]
-            /// entry points — the language returned here is the one
-            /// the metric walker expects for `kind_id` matching, so
-            /// the trees agree structurally.
+            /// [`crate::Ast::from_tree_sitter`] entry point — the
+            /// language returned here is the one the metric walker
+            /// expects for `kind_id` matching, so the trees agree
+            /// structurally.
             ///
             /// This method is part of the value-not-stable surface:
             /// the underlying `tree-sitter-*` grammar pin may bump
@@ -321,117 +321,6 @@ impl ::std::error::Error for ParseLangError {}
 
 macro_rules! mk_action {
     ( $( ($feature:literal, $camel:ident, $parser:ident) ),* ) => {
-        /// Runs a function, which implements the `Callback` trait,
-        /// on a code written in one of the supported languages.
-        ///
-        /// # Errors
-        ///
-        /// Returns [`MetricsError::LanguageDisabled`] when `lang`
-        /// names a language whose per-language Cargo feature is not
-        /// enabled in the current build (see the `[features]` table
-        /// in the root `Cargo.toml`). All other failure modes are
-        /// reported through the callback's own `T::Res`.
-        ///
-        /// # Examples
-        ///
-        /// The following example dumps to shell every metric computed using
-        /// the dummy source code.
-        ///
-        /// ```
-        /// use std::path::PathBuf;
-        ///
-        /// use big_code_analysis::{action, Callback, LANG, Metrics, MetricsCfg};
-        ///
-        /// let source_code = "int a = 42;";
-        /// let language = LANG::Cpp;
-        ///
-        /// // The path to a dummy file used to contain the source code
-        /// let path = PathBuf::from("foo.c");
-        /// let source_as_vec = source_code.as_bytes().to_vec();
-        ///
-        /// // Configuration options used by the function which computes the metrics
-        /// let cfg = MetricsCfg::new(path.clone());
-        ///
-        /// action::<Metrics>(language, source_as_vec, &path, None, cfg)
-        ///     .expect("cpp feature enabled");
-        /// ```
-        #[inline]
-        pub fn action<T: Callback>(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, cfg: T::Cfg) -> Result<T::Res, MetricsError> {
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => {
-                        let parser = $parser::new(source, path, pr);
-                        Ok(T::call(cfg, &parser))
-                    },
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (source, path, pr, cfg);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
-        }
-
-        /// Returns all function spaces data of a code.
-        ///
-        /// # Deprecated
-        ///
-        /// Prefer [`analyze`], which accepts a [`Source`] carrying an
-        /// explicit display name distinct from any on-disk path. This
-        /// shim derives [`FuncSpace::name`] from `path` via lossy
-        /// UTF-8 conversion and remains for backwards compatibility
-        /// for one minor release.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use std::path::PathBuf;
-        ///
-        /// # #[allow(deprecated)]
-        /// use big_code_analysis::{get_function_spaces, LANG};
-        ///
-        /// let source_code = "int a = 42;";
-        /// let language = LANG::Cpp;
-        ///
-        /// // The path to a dummy file used to contain the source code
-        /// let path = PathBuf::from("foo.c");
-        /// let source_as_vec = source_code.as_bytes().to_vec();
-        ///
-        /// # #[allow(deprecated)]
-        /// get_function_spaces(language, source_as_vec, &path, None).unwrap();
-        /// ```
-        ///
-        /// # Errors
-        ///
-        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
-        /// per-language Cargo feature is not enabled in this build.
-        /// The return type also carries [`MetricsError::EmptyRoot`]
-        /// for forward compatibility, but the walker does not produce
-        /// it today — see the variant doc.
-        #[deprecated(
-            since = "0.0.26",
-            note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
-        )]
-        #[inline]
-        pub fn get_function_spaces(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<FuncSpace, MetricsError> {
-            #[allow(deprecated)]
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => {
-                        let parser = $parser::new(source, &path, pr);
-                        metrics(&parser, &path)
-                    },
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (source, path, pr);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
-        }
-
         /// Language-dispatched bundle of a parsed tree plus its
         /// source bytes, one variant per Cargo-feature-enabled
         /// language. The public seam is [`crate::Ast`]; this enum is
@@ -707,237 +596,6 @@ macro_rules! mk_action {
         ) -> Result<FuncSpace, MetricsError> {
             ast_parse_dispatch(lang, source, preproc_path, preproc)?.run_metrics(name, options)
         }
-
-        /// Returns all function spaces data of a code, applying the
-        /// per-traversal flags in `options` (e.g.
-        /// `exclude_tests: true` to elide Rust `#[cfg(test)]` /
-        /// `#[test]` subtrees from every metric). Equivalent to
-        /// [`get_function_spaces`] when `options` is the default.
-        ///
-        /// # Deprecated
-        ///
-        /// Prefer [`analyze`], which accepts a [`Source`] carrying an
-        /// explicit display name distinct from any on-disk path.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use std::path::PathBuf;
-        ///
-        /// # #[allow(deprecated)]
-        /// use big_code_analysis::{get_function_spaces_with_options, LANG, MetricsOptions};
-        ///
-        /// let source_code = "fn main() {}\n#[test] fn t() {}";
-        /// let language = LANG::Rust;
-        ///
-        /// let path = PathBuf::from("foo.rs");
-        /// let source_as_vec = source_code.as_bytes().to_vec();
-        /// let options = MetricsOptions::default().with_exclude_tests(true);
-        ///
-        /// # #[allow(deprecated)]
-        /// get_function_spaces_with_options(language, source_as_vec, &path, None, options).unwrap();
-        /// ```
-        ///
-        /// # Errors
-        ///
-        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
-        /// per-language Cargo feature is not enabled in this build.
-        /// The return type also carries [`MetricsError::EmptyRoot`]
-        /// for forward compatibility, but the walker does not produce
-        /// it today — see the variant doc.
-        #[deprecated(
-            since = "0.0.26",
-            note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
-        )]
-        #[inline]
-        pub fn get_function_spaces_with_options(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
-            #[allow(deprecated)]
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => {
-                        let parser = $parser::new(source, &path, pr);
-                        metrics_with_options(&parser, &path, options)
-                    },
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (source, path, pr, options);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
-        }
-
-        /// Returns all function spaces data of a code, reusing a
-        /// caller-supplied [`tree_sitter::Tree`] instead of running
-        /// the bundled parser.
-        ///
-        /// Use this when the caller already drives `tree-sitter` for
-        /// other purposes (e.g. an editor doing incremental
-        /// reparsing) and wants the metric walker to share that
-        /// parse. The supplied `tree` must have been produced from
-        /// `source` with the [`tree_sitter::Language`] returned by
-        /// [`LANG::tree_sitter_language`] for `lang`; a mismatch
-        /// is not `unsafe` but yields nonsensical metric values.
-        ///
-        /// Equivalent to [`get_function_spaces_with_options`] on the
-        /// same `(lang, source, path)` triple when the same tree is
-        /// reproduced internally.
-        ///
-        /// # Deprecated
-        ///
-        /// Prefer [`crate::Ast::from_tree_sitter`], which carries an
-        /// explicit `name: Option<String>` end-to-end instead of deriving
-        /// the top-level [`FuncSpace::name`] from `path` via lossy UTF-8
-        /// conversion: `Ast::from_tree_sitter(lang, tree, code,
-        /// name)?.metrics(options)`. This shim remains for backwards
-        /// compatibility for one minor release.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use std::path::PathBuf;
-        ///
-        /// # #[allow(deprecated)]
-        /// use big_code_analysis::{
-        ///     get_function_spaces, metrics_from_tree, tree_sitter, LANG,
-        ///     MetricsOptions,
-        /// };
-        ///
-        /// let source_code = "fn main() { if true { 1 } else { 2 }; }";
-        /// let path = PathBuf::from("foo.rs");
-        /// let source = source_code.as_bytes().to_vec();
-        ///
-        /// let mut parser = tree_sitter::Parser::new();
-        /// parser
-        ///     .set_language(
-        ///         &LANG::Rust
-        ///             .tree_sitter_language()
-        ///             .expect("rust feature enabled"),
-        ///     )
-        ///     .expect("rust grammar pinned to a compatible version");
-        /// let tree = parser
-        ///     .parse(&source, None)
-        ///     .expect("parser has a language set");
-        ///
-        /// # #[allow(deprecated)]
-        /// let from_tree = metrics_from_tree(
-        ///     LANG::Rust,
-        ///     tree,
-        ///     source.clone(),
-        ///     &path,
-        ///     None,
-        ///     MetricsOptions::default(),
-        /// )
-        /// .unwrap();
-        /// # #[allow(deprecated)]
-        /// let from_bytes =
-        ///     get_function_spaces(LANG::Rust, source, &path, None).unwrap();
-        ///
-        /// assert_eq!(
-        ///     from_tree.metrics.cyclomatic.cyclomatic_sum(),
-        ///     from_bytes.metrics.cyclomatic.cyclomatic_sum(),
-        /// );
-        /// ```
-        ///
-        /// # Errors
-        ///
-        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
-        /// per-language Cargo feature is not enabled in this build.
-        /// The return type also carries [`MetricsError::EmptyRoot`]
-        /// for forward compatibility, but the walker does not produce
-        /// it today — see the variant doc.
-        #[deprecated(
-            since = "0.0.26",
-            note = "Use `Ast::from_tree_sitter(lang, tree, code, name)?.metrics(options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion and will be removed in a future release."
-        )]
-        #[inline]
-        pub fn metrics_from_tree(
-            lang: LANG,
-            tree: ::tree_sitter::Tree,
-            source: Vec<u8>,
-            path: &Path,
-            pr: Option<Arc<PreprocResults>>,
-            options: MetricsOptions,
-        ) -> Result<FuncSpace, MetricsError> {
-            // `pr` is accepted for parity with the byte-based entry
-            // points so callers can swap one for the other without
-            // changing call shape. Today only the C/C++ pre-pass uses
-            // it, and that pre-pass runs before parsing — if the
-            // caller built the tree themselves, they have already
-            // accepted whatever macro expansion (or lack thereof) the
-            // tree reflects, so the parameter is currently a no-op.
-            let _ = pr;
-            // Same path-name handling as the deprecated entry points
-            // so existing callers see no behaviour change. Callers
-            // who want to drop the lossy round-trip should use
-            // [`crate::Ast::from_tree_sitter`], which carries an
-            // explicit `name: Option<String>` end-to-end.
-            let name = Some(path.to_string_lossy().into_owned());
-            ast_from_tree_dispatch(lang, tree, source)?.run_metrics(name, options)
-        }
-
-        /// Returns all operators and operands of each space in a code.
-        ///
-        /// # Deprecated
-        ///
-        /// Prefer [`crate::Ast::ops`], which carries an explicit
-        /// `name: Option<String>` from [`crate::Source`] end-to-end
-        /// instead of deriving the top-level [`Ops::name`] from `path`
-        /// via lossy UTF-8 conversion:
-        /// `Ast::parse(Source::new(lang, code).with_name(Some(name)))?.ops()`.
-        /// This shim remains for backwards compatibility for one minor
-        /// release.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use big_code_analysis::{Ast, LANG, Source};
-        ///
-        /// let source_code = "int a = 42;";
-        ///
-        /// let ops = Ast::parse(
-        ///     Source::new(LANG::Cpp, source_code.as_bytes())
-        ///         .with_name(Some("foo.c".to_owned())),
-        /// )
-        /// .expect("cpp feature enabled")
-        /// .ops()
-        /// .unwrap();
-        /// assert_eq!(ops.name.as_deref(), Some("foo.c"));
-        /// ```
-        ///
-        /// # Errors
-        ///
-        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
-        /// per-language Cargo feature is not enabled in this build.
-        /// The return type also carries [`MetricsError::EmptyRoot`]
-        /// for forward compatibility, but the walker does not produce
-        /// it today — see the variant doc.
-        #[deprecated(
-            since = "0.0.26",
-            note = "Use `Ast::parse(Source::new(lang, code).with_name(Some(name)))?.ops()` instead — the path-positional shim derives the top-level Ops name via lossy UTF-8 conversion and will be removed in a future release."
-        )]
-        #[inline]
-        pub fn get_ops(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => {
-                        let parser = $parser::new(source, &path, pr);
-                        // Backwards-compat shim: the path-based
-                        // `operands_and_operators` derives the lossy name.
-                        // The `Ast::ops` seam carries an explicit name.
-                        #[allow(deprecated)]
-                        operands_and_operators(&parser, &path)
-                    },
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (source, path, pr);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
-        }
     };
 }
 
@@ -1025,7 +683,7 @@ macro_rules! mk_code {
     ( $( ($camel:ident, $code:ident, $parser:ident, $name:ident, $docname:expr) ),* ) => {
         $(
             #[doc = concat!("Per-language code type tag for ", $docname, "; carries no data.")]
-            pub struct $code { _guard: (), }
+            pub(crate) struct $code { _guard: (), }
 
             impl LanguageInfo for $code {
                 type BaseLang = $camel;
@@ -1033,16 +691,12 @@ macro_rules! mk_code {
                 fn lang() -> LANG {
                     LANG::$camel
                 }
-
-                fn lang_name() -> &'static str {
-                    $docname
-                }
             }
 
             #[doc = "The `"]
             #[doc = $docname]
             #[doc = "` language parser."]
-            pub type $parser = Parser<$code>;
+            pub(crate) type $parser = Parser<$code>;
         )*
     };
 }

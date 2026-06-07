@@ -14,11 +14,11 @@
     clippy::wildcard_imports
 )]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
 
-use crate::traits::*;
+use crate::traits::{ParserTrait, Search};
 
 use crate::checker::Checker;
 use crate::getter::Getter;
@@ -48,16 +48,13 @@ impl FunctionSpan {
     }
 }
 
-// Hidden from rustdoc because the signature exposes `ParserTrait`,
-// which is `#[doc(hidden)]` per issue #256. The CLI's `Function`
-// callback remains the documented surface.
-#[doc(hidden)]
-/// Detects the span of each function in a code.
+/// Detects the span of each function in a code. Crate-internal walk
+/// core reached through the [`crate::Ast::functions`] seam.
 ///
 /// Returns a vector containing the [`FunctionSpan`] of each function
 ///
 /// [`FunctionSpan`]: struct.FunctionSpan.html
-pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
+pub(crate) fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
     let root = parser.root();
     let code = parser.code();
     let mut spans = Vec::new();
@@ -167,25 +164,11 @@ fn dump_spans(
     color(stdout, Color::White)
 }
 
-/// Configuration options for detecting the span of
-/// each function in a code.
-#[derive(Debug)]
-pub struct FunctionCfg {
-    /// Path to the file containing the code
-    pub path: PathBuf,
-}
-
-/// Type tag identifying the function-extraction action; carries no data.
-pub struct Function {
-    _guard: (),
-}
-
 /// Render `spans` for `path` to colored stdout (nothing when `spans`
-/// is empty). The `Ast`-seam-friendly counterpart of the `Function`
-/// callback's output half: callers obtain `spans` from
-/// [`crate::Ast::functions`] and render them without naming the parser
-/// surface. Mirrors the self-contained-stdout shape of
-/// [`crate::dump_root`] / [`crate::dump_ops`].
+/// is empty). Callers obtain `spans` from [`crate::Ast::functions`]
+/// and render them without naming the parser surface. Mirrors the
+/// self-contained-stdout shape of [`crate::dump_root`] /
+/// [`crate::dump_ops`].
 ///
 /// # Errors
 ///
@@ -200,15 +183,6 @@ pub fn dump_function_spans(spans: Vec<FunctionSpan>, path: &Path) -> std::io::Re
     let stdout = StandardStream::stdout(ColorChoice::Always);
     let mut stdout = stdout.lock();
     dump_spans(spans, path, &mut stdout)
-}
-
-impl Callback for Function {
-    type Res = std::io::Result<()>;
-    type Cfg = FunctionCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        dump_function_spans(function(parser), &cfg.path)
-    }
 }
 
 #[cfg(test)]

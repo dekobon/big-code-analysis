@@ -154,7 +154,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language computation of the cognitive complexity metric.
-pub trait Cognitive
+pub(crate) trait Cognitive
 where
     Self: Checker,
 {

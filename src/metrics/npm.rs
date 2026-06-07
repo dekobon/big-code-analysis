@@ -222,7 +222,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language counting of public methods.
-pub trait Npm
+pub(crate) trait Npm
 where
     Self: Checker,
 {

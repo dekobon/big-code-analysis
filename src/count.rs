@@ -27,15 +27,12 @@ use num_format::{Locale, ToFormattedString};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use crate::traits::*;
+use crate::traits::ParserTrait;
 
-// Hidden from rustdoc because the signature exposes `ParserTrait`,
-// which is `#[doc(hidden)]` per issue #256. The CLI's `Count` callback
-// remains the documented surface for this functionality.
-#[doc(hidden)]
-/// Counts the types of nodes specified in the input slice
-/// and the number of nodes in a code.
-pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
+/// Counts the types of nodes specified in the input slice and the
+/// number of nodes in a code. Crate-internal walk core reached through
+/// the [`crate::Ast::count`] seam.
+pub(crate) fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
     let filters = parser.filters(filters);
     let node = parser.root();
     let mut cursor = node.cursor();
@@ -63,63 +60,12 @@ pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
     (good, total)
 }
 
-/// Configuration options for counting different
-/// types of nodes in a code.
-#[derive(Debug)]
-pub struct CountCfg {
-    /// Types of nodes to count
-    pub filters: NodeTypeFilters,
-    /// Shared tally accumulated across every worker
-    pub stats: CountCollector,
-}
-
-/// Opaque, owned set of tree-sitter node-type names to match against.
-///
-/// Wraps the node-type patterns behind a newtype so neither
-/// [`CountCfg`] nor [`crate::FindCfg`] exposes the `Arc<[String]>`
-/// reference-counted representation in its public signature. A
-/// borrowed `&[String]` field is impossible here: [`CountCfg`] /
-/// [`crate::FindCfg`] are handed to
-/// [`crate::ConcurrentRunner::run`], whose `Config: 'static` bound
-/// (it wraps the config in an `Arc` shared across worker threads)
-/// forbids a borrow tied to the caller's stack. The owned `Arc<[…]>`
-/// keeps cloning cheap while staying `'static + Send + Sync`.
-#[derive(Debug, Clone)]
-pub struct NodeTypeFilters(Arc<[String]>);
-
-impl NodeTypeFilters {
-    /// Builds a filter set from the given node-type patterns.
-    #[must_use]
-    pub fn new(filters: &[String]) -> Self {
-        Self(Arc::from(filters))
-    }
-
-    /// Borrows the node-type patterns as a slice for the internal
-    /// `parser.filters(&…)` call.
-    #[must_use]
-    pub fn as_slice(&self) -> &[String] {
-        &self.0
-    }
-}
-
-impl From<Vec<String>> for NodeTypeFilters {
-    fn from(filters: Vec<String>) -> Self {
-        Self(Arc::from(filters))
-    }
-}
-
-impl From<&[String]> for NodeTypeFilters {
-    fn from(filters: &[String]) -> Self {
-        Self::new(filters)
-    }
-}
-
 /// Opaque, shareable collector that accumulates a [`Count`] across the
 /// worker threads of a [`crate::ConcurrentRunner`] walk.
 ///
-/// Wraps the shared `Arc<Mutex<Count>>` behind a newtype so [`CountCfg`]
-/// does not expose the synchronization machinery in its public
-/// signature. [`Clone`] is a cheap reference-count bump, so each worker
+/// Wraps the shared `Arc<Mutex<Count>>` behind a newtype so callers do
+/// not handle the synchronization machinery directly. [`Clone`] is a
+/// cheap reference-count bump, so each worker
 /// can hold its own handle to the same tally while the config still
 /// satisfies the `'static + Send + Sync` bound of
 /// [`crate::ConcurrentRunner`]. Recover the final tally with
@@ -203,17 +149,6 @@ pub struct Count {
     pub total: usize,
 }
 
-impl Callback for Count {
-    type Res = std::io::Result<()>;
-    type Cfg = CountCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        let (good, total) = count(parser, cfg.filters.as_slice());
-        cfg.stats.add(good, total);
-        Ok(())
-    }
-}
-
 impl fmt::Display for Count {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
@@ -237,18 +172,16 @@ impl fmt::Display for Count {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RustParser;
-    use std::path::PathBuf;
     use std::thread;
 
     // Regression test for issue #445: a poisoned `stats` mutex must not
     // cascade into a pool-wide panic. A worker that panics while holding
-    // the shared guard poisons the lock; every subsequent `Count::call`
-    // used to re-panic on `.lock().unwrap()`. Verified by revert per
+    // the shared guard poisons the lock; `CountCollector::add` used to
+    // re-panic on `.lock().unwrap()`. Verified by revert per
     // `.claude/rules/testing.md`: reverting the recovery makes this test
-    // panic instead of returning `Ok(())`.
+    // panic instead of applying the tally.
     #[test]
-    fn call_degrades_on_poisoned_stats_mutex() {
+    fn add_degrades_on_poisoned_stats_mutex() {
         let stats = Arc::new(Mutex::new(Count::default()));
 
         // Poison the mutex: panic while holding the guard on a helper
@@ -264,18 +197,10 @@ mod tests {
         );
         assert!(stats.is_poisoned(), "test setup failed to poison the mutex");
 
-        let source = b"fn main() { let _ = 1; }".to_vec();
-        let parser = RustParser::new(source, &PathBuf::from("poisoned.rs"), None);
-        let cfg = CountCfg {
-            filters: NodeTypeFilters::new(&[]),
-            stats: CountCollector(stats.clone()),
-        };
-
-        let result = Count::call(cfg, &parser);
-        assert!(
-            result.is_ok(),
-            "poisoned stats mutex should degrade to Ok(()), not panic"
-        );
+        // Adding into a poisoned collector must degrade (recover the
+        // guard, clear the poison) rather than panic on `.lock()`.
+        let collector = CountCollector(stats.clone());
+        collector.add(2, 5);
 
         // The recovery clears the poison so later peers and the
         // collector's final `into_count()` see a usable, fully-applied
@@ -285,8 +210,9 @@ mod tests {
             "recovery should clear the poison flag"
         );
         let recovered = stats.lock().expect("poison cleared, lock must succeed");
-        assert!(
-            recovered.total > 0,
+        assert_eq!(
+            (recovered.good, recovered.total),
+            (2, 5),
             "the surviving worker's counts must still be applied"
         );
     }
@@ -334,20 +260,5 @@ mod tests {
         let count = collector.into_count();
         assert_eq!(count.good, 3, "poison recovery must preserve the tally");
         assert_eq!(count.total, 7, "poison recovery must preserve the tally");
-    }
-
-    // `NodeTypeFilters` round-trips the patterns it was built from.
-    #[test]
-    fn node_type_filters_round_trip() {
-        let patterns = vec!["function".to_owned(), "if_statement".to_owned()];
-
-        let filters = NodeTypeFilters::new(&patterns);
-        assert_eq!(filters.as_slice(), patterns.as_slice());
-
-        let from_vec = NodeTypeFilters::from(patterns.clone());
-        assert_eq!(from_vec.as_slice(), patterns.as_slice());
-
-        let from_slice = NodeTypeFilters::from(patterns.as_slice());
-        assert_eq!(from_slice.as_slice(), patterns.as_slice());
     }
 }

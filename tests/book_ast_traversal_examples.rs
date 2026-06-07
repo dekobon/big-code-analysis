@@ -145,10 +145,8 @@ fn metrics_plus_symbol_table_one_parse() {
 }
 
 #[test]
-fn ast_callback_produces_serializable_tree() {
-    use std::path::PathBuf;
-
-    use big_code_analysis::{AstCallback, AstCfg, AstPayload, action};
+fn ast_dump_produces_serializable_tree() {
+    use big_code_analysis::{Ast, AstCfg, AstPayload, Source};
 
     let payload = AstPayload {
         id: "snippet".to_owned(),
@@ -162,14 +160,11 @@ fn ast_callback_produces_serializable_tree() {
         comment: payload.comment,
         span: payload.span,
     };
-    let response = action::<AstCallback>(
-        LANG::Rust,
-        payload.code.into_bytes(),
-        &PathBuf::from(&payload.file_name),
-        None,
-        cfg,
+    let response = Ast::parse(
+        Source::new(LANG::Rust, payload.code.as_bytes()).with_name(Some(payload.file_name.clone())),
     )
-    .expect("rust feature enabled");
+    .expect("rust feature enabled")
+    .dump(cfg);
 
     // Walk the materialized tree structurally instead of substring-matching
     // the JSON — a substring check would false-pass on any node whose

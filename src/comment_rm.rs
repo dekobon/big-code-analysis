@@ -10,22 +10,14 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::enum_glob_use, clippy::if_not_else, clippy::wildcard_imports)]
 
-use std::io::{self, Write};
-use std::path::PathBuf;
-
 use crate::checker::Checker;
-
-use crate::tools::*;
-use crate::traits::*;
+use crate::traits::ParserTrait;
 
 const CR: [u8; 8192] = [b'\n'; 8192];
 
-// Hidden from rustdoc because the signature exposes `ParserTrait`,
-// which is `#[doc(hidden)]` per issue #256. The CLI's `CommentRm`
-// callback remains the documented surface.
-#[doc(hidden)]
-/// Removes comments from a code.
-pub fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
+/// Removes comments from a code. Crate-internal walk core reached
+/// through the [`crate::Ast::strip_comments`] seam.
+pub(crate) fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
     let node = parser.root();
     let mut stack = Vec::new();
     let mut cursor = node.cursor();
@@ -74,44 +66,6 @@ fn remove_from_code(code: &[u8], mut spans: Vec<(usize, usize, usize)>) -> Vec<u
         new_code.extend(&code[code_start..]);
     }
     new_code
-}
-
-/// Configuration options for removing comments from a code.
-#[derive(Debug)]
-pub struct CommentRmCfg {
-    /// If `true`, the modified code is saved on a file
-    pub in_place: bool,
-    /// Path to the input file (used as the in-place rewrite target).
-    pub path: PathBuf,
-    /// Optional single-file output sink. When `in_place` is `false` and
-    /// this is `Some`, the stripped source is written to the given path
-    /// instead of stdout. Ignored when `in_place` is `true`.
-    pub output: Option<PathBuf>,
-}
-
-/// Type tag identifying the comment-removal action; carries no data.
-pub struct CommentRm {
-    _guard: (),
-}
-
-impl Callback for CommentRm {
-    type Res = std::io::Result<()>;
-    type Cfg = CommentRmCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        if let Some(new_source) = rm_comments(parser) {
-            if cfg.in_place {
-                write_file(&cfg.path, &new_source)?;
-            } else if let Some(output) = &cfg.output {
-                write_file(output, &new_source)?;
-            } else if let Ok(new_source) = std::str::from_utf8(&new_source) {
-                println!("{new_source}");
-            } else {
-                io::stdout().write_all(&new_source)?;
-            }
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

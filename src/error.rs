@@ -81,9 +81,9 @@ pub enum MetricsError {
     /// The requested [`LANG`] is not enabled in this build.
     ///
     /// Produced by every dispatch entry point
-    /// ([`crate::analyze`], [`crate::metrics_from_tree`],
-    /// [`crate::action`], [`crate::get_ops`], the deprecated
-    /// `get_function_spaces*` shims, and [`crate::LANG::tree_sitter_language`])
+    /// ([`crate::analyze`], [`crate::Ast::parse`],
+    /// [`crate::Ast::from_tree_sitter`], and
+    /// [`crate::LANG::tree_sitter_language`])
     /// when the caller selects a [`LANG`] variant whose per-language
     /// Cargo feature is not enabled in the current build — see the
     /// `[features]` table in the root `Cargo.toml` for the list.

@@ -10,20 +10,13 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use std::path::PathBuf;
-
-use crate::count::NodeTypeFilters;
 use crate::node::Node;
 
 use crate::error::MetricsError;
-use crate::output::dump::*;
-use crate::traits::*;
+use crate::traits::ParserTrait;
 
-// Hidden from rustdoc because the signature exposes `ParserTrait`,
-// which is `#[doc(hidden)]` per issue #256. The CLI's `Find` callback
-// remains the documented surface for this functionality.
-#[doc(hidden)]
-/// Finds the types of nodes specified in the input slice.
+/// Finds the types of nodes specified in the input slice. Crate-internal
+/// walk core reached through the [`crate::Ast::find`] seam.
 ///
 /// "No matches" is represented by `Ok(Vec::new())` rather than an
 /// error — it is a normal outcome, not a failure mode. The
@@ -34,9 +27,14 @@ use crate::traits::*;
 /// # Errors
 ///
 /// Currently infallible; the [`Result`] wrapper aligns the signature
-/// with [`crate::metrics`] and [`crate::operands_and_operators`] so
-/// callers can use the `?` operator uniformly.
-pub fn find<'a, T: ParserTrait>(
+/// with the other walk cores so callers can use the `?` operator
+/// uniformly.
+// The `Result` is deliberate forward-compat (see doc above) and is
+// propagated unchanged through `AstInner::run_find` / `Ast::find`;
+// `unnecessary_wraps` would have us drop it and break that uniform
+// `?`-able shape across the walk cores.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn find<'a, T: ParserTrait>(
     parser: &'a T,
     filters: &[String],
 ) -> Result<Vec<Node<'a>>, MetricsError> {
@@ -67,47 +65,4 @@ pub fn find<'a, T: ParserTrait>(
         }
     }
     Ok(good)
-}
-
-/// Configuration options for finding different
-/// types of nodes in a code.
-#[derive(Debug)]
-pub struct FindCfg {
-    /// Path to the file containing the code
-    pub path: PathBuf,
-    /// Types of nodes to find
-    pub filters: NodeTypeFilters,
-    /// The first line of code considered in the search
-    ///
-    /// If `None`, the search starts from the
-    /// first line of code in a file
-    pub line_start: Option<usize>,
-    /// The end line of code considered in the search
-    ///
-    /// If `None`, the search ends at the
-    /// last line of code in a file
-    pub line_end: Option<usize>,
-}
-
-/// Type tag identifying the node-find action; carries no data.
-pub struct Find {
-    _guard: (),
-}
-
-impl Callback for Find {
-    type Res = std::io::Result<()>;
-    type Cfg = FindCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        if let Ok(good) = find(parser, cfg.filters.as_slice())
-            && !good.is_empty()
-        {
-            println!("In file {}", cfg.path.display());
-            for node in good {
-                dump_node(parser.code(), &node, 1, cfg.line_start, cfg.line_end)?;
-            }
-            println!();
-        }
-        Ok(())
-    }
 }

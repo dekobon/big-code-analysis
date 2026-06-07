@@ -233,7 +233,7 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
 
 #[doc(hidden)]
 /// Per-language counting of function arguments.
-pub trait NArgs
+pub(crate) trait NArgs
 where
     Self: Checker,
     Self: std::marker::Sized,

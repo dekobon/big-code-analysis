@@ -138,7 +138,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language counting of tokens.
-pub trait Tokens
+pub(crate) trait Tokens
 where
     Self: Checker,
 {

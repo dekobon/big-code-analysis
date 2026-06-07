@@ -223,7 +223,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language counting of methods (functions + closures).
-pub trait Nom
+pub(crate) trait Nom
 where
     Self: Checker,
 {

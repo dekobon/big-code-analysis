@@ -231,7 +231,7 @@ pub(crate) fn accessibility_ratio(public: f64, total: f64) -> f64 {
 
 #[doc(hidden)]
 /// Per-language counting of public attributes.
-pub trait Npa
+pub(crate) trait Npa
 where
     Self: Checker,
 {

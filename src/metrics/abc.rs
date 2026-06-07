@@ -352,7 +352,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language computation of the ABC metric.
-pub trait Abc
+pub(crate) trait Abc
 where
     Self: Checker,
 {

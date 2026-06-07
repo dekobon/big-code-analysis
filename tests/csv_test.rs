@@ -5,24 +5,23 @@
 //! Each fixture is small and self-contained so the snapshots stay
 //! reviewable in code review.
 
-// Existing tests use the generic `Parser<T>` flavour together with
-// `metrics(&parser, &path)`. Both halves of that surface remain
-// available; `metrics` is `#[deprecated]` post-#254 in favour of
-// `analyze(Source { ... }, ...)`. The two seams give equivalent
-// `FuncSpace` results for valid-UTF-8 paths, so the CSV snapshot
-// coverage is unchanged. Scope the allowance here rather than
-// migrating: these tests double as regression coverage for the
-// deprecated shim.
-#![allow(deprecated)]
+// These tests drive the public `analyze` + `Source` seam — the single
+// public analysis entry point after the path-positional surface was
+// retired in #570. For valid-UTF-8 names the resulting `FuncSpace` is
+// byte-for-byte what the old `metrics(&parser, &path)` shim produced, so
+// the CSV snapshot coverage is unchanged.
 
 use std::path::{Path, PathBuf};
 
-use big_code_analysis::{
-    CSV_HEADER, CppParser, ParserTrait, PythonParser, RustParser, metrics, write_csv,
-};
+use big_code_analysis::{CSV_HEADER, LANG, MetricsOptions, Source, analyze, write_csv};
 
-fn render_csv<T: ParserTrait>(parser: &T, path: &Path) -> String {
-    let space = metrics(parser, path).expect("metrics returns Some for valid input");
+fn render_csv(lang: LANG, source: &[u8], path: &Path) -> String {
+    let name = path.to_str().map(str::to_owned);
+    let space = analyze(
+        Source::new(lang, source).with_name(name),
+        MetricsOptions::default(),
+    )
+    .expect("analyze returns a top-level space for valid input");
     let mut buf = Vec::new();
     write_csv(&space, path, &mut buf).expect("writing to Vec is infallible");
     String::from_utf8(buf).expect("output is UTF-8")
@@ -68,8 +67,7 @@ impl Counter {
 }
 ";
     let path = PathBuf::from("counter.rs");
-    let parser = RustParser::new(source.as_bytes().to_vec(), &path, None);
-    let out = render_csv(&parser, &path);
+    let out = render_csv(LANG::Rust, source.as_bytes(), &path);
     assert_well_formed(&out);
 
     insta::assert_snapshot!("csv_rust_counter", out);
@@ -88,8 +86,7 @@ class Greeter:
         return "Hello!"
 "#;
     let path = PathBuf::from("greeter.py");
-    let parser = PythonParser::new(source.as_bytes().to_vec(), &path, None);
-    let out = render_csv(&parser, &path);
+    let out = render_csv(LANG::Python, source.as_bytes(), &path);
     assert_well_formed(&out);
 
     insta::assert_snapshot!("csv_python_greeter", out);
@@ -109,8 +106,7 @@ private:
 }
 ";
     let path = PathBuf::from("widget.cc");
-    let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-    let out = render_csv(&parser, &path);
+    let out = render_csv(LANG::Cpp, source.as_bytes(), &path);
     assert_well_formed(&out);
 
     insta::assert_snapshot!("csv_cpp_widget", out);
@@ -124,8 +120,11 @@ fn csv_header_row_is_documented_constant() {
     // the test in the integration suite makes the contract obvious
     // to downstream consumers reading these tests.
     let path = PathBuf::from("empty.rs");
-    let parser = RustParser::new(b"".to_vec(), &path, None);
-    let space = metrics(&parser, &path).expect("metrics returns Some");
+    let space = analyze(
+        Source::new(LANG::Rust, b"").with_name(path.to_str().map(str::to_owned)),
+        MetricsOptions::default(),
+    )
+    .expect("analyze returns a top-level space");
     let mut buf = Vec::new();
     write_csv(&space, &path, &mut buf).expect("ok");
     let text = String::from_utf8(buf).expect("utf-8");

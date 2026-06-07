@@ -559,6 +559,31 @@ for historical reference.
 
 ### Changed
 
+- **(breaking, deferred to 2.0)** Retired the `action` / `Callback`
+  dispatch and the path-positional analysis surface, leaving
+  [`Ast`] (with `analyze` for the one-shot case) as the single public
+  analysis seam (#566, #570). Removed: the `Callback` trait and its
+  per-action tag/`Cfg` types (`Dump`/`DumpCfg`, `CommentRm`/`CommentRmCfg`,
+  `Function`/`FunctionCfg`, `Find`/`FindCfg`, `CountCfg`,
+  `NodeTypeFilters`, `OpsCode`/`OpsCfg`, `Metrics`/`MetricsCfg`,
+  `SuppressionScan`, `AstCallback`); the `action` dispatcher; the
+  parser-generic free functions `metrics` / `metrics_with_options`
+  (in `spaces`) and `operands_and_operators` (in `ops`); and the
+  path-positional shims `get_function_spaces`,
+  `get_function_spaces_with_options`, `metrics_from_tree`, and
+  `get_ops`. The internal parser machinery is demoted from `pub` to
+  `pub(crate)` and dropped from the crate root and prelude:
+  `Parser`, `ParserTrait`, `Filter`, `LanguageInfo`, `Alterator`,
+  `Getter`, `Checker`, the per-metric compute traits
+  (`Cyclomatic`/`Cognitive`/`Halstead`/`Loc`/`Nom`/`Mi`/`NArgs`/`Exit`/
+  `Wmc`/`Abc`/`Npm`/`Npa`/`Tokens`), the per-language `<Lang>Parser`
+  aliases and `<Lang>Code` tags, `PreprocParser`, and the
+  `rm_comments` / `function` / `count` / `find` / `suppression_markers`
+  walk cores. Callers migrate to `Ast` (`parse`, `from_tree_sitter`,
+  `metrics`, `ops`, `strip_comments`, `functions`, `dump`, `count`,
+  `find`, `suppressions`, `root_node`) or `analyze`. No metric values
+  change — this is a pure removal/visibility change. The deletions land
+  staged on `main` and take effect at the `2.0` major bump.
 - `bca` now analyzes each file through the explicit-name `analyze` /
   `Ast::ops` seams instead of the deprecated path-positional shims
   (`get_function_spaces_with_options`, `get_ops`). Behaviour is

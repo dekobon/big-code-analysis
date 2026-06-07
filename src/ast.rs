@@ -191,11 +191,6 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
     }
 }
 
-/// Type tag identifying the AST extraction action; carries no data.
-pub struct AstCallback {
-    _guard: (),
-}
-
 /// Configuration options for retrieving the nodes of an `AST`.
 #[derive(Debug)]
 pub struct AstCfg {
@@ -206,15 +201,6 @@ pub struct AstCfg {
     /// If `true`, the start and end positions of a node in a code
     /// are considered
     pub span: bool,
-}
-
-impl Callback for AstCallback {
-    type Res = AstResponse;
-    type Cfg = AstCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        dump_inner(parser, cfg)
-    }
 }
 
 /// Build the AST dump for `parser` under `cfg`. Backs [`crate::Ast::dump`];
@@ -241,7 +227,7 @@ mod tests {
             comment: false,
             span: false,
         };
-        AstCallback::call(cfg, &parser)
+        dump_inner(&parser, cfg)
             .root
             .expect("parser should produce a root AST node")
     }
@@ -254,7 +240,7 @@ mod tests {
             comment: false,
             span: true,
         };
-        AstCallback::call(cfg, &parser)
+        dump_inner(&parser, cfg)
             .root
             .expect("parser should produce a root AST node")
     }

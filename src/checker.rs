@@ -228,7 +228,7 @@ fn get_aho_corasick_match(code: &[u8]) -> bool {
 /// The flip side is that the compiler cannot flag a forgotten override, so
 /// each language's per-metric tests are the safety net for completeness.
 #[doc(hidden)]
-pub trait Checker {
+pub(crate) trait Checker {
     #[inline]
     fn is_comment(_: &Node) -> bool {
         false

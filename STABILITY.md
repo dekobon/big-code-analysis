@@ -846,22 +846,6 @@ loose ends that will be tightened at `2.0`:
   function- and file-scope). Marking those would force callers into
   pointless wildcard arms on closed two-variant models for no
   forward-compatibility benefit.
-- The builder types `Source`, `MetricsOptions`, and `MetricsCfg`
-  lose their `pub` fields (narrowed to `pub(crate)`), so the field
-  representation stops being frozen as API — only the `new` + `with_*`
-  builder methods remain the contract (#533).
-- The deprecated `metrics` / `metrics_with_options` shims (in
-  favour of `analyze`) are removed.
-- The remaining `#[doc(hidden)]` extension traits (`ParserTrait`,
-  the per-metric compute traits, `Parser<T>`, `Filter`, and — since
-  #534 — `Callback` and `LanguageInfo`) become candidates for either
-  deletion or formal exposure — the current hidden state is a holding
-  pattern, not a destination.
-- `Cursor` (`src/node.rs`) is demoted from `pub` to `pub(crate)`
-  (#534): every one of its methods was already `pub(crate)`, so the
-  re-exported type could be named but never used. It is dropped from
-  the `lib.rs` re-exports. This is a SemVer-breaking removal from the
-  public surface, hence reserved for `2.0`.
 - The accumulated metric-definition fixes that have shifted values
   across `1.x` get a clean re-baseline note in the `2.0` entry, so
   consumers comparing across the major boundary have one diff to

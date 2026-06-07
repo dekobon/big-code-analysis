@@ -37,7 +37,7 @@ use crate::checker::Checker;
 use crate::getter::Getter;
 use crate::metric_set::Metric;
 use crate::node::Node;
-use crate::traits::{Callback, ParserTrait};
+use crate::traits::ParserTrait;
 
 /// Resolve a sub-metric threshold name (e.g. `cyclomatic.modified`,
 /// `halstead.volume`, `loc.lloc`) to its parent [`Metric`].
@@ -528,8 +528,8 @@ impl From<SuppressionSource> for SuppressionDialect {
 /// A single in-source suppression marker located within a file, carrying
 /// the context needed to audit it.
 ///
-/// Produced by [`suppression_markers`] (and the [`SuppressionScan`]
-/// callback) for the `bca exemptions` report (issue #386). Unlike the
+/// Produced by [`crate::Ast::suppressions`] for the `bca exemptions`
+/// report (issue #386). Unlike the
 /// merged [`crate::FuncSpace::suppressed`] scope — which records only
 /// *what* a function ends up suppressing — this records each marker's
 /// own location, dialect, and the enclosing function it was written in,
@@ -568,12 +568,11 @@ pub struct SuppressionMarker {
 /// function ancestor during a depth-first walk, matching the body-
 /// containment rule the real suppression logic uses (issue #289) rather
 /// than line-range guessing. Markers are returned sorted by line.
-// Hidden from rustdoc because the signature exposes `ParserTrait`,
-// which is `#[doc(hidden)]` per issue #256 — the `SuppressionScan`
-// callback and `SuppressionMarker` type are the documented surface.
-#[doc(hidden)]
+///
+/// Crate-internal walk core reached through the
+/// [`crate::Ast::suppressions`] seam.
 #[must_use]
-pub fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<SuppressionMarker> {
+pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<SuppressionMarker> {
     let code = parser.code();
     let mut markers = Vec::new();
     // Explicit-stack DFS (not recursion) so a pathologically deep AST
@@ -615,22 +614,6 @@ pub fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<SuppressionMarker>
     }
     markers.sort_by_key(|m| m.line);
     markers
-}
-
-/// Type tag selecting the suppression-marker scan in the language
-/// dispatch (`big_code_analysis::action::<SuppressionScan>`); carries no
-/// data. Returns the [`SuppressionMarker`] list for the parsed file.
-pub struct SuppressionScan {
-    _guard: (),
-}
-
-impl Callback for SuppressionScan {
-    type Res = Vec<SuppressionMarker>;
-    type Cfg = ();
-
-    fn call<T: ParserTrait>(_cfg: Self::Cfg, parser: &T) -> Self::Res {
-        suppression_markers(parser)
-    }
 }
 
 #[cfg(test)]

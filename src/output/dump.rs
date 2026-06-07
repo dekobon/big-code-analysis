@@ -15,8 +15,6 @@ use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
 use crate::node::Node;
 use crate::tools::{color, intense_color};
 
-use crate::traits::*;
-
 /// Dumps the `AST` of a code.
 ///
 /// Returns a [`Result`] value, when an error occurs.
@@ -29,15 +27,15 @@ use crate::traits::*;
 /// # Examples
 ///
 /// ```
-/// use big_code_analysis::{dump_node, CppParser, ParserTrait};
-/// use std::path::Path;
+/// use big_code_analysis::{dump_node, Ast, LANG, Source};
 ///
 /// let source = b"int a = 42;";
-/// let parser = CppParser::new(source.to_vec(), Path::new("example.cpp"), None);
-/// let root = parser.root();
+/// let ast = Ast::parse(Source::new(LANG::Cpp, source))
+///     .expect("cpp feature enabled");
+/// let root = ast.root_node();
 ///
 /// // Dump the AST from the first line of code in a file to the last one
-/// dump_node(source, &root, -1, None, None).unwrap();
+/// dump_node(ast.source(), &root, -1, None, None).unwrap();
 /// ```
 ///
 /// [`Result`]: #variant.Result
@@ -213,41 +211,6 @@ fn dump_children(
     }
 
     Ok(())
-}
-
-/// Configuration options for dumping the `AST` of a code.
-#[derive(Debug)]
-pub struct DumpCfg {
-    /// The first line of code to dump
-    ///
-    /// If `None`, the code is dumped from the first line of code
-    /// in a file
-    pub line_start: Option<usize>,
-    /// The last line of code to dump
-    ///
-    /// If `None`, the code is dumped until the last line of code
-    /// in a file
-    pub line_end: Option<usize>,
-}
-
-/// Type tag identifying the AST-dump action; carries no data.
-pub struct Dump {
-    _guard: (),
-}
-
-impl Callback for Dump {
-    type Res = std::io::Result<()>;
-    type Cfg = DumpCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        dump_node(
-            parser.code(),
-            &parser.root(),
-            -1,
-            cfg.line_start,
-            cfg.line_end,
-        )
-    }
 }
 
 #[cfg(test)]

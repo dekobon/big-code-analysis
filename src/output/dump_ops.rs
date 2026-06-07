@@ -21,17 +21,18 @@ use crate::tools::{color, intense_color};
 /// # Examples
 ///
 /// ```
-/// use std::path::PathBuf;
-///
-/// use big_code_analysis::{dump_ops, get_ops, LANG};
+/// use big_code_analysis::{dump_ops, Ast, LANG, Source};
 ///
 /// let source_code = "int a = 42;";
-/// let path = PathBuf::from("foo.c");
-/// let source_as_vec = source_code.as_bytes().to_vec();
 ///
-/// // Retrieve all operands and operators via the non-generic
-/// // `get_ops` entry point.
-/// let ops = get_ops(LANG::Cpp, source_as_vec, &path, None).unwrap();
+/// // Retrieve all operands and operators via the `Ast::ops` seam.
+/// let ops = Ast::parse(
+///     Source::new(LANG::Cpp, source_code.as_bytes())
+///         .with_name(Some("foo.c".to_owned())),
+/// )
+/// .expect("cpp feature enabled")
+/// .ops()
+/// .unwrap();
 ///
 /// // Dump all operands and operators
 /// dump_ops(&ops).unwrap();

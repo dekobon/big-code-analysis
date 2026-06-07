@@ -133,7 +133,7 @@ macro_rules! impl_js_family_get_op_type {
 }
 
 #[doc(hidden)]
-pub trait Getter {
+pub(crate) trait Getter {
     fn get_func_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         Self::get_func_space_name(node, code)
     }

@@ -154,7 +154,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language computation of weighted methods per class.
-pub trait Wmc
+pub(crate) trait Wmc
 where
     Self: Checker,
 {

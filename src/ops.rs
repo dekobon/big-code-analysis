@@ -10,8 +10,6 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-use std::path::{Path, PathBuf};
-
 use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
@@ -20,36 +18,28 @@ use crate::spaces::SpaceKind;
 
 use crate::halstead::{Halstead, HalsteadMaps};
 
-use crate::output::dump_ops::*;
-use crate::traits::*;
+use crate::traits::ParserTrait;
 
 /// All operands and operators of a space.
 #[derive(Debug, Clone)]
 pub struct Ops {
     /// The name of a function space.
     ///
-    /// For the top-level (file-level) `Ops` the value depends on the
-    /// entry point. The explicit-name seam [`crate::Ast::ops`] carries
-    /// whatever `Source::name` the caller supplied — `Some` or
-    /// `None`. The deprecated path-positional [`crate::get_ops`] /
-    /// [`operands_and_operators`] shims instead derive it from the file
-    /// path via lossy UTF-8 conversion, so it is always `Some`; non-UTF-8
-    /// path components on Linux (or invalid UTF-16 on Windows) become
-    /// U+FFFD replacement characters, in which case [`Ops::name_was_lossy`]
-    /// is `true` and downstream consumers must treat the name as
-    /// display-only — never as a map key or for error correlation.
+    /// For the top-level (file-level) `Ops` the value is whatever
+    /// `Source::name` the caller supplied to the [`crate::Ast::ops`]
+    /// seam — `Some` or `None`.
     ///
     /// For nested spaces, `None` means an error occurred in parsing the
     /// name of the function space from the AST.
     pub name: Option<String>,
     /// `true` when [`Ops::name`] was produced by lossy conversion (the
     /// original path contained non-UTF-8 bytes and was rendered using
-    /// U+FFFD replacement characters). Only the deprecated path-positional
-    /// shims can set it; the explicit-name [`crate::Ast::ops`] seam never
-    /// does, since a caller-supplied `String` name is UTF-8 by
-    /// construction. Always `false` for nested spaces and for top-level
-    /// spaces with valid-UTF-8 paths. Skipped from JSON output when
-    /// `false` so existing schemas keep their shape.
+    /// U+FFFD replacement characters). The explicit-name
+    /// [`crate::Ast::ops`] seam never sets it, since a caller-supplied
+    /// `String` name is UTF-8 by construction, so it is always `false`
+    /// in current code paths. Retained as a wire field for forward
+    /// compatibility; skipped from JSON output when `false` so existing
+    /// schemas keep their shape.
     pub name_was_lossy: bool,
     /// The first line of a function space.
     pub start_line: usize,
@@ -171,79 +161,11 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
     }
 }
 
-// Hidden from rustdoc because the signature exposes `ParserTrait`,
-// which is `#[doc(hidden)]` per issue #256. The non-generic
-// `get_ops(LANG, ...)` entry point is the documented surface.
-#[doc(hidden)]
-/// Retrieves all the operators and operands of a code, deriving the
-/// top-level [`Ops::name`] from `path` via lossy UTF-8 conversion.
-///
-/// # Deprecated
-///
-/// Prefer [`crate::Ast::ops`], which carries an explicit
-/// `name: Option<String>` from [`crate::Source`] end-to-end instead of
-/// round-tripping a filesystem path through lossy conversion. This shim
-/// remains for backwards compatibility for one minor release.
-///
-/// # Errors
-///
-/// The return type carries [`MetricsError::EmptyRoot`] for forward
-/// compatibility, but the walker always produces a top-level [`Ops`]
-/// today (see the variant doc), so this function does not return
-/// `Err` in practice.
-///
-/// # Examples
-///
-/// ```
-/// use std::path::PathBuf;
-///
-/// # #[allow(deprecated)]
-/// use big_code_analysis::{operands_and_operators, CppParser, ParserTrait};
-///
-/// # fn main() {
-/// let source_code = "int a = 42;";
-///
-/// // The path to a dummy file used to contain the source code
-/// let path = PathBuf::from("foo.c");
-/// let source_as_vec = source_code.as_bytes().to_vec();
-///
-/// // The parser of the code, in this case a CPP parser
-/// let parser = CppParser::new(source_as_vec, &path, None);
-///
-/// // Returns the operands and operators of each space in a code.
-/// # #[allow(deprecated)]
-/// operands_and_operators(&parser, &path).unwrap();
-/// # }
-/// ```
-#[deprecated(
-    since = "0.0.26",
-    note = "Use `Ast::parse(Source::new(lang, code).with_name(Some(name)))?.ops()` instead — the path-positional shim derives the top-level Ops name via lossy UTF-8 conversion and will be removed in a future release."
-)]
-pub fn operands_and_operators<'a, T: ParserTrait>(
-    parser: &'a T,
-    path: &'a Path,
-) -> Result<Ops, MetricsError> {
-    // Backwards-compat shim: derive the top-level name from `path` via
-    // lossy UTF-8 conversion, matching pre-#509 behaviour. The new
-    // `Ast::ops` entry point lets callers supply a name explicitly.
-    let was_lossy = path.to_str().is_none();
-    let mut ops = ops_inner(parser, Some(path.to_string_lossy().into_owned()))?;
-    // See `FuncSpace::name` rationale in `spaces.rs`: lossy conversion
-    // keeps the top-level `Ops` identifiable for non-UTF-8 paths rather
-    // than collapsing into the empty-root sentinel error. The
-    // `name_was_lossy` flag lets downstream consumers detect and avoid
-    // using the U+FFFD-bearing name as an identifier.
-    ops.name_was_lossy = was_lossy;
-    Ok(ops)
-}
-
-/// Explicit-name core of the operator/operand walk shared by the
-/// deprecated [`operands_and_operators`] path shim and the
+/// Explicit-name core of the operator/operand walk backing the
 /// [`crate::Ast::ops`] `Source`-based seam. The top-level [`Ops::name`]
 /// is whatever the caller passes in `name`; `name_was_lossy` is left at
-/// its `false` default because an explicit `String` name is never lossy
-/// (only the path shim overrides it). Mirrors
-/// [`crate::spaces::metrics_inner`].
+/// its `false` default because an explicit `String` name is never lossy.
+/// Mirrors [`crate::spaces::metrics_inner`].
 pub(crate) fn ops_inner<T: ParserTrait>(
     parser: &T,
     name: Option<String>,
@@ -311,37 +233,6 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     Ok(state.ops)
 }
 
-/// Configuration options for retrieving
-/// all the operands and operators in a code.
-#[derive(Debug)]
-pub struct OpsCfg {
-    /// Path to the file containing the code.
-    pub path: PathBuf,
-}
-
-/// Type tag identifying the operator/operand extraction action; carries no data.
-pub struct OpsCode {
-    _guard: (),
-}
-
-impl Callback for OpsCode {
-    type Res = std::io::Result<()>;
-    type Cfg = OpsCfg;
-
-    fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        // The `action`/`OpsCode` surface is path-based by construction, so
-        // it stays on the lossy shim to keep the top-level `Ops::name` (and
-        // `name_was_lossy`) identical to the pre-#509 CLI output. Callers
-        // wanting an explicit name use the `Ast::ops` seam instead.
-        #[allow(deprecated)]
-        if let Ok(ops) = operands_and_operators(parser, &cfg.path) {
-            dump_ops(&ops)
-        } else {
-            Ok(())
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -354,15 +245,8 @@ impl Callback for OpsCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use std::path::PathBuf;
+    use crate::{Ast, LANG, Source};
 
-    // These tests exercise the deprecated path-positional `get_ops`
-    // surface on purpose (its lossy-name behaviour and snapshot output);
-    // the new explicit-name `Ast::ops` seam is covered separately.
-    #[allow(deprecated)]
-    use crate::{LANG, get_ops};
-
-    #[allow(deprecated)]
     #[inline]
     fn check_ops(
         lang: LANG,
@@ -371,10 +255,12 @@ mod tests {
         correct_operators: &mut [&str],
         correct_operands: &mut [&str],
     ) {
-        let path = PathBuf::from(file);
         let mut trimmed_bytes = source.trim_end().trim_matches('\n').as_bytes().to_vec();
         trimmed_bytes.push(b'\n');
-        let ops = get_ops(lang, trimmed_bytes, &path, None).unwrap();
+        let ops = Ast::parse(Source::new(lang, &trimmed_bytes).with_name(Some(file.to_owned())))
+            .expect("language feature enabled")
+            .ops()
+            .expect("ops walk must yield a top-level Ops");
 
         let mut operators_str: Vec<&str> = ops.operators.iter().map(AsRef::as_ref).collect();
         let mut operands_str: Vec<&str> = ops.operands.iter().map(AsRef::as_ref).collect();
@@ -875,58 +761,6 @@ mod tests {
                 "Prims", "a", "b", "c", "d", "e", "f", "g", "h", "i", "1", "2", "3", "4", "'x'",
                 "1.0f", "2.0", "true", "false",
             ],
-        );
-    }
-
-    /// Regression for issue #128 — non-UTF-8 paths must not collapse the
-    /// top-level `Ops::name` into `None`, which is reserved for AST-name
-    /// parse failures.
-    #[cfg(unix)]
-    #[test]
-    #[allow(deprecated)]
-    fn non_utf8_path_yields_lossy_top_level_name() {
-        use std::ffi::OsStr;
-        use std::os::unix::ffi::OsStrExt;
-
-        let raw_bytes: &[u8] = b"foo_\xFF\xFE_bar.py";
-        let path = PathBuf::from(OsStr::from_bytes(raw_bytes));
-        assert!(
-            path.to_str().is_none(),
-            "test premise broken: path must be non-UTF-8 for this test to be meaningful"
-        );
-
-        let ops = get_ops(LANG::Python, b"a = 1\n".to_vec(), &path, None)
-            .expect("get_ops must yield a top-level Ops");
-
-        let name = ops
-            .name
-            .as_deref()
-            .expect("top-level Ops name must be Some, not the parse-error sentinel None");
-        assert!(
-            name.contains('\u{FFFD}'),
-            "expected U+FFFD replacement char in lossy name, got {name:?}"
-        );
-        assert!(
-            name.starts_with("foo_") && name.ends_with("_bar.py"),
-            "lossy name must preserve the surrounding ASCII bytes, got {name:?}"
-        );
-        assert!(
-            ops.name_was_lossy,
-            "name_was_lossy must be true when the source path was non-UTF-8"
-        );
-    }
-
-    /// Top-level `Ops` with valid UTF-8 paths must NOT have
-    /// `name_was_lossy` set.
-    #[test]
-    #[allow(deprecated)]
-    fn utf8_path_does_not_set_name_was_lossy() {
-        let path = PathBuf::from("foo.py");
-        let ops = get_ops(LANG::Python, b"a = 1\n".to_vec(), &path, None)
-            .expect("get_ops must yield a top-level Ops");
-        assert!(
-            !ops.name_was_lossy,
-            "name_was_lossy must be false for valid-UTF-8 paths"
         );
     }
 }

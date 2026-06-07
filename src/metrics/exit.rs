@@ -135,7 +135,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language computation of the exit-point count.
-pub trait Exit
+pub(crate) trait Exit
 where
     Self: Checker,
 {

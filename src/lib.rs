@@ -106,36 +106,34 @@ mod getter;
 mod languages;
 mod macros;
 
-// `langs` hosts the `mk_langs!` macro expansion. Every name produced
-// there — `LANG`, the `action` / `get_function_spaces` dispatch
-// helpers, per-language `<Lang>Code` tags and `<Lang>Parser` aliases —
-// is enumerated explicitly in the curated re-exports below.
+// `langs` hosts the `mk_langs!` macro expansion. `LANG` is the only
+// public name; the per-language `<Lang>Code` tags and `<Lang>Parser`
+// aliases are `pub(crate)` parser machinery reached only through the
+// [`Ast`] seam, and `analyze_dispatch` is the doc-hidden language
+// dispatcher backing [`analyze`].
 mod langs;
-pub use crate::langs::{
-    BashCode, BashParser, CcommentCode, CcommentParser, CppCode, CppParser, CsharpCode,
-    CsharpParser, ElixirCode, ElixirParser, GoCode, GoParser, GroovyCode, GroovyParser, IrulesCode,
-    IrulesParser, JavaCode, JavaParser, JavascriptCode, JavascriptParser, KotlinCode, KotlinParser,
-    LANG, LuaCode, LuaParser, MozjsCode, MozjsParser, PerlCode, PerlParser, PhpCode, PhpParser,
-    PreprocCode, PreprocParser, PythonCode, PythonParser, RubyCode, RubyParser, RustCode,
-    RustParser, TclCode, TclParser, TsxCode, TsxParser, TypescriptCode, TypescriptParser, action,
-    analyze_dispatch, get_from_emacs_mode, get_from_ext,
+pub use crate::langs::{LANG, analyze_dispatch, get_from_emacs_mode, get_from_ext};
+// `<Lang>Code` tags are reached crate-internally through `use crate::*`
+// in the per-language `Checker` / `Getter` / `Alterator` / metric impls.
+pub(crate) use crate::langs::{
+    BashCode, CcommentCode, CppCode, CsharpCode, ElixirCode, GoCode, GroovyCode, IrulesCode,
+    JavaCode, JavascriptCode, KotlinCode, LuaCode, MozjsCode, PerlCode, PhpCode, PreprocCode,
+    PythonCode, RubyCode, RustCode, TclCode, TsxCode, TypescriptCode,
 };
-// The path-positional `get_ops` / `metrics_from_tree` shims are
-// `#[deprecated]` at their definition site in favour of the explicit-name
-// `Ast::ops` / `Ast::from_tree_sitter` seams; re-export them scoped with
-// `#[allow(deprecated)]` so the previously-globbed API surface keeps
-// working without lint noise (mirrors the `metrics` re-export below).
-#[allow(deprecated)]
-pub use crate::langs::{get_ops, metrics_from_tree};
+// The `<Lang>Parser` aliases are the concrete `Parser<<Lang>Code>` types
+// driven by the `AstInner` dispatch in `crate::langs`; at the crate root
+// they are reached only from `#[cfg(test)]` modules, so the re-export is
+// `unused` in a non-test build.
+#[allow(unused_imports)]
+pub(crate) use crate::langs::{
+    BashParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser, GroovyParser,
+    IrulesParser, JavaParser, JavascriptParser, KotlinParser, LuaParser, MozjsParser, PerlParser,
+    PhpParser, PreprocParser, PythonParser, RubyParser, RustParser, TclParser, TsxParser,
+    TypescriptParser,
+};
 // `ParseLangError` is the `FromStr` error for `LANG`; it is defined in
 // the `mk_lang!` macro layer (`crate::macros`) rather than `crate::langs`.
 pub use crate::macros::ParseLangError;
-// The path-positional `get_function_spaces*` shims are `#[deprecated]`
-// at their definition sites; re-exporting them at the crate root keeps
-// the previously-globbed surface intact, scoped with
-// `#[allow(deprecated)]` so the re-export itself does not warn.
-#[allow(deprecated)]
-pub use crate::langs::{get_function_spaces, get_function_spaces_with_options};
 
 // Internal crate-root re-exports. Hand-written per-language modules
 // (`src/getter.rs`, `src/checker.rs`, `src/alterator.rs`, the
@@ -165,22 +163,14 @@ pub(crate) use crate::metrics::{
 
 // --- Core analysis entry points and result types (spaces.rs) ---
 mod spaces;
-pub use crate::spaces::{
-    Ast, CodeMetrics, FuncSpace, Metrics, MetricsCfg, MetricsOptions, Source, SpaceKind, analyze,
-};
-// The path-positional `metrics` / `metrics_with_options` shims are
-// `#[deprecated]` at their definition site; re-export them so the
-// previously-globbed API surface keeps working, scoped with
-// `#[allow(deprecated)]` to avoid lint noise at this seam.
-// `metrics_inner` is consumed by feature-gated arms in `mk_action!`.
-// With `--no-default-features` and no language feature, every arm
-// compiles out and the re-export becomes nominally unused; the
-// language-features that ship in the default set keep the symbol
-// live in any normal build.
+pub use crate::spaces::{Ast, CodeMetrics, FuncSpace, MetricsOptions, Source, SpaceKind, analyze};
+// `metrics_inner` is the per-`ParserTrait` metric walk core consumed by
+// feature-gated arms in `mk_action!` (`AstInner::run_metrics`). With
+// `--no-default-features` and no language feature, every arm compiles
+// out and the re-export becomes nominally unused; the language-features
+// that ship in the default set keep the symbol live in any normal build.
 #[allow(unused_imports)]
 pub(crate) use crate::spaces::metrics_inner;
-#[allow(deprecated)]
-pub use crate::spaces::{metrics, metrics_with_options};
 #[cfg(test)]
 pub(crate) use crate::tools::check_func_space;
 
@@ -210,8 +200,8 @@ pub use crate::metric_set::{Metric, MetricSet, ParseMetricError};
 // --- Suppression markers ---
 mod suppression;
 pub use crate::suppression::{
-    SuppressionDialect, SuppressionMarker, SuppressionPolicy, SuppressionScan, SuppressionScope,
-    SuppressionTarget, suppression_markers, threshold_metric_for_name,
+    SuppressionDialect, SuppressionMarker, SuppressionPolicy, SuppressionScope, SuppressionTarget,
+    threshold_metric_for_name,
 };
 
 /// Canonical metric catalog: offender sub-metric ids with their
@@ -233,9 +223,9 @@ pub mod metric_catalog;
 /// re-exported at the crate root.
 pub mod output;
 pub use crate::output::{
-    CSV_EXTENSION, CSV_HEADER, Dump, DumpCfg, OffenderRecord, Severity, TOOL_ID, dump_node,
-    dump_ops, dump_root, write_checkstyle, write_clang_warning, write_code_climate, write_csv,
-    write_msvc_warning, write_sarif, write_sarif_with_suppressed,
+    CSV_EXTENSION, CSV_HEADER, OffenderRecord, Severity, TOOL_ID, dump_node, dump_ops, dump_root,
+    write_checkstyle, write_clang_warning, write_code_climate, write_csv, write_msvc_warning,
+    write_sarif, write_sarif_with_suppressed,
 };
 
 // --- AST plumbing (Node) ---
@@ -255,34 +245,27 @@ pub use crate::concurrent_files::{
 };
 
 // --- Comment removal ---
+//
+// `rm_comments` is the internal walk core reached only through the
+// [`Ast::strip_comments`] seam (`AstInner::run_strip_comments`).
 mod comment_rm;
-pub use crate::comment_rm::{CommentRm, CommentRmCfg, rm_comments};
 
-// --- Per-function metric callbacks (CLI surface) ---
+// --- Per-file node counting / finding (reached via the `Ast` seam) ---
 mod count;
-pub use crate::count::{Count, CountCfg, CountCollector, NodeTypeFilters, count};
+pub use crate::count::{Count, CountCollector};
 
 mod find;
-pub use crate::find::{Find, FindCfg, find};
 
 mod function;
-pub use crate::function::{
-    Function, FunctionCfg, FunctionSpan, dump_function_spans, function,
-};
+pub use crate::function::{FunctionSpan, dump_function_spans};
 
 // --- AST dump ---
 mod ast;
-pub use crate::ast::{AstCallback, AstCfg, AstNode, AstPayload, AstResponse, Span};
+pub use crate::ast::{AstCfg, AstNode, AstPayload, AstResponse, Span};
 
-// --- Halstead operator/operand callback ---
+// --- Halstead operator/operand result type ---
 mod ops;
-pub use crate::ops::{Ops, OpsCfg, OpsCode};
-// `operands_and_operators` is `#[deprecated]` at its definition site in
-// favour of the explicit-name `Ast::ops` seam; re-export it scoped with
-// `#[allow(deprecated)]` so the previously-globbed API surface keeps
-// working without lint noise (mirrors the `metrics` re-export above).
-#[allow(deprecated)]
-pub use crate::ops::operands_and_operators;
+pub use crate::ops::Ops;
 // `ops_inner` is the explicit-name walk core consumed by feature-gated
 // `mk_action!` arms (`AstInner::run_ops`); mirrors the `metrics_inner`
 // re-export above and is nominally unused under `--no-default-features`.
@@ -294,31 +277,33 @@ mod preproc;
 pub use crate::preproc::{PreprocFile, PreprocResults, fix_includes, get_macros, preprocess};
 
 // --- Alterator trait (per-language AST simplification) ---
-mod alterator;
-pub use crate::alterator::Alterator;
-
-// --- Generic parser plumbing ---
 //
-// `Parser`, `ParserTrait`, `Filter`, `LanguageInfo`, and `Callback`
-// are part of the value-not-stable surface — they are required for
-// callers that want to feed pre-parsed trees through the metric
-// pipeline or implement a custom `Callback`, but they are
-// `#[doc(hidden)]` at their definition sites so they do not clutter
-// the rendered rustdoc. See STABILITY.md.
+// Crate-internal: an extension trait over the `pub(crate)` `Checker`
+// machinery, used only by the per-language `Parser<T>` impls behind the
+// [`Ast`] seam.
+mod alterator;
+pub(crate) use crate::alterator::Alterator;
+
+// --- Generic parser plumbing (crate-internal) ---
+//
+// `Parser`, `ParserTrait`, `Filter`, and `LanguageInfo` are the
+// internal parser machinery driving every metric walk. They are
+// `pub(crate)` only: the single public analysis seam is [`Ast`],
+// which wraps the language-dispatched `AstInner` carrier. See
+// STABILITY.md.
 mod parser;
-pub use crate::parser::{Filter, Parser};
+pub(crate) use crate::parser::Parser;
 
 mod traits;
-pub(crate) use crate::traits::Search;
-pub use crate::traits::{Callback, LanguageInfo, ParserTrait};
+pub(crate) use crate::traits::{LanguageInfo, ParserTrait, Search};
 
 /// Re-export of the underlying `tree-sitter` crate.
 ///
 /// Lets callers build a [`tree_sitter::Tree`] (via
 /// [`tree_sitter::Parser`]) against the exact grammar version this
 /// library is pinned to, and feed it back through
-/// [`Parser::from_tree`] / [`metrics_from_tree`] without taking a
-/// separate `tree-sitter` dependency that may drift out of pin.
+/// [`Ast::from_tree_sitter`] without taking a separate `tree-sitter`
+/// dependency that may drift out of pin.
 ///
 /// This is part of the value-not-stable surface: the underlying
 /// pin may bump in any minor release (see `STABILITY.md`). The inner
@@ -376,11 +361,4 @@ pub mod prelude {
         // Core entry points
         analyze,
     };
-    // `metrics_from_tree` is `#[deprecated]` in favour of
-    // `Ast::from_tree_sitter`, but stays in the prelude for the `1.x`
-    // stability promise (STABILITY.md lists it); scoped with
-    // `#[allow(deprecated)]` to avoid lint noise. Removed with the
-    // function at `2.0`.
-    #[allow(deprecated)]
-    pub use crate::metrics_from_tree;
 }

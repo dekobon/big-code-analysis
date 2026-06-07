@@ -238,7 +238,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language computation of cyclomatic complexity.
-pub trait Cyclomatic
+pub(crate) trait Cyclomatic
 where
     Self: Checker,
 {

@@ -629,7 +629,7 @@ impl Stats {
 
 #[doc(hidden)]
 /// Per-language computation of the lines-of-code metrics.
-pub trait Loc
+pub(crate) trait Loc
 where
     Self: Checker,
 {
