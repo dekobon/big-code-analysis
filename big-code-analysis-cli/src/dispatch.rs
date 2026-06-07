@@ -26,9 +26,9 @@ use std::sync::atomic::Ordering;
 
 use std::io::Write;
 
-use big_code_analysis::{LANG, ParserTrait};
+use big_code_analysis::LANG;
 use big_code_analysis::{
-    Ast, FuncSpace, MetricsError, MetricsOptions, PreprocParser, PreprocResults, Source, analyze,
+    Ast, FuncSpace, MetricsError, MetricsOptions, PreprocResults, Source, analyze,
     dump_function_spans, dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess,
     read_file_with_eol, write_file,
 };
@@ -529,11 +529,7 @@ fn dispatch_preproc(source: Vec<u8>, path: PathBuf, cfg: &Config) -> std::io::Re
             }
             return Ok(());
         };
-        preprocess(
-            &PreprocParser::new(source, &path, None),
-            &path,
-            &mut results,
-        );
+        preprocess(source, &path, &mut results);
     }
     Ok(())
 }

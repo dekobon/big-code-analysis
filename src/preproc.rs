@@ -317,12 +317,24 @@ fn strip_include_quotes(code: &[u8], start: usize, end: usize) -> Option<&str> {
     std::str::from_utf8(&inner[first..=last]).ok()
 }
 
-/// Extracts preprocessor data from a `C/C++` file
-/// and inserts these data in a [`PreprocResults`] object.
+/// Extracts preprocessor data from a `C/C++` source buffer and inserts
+/// it into a [`PreprocResults`] object.
 ///
-///
-/// [`PreprocResults`]: struct.PreprocResults.html
-pub fn preprocess(parser: &PreprocParser, path: &Path, results: &mut PreprocResults) {
+/// Builds the preprocessor parse internally, so callers supply the raw
+/// `source` and need not name the parser type. `path` keys the
+/// per-file results.
+pub fn preprocess(source: Vec<u8>, path: &Path, results: &mut PreprocResults) {
+    preprocess_with_parser(&PreprocParser::new(source, path, None), path, results);
+}
+
+/// Walk an already-built [`PreprocParser`] tree, accumulating its
+/// preprocessor data into `results`. Internal core shared by the public
+/// [`preprocess`] seam and the crate's own preprocessor tests.
+pub(crate) fn preprocess_with_parser(
+    parser: &PreprocParser,
+    path: &Path,
+    results: &mut PreprocResults,
+) {
     let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
@@ -403,7 +415,7 @@ mod tests {
     fn preprocess_empty_include_does_not_panic() {
         let parser = parse("#include \"\"\n");
         let mut results = PreprocResults::default();
-        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
         let pf = results
             .files
             .get(&PathBuf::from("test.h"))
@@ -417,7 +429,7 @@ mod tests {
     fn preprocess_whitespace_only_include_does_not_panic() {
         let parser = parse("#include \"   \"\n");
         let mut results = PreprocResults::default();
-        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
         let pf = results
             .files
             .get(&PathBuf::from("test.h"))
@@ -431,7 +443,7 @@ mod tests {
     fn preprocess_valid_include_is_recorded() {
         let parser = parse("#include \"  foo.h  \"\n");
         let mut results = PreprocResults::default();
-        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
         let pf = results
             .files
             .get(&PathBuf::from("test.h"))
@@ -444,7 +456,7 @@ mod tests {
     fn preprocess_define_records_macro() {
         let parser = parse("#define FOO 1\n");
         let mut results = PreprocResults::default();
-        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
         let pf = results
             .files
             .get(&PathBuf::from("test.h"))
@@ -577,7 +589,7 @@ mod tests {
     fn preprocess_truncated_include_does_not_panic() {
         let parser = parse("#include \"\n");
         let mut results = PreprocResults::default();
-        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
         let pf = results
             .files
             .get(&PathBuf::from("test.h"))
