@@ -5,9 +5,19 @@
 
 #![allow(clippy::needless_pass_by_value)]
 
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
+
+/// A boxed, thread-safe error cause carried by [`ConcurrentErrors`].
+///
+/// The runner moves results across thread boundaries (the producer /
+/// consumer join seam in [`ConcurrentRunner::run`]), so any carried
+/// source must be `Send`; it is also `'static` so it can outlive the
+/// worker threads that produced it and so [`ConcurrentErrors`] stays
+/// non-generic over the user's `Config`.
+type BoxedCause = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
 
@@ -37,7 +47,7 @@ where
     }
 }
 
-fn send_file<T>(
+fn send_file<T: 'static + Send + Sync>(
     path: PathBuf,
     cfg: &Arc<T>,
     sender: &JobSender<T>,
@@ -47,7 +57,7 @@ fn send_file<T>(
             path,
             cfg: Arc::clone(cfg),
         }))
-        .map_err(|e| ConcurrentErrors::Sender(e.to_string()))
+        .map_err(|e| ConcurrentErrors::Sender(Box::new(e)))
 }
 
 /// Producer body: dispatch each resolved file in `files_data.paths`
@@ -65,7 +75,7 @@ fn send_file<T>(
 /// that hands in an arbitrary path. Re-walking or re-filtering here
 /// would re-introduce the emitted-path-form dependence that #488/#489
 /// removed (see #495).
-fn explore<Config>(
+fn explore<Config: 'static + Send + Sync>(
     files_data: FilesData,
     cfg: &Arc<Config>,
     sender: &JobSender<Config>,
@@ -82,24 +92,64 @@ fn explore<Config>(
 }
 
 /// Series of errors that might happen when processing files concurrently.
+///
+/// Marked `#[non_exhaustive]` so future failure modes can be added
+/// without a SemVer break. Variants whose construction site has a
+/// concrete underlying [`std::error::Error`] (`Sender`, `Thread`)
+/// carry it as a boxed source and surface it through
+/// [`std::error::Error::source`]; variants whose only available
+/// information is a thread-panic payload (`Producer`, `Receiver`)
+/// carry a message and return `None` from `source`, because a join
+/// failure yields a `Box<dyn Any + Send>`, not an `Error`.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ConcurrentErrors {
     /// Producer side error.
     ///
-    /// An error occurred inside the producer thread.
+    /// The producer thread panicked and joining it failed. The panic
+    /// payload is not a [`std::error::Error`], so this variant carries
+    /// only a message and has no [`source`](std::error::Error::source).
     Producer(String),
     /// Sender side error.
     ///
-    /// An error occurred when sending an item.
-    Sender(String),
+    /// An item (or the poison-pill) could not be placed on the channel
+    /// because every receiver was dropped. Carries the originating
+    /// channel send error as its [`source`](std::error::Error::source).
+    Sender(BoxedCause),
     /// Receiver side error.
     ///
-    /// An error occurred inside one of the receiver threads.
+    /// A consumer thread panicked and joining it failed. The panic
+    /// payload is not a [`std::error::Error`], so this variant carries
+    /// only a message and has no [`source`](std::error::Error::source).
     Receiver(String),
     /// Thread side error.
     ///
-    /// A general error occurred when a thread is being spawned or run.
-    Thread(String),
+    /// A worker thread (producer or consumer) could not be spawned.
+    /// Carries the originating [`std::io::Error`] as its
+    /// [`source`](std::error::Error::source).
+    Thread(BoxedCause),
+}
+
+impl fmt::Display for ConcurrentErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Producer(msg) => write!(f, "producer thread failed: {msg}"),
+            Self::Sender(cause) => write!(f, "failed to send a file to a worker: {cause}"),
+            Self::Receiver(msg) => write!(f, "consumer thread failed: {msg}"),
+            Self::Thread(cause) => write!(f, "failed to spawn a worker thread: {cause}"),
+        }
+    }
+}
+
+impl std::error::Error for ConcurrentErrors {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            // Producer / Receiver originate from a thread-join panic
+            // payload (`Box<dyn Any + Send>`), which is not an Error.
+            Self::Producer(_) | Self::Receiver(_) => None,
+            Self::Sender(cause) | Self::Thread(cause) => Some(cause.as_ref()),
+        }
+    }
 }
 
 /// A resolved, terminal file list for [`ConcurrentRunner`].
@@ -178,7 +228,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
                 .spawn(move || explore(files_data, &cfg, &sender))
             {
                 Ok(producer) => producer,
-                Err(e) => return Err(ConcurrentErrors::Thread(e.to_string())),
+                Err(e) => return Err(ConcurrentErrors::Thread(Box::new(e))),
             }
         };
 
@@ -194,7 +244,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
                     consumer(receiver, proc_files);
                 }) {
                 Ok(receiver) => receiver,
-                Err(e) => return Err(ConcurrentErrors::Thread(e.to_string())),
+                Err(e) => return Err(ConcurrentErrors::Thread(Box::new(e))),
             };
 
             receivers.push(t);
@@ -210,7 +260,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
         // Poison the receiver, now that the producer is finished.
         for _ in 0..self.num_jobs {
             if let Err(e) = sender.send(None) {
-                return Err(ConcurrentErrors::Sender(e.to_string()));
+                return Err(ConcurrentErrors::Sender(Box::new(e)));
             }
         }
 

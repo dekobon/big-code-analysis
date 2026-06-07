@@ -4,8 +4,90 @@
 // self-scan walker so production-file metric caps stay tight.
 
 use super::*;
+use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::Builder;
+
+// ── ConcurrentErrors: Display + std::error::Error (#553) ─────────
+//
+// `ConcurrentErrors` is a public, returned error type. It must
+// implement `Display` and `std::error::Error`, exposing a `source()`
+// chain for the variants that carry a concrete underlying error
+// (`Sender`, `Thread`) and `None` for the panic-payload variants
+// (`Producer`, `Receiver`).
+
+#[test]
+fn concurrent_errors_message_variants_display_without_source() {
+    // Producer / Receiver originate from a thread-join panic payload
+    // (`Box<dyn Any + Send>`), which is not an Error: Display must be
+    // non-empty and source() must be None.
+    let producer = ConcurrentErrors::Producer("Child thread panicked".to_owned());
+    let receiver = ConcurrentErrors::Receiver("worker panicked".to_owned());
+
+    assert_eq!(
+        producer.to_string(),
+        "producer thread failed: Child thread panicked",
+    );
+    assert_eq!(
+        receiver.to_string(),
+        "consumer thread failed: worker panicked"
+    );
+    assert!(producer.source().is_none());
+    assert!(receiver.source().is_none());
+}
+
+#[test]
+fn concurrent_errors_thread_variant_carries_io_error_source() {
+    // The Thread variant carries the io::Error from a failed spawn.
+    // source() must return it and downcast back to io::Error.
+    let io_err = std::io::Error::other("spawn failed");
+    let err = ConcurrentErrors::Thread(Box::new(io_err));
+
+    assert!(
+        err.to_string()
+            .starts_with("failed to spawn a worker thread:"),
+        "unexpected Display: {err}",
+    );
+
+    let source = err.source().expect("Thread must expose a source");
+    assert!(
+        source.downcast_ref::<std::io::Error>().is_some(),
+        "Thread source must downcast to io::Error",
+    );
+    assert_eq!(source.to_string(), "spawn failed");
+}
+
+#[test]
+fn concurrent_errors_sender_variant_carries_send_error_source() {
+    // The Sender variant carries the crossbeam SendError produced when
+    // every receiver is dropped. source() must return it.
+    let (sender, receiver): (JobSender<()>, JobReceiver<()>) = unbounded();
+    drop(receiver);
+    let send_err = sender
+        .send(None)
+        .expect_err("send must fail once the receiver is dropped");
+    let err = ConcurrentErrors::Sender(Box::new(send_err));
+
+    assert!(
+        err.to_string()
+            .starts_with("failed to send a file to a worker:"),
+        "unexpected Display: {err}",
+    );
+    assert!(err.source().is_some(), "Sender must expose a source");
+}
+
+#[test]
+fn concurrent_errors_is_usable_as_boxed_std_error() {
+    // Exercises the headline contract from #553: a ConcurrentErrors can
+    // be coerced into Box<dyn std::error::Error> (and thus `?` into
+    // anyhow / Box<dyn Error>).
+    fn returns_boxed() -> Result<(), Box<dyn Error>> {
+        Err(ConcurrentErrors::Producer("boom".to_owned()))?;
+        Ok(())
+    }
+    let boxed = returns_boxed().expect_err("must propagate as boxed error");
+    assert_eq!(boxed.to_string(), "producer thread failed: boom");
+}
 
 #[test]
 fn consumer_terminates_on_poison_pill() {

@@ -663,6 +663,20 @@ loose ends that will be tightened at `2.0`:
   filtering seam and eliminating the second, emitted-path-form-sensitive
   library matcher that could otherwise re-inherit the path-form
   dependence #488/#489 removed.
+- `ConcurrentErrors` gains `Display` + `std::error::Error` and is
+  marked `#[non_exhaustive]` (#553), mirroring `MetricsError`'s
+  treatment (#536). The `std::error::Error` / `Display` impls are
+  additive (the exact `Display` wording is not part of the contract),
+  but `#[non_exhaustive]` and the variant-shape change must land at
+  `2.0`: the `Sender` and `Thread` variants now carry a boxed
+  `std::error::Error + Send + Sync` source (the originating channel
+  `SendError` / `io::Error`) instead of a `String`, so
+  `source()` returns it; `Producer` and `Receiver` keep their
+  message-only `String` shape because a thread-join failure yields a
+  panic payload (`Box<dyn Any + Send>`), not an `Error`, and so
+  `source()` returns `None` for them. `send_file` / `explore` gain a
+  `'static + Send + Sync` bound on the config type to box the channel
+  source; `ConcurrentRunner::run` already required it.
 - The language-dispatch surface is normalized (#507): every getter
   drops its Java-style `get_` prefix (`LANG::name`,
   `tree_sitter_language`, `extensions`; the `LanguageInfo` /
