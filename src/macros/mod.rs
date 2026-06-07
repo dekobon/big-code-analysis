@@ -959,10 +959,11 @@ pub(crate) use implement_metric_trait;
 pub(crate) use kind_sets::{
     cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_invocation_expr_kinds,
     csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
-    csharp_var_declarator_kinds, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
-    irules_bool_terminal_kinds, java_bool_terminal_kinds, javascript_bool_terminal_kinds,
-    lua_bool_terminal_kinds, mozjs_bool_terminal_kinds, perl_bool_terminal_kinds,
-    php_bool_terminal_kinds, python_bool_terminal_kinds, rust_bool_terminal_kinds,
+    csharp_var_declarator_kinds, elixir_bool_terminal_kinds, go_bool_terminal_kinds,
+    groovy_bool_terminal_kinds, irules_bool_terminal_kinds, java_bool_terminal_kinds,
+    javascript_bool_terminal_kinds, kotlin_bool_terminal_kinds, lua_bool_terminal_kinds,
+    mozjs_bool_terminal_kinds, perl_bool_terminal_kinds, php_bool_terminal_kinds,
+    python_bool_terminal_kinds, ruby_bool_terminal_kinds, rust_bool_terminal_kinds,
     tcl_bool_terminal_kinds, tsx_bool_terminal_kinds, typescript_bool_terminal_kinds,
 };
 pub(crate) use {

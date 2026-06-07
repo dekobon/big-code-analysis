@@ -420,6 +420,83 @@ macro_rules! tsx_bool_terminal_kinds {
     };
 }
 
+// Terminal-bool operand kinds for Kotlin's ABC unary-conditional walker
+// (Fitzpatrick Rule 9; issue #557). tree-sitter-kotlin-ng parses `a &&
+// b` as a flat `binary_expression` with `&&` / `||` operator tokens, so
+// bare boolean operands surface as leaf expressions: `identifier` (which
+// also covers the `true` / `false` keyword literals — the grammar emits
+// them as `identifier`, verified by AST dump), `call_expression`
+// (`ready()`), `navigation_expression` (`o.flag`), `index_expression`
+// (`arr[0]`), and `this_expression`. Comparison operands (`x > 0`) are
+// themselves `binary_expression` nodes, so they are absent from this set
+// and contribute nothing — matching the paper's "only unary conditions".
+macro_rules! kotlin_bool_terminal_kinds {
+    () => {
+        $crate::Kotlin::Identifier
+            | $crate::Kotlin::CallExpression
+            | $crate::Kotlin::NavigationExpression
+            | $crate::Kotlin::IndexExpression
+            | $crate::Kotlin::ThisExpression
+    };
+}
+
+// Terminal-bool operand kinds for Ruby's ABC unary-conditional walker
+// (Fitzpatrick Rule 9; issue #557). tree-sitter-ruby parses `a && b` as
+// a `binary` node with `&&` / `||` / `and` / `or` operator tokens. Bare
+// boolean operands surface as: `identifier`, every `call` alias
+// (`Call`..`Call4` — lesson #2; a bare predicate method `ready?` is a
+// `call`), the literals `true` / `false` / `nil`, the variable sigils
+// (`@ivar`, `@@cvar`, `$gvar`), `constant`, `element_reference`
+// (`items[0]`), and `integer`. Comparison operands (`x > 0`) are nested
+// `binary` nodes, so they are absent here and contribute nothing.
+macro_rules! ruby_bool_terminal_kinds {
+    () => {
+        $crate::Ruby::Identifier
+            | $crate::Ruby::Call
+            | $crate::Ruby::Call2
+            | $crate::Ruby::Call3
+            | $crate::Ruby::Call4
+            | $crate::Ruby::True
+            | $crate::Ruby::False
+            | $crate::Ruby::Nil
+            | $crate::Ruby::InstanceVariable
+            | $crate::Ruby::ClassVariable
+            | $crate::Ruby::GlobalVariable
+            | $crate::Ruby::Constant
+            | $crate::Ruby::ElementReference
+            | $crate::Ruby::Integer
+    };
+}
+
+// Terminal-bool operand kinds for Elixir's ABC unary-conditional walker
+// (Fitzpatrick Rule 9; issue #557). tree-sitter-elixir parses `a && b`
+// as a `binary_operator` (aliased `BinaryOperator`..`BinaryOperator3`,
+// lesson #2) with `&&` / `||` / `and` / `or` operator tokens. Bare
+// boolean operands surface as: `identifier`, `call` (both `ready?()` and
+// the no-paren dot access `cfg.enabled` parse as `call`), `dot`
+// (`Mod.fun` reference), the `boolean` literal wrapper (`true` / `false`
+// parse as `boolean`, verified by AST dump), `nil`, `atom`, `integer`,
+// and `access_call` (`xs[i]`). Comparison operands are nested
+// `binary_operator` nodes and so contribute nothing.
+macro_rules! elixir_bool_terminal_kinds {
+    () => {
+        $crate::Elixir::Identifier
+            | $crate::Elixir::Call
+            // `dot` is an alias family (`Dot`/`Dot2`/`Dot3`, lesson #2): a
+            // `Mod.fun` reference used as a bare `&&`/`||` operand parses to
+            // a different alias by position, so all three must count or the
+            // operand silently contributes 0 (mirrors Ruby's `Call..Call4`).
+            | $crate::Elixir::Dot
+            | $crate::Elixir::Dot2
+            | $crate::Elixir::Dot3
+            | $crate::Elixir::Boolean
+            | $crate::Elixir::Nil
+            | $crate::Elixir::Atom
+            | $crate::Elixir::Integer
+            | $crate::Elixir::AccessCall
+    };
+}
+
 // Legacy single-macro form, no longer consumed by the walker after
 // the per-language split above. Kept here strictly for documentation
 // of the former (Identifier|True|False|CallExpression|NewExpression|
@@ -442,9 +519,10 @@ macro_rules! js_family_bool_terminal_kinds {
 pub(crate) use {
     cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_invocation_expr_kinds,
     csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
-    csharp_var_declarator_kinds, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
-    irules_bool_terminal_kinds, java_bool_terminal_kinds, javascript_bool_terminal_kinds,
-    lua_bool_terminal_kinds, mozjs_bool_terminal_kinds, perl_bool_terminal_kinds,
-    php_bool_terminal_kinds, python_bool_terminal_kinds, rust_bool_terminal_kinds,
+    csharp_var_declarator_kinds, elixir_bool_terminal_kinds, go_bool_terminal_kinds,
+    groovy_bool_terminal_kinds, irules_bool_terminal_kinds, java_bool_terminal_kinds,
+    javascript_bool_terminal_kinds, kotlin_bool_terminal_kinds, lua_bool_terminal_kinds,
+    mozjs_bool_terminal_kinds, perl_bool_terminal_kinds, php_bool_terminal_kinds,
+    python_bool_terminal_kinds, ruby_bool_terminal_kinds, rust_bool_terminal_kinds,
     tcl_bool_terminal_kinds, tsx_bool_terminal_kinds, typescript_bool_terminal_kinds,
 };

@@ -32,10 +32,11 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::macros::{
     cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_paren_expr_kinds,
-    csharp_prefix_unary_expr_kinds, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
-    implement_metric_trait, irules_bool_terminal_kinds, java_bool_terminal_kinds,
-    javascript_bool_terminal_kinds, lua_bool_terminal_kinds, mozjs_bool_terminal_kinds,
-    perl_bool_terminal_kinds, php_bool_terminal_kinds, python_bool_terminal_kinds,
+    csharp_prefix_unary_expr_kinds, elixir_bool_terminal_kinds, go_bool_terminal_kinds,
+    groovy_bool_terminal_kinds, implement_metric_trait, irules_bool_terminal_kinds,
+    java_bool_terminal_kinds, javascript_bool_terminal_kinds, kotlin_bool_terminal_kinds,
+    lua_bool_terminal_kinds, mozjs_bool_terminal_kinds, perl_bool_terminal_kinds,
+    php_bool_terminal_kinds, python_bool_terminal_kinds, ruby_bool_terminal_kinds,
     rust_bool_terminal_kinds, tcl_bool_terminal_kinds, tsx_bool_terminal_kinds,
     typescript_bool_terminal_kinds,
 };
@@ -87,11 +88,12 @@ use crate::*;
 /// modelled on `java_count_unary_conditions` /
 /// `java_inspect_container` — is present today for Java, Groovy,
 /// C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++,
-/// Python, Perl, and Lua. So `if (a && b)` reports 2 conditions
-/// across this set, matching the paper. Tcl remains on the
-/// Phase-1 baseline (the `&&` / `||` walker does not yet wire its
-/// condition slots) — its `expr {…}` / `command` grammar needs a
-/// separate per-grammar audit.
+/// Python, Perl, Lua, Tcl, iRules, Kotlin, Ruby, and Elixir. So
+/// `if (a && b)` reports 2 conditions across this set, matching
+/// the paper. Bash is the lone exception: its `&&` / `||` are
+/// command-list separators rather than boolean-expression operands
+/// with named leaf operands, so Fitzpatrick's Rule 9 does not map
+/// onto its grammar and the walker is deliberately not wired.
 ///
 /// This policy is paper-faithful and deviates from RuboCop's
 /// `Metrics/AbcSize` (which counts `and` / `or` as conditions
@@ -103,7 +105,8 @@ use crate::*;
 ///
 /// See issue #395 for the Phase-1 cross-language policy
 /// alignment, #403 for the Phase-2 unary-conditional walker
-/// fan-out, and #404 for the Phase-3 book documentation.
+/// fan-out, #404 for the Phase-3 book documentation, and #557
+/// for the Kotlin / Ruby / Elixir walker wiring.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stats {
     assignments: f64,
@@ -1041,6 +1044,88 @@ fn kotlin_eq_initializes_immutable_binding(eq_node: &Node) -> bool {
     parent.children().any(|child| child.kind_id() == Val)
 }
 
+// Kotlin ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
+// tree-sitter-kotlin-ng parses `a && b || c` as a left-nested chain of
+// flat `binary_expression` nodes carrying `&&` / `||` operator tokens,
+// the same shape as the Java template. Negation surfaces as
+// `unary_expression` whose child(0) is the `!` token; the condition slot
+// may also be wrapped in `parenthesized_expression`. Both are unwrapped
+// by `kotlin_inspect_container` to reach the inner bare operand.
+fn kotlin_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Kotlin::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    // A parenthesised / negated operand only contributes when it sits in
+    // a boolean-evaluating slot. The chain wrapper (`binary_expression`)
+    // and the control-flow headers all qualify; a `!`-operator anywhere
+    // also proves the operand is boolean (`if (!x)`).
+    let mut has_boolean_content = matches!(
+        parent.kind_id().into(),
+        BinaryExpression | IfExpression | WhileStatement | DoWhileStatement | ForStatement
+    );
+
+    loop {
+        let is_parens = matches!(node_kind, ParenthesizedExpression);
+        let is_not = matches!(node_kind, UnaryExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        // Parenthesised expressions wrap their inner expression at child
+        // index 1 (after the `(` token); a `!` unary stores its operand
+        // at index 1 (after the `!` token).
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(node_kind, kotlin_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+// Counts each non-comparison operand of a Kotlin `&&` / `||` chain once.
+// Mirrors `java_count_unary_conditions`: comparison operands are nested
+// `binary_expression` nodes (absent from `kotlin_bool_terminal_kinds!()`)
+// and so contribute nothing, while bare identifiers / calls / member
+// accesses each add one. Inner chain links and `!` / paren wrappers are
+// routed through `kotlin_inspect_container`.
+fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Kotlin::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(node_kind, kotlin_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else if node.is_named() {
+                kotlin_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for KotlinCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
@@ -1111,6 +1196,16 @@ impl Abc for KotlinCode {
                 }) =>
             {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 walker: each non-comparison operand of a
+            // `&&` / `||` chain is one condition (issue #557). The short-
+            // circuit operators are not counted directly (cross-language
+            // policy, #395); the walker fires off the operator token and
+            // inspects the parent `binary_expression`.
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    kotlin_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -1354,6 +1449,88 @@ impl Abc for PhpCode {
 //   condition appears as the inner comparison); the `Then` clause is
 //   an implicit grammar wrapper around every `if` / `elsif` body and
 //   is NOT counted as a separate arm.
+// Ruby ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
+// tree-sitter-ruby parses `a && b || c` as a left-nested chain of
+// `binary` nodes carrying `&&` / `||` / `and` / `or` operator tokens
+// (the `binary` kind is aliased `Binary`..`Binary3` per lesson #2, so
+// every alias must be matched). Negation surfaces as `unary`
+// (`Unary`..`Unary5`) whose child(0) is the `!` token; the condition
+// slot may be wrapped in `parenthesized_statements`. Both are unwrapped
+// by `ruby_inspect_container`.
+fn ruby_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Ruby::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = matches!(
+        parent.kind_id().into(),
+        Binary | Binary2 | Binary3 | If | Unless | While | Until
+    );
+
+    loop {
+        let is_parens = matches!(node_kind, ParenthesizedStatements);
+        let is_not = matches!(node_kind, Unary | Unary2 | Unary3 | Unary4 | Unary5)
+            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        // A `!` unary stores its operand at child index 1 (after the `!`
+        // token). `parenthesized_statements` wraps its body in named
+        // children; descend through the first named child carrying the
+        // expression.
+        let next = if is_not {
+            node.child(1)
+        } else {
+            node.children().find(Node::is_named)
+        };
+        let Some(child) = next else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(node_kind, ruby_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+// Counts each non-comparison operand of a Ruby `&&` / `||` chain once.
+// Comparison operands are nested `binary` nodes (absent from
+// `ruby_bool_terminal_kinds!()`) and so contribute nothing.
+fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Ruby::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(node_kind, ruby_bool_terminal_kinds!())
+                && matches!(list_kind, Binary | Binary2 | Binary3)
+            {
+                *conditions += 1.;
+            } else if node.is_named() {
+                ruby_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for RubyCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Ruby::*;
@@ -1369,6 +1546,16 @@ impl Abc for RubyCode {
             | Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
             | RescueModifier3 => {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 walker: each non-comparison operand of a
+            // `&&` / `||` / `and` / `or` chain is one condition (issue
+            // #557). The short-circuit operators are not counted directly
+            // (cross-language policy, #395); the keyword forms `and` / `or`
+            // get the same treatment as `&&` / `||`.
+            AMPAMP | PIPEPIPE | And | Or => {
+                if let Some(parent) = node.parent() {
+                    ruby_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -2860,6 +3047,89 @@ impl Abc for CsharpCode {
     }
 }
 
+// Elixir ABC unary-conditional walker (Fitzpatrick Rule 9; issue #557).
+// tree-sitter-elixir parses `a && b || c` as a left-nested chain of
+// `binary_operator` nodes (aliased `BinaryOperator`..`BinaryOperator3`
+// per lesson #2) carrying `&&` / `||` / `and` / `or` operator tokens.
+// Negation surfaces as `unary_operator` whose child(0) is the `!` token;
+// parenthesised operands parse as `block`. Both are unwrapped by
+// `elixir_inspect_container`.
+fn elixir_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Elixir as E;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = matches!(
+        parent.kind_id().into(),
+        E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
+    );
+
+    loop {
+        let is_block = matches!(node_kind, E::Block);
+        let is_not = matches!(node_kind, E::UnaryOperator)
+            && node.child(0).is_some_and(|c| c.kind_id() == E::BANG as u16);
+
+        if !is_block && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        // A `!` unary stores its operand at child index 1 (after the `!`
+        // token); a parenthesised `block` carries its inner expression as
+        // the first named child.
+        let next = if is_not {
+            node.child(1)
+        } else {
+            node.children().find(Node::is_named)
+        };
+        let Some(child) = next else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(node_kind, elixir_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+// Counts each non-comparison operand of an Elixir `&&` / `||` chain once.
+// Comparison operands are nested `binary_operator` nodes (absent from
+// `elixir_bool_terminal_kinds!()`) and so contribute nothing.
+fn elixir_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Elixir as E;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(node_kind, elixir_bool_terminal_kinds!())
+                && matches!(
+                    list_kind,
+                    E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
+                )
+            {
+                *conditions += 1.;
+            } else if node.is_named() {
+                elixir_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for ElixirCode {
     // Elixir's pattern-match `=` is a `BinaryOperator` whose middle
     // child is an `EQ` token. The same wrapper node also hosts `+=`-
@@ -2971,6 +3241,18 @@ impl Abc for ElixirCode {
             // function head or `case` arm.
             | E::When => {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 walker: each non-comparison operand of a
+            // `&&` / `||` / `and` / `or` chain is one condition (issue
+            // #557). The short-circuit operators are not counted directly
+            // (cross-language policy, #395); the keyword forms `and` / `or`
+            // get the same treatment as `&&` / `||`. Combined with the
+            // `if` Call already contributing one condition, `if a && b ||
+            // c` reports 4 — consistent with the cyclomatic count.
+            E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
+                if let Some(parent) = node.parent() {
+                    elixir_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -6622,8 +6904,13 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                // Six binary operators: <, >, <=, >=, ==, != → 6 conditions.
-                assert_eq!(metric.abc.conditions_sum(), 6);
+                // Six comparison operators in the `val` initialisers
+                // (<, >, <=, >=, ==, !=) → 6, plus the six bare-identifier
+                // operands of the `r1 || … || r6` return chain, each a
+                // Fitzpatrick Rule 9 unary condition (issue #557) → 6.
+                // Total 12. Before the Kotlin walker was wired the chain
+                // operands were silently dropped and this read 6.
+                assert_eq!(metric.abc.conditions_sum(), 12);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6864,6 +7151,57 @@ function f(int $a, int $b): int {
             assert_eq!(metric.abc.assignments_sum(), 0);
             insta::assert_json_snapshot!(metric.abc);
         });
+    }
+
+    #[test]
+    fn kotlin_unary_conditions_in_chain() {
+        // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
+        // `&&` / `||` chain is one condition. `a && b || c` → a, b, c each
+        // contribute one; the `&&` / `||` operators contribute nothing.
+        // expected: 3 unary conditions, no comparisons, no `if`-keyword
+        // condition in Kotlin (matches the Java byte-equivalent of 3).
+        check_metrics::<KotlinParser>(
+            "fun f(a: Boolean, b: Boolean, c: Boolean) {
+                if (a && b || c) { println(\"x\") }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_comparison_operands_add_nothing() {
+        // Isolation check: comparison operands of a `&&` chain are nested
+        // `binary_expression` nodes, not bare boolean leaves, so the
+        // walker adds nothing — only the two `>` comparisons count.
+        // expected: 2 (the two `>` tokens), walker contributes 0.
+        check_metrics::<KotlinParser>(
+            "fun g(x: Int, y: Int) {
+                if (x > 0 && y > 0) { println(\"x\") }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_negated_operand_is_unary_condition() {
+        // A `!`-negated operand is still a unary condition: `a && !b`
+        // unwraps the `unary_expression` to reach the inner identifier.
+        // expected: 2 (`a` and the `!b` operand).
+        check_metrics::<KotlinParser>(
+            "fun f(a: Boolean, b: Boolean) {
+                if (a && !b) { println(\"x\") }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
     }
 
     // --- TypeScript / TSX ABC tests --------------------------------------
@@ -7549,6 +7887,64 @@ function f(int $a, int $b): int {
                 // #403).
                 assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_unary_conditions_in_chain() {
+        // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
+        // `&&` / `||` chain is one condition. `a && b || c` → a, b, c each
+        // contribute one. Ruby's `if` keyword is not a condition token.
+        // expected: 3 unary conditions (matches the Java byte-equivalent).
+        check_metrics::<RubyParser>(
+            "def f(a, b, c)\n  if a && b || c\n    puts \"x\"\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_keyword_and_or_chain_counts_operands() {
+        // The keyword forms `and` / `or` get the same Rule 9 treatment as
+        // `&&` / `||`. expected: 3 unary conditions (a, b, c).
+        check_metrics::<RubyParser>(
+            "def f(a, b, c)\n  if a and b or c\n    puts \"x\"\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_negated_operand_is_unary_condition() {
+        // A `!`-negated operand unwraps the `unary` node to the inner
+        // identifier. expected: 2 (`a` and the `!b` operand).
+        check_metrics::<RubyParser>(
+            "def f(a, b)\n  if a && !b\n    puts \"x\"\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_comparison_operands_add_nothing() {
+        // Isolation for Rule 9 (issue #557): when the `&&` operands are
+        // themselves comparisons, the unary-condition walker must add
+        // nothing on top of the two `>` comparisons already counted as
+        // conditions — distinguishing the gap (bare boolean operands)
+        // from ordinary relational conditions. Mirrors the Kotlin and
+        // Elixir isolation tests. expected: 2 (the two `>` comparisons).
+        check_metrics::<RubyParser>(
+            "def f(x, y)\n  if x > 0 && y > 0\n    puts \"x\"\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
@@ -9001,6 +9397,50 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.branches_sum(), 2);
                 assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_unary_conditions_in_chain() {
+        // Fitzpatrick Rule 9 (issue #557): each bare boolean operand of a
+        // `&&` / `||` chain is one condition. For `if a && b || c`: the
+        // `if` keyword Call contributes 1 condition, and the walker adds
+        // a, b, c → 3. expected: 4 conditions, consistent with the
+        // function's cyclomatic complexity of 4 (base 1 + if + && + ||).
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(a, b, c) do\n    if a && b || c do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_comparison_operands_add_nothing() {
+        // Isolation check: comparison operands of a `&&` chain are nested
+        // `binary_operator` nodes, not bare boolean leaves, so the walker
+        // adds nothing. expected: 3 = `if` (1) + `>` (1) + `>` (1); the
+        // `&&` walker contributes 0.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x, y) do\n    if x > 0 && y > 0 do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_keyword_and_or_chain_counts_operands() {
+        // The keyword forms `and` / `or` get the same Rule 9 treatment as
+        // `&&` / `||`. expected: 4 = `if` (1) + operands a, b, c (3).
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(a, b, c) do\n    if a and b or c do\n      IO.puts(\"x\")\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
             },
         );
     }
