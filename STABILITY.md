@@ -286,10 +286,15 @@ backstop rather than a behavior you should observe in practice.
 The serialized metric tree can be read back into typed structs via the
 public `big_code_analysis::wire` module: `wire::FuncSpace`,
 `wire::CodeMetrics`, `wire::Ops`, `wire::FunctionSpan`, and one
-struct per metric, each deriving `Serialize` + `Deserialize`. These are
-the **single definition of the serialized shape** — the compute types'
-own `Serialize` impls delegate to them — so the document a compute type
-emits is exactly the document the matching `wire` type parses.
+struct per metric (`wire::Abc`, `wire::Cognitive`, `wire::Cyclomatic`,
+`wire::Nexits`, `wire::Halstead`, `wire::Loc`, `wire::Mi`,
+`wire::Nargs`, `wire::Nom`, `wire::Npa`, `wire::Npm`, `wire::Tokens`,
+`wire::Wmc`) plus the `wire::CyclomaticModified` sub-record — the
+`modified` projection nested inside `wire::Cyclomatic`. Each derives
+`Serialize` + `Deserialize`. These are the **single definition of the
+serialized shape** — the compute types' own `Serialize` impls delegate
+to them — so the document a compute type emits is exactly the document
+the matching `wire` type parses.
 
 **Round-trip contract.** For a value produced by this library and read
 back with *this library's* serde stack:
@@ -422,6 +427,157 @@ mis-matching. Recent transitions:
   fast path so a literal `%FF` in a filename cannot collide with
   the `%FF` escape for byte `0xFF` in a non-UTF-8 path. v1 is no
   longer accepted; regenerate the file.
+
+### Output report formats
+
+`bca` (and the library's `output` module, re-exported at the crate
+root) emits source metrics in two families of format. The split
+between them is itself part of the contract:
+
+- **Round-trip formats** — JSON, YAML, TOML, CBOR. These project the
+  metric tree through the `wire` module and read back into the
+  matching `wire` types (see
+  [Reading serialized output back](#reading-serialized-output-back-the-wire-module)).
+  A document this library writes, parsed with this library's serde
+  stack, reconstructs the tree and re-serializes byte-for-byte.
+- **One-way projections** — CSV, SARIF, Checkstyle, code-climate,
+  the Clang/MSVC warning lines, and the AST / `dump_*` output. These
+  are lossy, write-only views with **no reader** in this crate. They
+  drop or reshape data the round-trip formats keep — e.g. the CSV row
+  carries no per-`FuncSpace` `suppressed` scope (it is present in
+  `wire::FuncSpace` but absent from the flattened CSV columns). Do not
+  expect to parse a projection back into a `FuncSpace`; pin to a
+  structured format if you need round-trip fidelity.
+
+The writer free functions are SemVer-protected in signature within
+`1.x` (additive only; a break is a `2.0` event). They are re-exported
+at the crate root from `src/output/`:
+
+| Writer | Signature (eliding `<W: Write>`) |
+|--------|----------------------------------|
+| `write_csv` | `(space: &FuncSpace, source_path: &Path, writer: W) -> io::Result<()>` |
+| `write_sarif` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
+| `write_sarif_with_suppressed` | `(active, suppressed: &[OffenderRecord], writer: W) -> io::Result<()>` |
+| `write_checkstyle` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
+| `write_clang_warning` | `(offenders: &[OffenderRecord], …, writer: W) -> io::Result<()>` |
+| `write_msvc_warning` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
+| `write_code_climate` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
+
+The shared types they consume — `OffenderRecord`, `Severity` (see
+*Offender / catalog enums*), `TOOL_ID` (the `"big-code-analysis"`
+tool name), `CSV_HEADER`, and `CSV_EXTENSION` (`".csv"`) — are part of
+the same surface. The AST dump entry points (`dump_node`, `dump_root`,
+`dump_ops`, and the `Dump` / `DumpCfg` config types) are likewise
+re-exported and shape-stable.
+
+#### CSV columns
+
+`CSV_HEADER` is the **frozen, positional** column contract: downstream
+tools (Pandas, Excel, awk) address columns by index, so the order and
+names below will not change within `1.x` (a column may be *appended*
+in a minor bump; reordering or renaming is a `2.0` break). The first
+five are identity columns; the rest are dotted JSON-style metric paths
+so one name addresses the metric in both JSON and CSV:
+
+```text
+path, space_name, space_kind, start_line, end_line,
+cognitive.{sum,average,min,max},
+cyclomatic.{sum,average,min,max},
+cyclomatic.modified.{sum,average,min,max},
+halstead.{unique_operators,total_operators,unique_operands,total_operands,
+          length,estimated_program_length,purity_ratio,vocabulary,volume,
+          difficulty,level,effort,time,bugs},
+loc.{sloc,ploc,lloc,cloc,blank,
+     sloc_average,ploc_average,lloc_average,cloc_average,blank_average,
+     sloc_min,sloc_max,cloc_min,cloc_max,ploc_min,ploc_max,
+     lloc_min,lloc_max,blank_min,blank_max},
+nom.{functions,closures,functions_average,closures_average,total,average,
+     functions_min,functions_max,closures_min,closures_max},
+nargs.{function_args,closure_args,function_args_average,closure_args_average,
+       total,average,function_args_min,function_args_max,
+       closure_args_min,closure_args_max},
+nexits.{sum,average,min,max},
+tokens.{sum,average,min,max},
+abc.{assignments,branches,conditions,magnitude,
+     assignments_average,branches_average,conditions_average,
+     assignments_min,assignments_max,branches_min,branches_max,
+     conditions_min,conditions_max},
+wmc.{classes,interfaces,total},
+npm.{classes,interfaces,class_methods,interface_methods,class_coa,
+     interface_coa,total,total_methods,coa},
+npa.{classes,interfaces,class_attributes,interface_attributes,
+     class_cda,interface_cda,total,total_attributes,cda},
+mi.{original,sei,visual_studio}
+```
+
+The exact list is pinned in code by `CSV_HEADER` and asserted against
+the rendered header row by `output::csv::tests::header_constant_matches_first_row`;
+the documented list above is pinned to `CSV_HEADER` by
+`output::csv::tests::header_constant_matches_documented_columns`, so
+this table and the code cannot drift apart.
+
+The CSV value matrix is uniformly `f64` (see `funcspace_row::metric_values`),
+routed through the non-finite→empty-cell adapter (`numfmt::CellMetric`):
+a cell renders empty only when its value is `NaN`/`±Infinity`. Post-#530
+(reserved for `2.0`) the integer metrics are exact `u64`, but even
+today the integer-*named* columns (every `*.sum`, `*.min`, `*.max`,
+the counts, `halstead.length`/`vocabulary`, the WMC/NOM/NARGS/ABC/NPM/NPA
+count columns) are always populated — they are never non-finite, so the
+empty-cell branch fires only for the float-derived columns (`*_average`,
+ratios, `abc.magnitude`, the derived Halstead scores, the `mi.*` family).
+
+#### SARIF
+
+`write_sarif` emits a **SARIF 2.1.0** document. The `$schema` is pinned
+to the schemastore mirror
+`https://json.schemastore.org/sarif-2.1.0.json` (the URI the GitHub
+Code Scanning validator resolves), and the top-level `version` field is
+`"2.1.0"`. The schemastore mirror is what this tool emits; the OASIS
+canonical URI for the standard is
+`https://docs.oasis-open.org/sarif/sarif/v2.1.0/cs01/schemas/sarif-schema-2.1.0.json`.
+The pinned schema URI and version are stable within `1.x`. The
+`tool.driver.name` is `TOOL_ID` (`"big-code-analysis"`) and
+`tool.driver.version` is the CLI package version.
+
+#### code-climate
+
+`write_code_climate` emits the strict GitLab *Code Quality* subset of
+the upstream Code Climate spec. The emitted field set is stable within
+`1.x`: `description`, `check_name` (`"big-code-analysis/<metric>"`),
+`fingerprint`, `severity`, `location.path`, `location.lines.{begin,end}`,
+and `location.positions.begin.{line,column}` (the last two emitted only
+when present). The spec's `type`, `categories`, `remediation_points`,
+and `content` are deliberately omitted (additive to re-add later).
+
+The **`fingerprint` is contractually stable** — GitLab persists it
+across pipeline runs to deduplicate and to compute the base-vs-head
+diff. It is the SHA-256 of `path \0 function \0 metric` (NUL-separated;
+`function` is the empty string when the offender is file-scoped),
+**truncated to the leading 16 bytes** and hex-encoded lowercase
+(32 hex characters, leading zero bytes preserved). The line number and
+metric value are deliberately *excluded* from the hash so a cosmetic
+edit that shifts a function's line does not re-surface a known
+violation.
+
+#### AST / dump JSON
+
+`dump_*` and the `AstNode` / `Span` types (re-exported with
+`AstPayload` / `AstResponse` / `AstCfg` / `AstCallback`) serialize a
+**one-way projection** of the parse tree — `Serialize` only, by
+design. There is intentionally **no** `Deserialize`: the AST output is
+a debugging / inspection view like CSV and SARIF, not a wire format you
+round-trip through. The JSON shape uses `snake_case` keys and is pinned
+by `ast::tests::serialized_json_uses_snake_case_keys`:
+
+- `AstNode` → `{type, value, span, field_name, children}`. `field_name`
+  is the tree-sitter grammar field through which the parent reaches the
+  node (`None` for the root, anonymous tokens, and unnamed children);
+  `children` is a nested array of `AstNode`.
+- `Span` → `{start_row, start_col, end_row, end_col}`.
+
+The snake_case key scheme is stable within `1.x`. The former
+PascalCase keys (`Type`/`TextValue`/`Span`/`Children`) were dropped at
+the #535 snake_case landing change.
 
 ### Schema-bump operational contract
 
