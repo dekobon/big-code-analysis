@@ -285,16 +285,23 @@ narrow seams where the `1.x` shape contract gives way to the
 upstream grammar contract — depend on them only when you need to
 reach the raw tree-sitter surface.
 
-- **`Node` wraps `tree_sitter::Node`.** `pub struct Node<'a>(pub
-  OtherNode<'a>)` in `src/node.rs` exposes the tree-sitter node
-  directly through the `.0` field. Anything you do through `.0`
-  follows the pinned `tree-sitter` crate version and will move
-  whenever we bump that pin (typically under a minor release).
-  `Node` stays `pub` rather than being demoted (#534): the
-  doc-hidden `ParserTrait::root` returns it, so narrowing it would
-  trip `private_interfaces`. For tree-level raw access prefer the
-  higher-level `Ast::as_tree_sitter` seam below; reach for `Node.0`
-  only when you already hold a `Node` from this surface.
+- **`Node` exposes its `tree_sitter::Node` through an accessor.**
+  `Node<'a>` in `src/node.rs` wraps the tree-sitter node; the inner
+  field is private and the node is reached through
+  `Node::as_tree_sitter(&self) -> tree_sitter::Node<'a>` (the node
+  is `Copy`, so it is returned by value). Anything you do through
+  that node follows the pinned `tree-sitter` crate version and will
+  move whenever we bump that pin (typically under a minor release).
+  This mirrors the higher-level `Ast::as_tree_sitter` seam below;
+  reach for `Node::as_tree_sitter` only when you already hold a
+  `Node` from this surface. **(breaking, 2.0)** The pre-2.0 shape
+  was `pub struct Node<'a>(pub OtherNode<'a>)` — a public tuple
+  field welding the value-not-stable `tree_sitter::Node` into the
+  stable struct's layout. #556 demoted the field to private and
+  added the accessor; #534 had already narrowed the sibling
+  `Cursor` / `Callback` / `LanguageInfo` surface but did not touch
+  this field. Field-to-method is a source break, so it landed at
+  `2.0`.
 - **`tree_sitter` is re-exported as `big_code_analysis::tree_sitter`.**
   Consumers who construct trees themselves should depend on the
   re-export rather than adding a sibling `tree-sitter` dependency

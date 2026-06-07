@@ -1005,7 +1005,7 @@ fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
     // total cost is linear in child count — avoiding the per-call
     // O(i) `Node::child(i)` access that an index-based loop would
     // pay on every iteration.
-    let mut cursor = node.0.walk();
+    let mut cursor = node.as_tree_sitter().walk();
     if !cursor.goto_first_child() {
         return false;
     }

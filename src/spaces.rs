@@ -1602,7 +1602,7 @@ mod tests {
         // this snippet — otherwise the synthetic-Unit code path is not
         // exercised by this test.
         assert!(
-            parser.root().0.is_error(),
+            parser.root().as_tree_sitter().is_error(),
             "test premise broken: grammar must yield ERROR root for this snippet"
         );
 
@@ -1653,7 +1653,7 @@ mod tests {
     ///
     /// Tests that need to exercise the synthetic-Unit wrapper itself
     /// (i.e., the path triggered by an `ERROR`-root parse) must also
-    /// assert `parser.root().0.is_error()` before calling this
+    /// assert `parser.root().as_tree_sitter().is_error()` before calling this
     /// helper. See `cpp_error_root_yields_unit_top_level_space` and
     /// `lua_partial_input_yields_synthetic_unit_wrapper` — those two
     /// are the only tests in the corpus that today exercise the
@@ -1699,7 +1699,7 @@ mod tests {
         let path = std::path::PathBuf::from(filename);
         let parser = P::new(source.as_bytes().to_vec(), &path, None);
         assert!(
-            parser.root().0.is_error(),
+            parser.root().as_tree_sitter().is_error(),
             "test premise broken: grammar must yield ERROR root for {filename:?}",
         );
         assert_top_level_space_is_unit_contract::<P>(source, filename);

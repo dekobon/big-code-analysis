@@ -29,19 +29,12 @@ use crate::traits::*;
 /// # Examples
 ///
 /// ```
-/// use big_code_analysis::{dump_node, tree_sitter, LANG, Node};
+/// use big_code_analysis::{dump_node, CppParser, ParserTrait};
+/// use std::path::Path;
 ///
 /// let source = b"int a = 42;";
-/// let mut parser = tree_sitter::Parser::new();
-/// parser
-///     .set_language(
-///         &LANG::Cpp
-///             .tree_sitter_language()
-///             .expect("cpp feature enabled"),
-///     )
-///     .expect("cpp grammar pinned to a compatible version");
-/// let tree = parser.parse(source, None).expect("parser has a language set");
-/// let root = Node(tree.root_node());
+/// let parser = CppParser::new(source.to_vec(), Path::new("example.cpp"), None);
+/// let root = parser.root();
 ///
 /// // Dump the AST from the first line of code in a file to the last one
 /// dump_node(source, &root, -1, None, None).unwrap();

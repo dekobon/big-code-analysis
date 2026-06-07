@@ -70,12 +70,33 @@ impl Tree {
 
 /// An `AST` node.
 ///
-/// The inner `tree_sitter::Node` is exposed for advanced use cases
-/// where direct access to the underlying tree-sitter API is needed.
+/// The inner [`tree_sitter::Node`] is reached through
+/// [`Node::as_tree_sitter`] for advanced use cases that need direct
+/// access to the underlying tree-sitter API; the field itself is
+/// private so a `tree-sitter` version bump cannot silently reshape
+/// this struct's public layout.
 #[derive(Clone, Copy, Debug)]
-pub struct Node<'a>(pub OtherNode<'a>);
+pub struct Node<'a>(OtherNode<'a>);
 
 impl<'a> Node<'a> {
+    /// Returns the underlying [`tree_sitter::Node`] for callers that
+    /// want to drive their own traversal alongside the metric walker.
+    ///
+    /// `tree_sitter::Node` is [`Copy`], so the node is returned by
+    /// value. The returned node borrows the same source-tree lifetime
+    /// as `self`.
+    ///
+    /// The `tree-sitter` re-export this exposes is *value-not-stable*:
+    /// the underlying pin may bump in any minor release, so node shape
+    /// and node-kind ids are not part of this crate's stability
+    /// contract (see the [`tree_sitter`](crate::tree_sitter) re-export
+    /// note in the crate root).
+    #[must_use]
+    #[inline]
+    pub fn as_tree_sitter(&self) -> OtherNode<'a> {
+        self.0
+    }
+
     /// Checks if a node represents a syntax error or contains any syntax errors
     /// anywhere within it.
     #[must_use]
@@ -571,5 +592,34 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// `Node::as_tree_sitter` (issue #556) must hand back the *same*
+    /// underlying `tree_sitter::Node` the wrapper holds: identical
+    /// `kind()` / `kind_id()` and a usable tree-sitter API. Obtaining
+    /// the wrapper through the public `CppParser` + `ParserTrait::root`
+    /// path (rather than the in-module `Tree::new`) proves the accessor
+    /// is the public seam that replaced the former `pub` `.0` field.
+    #[test]
+    fn as_tree_sitter_round_trips_wrapper_kind() {
+        use crate::{CppParser, ParserTrait};
+        use std::path::Path;
+
+        let source = b"int main() { return 0; }";
+        let parser = CppParser::new(source.to_vec(), Path::new("example.cpp"), None);
+        let root = parser.root();
+
+        let ts_root = root.as_tree_sitter();
+
+        // A well-formed C++ translation unit roots at `translation_unit`.
+        assert_eq!(ts_root.kind(), "translation_unit");
+        // The accessor must agree with the wrapper's own kind views.
+        assert_eq!(ts_root.kind(), root.kind());
+        assert_eq!(ts_root.kind_id(), root.kind_id());
+        // The returned node is usable as a tree-sitter node, not a copy
+        // that has lost its tree linkage: the parse is error-free and
+        // the root has children.
+        assert!(!ts_root.has_error());
+        assert!(ts_root.child_count() > 0);
     }
 }

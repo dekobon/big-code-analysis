@@ -319,7 +319,10 @@ pub use crate::traits::{Callback, LanguageInfo, ParserTrait};
 /// separate `tree-sitter` dependency that may drift out of pin.
 ///
 /// This is part of the value-not-stable surface: the underlying
-/// pin may bump in any minor release (see `STABILITY.md`).
+/// pin may bump in any minor release (see `STABILITY.md`). The inner
+/// node of a [`Node`] is reached the same way, through
+/// [`Node::as_tree_sitter`], and carries the same value-not-stable
+/// caveat.
 pub use ::tree_sitter;
 
 /// The version of this `big-code-analysis` library crate.

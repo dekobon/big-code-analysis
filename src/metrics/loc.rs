@@ -1536,7 +1536,7 @@ impl Loc for ElixirCode {
             // check runs first so unnamed leaves (`do`, `end`, `,`, …)
             // skip the parent lookup entirely.
             _ => {
-                if node.0.is_named()
+                if node.as_tree_sitter().is_named()
                     && node.parent().is_some_and(|p| {
                         matches!(
                             p.kind_id().into(),
