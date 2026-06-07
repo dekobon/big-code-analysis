@@ -9,8 +9,10 @@ bca\-web \- Run a web server.
 Run a web server.
 .SH OPTIONS
 .TP
-\fB\-j\fR, \fB\-\-num\-jobs\fR \fI<NUM_JOBS>\fR
-Number of jobs (worker threads); must be at least 1
+\fB\-j\fR, \fB\-\-num\-jobs\fR \fI<N|auto>\fR [default: auto]
+Number of worker threads.
+
+Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux), matching the `bca` CLI\*(Aqs `\-\-num\-jobs`. Pass an explicit integer or `auto` to override. `\-\-num\-jobs 1` forces a single worker.
 .TP
 \fB\-\-host\fR \fI<HOST>\fR [default: 127.0.0.1]
 Host for the web server
@@ -22,7 +24,7 @@ Port for the web server
 Timeout in seconds for each parse operation (0 = no timeout)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Print version

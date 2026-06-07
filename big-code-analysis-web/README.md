@@ -53,7 +53,10 @@ bca-web [OPTIONS]
 
 ### Available Options
 
-- `-j, --num-jobs <NUM_JOBS>`: Number of parallel jobs to run (optional).
+- `-j, --num-jobs <N|auto>`: Number of worker threads. Accepts a positive
+  integer or `auto` (the default). `auto` resolves to the OS-reported
+  effective CPU count — cgroup-quota- and cpuset-aware on Linux — matching
+  the `bca` CLI's `--num-jobs`.
 - `--host <HOST>`: IP address where the server should run (default is 127.0.0.1).
 - `--port <PORT>`: Port to be used by the server (default is 8080).
 - `-h, --help`: Show help information.

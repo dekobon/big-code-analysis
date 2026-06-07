@@ -429,13 +429,16 @@ impl Manifest {
     /// value, reusing [`NumJobs::from_str`]'s diagnostics.
     fn num_jobs(&self) -> Option<NumJobs> {
         let value = self.raw.num_jobs.as_ref()?;
+        // Normalise every arm to `Result<_, String>` for the `die`
+        // formatter: `NumJobs::from_str` now returns the typed
+        // `ParseNumJobsError`, rendered via `Display` here.
         let parsed = match value {
-            toml::Value::String(s) => NumJobs::from_str(s),
+            toml::Value::String(s) => NumJobs::from_str(s).map_err(|e| e.to_string()),
             // Route the integer through `from_str` (the small `to_string`
             // is once-per-run) so the `>= 1` validation and its error
             // message live in exactly one place; a negative integer
             // surfaces the same "positive integer or auto" diagnostic.
-            toml::Value::Integer(i) => NumJobs::from_str(&i.to_string()),
+            toml::Value::Integer(i) => NumJobs::from_str(&i.to_string()).map_err(|e| e.to_string()),
             other => Err(format!(
                 "expected a positive integer or \"auto\", got {}",
                 other.type_str()

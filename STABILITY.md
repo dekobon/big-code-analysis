@@ -87,6 +87,18 @@ section.
     underlying integer representation is not.
   - `function`, `find`, `count`, `operands_and_operators`,
     `rm_comments` in their respective modules.
+  - `NumJobs` in `src/concurrent_files.rs` (added in 1.x, #560) — the
+    shared `<N|auto>` worker-count selector for `ConcurrentRunner`,
+    used by both the `bca` CLI and the `bca-web` server. A
+    clap-agnostic plain `FromStr` + `resolve() -> usize` type; `Auto`
+    resolves cgroup-/cpuset-aware via `available_parallelism`, falling
+    back to 1. Adding variants is a `2.0` break (it is not
+    `#[non_exhaustive]`). `<NumJobs as FromStr>::Err` is the named
+    `ParseNumJobsError` (`Zero` / `NotAPositiveInteger`, each carrying
+    the rejected `input()`, `Display + Error`), matching the typed
+    `ParseMetricError` / `ParseLangError` convention; it is deliberately
+    exhaustive so callers can match both failure modes without a
+    wildcard.
   - `MetricsError` in `src/error.rs` — carries `#[non_exhaustive]`,
     so adding variants is additive. Current variants are
     `LanguageDisabled(LANG)` (the only one produced today) and the

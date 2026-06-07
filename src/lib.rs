@@ -250,7 +250,9 @@ pub use crate::tools::{
 
 // --- Source walker ---
 mod concurrent_files;
-pub use crate::concurrent_files::{ConcurrentErrors, ConcurrentRunner, FilesData};
+pub use crate::concurrent_files::{
+    ConcurrentErrors, ConcurrentRunner, FilesData, NumJobs, ParseNumJobsError,
+};
 
 // --- Comment removal ---
 mod comment_rm;

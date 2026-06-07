@@ -6,9 +6,12 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
+use std::thread::available_parallelism;
 
 /// A boxed, thread-safe error cause carried by [`ConcurrentErrors`].
 ///
@@ -31,6 +34,127 @@ struct JobItem<Config> {
 
 type JobReceiver<Config> = Receiver<Option<JobItem<Config>>>;
 type JobSender<Config> = Sender<Option<JobItem<Config>>>;
+
+/// Parsed worker-count selector for [`ConcurrentRunner`], shared by the
+/// `bca` CLI and the `bca-web` server so both binaries resolve the same
+/// `<N|auto>` contract.
+///
+/// `Auto` is the default and resolves to the OS-reported effective CPU
+/// count via [`std::thread::available_parallelism`], which honors Linux
+/// cgroup CPU quotas, cgroup v2 `cpu.max`, and `sched_setaffinity`
+/// cpusets. On macOS / Windows it falls back to the OS CPU count.
+/// `Explicit(n)` is an integer override; [`NumJobs::from_str`] rejects
+/// `0` with a clear error message rather than silently degrading to
+/// serial mode.
+///
+/// This type is intentionally clap-agnostic — it is a plain [`FromStr`]
+/// the binaries wire into clap via `value_parser` / `value_name`, so the
+/// core library gains no clap dependency.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum NumJobs {
+    /// Use the OS-reported effective CPU count (cgroup / cpuset aware).
+    #[default]
+    Auto,
+    /// Use an explicit, non-zero worker count.
+    Explicit(NonZeroUsize),
+}
+
+impl NumJobs {
+    /// Resolve to the worker count handed to [`ConcurrentRunner`].
+    ///
+    /// `Auto` falls back to `1` if [`available_parallelism`] errors —
+    /// keeping the caller alive even in unusual sandboxes where the
+    /// syscall fails. The returned value is always `>= 1`.
+    #[must_use]
+    pub fn resolve(self) -> usize {
+        match self {
+            Self::Auto => available_parallelism().map_or(1, NonZeroUsize::get),
+            Self::Explicit(n) => n.get(),
+        }
+    }
+}
+
+/// Error returned by [`NumJobs::from_str`] when the input is neither
+/// `auto` nor a usable positive integer.
+///
+/// Named (rather than a bare `String`) so callers can match the failure
+/// mode and recover the rejected input via [`ParseNumJobsError::input`],
+/// matching the typed-error convention of
+/// [`ParseMetricError`](crate::ParseMetricError) /
+/// [`ParseLangError`](crate::ParseLangError).
+///
+/// Deliberately exhaustive: `usize::from_str` collapses every malformed
+/// integer (negative, overflowing, non-numeric) into the single
+/// [`NotAPositiveInteger`](Self::NotAPositiveInteger) arm, so the only
+/// other distinct mode is the in-range-but-zero rejection. A new mode
+/// would be a deliberate change, and callers benefit from matching both
+/// arms without a wildcard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseNumJobsError {
+    /// The input parsed as `0`, below the `>= 1` worker-count floor.
+    Zero {
+        /// The rejected input, verbatim (e.g. `"0"`).
+        input: String,
+    },
+    /// The input was not `auto` and did not parse as a positive integer
+    /// (non-numeric, negative, or overflowing).
+    NotAPositiveInteger {
+        /// The rejected input, verbatim.
+        input: String,
+    },
+}
+
+impl ParseNumJobsError {
+    /// The rejected input that failed to parse as a [`NumJobs`] value.
+    ///
+    /// Lets callers recover the offending string programmatically rather
+    /// than scraping it out of the [`Display`](fmt::Display) output.
+    #[must_use]
+    pub fn input(&self) -> &str {
+        match self {
+            Self::Zero { input } | Self::NotAPositiveInteger { input } => input,
+        }
+    }
+}
+
+impl fmt::Display for ParseNumJobsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Zero { .. } => f.write_str(
+                "--num-jobs must be >= 1 (use `--num-jobs 1` to force serial mode, \
+                 or `--num-jobs auto` for the OS-reported CPU count)",
+            ),
+            Self::NotAPositiveInteger { input } => write!(
+                f,
+                "--num-jobs: expected a positive integer or `auto`, got `{input}`"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ParseNumJobsError {}
+
+impl FromStr for NumJobs {
+    type Err = ParseNumJobsError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.eq_ignore_ascii_case("auto") {
+            return Ok(Self::Auto);
+        }
+        match s.parse::<usize>() {
+            Ok(n) => {
+                NonZeroUsize::new(n)
+                    .map(Self::Explicit)
+                    .ok_or_else(|| ParseNumJobsError::Zero {
+                        input: s.to_owned(),
+                    })
+            }
+            Err(_) => Err(ParseNumJobsError::NotAPositiveInteger {
+                input: s.to_owned(),
+            }),
+        }
+    }
+}
 
 fn consumer<Config, ProcFiles>(receiver: JobReceiver<Config>, func: Arc<ProcFiles>)
 where

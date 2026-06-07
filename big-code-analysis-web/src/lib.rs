@@ -18,19 +18,27 @@ pub use web::*;
 pub mod cli {
     use clap::Parser;
 
+    use big_code_analysis::NumJobs;
+
     use crate::web::server::DEFAULT_PARSE_TIMEOUT_SECS;
 
     /// Command-line options for the `bca-web` REST API server.
     #[derive(Parser, Debug)]
     #[clap(name = "bca-web", version, author, about = "Run a web server.")]
     pub struct Opts {
-        /// Number of jobs (worker threads); must be at least 1.
+        /// Number of worker threads.
+        ///
+        /// Defaults to the effective CPU count as reported by the OS
+        /// (cgroup-quota- and cpuset-aware on Linux), matching the `bca`
+        /// CLI's `--num-jobs`. Pass an explicit integer or `auto` to
+        /// override. `--num-jobs 1` forces a single worker.
+        //
         // A value of 0 would create a zero-permit semaphore (blocking every
         // parse forever) and trip actix-server's `assert_ne!(num, 0)` in
-        // `ServerBuilder::workers`, panicking at startup. Reject it at parse
-        // time with a clap range validator instead.
-        #[clap(long, short = 'j', value_parser = clap::value_parser!(u32).range(1..))]
-        pub num_jobs: Option<u32>,
+        // `ServerBuilder::workers`, panicking at startup. `NumJobs::from_str`
+        // rejects `0` at parse time, and `resolve()` never yields below 1.
+        #[clap(long, short = 'j', default_value = "auto", value_name = "N|auto")]
+        pub num_jobs: NumJobs,
         /// Host for the web server.
         #[clap(long, default_value = "127.0.0.1")]
         pub host: String,
@@ -46,13 +54,16 @@ pub mod cli {
     mod tests {
         use super::*;
         use clap::error::ErrorKind;
+        use std::num::NonZeroUsize;
 
         #[test]
         fn opts_parses_defaults() {
             let opts = Opts::try_parse_from(["bca-web"]).expect("default parse must succeed");
             assert_eq!(opts.host, "127.0.0.1");
             assert_eq!(opts.port, 8080);
-            assert_eq!(opts.num_jobs, None);
+            // The default mirrors the CLI's `--num-jobs auto`: cgroup-aware,
+            // resolving to the OS-reported effective CPU count (#560).
+            assert_eq!(opts.num_jobs, NumJobs::Auto);
             assert_eq!(opts.parse_timeout_secs, DEFAULT_PARSE_TIMEOUT_SECS);
         }
 
@@ -97,14 +108,30 @@ pub mod cli {
         fn opts_overrides_num_jobs_long() {
             let opts = Opts::try_parse_from(["bca-web", "--num-jobs", "8"])
                 .expect("--num-jobs must parse");
-            assert_eq!(opts.num_jobs, Some(8));
+            assert_eq!(
+                opts.num_jobs,
+                NumJobs::Explicit(NonZeroUsize::new(8).expect("8 is non-zero"))
+            );
         }
 
         #[test]
         fn opts_overrides_num_jobs_short() {
             let opts =
                 Opts::try_parse_from(["bca-web", "-j", "4"]).expect("-j short flag must parse");
-            assert_eq!(opts.num_jobs, Some(4));
+            assert_eq!(
+                opts.num_jobs,
+                NumJobs::Explicit(NonZeroUsize::new(4).expect("4 is non-zero"))
+            );
+        }
+
+        #[test]
+        fn opts_parses_num_jobs_auto() {
+            // `auto` must parse and resolve identically to the CLI's
+            // `NumJobs::Auto` — the cgroup-aware shared default (#560).
+            let opts = Opts::try_parse_from(["bca-web", "--num-jobs", "auto"])
+                .expect("--num-jobs auto must parse");
+            assert_eq!(opts.num_jobs, NumJobs::Auto);
+            assert!(opts.num_jobs.resolve() >= 1);
         }
 
         #[test]
@@ -127,7 +154,10 @@ pub mod cli {
         fn opts_accepts_one_num_job() {
             let opts =
                 Opts::try_parse_from(["bca-web", "--num-jobs", "1"]).expect("one job must parse");
-            assert_eq!(opts.num_jobs, Some(1));
+            assert_eq!(
+                opts.num_jobs,
+                NumJobs::Explicit(NonZeroUsize::new(1).expect("1 is non-zero"))
+            );
         }
 
         #[test]
@@ -174,7 +204,10 @@ pub mod cli {
             .expect("all-overrides parse must succeed");
             assert_eq!(opts.host, "10.0.0.1");
             assert_eq!(opts.port, 9090);
-            assert_eq!(opts.num_jobs, Some(16));
+            assert_eq!(
+                opts.num_jobs,
+                NumJobs::Explicit(NonZeroUsize::new(16).expect("16 is non-zero"))
+            );
             assert_eq!(opts.parse_timeout_secs, 120);
         }
     }

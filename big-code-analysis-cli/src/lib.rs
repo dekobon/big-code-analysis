@@ -60,13 +60,10 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::io::{ErrorKind, Write};
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
-use std::thread::available_parallelism;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -83,7 +80,8 @@ use thresholds::{
 
 use big_code_analysis::LANG;
 use big_code_analysis::{
-    ConcurrentRunner, CountCollector, FilesData, MetricsOptions, PreprocResults, SuppressionPolicy,
+    ConcurrentRunner, CountCollector, FilesData, MetricsOptions, NumJobs, PreprocResults,
+    SuppressionPolicy,
 };
 use big_code_analysis::{get_from_ext, read_file};
 
@@ -173,55 +171,6 @@ pub struct Cli {
     globals: GlobalOpts,
     #[command(subcommand)]
     command: Command,
-}
-
-/// Parsed `--num-jobs` value.
-///
-/// `Auto` is the default and resolves to the OS-reported effective
-/// CPU count via [`std::thread::available_parallelism`], which
-/// honors Linux cgroup CPU quotas, cgroup v2 `cpu.max`, and
-/// `sched_setaffinity` cpusets. On macOS / Windows it falls back to
-/// the OS CPU count. `Explicit(n)` is an integer override; clap
-/// parses it via [`NumJobs::from_str`], which rejects `0` with a
-/// clear error message rather than silently degrading to serial mode.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum NumJobs {
-    #[default]
-    Auto,
-    Explicit(NonZeroUsize),
-}
-
-impl NumJobs {
-    /// Resolve to the worker count handed to `ConcurrentRunner`.
-    /// `Auto` falls back to `1` if `available_parallelism` errors —
-    /// matching the issue's spec and keeping the binary alive even
-    /// in unusual sandboxes where the syscall fails.
-    fn resolve(self) -> usize {
-        match self {
-            Self::Auto => available_parallelism().map_or(1, NonZeroUsize::get),
-            Self::Explicit(n) => n.get(),
-        }
-    }
-}
-
-impl FromStr for NumJobs {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.eq_ignore_ascii_case("auto") {
-            return Ok(Self::Auto);
-        }
-        match s.parse::<usize>() {
-            Ok(n) => NonZeroUsize::new(n).map(Self::Explicit).ok_or_else(|| {
-                "--num-jobs must be >= 1 (use `--num-jobs 1` to force serial mode, \
-                 or `--num-jobs auto` for the OS-reported CPU count)"
-                    .to_owned()
-            }),
-            Err(e) => Err(format!(
-                "--num-jobs: expected a positive integer or `auto`, got `{s}`: {e}"
-            )),
-        }
-    }
 }
 
 #[derive(Args, Debug, Default, Clone)]

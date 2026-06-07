@@ -757,6 +757,12 @@ fn exclude_pattern_filter_direct_policy_check() {
 
 // -- NumJobs parser (#383) ----------------------------------------------
 
+// `NumJobs` moved to the core library (#560); its `FromStr` impl and
+// `NonZeroUsize` are no longer re-imported through the lib's prelude, so
+// pull them in directly for these tests.
+use std::num::NonZeroUsize;
+use std::str::FromStr;
+
 #[test]
 fn num_jobs_parses_auto_case_insensitive() {
     // `auto` is the documented synonym for the default; accept any
@@ -786,8 +792,14 @@ fn num_jobs_serial_one_preserved() {
 #[test]
 fn num_jobs_rejects_zero() {
     let err = NumJobs::from_str("0").unwrap_err();
+    // Typed error: the `Zero` arm is distinguishable from a non-numeric
+    // failure and carries the rejected input (#560 follow-up).
     assert!(
-        err.contains(">= 1"),
+        matches!(&err, big_code_analysis::ParseNumJobsError::Zero { input } if input == "0"),
+        "zero must surface the typed `Zero` variant; got: {err:?}"
+    );
+    assert!(
+        err.to_string().contains(">= 1"),
         "zero must be rejected with an actionable message; got: {err}"
     );
 }
@@ -796,7 +808,15 @@ fn num_jobs_rejects_zero() {
 fn num_jobs_rejects_non_numeric() {
     let err = NumJobs::from_str("not-a-number").unwrap_err();
     assert!(
-        err.contains("positive integer or `auto`"),
+        matches!(
+            &err,
+            big_code_analysis::ParseNumJobsError::NotAPositiveInteger { input }
+                if input == "not-a-number"
+        ),
+        "non-numeric input must surface the typed `NotAPositiveInteger` variant; got: {err:?}"
+    );
+    assert!(
+        err.to_string().contains("positive integer or `auto`"),
         "non-numeric input must mention the accepted forms; got: {err}"
     );
 }

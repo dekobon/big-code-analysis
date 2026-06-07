@@ -225,3 +225,70 @@ fn run_skips_directories_and_missing_paths_without_walking() {
     // path is skipped.
     assert_eq!(processed.load(Ordering::SeqCst), 1);
 }
+
+// ── NumJobs: shared <N|auto> parser + resolve (#560) ─────────────
+//
+// `NumJobs` is the worker-count selector shared by the `bca` CLI and the
+// `bca-web` server. The parser must accept `auto` case-insensitively, a
+// positive integer, and reject `0` and non-numeric tokens (naming the
+// bad token in the error). `resolve()` is always `>= 1`.
+
+#[test]
+fn num_jobs_parses_auto_case_insensitively() {
+    assert_eq!(NumJobs::from_str("auto").expect("auto"), NumJobs::Auto);
+    assert_eq!(NumJobs::from_str("AUTO").expect("AUTO"), NumJobs::Auto);
+    assert_eq!(NumJobs::from_str("Auto").expect("Auto"), NumJobs::Auto);
+}
+
+#[test]
+fn num_jobs_parses_positive_integer() {
+    let parsed = NumJobs::from_str("4").expect("4 must parse");
+    assert_eq!(
+        parsed,
+        NumJobs::Explicit(NonZeroUsize::new(4).expect("4 is non-zero"))
+    );
+}
+
+#[test]
+fn num_jobs_rejects_invalid_string_naming_the_token() {
+    let err = NumJobs::from_str("not-a-number").expect_err("non-numeric must be rejected");
+    // The typed error carries the rejected input verbatim, so callers
+    // recover it via `input()` rather than scraping `Display`.
+    assert!(
+        matches!(&err, ParseNumJobsError::NotAPositiveInteger { .. }),
+        "non-numeric input must be the `NotAPositiveInteger` variant, got: {err:?}"
+    );
+    assert_eq!(err.input(), "not-a-number");
+    assert!(
+        err.to_string().contains("not-a-number"),
+        "error message must name the bad token, got: {err}"
+    );
+}
+
+#[test]
+fn num_jobs_rejects_zero() {
+    let err = NumJobs::from_str("0").expect_err("zero must be rejected");
+    assert!(
+        matches!(&err, ParseNumJobsError::Zero { .. }),
+        "in-range zero must be the `Zero` variant, got: {err:?}"
+    );
+    assert_eq!(err.input(), "0");
+    assert!(
+        err.to_string().contains(">= 1"),
+        "zero error must mention the >= 1 floor, got: {err}"
+    );
+}
+
+#[test]
+fn num_jobs_resolve_is_at_least_one() {
+    assert!(NumJobs::Auto.resolve() >= 1);
+    assert_eq!(
+        NumJobs::Explicit(NonZeroUsize::new(3).expect("3 is non-zero")).resolve(),
+        3
+    );
+}
+
+#[test]
+fn num_jobs_default_is_auto() {
+    assert_eq!(NumJobs::default(), NumJobs::Auto);
+}
