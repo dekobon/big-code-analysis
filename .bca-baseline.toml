@@ -44,26 +44,19 @@ path = "big-code-analysis-web/src/web/server.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 804.0
+value = 800.0
 
 [[entry]]
 path = "src/count.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "src/lib.rs"
-qualified = "<file>"
-start_line = 1
-metric = "halstead.effort"
-value = 53762.1541099068
+value = 7.0
 
 [[entry]]
 path = "src/preproc.rs"
-qualified = "preprocess"
-start_line = 325
+qualified = "preprocess_with_parser"
+start_line = 333
 metric = "cognitive"
 value = 24.0
 
