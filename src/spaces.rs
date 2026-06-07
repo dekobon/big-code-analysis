@@ -59,8 +59,13 @@ use crate::output::dump_metrics::*;
 use crate::traits::*;
 
 /// The list of supported space kinds.
+// New space kinds land as languages are added (a future module-, mixin-,
+// or enum-style space), so this is marked `#[non_exhaustive]` to keep
+// such additions additive rather than a 2.0 break. CLI/web consumers
+// matching on it already carry a `_ =>` arm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum SpaceKind {
     /// An unknown space
     #[default]
@@ -1512,6 +1517,30 @@ mod tests {
     use crate::MetricsOptions;
     use crate::metrics;
     use crate::{CppParser, ParserTrait, SpaceKind, check_func_space};
+
+    /// `SpaceKind` is `#[non_exhaustive]` (#551); the attribute is a
+    /// compile-time forward-compat contract and must not change the
+    /// serialized form. Every variant still round-trips through its
+    /// lowercase token, and `Display` agrees with serde.
+    #[test]
+    fn space_kind_non_exhaustive_serde_roundtrip_unchanged() {
+        for kind in [
+            SpaceKind::Unknown,
+            SpaceKind::Function,
+            SpaceKind::Class,
+            SpaceKind::Struct,
+            SpaceKind::Trait,
+            SpaceKind::Impl,
+            SpaceKind::Unit,
+            SpaceKind::Namespace,
+            SpaceKind::Interface,
+        ] {
+            let json = serde_json::to_string(&kind).unwrap();
+            assert_eq!(json, format!("\"{kind}\""));
+            let back: SpaceKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, kind);
+        }
+    }
 
     /// Positive coverage for the C++ function-space predicates on the
     /// only `function_definition` `kind_id` (343) that

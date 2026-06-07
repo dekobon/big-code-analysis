@@ -75,6 +75,9 @@ pub fn threshold_metric_for_name(name: &str) -> Option<Metric> {
 /// `Honor` is the default behaviour for `bca check` runs; `Ignore`
 /// powers the `--no-suppress` CLI flag so CI auditors can see the raw,
 /// un-silenced offender list without editing source files.
+// Deliberately exhaustive: a total binary toggle (honor markers vs
+// ignore them). There is no third state to add, so `#[non_exhaustive]`
+// would only force callers into a pointless wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuppressionPolicy {
     /// Skip violations whose metric is covered by an applicable marker.
@@ -105,6 +108,9 @@ impl SuppressionPolicy {
 /// means the marker effectively suppresses nothing (only possible via
 /// an empty `()` list, which is treated as a no-op rather than an
 /// error).
+// Deliberately exhaustive: a total model of "everything (`All`) vs an
+// explicit set (`Some`)". Any new coverage shape is expressible as a
+// `Some(set)` rather than a new variant, so the two cases are closed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "metrics")]
 pub enum SuppressionScope {
@@ -467,6 +473,10 @@ fn parse_metric_list(inside: &str) -> Result<SuppressionScope, SuppressionError>
 /// The public mirror of the crate-internal `SuppressionKind`; exposed
 /// on [`SuppressionMarker`] so the `bca exemptions` audit (issue #386)
 /// can report marker scope without leaking the internal type.
+// Deliberately exhaustive: function- and file-scope are the only two
+// suppression granularities the marker grammar models. A new granularity
+// would be a grammar-level change, planned deliberately, not a silent
+// additive variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SuppressionTarget {
@@ -491,8 +501,14 @@ impl From<SuppressionKind> for SuppressionTarget {
 /// exposed on [`SuppressionMarker`] so an audit can flag Lizard-style
 /// markers that projects may want to migrate to the native `bca:`
 /// dialect over time.
+// New tool dialects beyond Native and Lizard are plausible (other
+// linters with their own forgive-marker syntax), so this carries
+// `#[non_exhaustive]` to keep such additions additive rather than a 2.0
+// break. The CLI `marker_label` tuple match has a `_ =>` arm for the
+// not-yet-known dialects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SuppressionDialect {
     /// Native `bca:` marker.
     Native,

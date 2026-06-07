@@ -646,6 +646,21 @@ loose ends that will be tightened at `2.0`:
 - The per-metric `Stats` structs become `#[non_exhaustive]`, so
   field additions stop being a shape break in the strict SemVer
   sense.
+- The remaining public enums that model genuinely open vocabularies
+  gain `#[non_exhaustive]` so future variants are additive rather than
+  a break (#551): `Severity` (an open severity scale, likely to gain an
+  `Info` / `Note` tier), `SpaceKind` (new language space kinds land as
+  languages are added), and `SuppressionDialect` (new tool dialects
+  beyond `Native` / `Lizard`). `#[non_exhaustive]` is only free to add
+  *before* a major bump — adding it after `2.0` is itself a break — so
+  this lands at `2.0`. The remaining suppression enums stay deliberately
+  exhaustive and are documented as such at their definitions:
+  `SuppressionPolicy` (a total honor/ignore toggle), `SuppressionScope`
+  (a total "everything vs an explicit set" model), and
+  `SuppressionTarget` (the only two suppression granularities,
+  function- and file-scope). Marking those would force callers into
+  pointless wildcard arms on closed two-variant models for no
+  forward-compatibility benefit.
 - The builder types `Source`, `MetricsOptions`, and `MetricsCfg`
   lose their `pub` fields (narrowed to `pub(crate)`), so the field
   representation stops being frozen as API — only the `new` + `with_*`

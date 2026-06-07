@@ -46,8 +46,14 @@ pub(crate) fn warn_non_utf8_path<'a>(format: &str, path: &'a Path) -> Option<&'a
 ///
 /// Defaults to [`Severity::Warning`] so producers can opt into
 /// `Error` explicitly for hard-fail gates.
+// An open severity scale: a future `Info` / `Note` tier (or any tier
+// between `Warning` and `Error`) lands as an additive variant rather
+// than a 2.0 break, so it carries `#[non_exhaustive]`. Variants stay in
+// severity order because #552 will add `Hash`/`Ord` keyed on
+// declaration order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Severity {
     /// Soft severity: report the violation but do not fail.
     #[default]
@@ -137,6 +143,23 @@ mod tests {
     fn severity_as_str_lowercase() {
         assert_eq!(Severity::Warning.as_str(), "warning");
         assert_eq!(Severity::Error.as_str(), "error");
+    }
+
+    /// `Severity` is `#[non_exhaustive]` (#551). The attribute is a
+    /// compile-time forward-compat contract and must not change the
+    /// serialized form: each variant still round-trips through its
+    /// lowercase token.
+    #[test]
+    fn severity_non_exhaustive_serde_roundtrip_unchanged() {
+        for (variant, token) in [
+            (Severity::Warning, "\"warning\""),
+            (Severity::Error, "\"error\""),
+        ] {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, token);
+            let back: Severity = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, variant);
+        }
     }
 
     #[test]

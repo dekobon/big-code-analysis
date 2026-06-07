@@ -307,6 +307,10 @@ fn marker_label(target: SuppressionTarget, dialect: SuppressionDialect) -> &'sta
         (SuppressionDialect::Native, SuppressionTarget::File) => "bca: suppress-file",
         (SuppressionDialect::Lizard, SuppressionTarget::Function) => "#lizard forgives",
         (SuppressionDialect::Lizard, SuppressionTarget::File) => "#lizard forgive global",
+        // `SuppressionDialect` is `#[non_exhaustive]` (#551): a future
+        // tool dialect we don't yet know the marker syntax for falls
+        // back to a generic label rather than failing to compile.
+        _ => "(unknown dialect)",
     }
 }
 
