@@ -164,7 +164,13 @@ fn dispatch_dump(
     // `LanguageDisabled` from `Ast::parse` is unreachable; the `expect`
     // documents that invariant.
     let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
-    dump_node(ast.source(), &ast.root_node(), -1, cfg.line_start, cfg.line_end)
+    dump_node(
+        ast.source(),
+        &ast.root_node(),
+        -1,
+        cfg.line_start,
+        cfg.line_end,
+    )
 }
 
 fn dispatch_metrics(
