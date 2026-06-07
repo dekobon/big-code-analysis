@@ -211,13 +211,13 @@ fn dump_halstead(
 
     dump_value("length", stats.length() as f64, &prefix, false, stdout)?;
     dump_value(
-        "estimated program length",
+        "estimated_program_length",
         stats.estimated_program_length(),
         &prefix,
         false,
         stdout,
     )?;
-    dump_value("purity ratio", stats.purity_ratio(), &prefix, false, stdout)?;
+    dump_value("purity_ratio", stats.purity_ratio(), &prefix, false, stdout)?;
     dump_value(
         "vocabulary",
         stats.vocabulary() as f64,
@@ -611,6 +611,40 @@ mod tests {
             root_block_field(&out, "nargs", "functions"),
             "0",
             "root nargs must print fn_args_sum (aggregate), not the immediate 0:\n{out}"
+        );
+    }
+
+    /// Regression for #562: the two Halstead dump labels must use the
+    /// underscore key that matches the JSON/CSV key name, so a user can grep
+    /// the same token across `dump` and JSON. The space-separated forms
+    /// (`estimated program length` / `purity ratio`) were the only outliers.
+    #[test]
+    fn dump_halstead_labels_use_underscore_keys() {
+        let space = analyze(
+            Source::new(LANG::Cpp, b"int a = 42;"),
+            MetricsOptions::default(),
+        )
+        .expect("snippet has a top-level FuncSpace");
+
+        let mut buf = termcolor::NoColor::new(Vec::new());
+        dump_space(&space, "", true, &mut buf).expect("dump to in-memory buffer");
+        let out = String::from_utf8(buf.into_inner()).expect("utf-8 dump");
+
+        assert!(
+            out.contains("estimated_program_length: "),
+            "dump must use the underscore key `estimated_program_length`:\n{out}"
+        );
+        assert!(
+            out.contains("purity_ratio: "),
+            "dump must use the underscore key `purity_ratio`:\n{out}"
+        );
+        assert!(
+            !out.contains("estimated program length"),
+            "dump must not emit the space-separated `estimated program length`:\n{out}"
+        );
+        assert!(
+            !out.contains("purity ratio"),
+            "dump must not emit the space-separated `purity ratio`:\n{out}"
         );
     }
 }
