@@ -132,3 +132,7 @@ fn current_unix_seconds() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

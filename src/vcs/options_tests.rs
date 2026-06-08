@@ -62,3 +62,57 @@ fn default_bot_pattern_is_a_valid_regex() {
     // Guards the `expect` documented in `Options::default` / `BotFilter`.
     assert!(regex::Regex::new(DEFAULT_BOT_PATTERN).is_ok());
 }
+
+#[test]
+fn risk_formula_parses_known_names() {
+    assert_eq!(
+        "weighted".parse::<RiskFormula>().expect("weighted"),
+        RiskFormula::Weighted
+    );
+    assert_eq!(
+        "percentile".parse::<RiskFormula>().expect("percentile"),
+        RiskFormula::Percentile
+    );
+}
+
+#[test]
+fn risk_formula_rejects_unknown_name() {
+    assert!(
+        matches!("bogus".parse::<RiskFormula>(), Err(Error::InvalidFormula(name)) if name == "bogus")
+    );
+}
+
+#[test]
+fn iso8601_unsupported_designator_is_rejected() {
+    // 'X' is not a date designator (Y/M/W/D). Distinct from the
+    // no-magnitude path (`PT5S`): here a magnitude precedes a bad unit.
+    assert!(matches!(parse_window("P5X"), Err(Error::InvalidWindow(_))));
+}
+
+#[test]
+fn iso8601_trailing_magnitude_without_designator_is_rejected() {
+    // "P5" carries a magnitude with no unit designator to close it.
+    assert!(matches!(parse_window("P5"), Err(Error::InvalidWindow(_))));
+}
+
+#[test]
+fn overflowing_windows_are_rejected_not_wrapped() {
+    // Magnitudes large enough to overflow i64 seconds must surface a
+    // clean InvalidWindow, never a wrapped (and possibly negative)
+    // duration. Covers the `checked_mul` guards in both forms.
+    for bad in ["999999999999y", "P999999999999Y"] {
+        assert!(
+            matches!(parse_window(bad), Err(Error::InvalidWindow(_))),
+            "expected {bad:?} to be rejected as overflow"
+        );
+    }
+}
+
+#[test]
+fn secs_to_days_saturates_huge_and_floors_negative() {
+    // The conversion is total: a span past u32::MAX days saturates
+    // rather than wrapping, and a negative second-count floors to 0.
+    let huge = (i64::from(u32::MAX) + 10) * SECONDS_PER_DAY;
+    assert_eq!(secs_to_days(huge), u32::MAX);
+    assert_eq!(secs_to_days(-10 * SECONDS_PER_DAY), 0);
+}

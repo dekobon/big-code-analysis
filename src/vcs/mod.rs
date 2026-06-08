@@ -177,3 +177,7 @@ pub fn rank_by_risk<T>(entries: &mut Vec<T>, top: usize, key: impl Fn(&T) -> (&s
         entries.truncate(top);
     }
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;
