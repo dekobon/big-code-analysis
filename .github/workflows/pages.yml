@@ -239,11 +239,21 @@ jobs:
       # regardless of a prior report failure. (An earlier revision used
       # `continue-on-error` on the reports; that masked a single broken
       # report on PR runs, where `assemble` does not run to catch it.)
+      # `--vcs` folds a "Change-history risk" section into the flagship
+      # reports, so the AST hotspots and the VCS risk ranking sit
+      # side-by-side in one page (issue #573) — the project's primary
+      # dogfood of `bca report --vcs`. It builds the history index with
+      # default windows from the same `fetch-depth: 0` checkout the VCS
+      # JSON step below relies on. SECURITY: `--vcs` never
+      # emits author-identity hashes (that is `bca vcs
+      # --emit-author-details` only), so nothing author-sensitive reaches
+      # the public Pages site.
       - name: Generate Markdown report
         run: |
           set -euo pipefail
           bca \
             report markdown \
+            --vcs \
             --top 30 \
             --strip-prefix "./" \
             --output report.md
@@ -253,39 +263,28 @@ jobs:
           set -euo pipefail
           bca \
             report html \
+            --vcs \
             --top 50 \
             --strip-prefix "./" \
             --output index.html
 
-      # Dogfood the change-history (VCS) risk report (issue #328): rank
-      # this repo's tracked files by composite change-history risk
-      # (churn, commit/author counts, ownership dilution, bug-/security-
-      # fix history). Path selection and the `.bcaignore` deny-set come
-      # from the same `bca.toml` manifest the AST report and gate read;
-      # the job's `fetch-depth: 0` checkout supplies the full history the
-      # walk needs (a shallow clone would truncate it). Emitted to
-      # stdout — the per-file `--output` directory semantics inherited
-      # from `metrics`/`ops` do not fit a single whole-repo report —
-      # captured as machine-readable JSON plus a human table.
+      # The rendered change-history report is now folded into the
+      # flagship `report.md` / `index.html` above via `--vcs`. This step
+      # additionally publishes the full top-100 ranking as a
+      # machine-readable JSON download (deeper than the flagship report's
+      # top-30/50 section), using the same `bca.toml` path selection and
+      # the job's `fetch-depth: 0` full history.
       #
       # SECURITY: this report is published to the *public* Pages site.
       # Do NOT add `--emit-author-details` here: it would publish
       # SHA-256 hashes of author emails. The counts/paths/scores emitted
       # without it are all derivable from the public git history.
       #
-      # Three invocations = three history walks (one per format),
-      # mirroring the `report markdown` + `report html` pair above; `bca
-      # vcs` renders one format per run. Acceptable for this repo's size.
-      # `vcs-report.html` is the styled, sortable page (#573); the JSON
-      # is the machine-readable download and the TXT the plain table.
-      # `--output` writes a single file (a whole-repo report is one
-      # document), so only the table still needs a stdout redirect.
-      - name: Generate VCS risk report
+      # `--output` writes a single whole-repo file (#573).
+      - name: Generate VCS risk JSON
         run: |
           set -euo pipefail
-          bca vcs --top 100 --format html --output vcs-report.html
           bca vcs --top 100 --format json --output vcs-report.json
-          bca vcs --top 100 > vcs-report.txt
 
       # Run the gate last so the report artifacts above always upload
       # even when thresholds fail — the report is most useful when CI
@@ -363,9 +362,7 @@ jobs:
           path: |
             report.md
             index.html
-            vcs-report.html
             vcs-report.json
-            vcs-report.txt
           if-no-files-found: error
           # Same PR-vs-main retention split as the book artifact above —
           # see that comment for the rationale.
@@ -393,14 +390,10 @@ jobs:
           mkdir -p site/reports
           cp reports-staging/index.html site/reports/index.html
           cp reports-staging/report.md   site/reports/report.md
-          # Change-history (VCS) risk report (issues #328, #573) —
-          # published alongside the AST reports so the dogfooded ranking
-          # is visible on the Pages site, not just as a per-run artifact.
-          # The HTML page is the styled, sortable view; JSON/TXT remain
-          # the machine-readable and plain-table downloads.
-          cp reports-staging/vcs-report.html site/reports/vcs-report.html
+          # Change-history (VCS) risk (issues #328, #573): the rendered
+          # ranking is folded into index.html / report.md via `--vcs`
+          # above; this is the deeper top-100 machine-readable download.
           cp reports-staging/vcs-report.json site/reports/vcs-report.json
-          cp reports-staging/vcs-report.txt  site/reports/vcs-report.txt
           # Belt-and-braces in two places:
           #  * `site/.nojekyll` should already have travelled with
           #    book-html (build-book uploads with include-hidden-files

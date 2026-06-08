@@ -162,10 +162,14 @@ window / formula tuning use `bca vcs`.
 This project runs `bca vcs` on its own source. `make vcs` prints the
 ranked table (path selection and the `.bcaignore` deny-set come from the
 repo-root `bca.toml` manifest, the same config `make self-scan` and
-`make report` use; `BCA_VCS_TOP` overrides the row cap). The Pages CI job
-publishes the styled, sortable `vcs-report.html` page alongside the
-machine-readable `vcs-report.json` and the plain `vcs-report.txt` table
-under the site's `reports/` directory each run (issue
+`make report` use; `BCA_VCS_TOP` overrides the row cap). On every push to
+`main` the Pages CI job folds the rendered ranking into the flagship
+report — `bca report html --vcs` / `report markdown --vcs` — so the
+published [`reports/index.html`](https://dekobon.github.io/big-code-analysis/reports/index.html)
+shows the change-history risk section side-by-side with the AST hotspots,
+and additionally publishes the full top-100 ranking as
+[`reports/vcs-report.json`](https://dekobon.github.io/big-code-analysis/reports/vcs-report.json)
+for tooling (issue
 [#573](https://github.com/dekobon/big-code-analysis/issues/573)).
 
 ## REST and Python
