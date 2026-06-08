@@ -2,7 +2,97 @@
 //! entries into function spans. The git-backed end-to-end behaviour is
 //! exercised by the integration fixture in `tests/vcs_history.rs`.
 
-use super::LineSpan;
+use std::cell::Cell;
+
+use super::{LineSpan, MAX_BLAME_ATTEMPTS, retry_transient};
+
+/// Drive `retry_transient` with a synthetic closure whose i-th call
+/// returns `outcomes[i]` (and counts calls), treating every `Err` as
+/// retryable unless overridden. Returns `(result, calls)`.
+fn run_retry(
+    attempts: u32,
+    outcomes: &[Result<&'static str, &'static str>],
+) -> (Result<&'static str, &'static str>, u32) {
+    let calls = Cell::new(0u32);
+    let result = retry_transient(
+        attempts,
+        || {
+            let i = calls.get();
+            calls.set(i + 1);
+            outcomes[i as usize]
+        },
+        |_| true,
+    );
+    (result, calls.get())
+}
+
+#[test]
+fn retry_returns_first_ok_without_extra_attempts() {
+    // The happy path must cost exactly one call — no overhead when blame
+    // succeeds (the overwhelmingly common case).
+    let (result, calls) = run_retry(MAX_BLAME_ATTEMPTS, &[Ok("blamed")]);
+    assert_eq!(result, Ok("blamed"));
+    assert_eq!(calls, 1, "a first-attempt success must not retry");
+}
+
+#[test]
+fn retry_recovers_after_transient_errors() {
+    // Two transient misses then success → returns Ok on the third call,
+    // mirroring the gix-odb pack-refresh race clearing once observed.
+    let (result, calls) = run_retry(
+        MAX_BLAME_ATTEMPTS,
+        &[Err("miss"), Err("miss"), Ok("blamed")],
+    );
+    assert_eq!(result, Ok("blamed"));
+    assert_eq!(calls, 3, "should retry twice before the third call wins");
+}
+
+#[test]
+fn retry_exhausts_budget_and_returns_last_error() {
+    // Persistent failure → the front end's graceful degradation must see
+    // the final Err after exactly MAX_BLAME_ATTEMPTS calls (no more).
+    let (result, calls) = run_retry(
+        MAX_BLAME_ATTEMPTS,
+        &[Err("miss"), Err("miss"), Err("still")],
+    );
+    assert_eq!(result, Err("still"));
+    assert_eq!(
+        calls, MAX_BLAME_ATTEMPTS,
+        "budget is one initial attempt plus MAX-1 retries"
+    );
+}
+
+#[test]
+fn retry_stops_on_non_retryable_error() {
+    // A deterministic failure (predicate returns false) must fail fast on
+    // the first call — never burn retries on an object that truly is
+    // absent at the ref.
+    let calls = Cell::new(0u32);
+    let result = retry_transient(
+        MAX_BLAME_ATTEMPTS,
+        || {
+            calls.set(calls.get() + 1);
+            Err::<&str, &str>("fatal")
+        },
+        |_| false,
+    );
+    assert_eq!(result, Err("fatal"));
+    assert_eq!(calls.get(), 1, "a non-retryable error must not retry");
+}
+
+#[test]
+fn retry_with_single_attempt_calls_once() {
+    // attempts == 1 means no retry budget at all, even for a retryable
+    // error; attempts == 0 must likewise call once, never zero (the
+    // saturating_sub guard against an unbounded loop).
+    let (result, calls) = run_retry(1, &[Err("miss")]);
+    assert_eq!(result, Err("miss"));
+    assert_eq!(calls, 1);
+
+    let (result, calls) = run_retry(0, &[Err("miss")]);
+    assert_eq!(result, Err("miss"));
+    assert_eq!(calls, 1, "attempts == 0 still runs exactly one attempt");
+}
 
 #[test]
 fn line_count_is_inclusive() {

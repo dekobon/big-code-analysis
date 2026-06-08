@@ -1483,6 +1483,18 @@ for historical reference.
 
 ### Fixed
 
+- Per-function `git blame` (`bca metrics --vcs-per-function`) now retries
+  each ODB object lookup that can hit the transient `gix-odb` object-lookup
+  miss tracked in #579 — the whole-file blame and the post-blame commit
+  resolution — up to three times, before falling back to the existing
+  graceful degradation (skip that one file's per-function blocks, keep its
+  file-level block). The underlying defect is a lock-free pack-refresh race
+  one layer below `gix-blame` (gitoxide discussion #1412) that surfaces
+  non-deterministically on pathologically repetitive files under the
+  concurrent worker-pool ODB access whole-repo analysis performs; a retry
+  re-reads the index snapshot, turning a momentary miss into a hit. Not
+  fixed upstream as of `gix` 0.84 / `gix-blame` 0.14; real source does not
+  trigger it (#579).
 - ABC: the Fitzpatrick unary-condition walker is now wired for Kotlin,
   Ruby, and Elixir, so bare `&&` / `||` chain operands count toward
   `abc.conditions` / `magnitude` (Elixir ABC now agrees with cyclomatic).

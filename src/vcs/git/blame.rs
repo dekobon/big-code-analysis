@@ -57,16 +57,29 @@
 //!   over the same line range is one identity to blame: its lines
 //!   attribute to the recreating commit(s), with no memory of the prior
 //!   incarnation.
-//! - **Pathologically repetitive content.** `gix-blame` 0.13 (the
-//!   version behind the pinned `gix` 0.83) can fail with a spurious
-//!   "object could not be found" / "iterator over a tree" error when a
-//!   file is built almost entirely from identical lines over a deep
-//!   history (a stress-test artifact, not real source). When the blame
-//!   call errors for *any* reason the front end skips that file's
-//!   per-function blocks and keeps the file-level block, so one
-//!   unblameable file never aborts the walk. Tracked upstream-side; real
-//!   code does not trigger it (verified on this repository's own
-//!   200-plus-commit files).
+//! - **Pathologically repetitive content (issue #579).** `blame_file`
+//!   can intermittently surface a spurious "object could not be found" /
+//!   "iterator over a tree" error on a file built almost entirely from
+//!   identical lines over a deep history (a stress-test artifact, not
+//!   real source). The failure is *non-deterministic on identical input*
+//!   — `Ok` one run, `Err` the next — because the root cause is not in
+//!   `gix-blame` but one layer below it: a lock-free `gix-odb`
+//!   pack-refresh race (gitoxide discussion #1412) in which a thread
+//!   momentarily fails to observe a freshly-loaded pack index and reports
+//!   an object missing that actually exists. Whole-repo analysis blames
+//!   from a worker pool sharing one [`gix::ThreadSafeRepository`] ODB, so
+//!   it is exactly the contended case that provokes the race. Two defences
+//!   apply: [`per_function`](PerFunctionBlame::per_function) retries each
+//!   object lookup that can hit this miss — the whole-file blame and the
+//!   post-blame commit resolution — up to [`MAX_BLAME_ATTEMPTS`] times
+//!   (each retry re-reads the ODB index snapshot, so a momentary miss
+//!   becomes a hit), and if every attempt still fails the front end skips
+//!   that one file's per-function blocks while keeping its file-level
+//!   block, so an unblameable file never aborts the walk. The defect is
+//!   still present in the latest upstream release as of 2026-06-08 (`gix`
+//!   0.84 / `gix-blame` 0.14; this crate pins 0.83 / 0.13), so bumping
+//!   does not fix it; real code does not trigger it (verified on this
+//!   repository's own 200-plus-commit files).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -118,6 +131,81 @@ impl LineSpan {
             u64::from(end - start) + 1
         }
     }
+}
+
+/// Maximum number of times [`PerFunctionBlame::per_function`] issues a
+/// retryable ODB object lookup (the whole-file blame, and each post-blame
+/// commit resolution) before giving up to the front end's graceful
+/// degradation. One initial attempt plus two retries: the transient
+/// `gix-odb` pack-refresh race it guards against (issue #579) clears as
+/// soon as the racing index load is observed, so a small bound suffices
+/// and a deterministic failure (e.g. the path is absent at the ref) is
+/// never retried at all — see [`is_transient_blame_miss`].
+const MAX_BLAME_ATTEMPTS: u32 = 3;
+
+/// Run `attempt` up to `attempts` times, retrying only while `retry_if`
+/// classifies the error as transient; return the first `Ok` or, once the
+/// budget is spent (or a non-retryable error is seen), the last `Err`.
+///
+/// Generic over the value and error types so the retry policy is exercised
+/// by pure unit tests without a live repository — the only branching logic
+/// lives here, while the production call supplies a real blame closure and
+/// the [`is_transient_blame_miss`] predicate. A success on the first
+/// attempt costs exactly one call, so the happy path carries no overhead.
+fn retry_transient<T, E>(
+    attempts: u32,
+    mut attempt: impl FnMut() -> Result<T, E>,
+    retry_if: impl Fn(&E) -> bool,
+) -> Result<T, E> {
+    let mut result = attempt();
+    // The first call is `attempts == 1`, so retry over the remaining
+    // budget. The range is empty for `attempts` 0 or 1 — a single call,
+    // with no counter to underflow.
+    for _ in 1..attempts {
+        if !matches!(&result, Err(e) if retry_if(e)) {
+            break;
+        }
+        result = attempt();
+    }
+    result
+}
+
+/// Whether a [`blame_file`](gix::Repository::blame_file) error is the
+/// transient `gix-odb` object-lookup miss tracked in issue #579 — the
+/// only blame error [`PerFunctionBlame::per_function`] retries (its
+/// sibling [`is_transient_object_miss`] covers the commit lookups).
+///
+/// Scoped to exactly the two "expected object was reported missing"
+/// variants the bug surfaces (`FindExistingObject` / `FindExistingIter`).
+/// A genuinely-absent object (`FindObject`), a missing file at the ref,
+/// or any decode/diff failure is deterministic and must fail fast rather
+/// than waste retries. Matching named variants is compile-time-checked, so
+/// a future `gix-blame` that renames or removes them breaks the build here
+/// instead of silently degrading.
+fn is_transient_blame_miss(err: &gix::repository::blame_file::Error) -> bool {
+    matches!(
+        err,
+        gix::repository::blame_file::Error::Blame(
+            gix::blame::Error::FindExistingObject(_) | gix::blame::Error::FindExistingIter(_)
+        )
+    )
+}
+
+/// Whether a [`find_commit`](gix::Repository::find_commit) error is the
+/// same transient `gix-odb` object-lookup miss as [`is_transient_blame_miss`].
+///
+/// The blamed commit ids come straight out of a successful blame, so a
+/// `NotFound` here is the race re-surfacing on the post-blame commit
+/// resolution (issue #579) rather than a genuinely-absent commit. The
+/// lower-level `Find` lookup error and the `Convert` (object-was-not-a-
+/// commit) error are deterministic and fail fast.
+fn is_transient_object_miss(err: &gix::object::find::existing::with_conversion::Error) -> bool {
+    matches!(
+        err,
+        gix::object::find::existing::with_conversion::Error::Find(
+            gix::object::find::existing::Error::NotFound { .. }
+        )
+    )
 }
 
 /// A blame engine bound to one repository, reusable across the per-file
@@ -244,9 +332,23 @@ impl PerFunctionBlame {
         let repo = self.repo.to_thread_local();
         let relative = self.repo_relative(absolute)?;
 
-        let outcome = repo
-            .blame_file(relative.as_ref(), self.head, self.blame_options())
-            .map_err(|e| Error::Blame(e.to_string()))?;
+        // `blame_file` takes its options by value, so clone the (cheap)
+        // built options per attempt. Retry only the transient
+        // object-lookup miss (issue #579); any other error fails fast.
+        //
+        // `gix`'s `blame_file::Error` is large (~264 bytes), so surfacing
+        // it through the retry closure trips `result_large_err`. Boxing it
+        // would only shave a cold, immediately-stringified error path (one
+        // blame per file) at the cost of an allocation and `Box` noise in
+        // the predicate, so the allow is the smaller change.
+        let options = self.blame_options();
+        #[allow(clippy::result_large_err)]
+        let outcome = retry_transient(
+            MAX_BLAME_ATTEMPTS,
+            || repo.blame_file(relative.as_ref(), self.head, options.clone()),
+            is_transient_blame_miss,
+        )
+        .map_err(|e| Error::Blame(e.to_string()))?;
 
         // Resolve each distinct blamed commit once: timestamp, window
         // membership, participants, and message classification. A commit
@@ -343,9 +445,16 @@ impl PerFunctionBlame {
         commit_id: ObjectId,
         resolver: &ParticipantResolver<'_>,
     ) -> Result<Option<CommitMeta>, Error> {
-        let commit = repo
-            .find_commit(commit_id)
-            .map_err(|e| Error::Blame(format!("looking up blamed commit {commit_id}: {e}")))?;
+        // The same transient `gix-odb` object-lookup race that can trip
+        // the blame itself (issue #579) can re-surface on this post-blame
+        // commit lookup against the shared ODB, so retry it identically;
+        // only a `NotFound` miss is retried (see `is_transient_object_miss`).
+        let commit = retry_transient(
+            MAX_BLAME_ATTEMPTS,
+            || repo.find_commit(commit_id),
+            is_transient_object_miss,
+        )
+        .map_err(|e| Error::Blame(format!("looking up blamed commit {commit_id}: {e}")))?;
         // Clamp future-dated commits (clock skew) to `now`, matching the
         // file-level walk.
         let commit_time = commit
