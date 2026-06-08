@@ -230,6 +230,15 @@ jobs:
       # re-anchors that root to the `./`-prefixed form (#488), so the
       # `./`-anchored `.bcaignore` deny-set matches and the
       # `--strip-prefix "./"` below still lands on the emitted prefix.
+      # The report-generation steps below run BEFORE the threshold gate.
+      # A failure here must not *mask* the gate (skipping it would hide
+      # real threshold violations), but it must still fail the job (a
+      # broken report is a real defect). So the steps are left as normal
+      # (no `continue-on-error`) — a failure correctly reds the job — and
+      # the gate itself carries `if: ${{ !cancelled() }}`, so it runs
+      # regardless of a prior report failure. (An earlier revision used
+      # `continue-on-error` on the reports; that masked a single broken
+      # report on PR runs, where `assemble` does not run to catch it.)
       - name: Generate Markdown report
         run: |
           set -euo pipefail
@@ -248,9 +257,38 @@ jobs:
             --strip-prefix "./" \
             --output index.html
 
+      # Dogfood the change-history (VCS) risk report (issue #328): rank
+      # this repo's tracked files by composite change-history risk
+      # (churn, commit/author counts, ownership dilution, bug-/security-
+      # fix history). Path selection and the `.bcaignore` deny-set come
+      # from the same `bca.toml` manifest the AST report and gate read;
+      # the job's `fetch-depth: 0` checkout supplies the full history the
+      # walk needs (a shallow clone would truncate it). Emitted to
+      # stdout — the per-file `--output` directory semantics inherited
+      # from `metrics`/`ops` do not fit a single whole-repo report —
+      # captured as machine-readable JSON plus a human table.
+      #
+      # SECURITY: this report is published to the *public* Pages site.
+      # Do NOT add `--emit-author-details` here: it would publish
+      # SHA-256 hashes of author emails. The counts/paths/scores emitted
+      # without it are all derivable from the public git history.
+      #
+      # Two invocations = two history walks (one per format), mirroring
+      # the `report markdown` + `report html` pair above; `bca vcs` lacks
+      # a multi-format mode. Acceptable for this repo's size and
+      # superseded once the rendered VCS page lands (#573).
+      - name: Generate VCS risk report
+        run: |
+          set -euo pipefail
+          bca vcs --top 100 --format json > vcs-report.json
+          bca vcs --top 100 > vcs-report.txt
+
       # Run the gate last so the report artifacts above always upload
       # even when thresholds fail — the report is most useful when CI
-      # is red. Delegate to `make self-scan` so the local pre-commit
+      # is red. `if: ${{ !cancelled() }}` makes the gate run even if a
+      # report step above failed, so a report defect can never mask a
+      # threshold violation (while still failing the job on its own).
+      # Delegate to `make self-scan` so the local pre-commit
       # gate and the CI gate share one canonical invocation; the
       # repo-root `bca.toml` manifest owns path selection,
       # `exclude_from`, the per-function thresholds, the cyclomatic `?`
@@ -269,6 +307,7 @@ jobs:
       # them. `--since` is presentational only; it never changes the
       # gate's pass/fail.
       - name: Threshold gate (baseline-ratcheted, diff-aware)
+        if: ${{ !cancelled() }}
         run: make self-scan
         env:
           BCA_SINCE: origin/${{ github.base_ref || 'main' }}
@@ -320,6 +359,8 @@ jobs:
           path: |
             report.md
             index.html
+            vcs-report.json
+            vcs-report.txt
           if-no-files-found: error
           # Same PR-vs-main retention split as the book artifact above —
           # see that comment for the rationale.
@@ -347,6 +388,11 @@ jobs:
           mkdir -p site/reports
           cp reports-staging/index.html site/reports/index.html
           cp reports-staging/report.md   site/reports/report.md
+          # Change-history (VCS) risk report (issue #328) — published
+          # alongside the AST reports so the dogfooded ranking is visible
+          # on the Pages site, not just as a per-run artifact.
+          cp reports-staging/vcs-report.json site/reports/vcs-report.json
+          cp reports-staging/vcs-report.txt  site/reports/vcs-report.txt
           # Belt-and-braces in two places:
           #  * `site/.nojekyll` should already have travelled with
           #    book-html (build-book uploads with include-hidden-files

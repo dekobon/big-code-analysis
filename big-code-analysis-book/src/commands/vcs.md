@@ -135,6 +135,17 @@ $ bca metrics --vcs --paths src/parser.rs --format json
 `bca metrics --vcs` uses the default windows and weighted formula; for
 window / formula tuning use `bca vcs`.
 
+## Dogfooding in this repo
+
+This project runs `bca vcs` on its own source. `make vcs` prints the
+ranked table (path selection and the `.bcaignore` deny-set come from the
+repo-root `bca.toml` manifest, the same config `make self-scan` and
+`make report` use; `BCA_VCS_TOP` overrides the row cap). The Pages CI job
+also publishes a `vcs-report.json` / `vcs-report.txt` under the site's
+`reports/` directory each run. A first-class rendered HTML/Markdown page
+is tracked in issue
+[#573](https://github.com/dekobon/big-code-analysis/issues/573).
+
 ## REST and Python
 
 - **REST:** `POST /vcs` with a JSON body `{ "id": "...", "repo_path":
