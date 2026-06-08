@@ -101,8 +101,10 @@ fn overflowing_windows_are_rejected_not_wrapped() {
     // clean InvalidWindow, never a wrapped (and possibly negative)
     // duration. Covers the `checked_mul` guards in both forms.
     for bad in ["999999999999y", "P999999999999Y"] {
+        // Match the message, not just the variant, so the test pins the
+        // `checked_mul` overflow guard rather than any InvalidWindow path.
         assert!(
-            matches!(parse_window(bad), Err(Error::InvalidWindow(_))),
+            matches!(parse_window(bad), Err(Error::InvalidWindow(msg)) if msg.contains("overflows")),
             "expected {bad:?} to be rejected as overflow"
         );
     }

@@ -16,6 +16,13 @@ fn display_covers_every_variant() {
             "failed to open repository: corrupt",
         ),
         (
+            Error::ResolveRef {
+                reference: "HEAD".to_owned(),
+                reason: "unborn".to_owned(),
+            },
+            "failed to resolve revision",
+        ),
+        (
             Error::Walk("boom".to_owned()),
             "failed to walk commit history: boom",
         ),

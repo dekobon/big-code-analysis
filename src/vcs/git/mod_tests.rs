@@ -13,12 +13,25 @@ fn diff_err_wraps_into_diff_variant() {
 }
 
 #[test]
+fn at_prefixed_epoch_is_parsed_by_the_fast_path() {
+    // gix's date parser does not accept the bare `@<unix>` spelling, so a
+    // correct parse here proves our fast-path ran — not the gix fallback.
+    // This is what makes the negative test below load-bearing: if the
+    // fast-path were deleted, this assertion would fail.
+    assert_eq!(
+        parse_timestamp("@1577836800").expect("epoch"),
+        1_577_836_800
+    );
+}
+
+#[test]
 fn at_prefixed_non_numeric_timestamp_is_rejected() {
-    // The `@<unix>` fast-path must reject a non-numeric epoch with a
-    // typed error rather than silently falling through to gix's parser.
+    // Pin the fast-path's *own* error message. A bare wildcard match
+    // would also pass via the gix fallback (which rejects `@notanumber`
+    // as InvalidTimestamp too), so it would not guard the fast-path.
     assert!(matches!(
         parse_timestamp("@notanumber"),
-        Err(Error::InvalidTimestamp(_))
+        Err(Error::InvalidTimestamp(msg)) if msg.contains("not a Unix timestamp")
     ));
 }
 

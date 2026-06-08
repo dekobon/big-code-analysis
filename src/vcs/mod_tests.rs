@@ -110,4 +110,11 @@ fn rank_nan_risk_falls_back_to_path_order() {
         ranked(vec![("beta", f64::NAN), ("alpha", f64::NAN)], 0),
         vec!["alpha", "beta"]
     );
+    // Mixed NaN/finite: partial_cmp is *also* None here, so the path
+    // tie-break still decides. Guards against a future switch to
+    // total_cmp, which orders NaN as max/min and would reorder this.
+    assert_eq!(
+        ranked(vec![("finite", 1.0), ("nanny", f64::NAN)], 0),
+        vec!["finite", "nanny"]
+    );
 }
