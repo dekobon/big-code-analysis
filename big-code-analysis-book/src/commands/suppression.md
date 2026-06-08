@@ -44,7 +44,7 @@ A file-scope marker may appear anywhere in the source — there is no
 ```rust
 // bca: suppress
 fn legacy_dispatch(opcode: u8) -> Action {
-    // dense match on every supported opcode; rewrite tracked in #123
+    // dense match on every supported opcode
     match opcode { /* ... */ }
 }
 ```

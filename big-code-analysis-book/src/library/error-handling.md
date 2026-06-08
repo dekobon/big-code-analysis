@@ -3,13 +3,9 @@
 The entry point [`analyze`] returns `Result<FuncSpace, MetricsError>`.
 This page documents what each variant means and how to act on it.
 
-> **Heads up.** Prior to [#253] this entry point returned
-> `Option<FuncSpace>` and collapsed every failure mode into a single
-> `None`. The `Result` variant set is additive — `MetricsError` is
-> `#[non_exhaustive]`, so always include a `_` arm when matching
-> exhaustively to stay forward-compatible with future variants.
-
-[#253]: https://github.com/dekobon/big-code-analysis/issues/253
+> **Heads up.** `MetricsError` is `#[non_exhaustive]`, so always
+> include a `_` arm when matching exhaustively to stay
+> forward-compatible with future variants.
 
 ## Pattern-matching the error variants
 
@@ -46,20 +42,16 @@ fn main() {
   language) also surface here; if you hit one on real-world source,
   please file an issue.
 - **`LanguageDisabled(LANG)`** — Reserved for upcoming per-language
-  Cargo features (see [#252]). The current build enables every
-  supported language, so this variant is never produced today.
+  Cargo features. The current build enables every supported
+  language, so this variant is never produced today.
 
-The previously-reserved `ParseHasErrors` and `NonUtf8Path` variants
-were removed in the pre-2.0 cleanup ([#536]); since `MetricsError`
-stays `#[non_exhaustive]`, a future strict-parsing or
-strict-identifier mode can re-introduce them without a breaking
+`MetricsError` has no `ParseHasErrors` or `NonUtf8Path` variant;
+since it stays `#[non_exhaustive]`, a future strict-parsing or
+strict-identifier mode can introduce them without a breaking
 change. Non-UTF-8 paths are already handled up front: the
 recommended [`analyze`] entry point takes a caller-supplied
 [`Source::name`] (`Option<String>`), so a lossy path is never
 round-tripped in the first place.
-
-[#252]: https://github.com/dekobon/big-code-analysis/issues/252
-[#536]: https://github.com/dekobon/big-code-analysis/issues/536
 
 ## Tree-sitter does not always say "no"
 
@@ -117,12 +109,10 @@ The library writes warnings to **stderr** for non-fatal issues
 the walk and they do not flip `Ok` to `Err`. If you are running
 embedded inside a server or library and need to capture those
 warnings, redirect stderr at the process level — the library does
-not currently expose a programmatic warning sink. That is tracked
-under the library-DX umbrella ([#250]).
+not currently expose a programmatic warning sink.
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [`Source::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html#structfield.name
 [`FuncSpace`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
 [Node]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Node.html
-[#250]: https://github.com/dekobon/big-code-analysis/issues/250

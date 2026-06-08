@@ -6,7 +6,7 @@ multiple times — different metric subsets, an interleaved custom
 tree-sitter walk, or a metric re-run after a configuration change — that
 re-parse is wasted work.
 
-The [`Ast`][ast] type, added in `0.0.26` ([#264]), exposes the seam:
+The [`Ast`][ast] type, added in `0.0.26`, exposes the seam:
 parse the source once, then call [`Ast::metrics`][ast_metrics] as many
 times as you need against the held parse.
 
@@ -14,7 +14,6 @@ times as you need against the held parse.
 [source]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 [ast]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html
 [ast_metrics]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.metrics
-[#264]: https://github.com/dekobon/big-code-analysis/issues/264
 
 ## When to use this
 

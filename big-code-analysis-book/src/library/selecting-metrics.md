@@ -136,8 +136,7 @@ also drop `Mi`.
   their own UI.
 
 Per-metric Cargo features (compile-time stripping) are not
-covered by this knob; they remain tracked separately under the
-grammar-feature work (#252).
+covered by this knob.
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html

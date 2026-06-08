@@ -89,8 +89,7 @@ so a green-path rerun skips the download entirely:
 > here must support the schema version of every CLI artifact your
 > repo commits — most importantly `.bca-baseline.toml` (carries its
 > own `version` field) and the `bca.toml` manifest. A baseline file
-> written by a newer `bca` (e.g., the v3 schema introduced in
-> [#376](https://github.com/dekobon/big-code-analysis/issues/376))
+> written by a newer `bca` (carrying a newer schema version)
 > is **not loadable** by an older `bca` and the gate will fail with
 > `baseline version N is not supported by this bca`. When tracking
 > `main` or regenerating baselines locally with a newer `bca`,
@@ -385,7 +384,7 @@ Other offenders:
 ./src/b.rs: 1 violation (worst: cyclomatic = 11 vs limit 2 at L1)
 ```
 
-This is distinct from `bca diff-baseline` (tracked in #382), which
+This is distinct from `bca diff-baseline`, which
 diffs **baseline files** between two on-disk paths and reports
 added / removed / worsened / improved entries. `--since` diffs
 **source files** between two git refs.
@@ -842,8 +841,8 @@ Applies regardless of provider:
   thresholds) match the files your repo commits — see the
   [schema-compatibility note](#installing-bca-from-a-github-release-recommended)
   in the install section.
-- **`--num-jobs` defaults to the effective CPU count.** As of
-  issue #383 the flag honors `available_parallelism()` —
+- **`--num-jobs` defaults to the effective CPU count.** The flag
+  honors `available_parallelism()` —
   cgroup-/cpuset-/quota-aware on Linux, OS CPU count on
   macOS/Windows — so CI runners no longer need to thread
   `--num-jobs "$(nproc)"` through every recipe. `--num-jobs 1`
