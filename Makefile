@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -99,6 +99,7 @@ help:
 	@echo "  self-scan-headroom                   bca threshold gate (soft: BCA_HEADROOM, default 0.95)"
 	@echo "  self-scan-write-baseline             Refresh .bca-baseline.toml at the hard thresholds"
 	@echo "  self-scan-write-baseline-headroom    Refresh .bca-baseline.toml at the soft thresholds"
+	@echo "  vcs                                  Change-history (VCS) risk report for this repo"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
@@ -464,6 +465,19 @@ self-scan-write-baseline-headroom:
 	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \
 	  --write-baseline
+
+# ---------------------------------------------------------------------------
+# Change-history (VCS) risk report (issue #328). Dogfoods `bca vcs` on
+# this repo: ranks tracked files by composite change-history risk (churn,
+# commit/author counts, ownership dilution, bug-/security-fix history)
+# over the default 12mo / 90d windows. Informational only — it never
+# gates (always exits 0). Path selection and the `.bcaignore` deny-set
+# come from the auto-discovered `bca.toml` manifest, exactly like
+# `make self-scan`, so the file universe matches the threshold gate.
+# `BCA_VCS_TOP` overrides the row cap (default 40; 0 = all).
+# ---------------------------------------------------------------------------
+vcs:
+	@$(SELF_SCAN_BCA) vcs --top $${BCA_VCS_TOP:-40}
 
 # ---------------------------------------------------------------------------
 # Python tooling (big-code-analysis-py)
