@@ -4,7 +4,7 @@ When you introduce metric thresholds on an existing codebase, you
 usually hit the same wall: every reasonable threshold flags hundreds of
 existing functions, and CI goes red on every push. The realistic
 adoption path is "ratchet from current state, fail only on new
-offenders". The baseline file (issue #99) is how `bca check` supports
+offenders". The baseline file is how `bca check` supports
 that workflow.
 
 Baselines are the complement to in-source suppression markers, not a

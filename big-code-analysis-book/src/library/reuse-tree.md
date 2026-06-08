@@ -3,7 +3,7 @@
 A common pain point is that callers who already drive
 [tree-sitter] for syntax highlighting, code folding, or queries
 end up parsing every file twice: once for their own tree, once
-inside the metric walker. The parse seam (issue [#251]) lets you
+inside the metric walker. The parse seam lets you
 hand `big-code-analysis` an already-parsed `tree_sitter::Tree` and
 get the same `FuncSpace` back without re-parsing.
 
@@ -22,7 +22,6 @@ get the same `FuncSpace` back without re-parsing.
 > [fsn]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html#structfield.name
 
 [tree-sitter]: https://tree-sitter.github.io/tree-sitter/
-[#251]: https://github.com/dekobon/big-code-analysis/issues/251
 
 ## When to use this
 
@@ -122,5 +121,4 @@ any per-language tag types or trait bounds.
 - **Promoting all of `Node`'s `pub(crate)` traversal methods.**
   `Node` still exposes its inner `tree_sitter::Node` through the
   public `.0` field for ad-hoc traversal; the wrapper helpers
-  remain crate-private and are tracked under the `pub use`
-  curation issue.
+  remain crate-private.

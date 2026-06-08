@@ -228,7 +228,7 @@ the walker matched it for `--exclude`. As a *negative filter* key, an
 explicit `--check-exclude` list **unions with** (does not replace) the
 manifest `[check] exclude` list — a CLI exemption is added to the
 project's, never a replacement, so you cannot accidentally re-gate a
-path the manifest deliberately exempted ([#539](https://github.com/dekobon/big-code-analysis/issues/539)).
+path the manifest deliberately exempted.
 Duplicates collapse; CLI patterns sort first. Pass `--no-config` to drop
 the manifest's exemptions entirely. (Positive scope keys like `paths` /
 `include` still *replace* on the CLI — only the exclude filters merge.)

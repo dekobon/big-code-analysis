@@ -135,12 +135,8 @@ that as "skip this file" rather than as a parse error.
 ## What changes when
 
 The recommended entry point is `analyze(Source, MetricsOptions)` and
-returns `Result<FuncSpace, MetricsError>` (per [#253] and [#254]).
-The library-DX tracker collects the remaining shape changes —
-naming, per-language features, and the parse seam.
+returns `Result<FuncSpace, MetricsError>`.
 
-[#253]: https://github.com/dekobon/big-code-analysis/issues/253
-[#254]: https://github.com/dekobon/big-code-analysis/issues/254
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [`Source`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 [`MetricsOptions`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html

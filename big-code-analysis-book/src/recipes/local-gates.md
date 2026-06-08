@@ -208,7 +208,7 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
 - **Negative filter keys: CLI unions with the manifest.** The
   *exclude* list keys (top-level `exclude`, `[check] exclude`) are
   **merged**, not replaced: a CLI `--exclude` / `--check-exclude` is
-  *added to* the manifest's deny-set ([#539](https://github.com/dekobon/big-code-analysis/issues/539)).
+  *added to* the manifest's deny-set.
   This way a command-line filter can never silently un-exclude a
   directory the project config deliberately skipped (e.g. `vendor/`).
   Duplicates across the two sources collapse; CLI patterns sort first.
@@ -444,7 +444,7 @@ baseline    := ".bca-baseline.toml"
 headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
 
 # `--num-jobs` defaults to the effective CPU count, so the skeleton
-# no longer threads `$(nproc)` through `just` (issue #383). Override
+# no longer threads `$(nproc)` through `just`. Override
 # inline if needed: `just self-scan --num-jobs 1`.
 base_args   := "--paths " + paths + " --exclude-from " + exclude
 

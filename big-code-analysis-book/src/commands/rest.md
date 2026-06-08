@@ -138,10 +138,8 @@ the empty result with a `200` status and an empty payload: the JSON
 variant returns `"code": []` (an empty byte array) and the
 octet-stream variant returns an empty body. The status code and
 envelope shape are therefore identical regardless of the requested
-`Content-Type` (the octet-stream variant no longer returns `204 No
-Content` — see [#558]).
-
-[#558]: https://github.com/dekobon/big-code-analysis/issues/558
+`Content-Type`; the octet-stream variant returns an empty `200` body
+rather than `204 No Content`.
 
 ### 3. Retrieve Function Spans
 
@@ -185,11 +183,8 @@ POST http://127.0.0.1:8080/v1/function
 
 The envelope reports `id`, the detected `language` slug, and the
 `spans` result key. `name` is `null` when the parser could not resolve the function's
-name from the AST (e.g. an anonymous or malformed definition). The
-former boolean `error` field was removed in the pre-2.0 cleanup
-([#536]); a `null` `name` is now the malformed-span signal.
-
-[#536]: https://github.com/dekobon/big-code-analysis/issues/536
+name from the AST (e.g. an anonymous or malformed definition). A
+`null` `name` is the malformed-span signal.
 
 ### 4. Compute Metrics
 

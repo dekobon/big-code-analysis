@@ -24,13 +24,10 @@ platform is not listed, [build from source](#building-from-source).
 
 The wheel matrix is defined in
 [`.github/workflows/python-wheels.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/python-wheels.yml).
-[Phase 7](https://github.com/dekobon/big-code-analysis/issues/271)
-of the bindings work lit up the `manylinux_2_28` Linux legs.
 `manylinux_2_28` requires glibc `>= 2.28` (RHEL 8 / Debian 10 /
 Ubuntu 18.10 and newer); older distributions (RHEL 7 / CentOS 7,
-glibc 2.17) need to build from source. macOS and Windows wheel
-publication is tracked under [#103](https://github.com/dekobon/big-code-analysis/issues/103)
-and not yet shipped — `pip install` on those platforms falls back
+glibc 2.17) need to build from source. macOS and Windows wheels
+are not yet shipped — `pip install` on those platforms falls back
 to a source build today.
 
 ## Verifying the install

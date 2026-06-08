@@ -2,8 +2,7 @@
 
 `bca vcs` ranks files by **change-history risk** — signals derived from
 version-control history rather than the source AST. It is the project's
-first language-agnostic, non-AST metric family (issue
-[#328](https://github.com/dekobon/big-code-analysis/issues/328)). The
+first language-agnostic, non-AST metric family. The
 goal is to surface the files most likely to harbour bugs or
 vulnerabilities, using the signals the empirical defect- and
 vulnerability-prediction literature most consistently backs.
@@ -169,8 +168,7 @@ published [`reports/index.html`](https://dekobon.github.io/big-code-analysis/rep
 shows the change-history risk section side-by-side with the AST hotspots,
 and additionally publishes the full top-100 ranking as
 [`reports/vcs-report.json`](https://dekobon.github.io/big-code-analysis/reports/vcs-report.json)
-for tooling (issue
-[#573](https://github.com/dekobon/big-code-analysis/issues/573)).
+for tooling.
 
 ## REST and Python
 
@@ -180,16 +178,3 @@ for tooling (issue
 - **Python:** `big_code_analysis.vcs_metrics(repo_path, …)` returns the
   report as a dict, and `analyze(path, vcs=True)` attaches a `vcs` block
   to a single file's metrics.
-
-## Scope (v1)
-
-v1 ships one backend (`vcs-git`, built on
-[gitoxide](https://github.com/GitoxideLabs/gitoxide)) behind the
-umbrella `vcs` Cargo feature. Out of scope and tracked as follow-ups:
-per-function granularity ([#329](https://github.com/dekobon/big-code-analysis/issues/329)),
-change entropy ([#330](https://github.com/dekobon/big-code-analysis/issues/330)),
-just-in-time scoring ([#331](https://github.com/dekobon/big-code-analysis/issues/331)),
-bus factor ([#332](https://github.com/dekobon/big-code-analysis/issues/332)),
-historical trend ([#333](https://github.com/dekobon/big-code-analysis/issues/333)),
-a persistent cache ([#334](https://github.com/dekobon/big-code-analysis/issues/334)),
-and additional VCS backends ([#335](https://github.com/dekobon/big-code-analysis/issues/335)).
