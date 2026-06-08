@@ -210,10 +210,18 @@ fn lookup<'a>(index: &'a vcs::HistoryIndex, abs: &Path) -> Option<(PathBuf, &'a 
 /// and skipping (rather than lossily mangling) a non-UTF-8 path used as
 /// an output identifier — per the path rules in AGENTS.md.
 fn path_to_string(path: &Path) -> Option<String> {
-    path.to_str().map(str::to_owned).or_else(|| {
-        eprintln!("Warning: skipping non-UTF-8 path {}", path.display());
-        None
-    })
+    // Repo-relative paths are git paths and must be emitted forward-slash
+    // so the JSON / CSV / table output is byte-identical across platforms.
+    // The on-disk walk in `rank` yields OS-native separators on Windows
+    // (`strip_prefix` of a canonicalized path → `src\work.rs`), so
+    // normalize at this single output chokepoint. Mirrors
+    // `metric_diff::path_to_key`.
+    path.to_str()
+        .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
+        .or_else(|| {
+            eprintln!("Warning: skipping non-UTF-8 path {}", path.display());
+            None
+        })
 }
 
 /// Render the report in the requested format (or the default table).
@@ -393,4 +401,20 @@ pub(crate) fn inject(space: &mut FuncSpace, path: &Path, index: &vcs::HistoryInd
     let complexity = space.metrics.cyclomatic.cyclomatic_sum() as f64;
     stat.hotspot_score = Some(hotspot::hotspot_score(complexity, stat.churn_recent));
     space.metrics.vcs = Some(stat);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_to_string_normalizes_separators_to_forward_slash() {
+        // A path assembled from components uses the OS separator (`\` on
+        // Windows, `/` on Unix); the emitted git path must always be
+        // forward-slash so the JSON / CSV / table output is byte-identical
+        // cross-platform. On Windows this guards the `src\work.rs`
+        // regression that failed `tests/vcs.rs` on windows-latest.
+        let rel: PathBuf = ["src", "work.rs"].iter().collect();
+        assert_eq!(path_to_string(&rel).as_deref(), Some("src/work.rs"));
+    }
 }
