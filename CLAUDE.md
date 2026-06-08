@@ -60,6 +60,7 @@ destroys other agents' in-progress work:
 | `issue-triage` | Producing a read-only triage report (quick wins + groupings) over open issues |
 | `fix-issue` | End-to-end workflow for fixing a GitHub issue |
 | `lessons-learned` | Drafting entries for `docs/development/lessons_learned.md` |
+| `doc-author` | Writing / revising / de-slopping a prose doc against `docs/conventions/documentation.md` |
 
 The `audit-crate`, `audit-naming`, `scan-project`, `issue-triage`, and
 `review` skills are read-only and must not modify the working tree; all
