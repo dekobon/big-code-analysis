@@ -19,3 +19,7 @@
 pub fn hotspot_score(complexity_index: f64, churn_recent: u64) -> f64 {
     complexity_index.max(0.0) * churn_recent as f64
 }
+
+#[cfg(test)]
+#[path = "hotspot_tests.rs"]
+mod tests;
