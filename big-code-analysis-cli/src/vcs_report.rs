@@ -122,6 +122,26 @@ const VCS_SPECS: &[VcsColumn] = &[
         cell: |_, e| Cell::Num(e.vcs.last_modified_days.to_string()),
     },
     VcsColumn {
+        header: "Change entropy (recent)",
+        align: Align::Right,
+        cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_recent)),
+    },
+    VcsColumn {
+        header: "Change entropy (total)",
+        align: Align::Right,
+        cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_long)),
+    },
+    VcsColumn {
+        header: "Co-change entropy (recent)",
+        align: Align::Right,
+        cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_recent)),
+    },
+    VcsColumn {
+        header: "Co-change entropy (total)",
+        align: Align::Right,
+        cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_long)),
+    },
+    VcsColumn {
         header: "Hotspot",
         align: Align::Right,
         // Empty when AST metrics are not joined (plain `bca vcs`).
@@ -299,6 +319,10 @@ mod tests {
                 revert_commits: 0,
                 age_days: 200,
                 last_modified_days: 5,
+                change_entropy_long: 2.5,
+                change_entropy_recent: 1.5,
+                cochange_entropy_long: 1.2,
+                cochange_entropy_recent: 0.8,
                 risk_score: risk,
                 hotspot_score: hotspot,
                 author_ids: None,

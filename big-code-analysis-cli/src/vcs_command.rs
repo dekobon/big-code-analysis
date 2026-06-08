@@ -362,6 +362,10 @@ fn write_csv(report: &Report, output: Option<&PathBuf>) -> std::io::Result<()> {
         "revert_commits",
         "age_days",
         "last_modified_days",
+        "change_entropy_long",
+        "change_entropy_recent",
+        "cochange_entropy_long",
+        "cochange_entropy_recent",
         "hotspot_score",
     ])
     .map_err(csv_err)?;
@@ -383,6 +387,10 @@ fn write_csv(report: &Report, output: Option<&PathBuf>) -> std::io::Result<()> {
             &v.revert_commits.to_string(),
             &v.age_days.to_string(),
             &v.last_modified_days.to_string(),
+            &format!("{:.4}", v.change_entropy_long),
+            &format!("{:.4}", v.change_entropy_recent),
+            &format!("{:.4}", v.cochange_entropy_long),
+            &format!("{:.4}", v.cochange_entropy_recent),
             &v.hotspot_score
                 .map(|h| format!("{h:.4}"))
                 .unwrap_or_default(),

@@ -27,6 +27,7 @@
 //! backend lands.
 
 pub mod classify;
+pub mod entropy;
 pub mod error;
 pub mod hotspot;
 pub mod identity;

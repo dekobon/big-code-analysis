@@ -58,6 +58,25 @@ for historical reference.
   `--metrics vcs`; VCS is file-level, has no per-function threshold, and
   is not suppressible, so it is exposed via a dedicated `--vcs` flag
   rather than overloading the per-function `Metric` bitfield.
+- Change-entropy and co-change graph-entropy VCS signals (#330). The
+  single history walk now also emits four per-file fields:
+  `change_entropy_long` / `change_entropy_recent` (Hassan 2009 History
+  Complexity Metric — how scattered a file's changes are across commits;
+  file-level Pearson 0.54 with defects on Apache projects) and
+  `cochange_entropy_long` / `cochange_entropy_recent` (arXiv 2504.18511,
+  2025 — how widely a file's changes ripple to co-changing partners,
+  computed from a sparse co-change graph built during the walk). Both are
+  Shannon entropies in bits; a `0.0` is *computed* (the file only ever
+  changed alone), not "missing". Bulk-import commits wider than 1000 files
+  are excluded from the co-change graph to bound its O(width²) growth.
+  These fold into the composite score as a **`risk_score_version` bump to
+  `2`** (the recent-window pair enters both the weighted and percentile
+  formulas); the new formula is documented in `src/vcs/score.rs` and the
+  mdBook VCS chapter. Because the serialized field set grew, the
+  output-shape stamp **`vcs_schema_version` also bumps to `2`**. Surfaced
+  on every VCS front end (library `Stats` / `wire::Vcs`, `bca vcs` CSV /
+  Markdown / HTML, `POST /vcs`, and the Python bindings). Additive
+  field-set change — no existing field moved.
 - Per-function change-history metrics via `git blame` (#329). `bca
   metrics --vcs-per-function` (which implies `--vcs`) attaches a `vcs`
   block to every nested function / method / class space in addition to

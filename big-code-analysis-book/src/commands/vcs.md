@@ -16,7 +16,7 @@ window (default `12mo` ≈ 365 days) and a **recent** window (default
 
 ```console
 $ bca vcs --paths src --top 20
-Change-history risk (long window 365d, recent 90d, formula v1)
+Change-history risk (long window 365d, recent 90d, formula v2)
  RANK      RISK  COMMITS r/l    CHURN r/l  AUTHORS  FILE
     1       7.2        68/68  11634/11634        1  src/metrics/cyclomatic.rs
     2       6.9        68/68    7299/7299        1  src/metrics/npa.rs
@@ -66,6 +66,8 @@ standalone page, pass [`bca report --vcs`](report.md), which appends a
 | `revert_commits` | u32 | Long-window commits whose subject is a revert / rollback |
 | `age_days` | u32 | Days since the file's first in-window commit (capped at the long window) |
 | `last_modified_days` | u32 | Days since the file's most recent in-window commit |
+| `change_entropy_long` / `change_entropy_recent` | f64 | Change entropy in bits per window (see below) |
+| `cochange_entropy_long` / `cochange_entropy_recent` | f64 | Co-change graph entropy in bits per window (see below) |
 | `risk_score` | f64 | Composite, formula-versioned (see below) — **ordinal, not cardinal** |
 | `hotspot_score` | f64? | `complexity × churn_recent`; present only when AST metrics are computed alongside |
 | `risk_score_version` / `vcs_schema_version` | u32 | Forward-compatibility version stamps |
@@ -76,6 +78,34 @@ participants. Bot identities (`dependabot[bot]`, `renovate[bot]`,
 `github-actions[bot]`, …) are excluded by default. Binary files and
 symlinks are skipped; an untracked file has no record at all (distinct
 from a tracked file with zero in-window activity).
+
+## Change & co-change entropy
+
+Two process-entropy signals (added in `risk_score_version` 2) capture
+*how* a file changes, not just how much:
+
+- **Change entropy** (Hassan, 2009 — _Predicting Faults Using the
+  Complexity of Code Changes_). For each commit, the Shannon entropy (in
+  bits) of its churn distribution across the files it touched measures
+  how *scattered* that change was: a one-file commit is 0; a commit
+  spreading churn evenly across *n* files approaches log₂(*n*). Each file
+  is then credited its churn share `pᵢ·H` of every commit it took part in
+  (Hassan's History Complexity Metric). Higher = the file is repeatedly
+  caught up in diffuse, cross-cutting changes. File-level change entropy
+  reaches Pearson 0.54 with defects on Apache projects.
+- **Co-change graph entropy** (arXiv 2504.18511, 2025). Files that change
+  in the same commit are joined by a weighted edge (weight = number of
+  shared commits). A file's co-change entropy is the Shannon entropy of
+  its edge-weight distribution: low when it always co-changes with the
+  same partner, high when its changes ripple across many different files.
+  Combined with change entropy it improved AUROC in 82.5% of cases over
+  the v1 signal set on eight Apache projects.
+
+Both are reported per window. A `0.0` is **computed**, not missing: the
+file only ever changed alone (no co-change neighbours, or single-file
+commits with zero change entropy). Bulk-import commits touching more than
+1000 files are excluded from the co-change graph — its edge count grows
+O(width²) — but still contribute their O(width) change entropy.
 
 ## Composite risk score
 
@@ -91,6 +121,7 @@ author_factor  = ln(1 + authors_long)
 dilution       = (1 - ownership_top_share).clamp(0, 1)
 fix_factor     = ln(1 + bug_fix_commits + 2 * security_fix_commits)
 size_factor    = ln(1 + sloc)^2 / 100              // tiny tie-breaker
+entropy_factor = 0.10 * change_entropy_recent + 0.05 * cochange_entropy_recent
 new_file_bonus = 0.15 if age_days < recent_window_days else 0
 dev_bonus      = 0.35 if authors_long >= 9 else 0.15 if authors_long >= 6 else 0
 
@@ -100,6 +131,7 @@ base = 0.30 * recency_churn
      + 0.15 * author_factor * (1 + dilution)
      + 0.10 * fix_factor
      + 0.05 * long_churn
+     + entropy_factor
      + size_factor
 
 risk_score = base * (1 + dev_bonus + new_file_bonus)
@@ -112,11 +144,13 @@ author factor is scaled by ownership dilution (Avelino DoA /
 truck-factor; Bird et al.); the categorical developer-count bumps encode
 the RHEL4 finding that files touched by ≥9 developers were ~16× more
 likely to harbour a vulnerability; security fixes are double-weighted
-(Sentence-Level VFC studies; PySecDB). The full derivation lives in
-`src/vcs/score.rs`.
+(Sentence-Level VFC studies; PySecDB); and the recent-window change- and
+co-change-entropy terms enter additively (Hassan 2009; arXiv 2504.18511).
+The full derivation lives in `src/vcs/score.rs`.
 
 The score is **ordinal**: only relative ranks have meaning. Any change
-to the formula bumps `risk_score_version`.
+to the formula bumps `risk_score_version` (now `2`); the recent entropy
+pair also joins the `--risk-formula percentile` blend.
 
 `--risk-formula percentile` is an alternative: each signal is re-ranked
 to its percentile within the analyzed set, then averaged — the

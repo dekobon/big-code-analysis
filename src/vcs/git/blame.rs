@@ -432,9 +432,15 @@ impl PerFunctionBlame {
                 in_recent: commit.commit_time >= self.recent_boundary,
                 class: commit.class,
                 authors: &commit.authors,
+                // Change/co-change entropy are file-level history-walk
+                // signals; the per-function block is a current-blame
+                // snapshot (see the vcs.md caveat) with no per-commit
+                // cross-file distribution to draw on, so its entropy
+                // fields stay zero rather than reporting a misleading value.
+                change_entropy: 0.0,
             });
         }
-        acc.finalize(self.now, &self.options)
+        acc.finalize(self.now, &self.options, 0.0, 0.0)
     }
 
     /// Resolve one commit's metadata, returning `None` when it is older

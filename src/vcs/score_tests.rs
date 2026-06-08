@@ -20,12 +20,14 @@ fn baseline() -> ScoreInput {
         sloc: 300,
         age_days: 200,
         recent_window_days: 90,
+        change_entropy_recent: 1.0,
+        cochange_entropy_recent: 1.0,
     }
 }
 
 #[test]
-fn version_is_one() {
-    assert_eq!(RISK_SCORE_VERSION, 1);
+fn version_is_two() {
+    assert_eq!(RISK_SCORE_VERSION, 2);
 }
 
 #[test]
@@ -146,6 +148,75 @@ fn security_fixes_weigh_double_bug_fixes() {
 }
 
 #[test]
+fn higher_change_entropy_scores_higher() {
+    // A file caught up in scattered, distributed changes (Hassan) outranks
+    // an otherwise-identical file whose changes were focused.
+    let focused = weighted(&ScoreInput {
+        change_entropy_recent: 0.0,
+        ..baseline()
+    });
+    let scattered = weighted(&ScoreInput {
+        change_entropy_recent: 4.0,
+        ..baseline()
+    });
+    assert!(scattered > focused, "{scattered} vs {focused}");
+}
+
+#[test]
+fn higher_cochange_entropy_scores_higher() {
+    // A file whose changes ripple across many different partners outranks
+    // one that always co-changes with the same neighbour.
+    let narrow = weighted(&ScoreInput {
+        cochange_entropy_recent: 0.0,
+        ..baseline()
+    });
+    let wide = weighted(&ScoreInput {
+        cochange_entropy_recent: 4.0,
+        ..baseline()
+    });
+    assert!(wide > narrow, "{wide} vs {narrow}");
+}
+
+#[test]
+fn change_entropy_outweighs_cochange_entropy() {
+    // Pins the v2 weight ordering (0.10 vs 0.05): the same entropy
+    // magnitude routed through change entropy must lift the score more
+    // than through co-change entropy. A formula that swapped or equalised
+    // the two coefficients fails here.
+    let change_heavy = weighted(&ScoreInput {
+        change_entropy_recent: 3.0,
+        cochange_entropy_recent: 0.0,
+        ..baseline()
+    });
+    let cochange_heavy = weighted(&ScoreInput {
+        change_entropy_recent: 0.0,
+        cochange_entropy_recent: 3.0,
+        ..baseline()
+    });
+    assert!(
+        change_heavy > cochange_heavy,
+        "change entropy weighted higher: {change_heavy} vs {cochange_heavy}"
+    );
+}
+
+#[test]
+fn negative_entropy_is_clamped_not_propagated() {
+    // Defensive: a (impossible) negative entropy must not drag the score
+    // below the zero-entropy baseline.
+    let zero = weighted(&ScoreInput {
+        change_entropy_recent: 0.0,
+        cochange_entropy_recent: 0.0,
+        ..baseline()
+    });
+    let negative = weighted(&ScoreInput {
+        change_entropy_recent: -5.0,
+        cochange_entropy_recent: -5.0,
+        ..baseline()
+    });
+    assert!((zero - negative).abs() < 1e-12, "{zero} vs {negative}");
+}
+
+#[test]
 fn new_file_bump_applies_below_recent_window() {
     let old = weighted(&ScoreInput {
         age_days: 200,
@@ -193,6 +264,37 @@ fn percentile_ranks_busiest_file_highest() {
     for s in &stats {
         assert!((0.0..=100.0).contains(&s.risk_score));
     }
+}
+
+#[test]
+fn percentile_blend_includes_entropy_signals() {
+    // Two files identical on every v1 signal; the only difference is the
+    // recent entropy pair. The percentile blend must therefore rank the
+    // higher-entropy file strictly above the other — proving the v2
+    // extractors are load-bearing, not decorative.
+    let mut stats = vec![
+        Stats {
+            commits_long: 5,
+            churn_long: 100,
+            change_entropy_recent: 0.0,
+            cochange_entropy_recent: 0.0,
+            ..Stats::default()
+        },
+        Stats {
+            commits_long: 5,
+            churn_long: 100,
+            change_entropy_recent: 2.5,
+            cochange_entropy_recent: 2.5,
+            ..Stats::default()
+        },
+    ];
+    apply_percentile(&mut stats);
+    assert!(
+        stats[1].risk_score > stats[0].risk_score,
+        "higher-entropy file should rank up: {} vs {}",
+        stats[1].risk_score,
+        stats[0].risk_score
+    );
 }
 
 #[test]

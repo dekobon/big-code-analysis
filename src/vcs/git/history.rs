@@ -20,13 +20,15 @@ use super::identity::ParticipantResolver;
 use super::repo::bstr_to_path;
 use super::{diff_err, walk_err};
 use crate::vcs::classify::{self, Classification};
+use crate::vcs::entropy::{self, CochangeGraph};
 use crate::vcs::error::Error;
 use crate::vcs::identity::{AuthorId, BotFilter};
 use crate::vcs::options::Options;
 use crate::vcs::stats::{Accumulator, ChangeRecord};
 
 /// Walk history from `tip` and fold every in-window commit into the
-/// per-file accumulators that were pre-seeded from the target tree.
+/// per-file accumulators that were pre-seeded from the target tree,
+/// returning the co-change graph accumulated across the same walk.
 ///
 /// # Errors
 ///
@@ -38,7 +40,7 @@ pub(crate) fn walk_history(
     options: &Options,
     now: i64,
     accumulators: &mut HashMap<PathBuf, Accumulator>,
-) -> Result<(), Error> {
+) -> Result<CochangeGraph, Error> {
     let long_boundary = now - options.long_window_secs;
     let recent_boundary = now - options.recent_window_secs;
 
@@ -69,6 +71,7 @@ pub(crate) fn walk_history(
     // would forgo the commit-time cutoff that prunes out-of-window
     // history; the approximation is the deliberate v1 trade-off.
     let mut alias: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut graph = CochangeGraph::new();
 
     let mut platform = repo.rev_walk([tip]);
     if !options.full_history {
@@ -106,6 +109,7 @@ pub(crate) fn walk_history(
             &mut cache,
             &mut alias,
             accumulators,
+            &mut graph,
         )?;
 
         // The resource cache only grows; clear it each commit to keep
@@ -113,7 +117,7 @@ pub(crate) fn walk_history(
         cache.clear_resource_cache();
     }
 
-    Ok(())
+    Ok(graph)
 }
 
 /// Fold one walked commit into the accumulators: skip merges (unless
@@ -132,6 +136,7 @@ fn process_commit(
     cache: &mut gix::diff::blob::Platform,
     alias: &mut HashMap<PathBuf, PathBuf>,
     accumulators: &mut HashMap<PathBuf, Accumulator>,
+    graph: &mut CochangeGraph,
 ) -> Result<(), Error> {
     // Only the first parent (for the diff base) and whether more than
     // one exists (the merge check) are needed, so avoid collecting the
@@ -186,6 +191,7 @@ fn process_commit(
         alias,
         options,
         accumulators,
+        graph,
         &ctx,
     )
 }
@@ -198,8 +204,14 @@ struct CommitContext<'a> {
     authors: &'a [AuthorId],
 }
 
-/// Diff `parent_tree → commit_tree` and fold each changed file into its
-/// accumulator.
+/// Diff `parent_tree → commit_tree`, then fold the commit into the
+/// per-file accumulators and the co-change graph.
+///
+/// Done in two phases because both new signals need the *whole* commit's
+/// file set, which a streaming per-file callback cannot supply: the diff
+/// callback collects every touched text file's canonical path and churn,
+/// then [`record_commit`] computes the commit's change-entropy
+/// distribution and the co-change edges from that list.
 #[allow(clippy::too_many_arguments)]
 fn diff_commit(
     parent_tree: &gix::Tree<'_>,
@@ -209,10 +221,13 @@ fn diff_commit(
     alias: &mut HashMap<PathBuf, PathBuf>,
     options: &Options,
     accumulators: &mut HashMap<PathBuf, Accumulator>,
+    graph: &mut CochangeGraph,
     ctx: &CommitContext<'_>,
 ) -> Result<(), Error> {
     use gix::object::tree::diff::Change;
 
+    // Every touched text file's canonical (target-ref) path and churn.
+    let mut touched: Vec<(PathBuf, u64)> = Vec::new();
     parent_tree
         .changes()
         .map_err(diff_err)?
@@ -257,29 +272,79 @@ fn diff_commit(
                 return Ok(ControlFlow::Continue(()));
             };
             let churn = u64::from(line_stats.insertions) + u64::from(line_stats.removals);
-
-            let accumulator = match accumulators.get_mut(canonical.as_ref()) {
-                Some(acc) => acc,
-                None if options.include_deleted => accumulators
-                    .entry(canonical.into_owned())
-                    .or_insert_with(|| Accumulator::new(0)),
-                // A file not present at the target ref and not opted in
-                // via --include-deleted.
-                None => return Ok(ControlFlow::Continue(())),
-            };
-            accumulator.record(&ChangeRecord {
-                churn,
-                commit_time: ctx.commit_time,
-                in_recent: ctx.in_recent,
-                class: ctx.class,
-                authors: ctx.authors,
-            });
+            touched.push((canonical.into_owned(), churn));
 
             Ok(ControlFlow::Continue(()))
         })
         .map_err(diff_err)?;
 
+    record_commit(&touched, options, accumulators, graph, ctx);
     Ok(())
+}
+
+/// Fold one commit's touched-file list into the accumulators and the
+/// co-change graph.
+///
+/// The commit's **change entropy** (Hassan 2009) is the Shannon entropy
+/// of its churn distribution across `touched`; each file is credited its
+/// churn share of that entropy (`pᵢ·H`). The distribution spans *every*
+/// touched text file — including ones absent at the target ref — so a
+/// dropped file does not inflate the survivors' shares. The **co-change
+/// graph** is fed the same full path list so edges reflect what truly
+/// changed together.
+///
+/// The `churn as f64` casts are exact for any realistic line count (well
+/// under 2^53), and the entropy share is ordinal, so the precision lint
+/// is allowed for the whole fold.
+#[allow(clippy::cast_precision_loss)]
+fn record_commit(
+    touched: &[(PathBuf, u64)],
+    options: &Options,
+    accumulators: &mut HashMap<PathBuf, Accumulator>,
+    graph: &mut CochangeGraph,
+    ctx: &CommitContext<'_>,
+) {
+    // Churn distribution of the commit, fed to the entropy core directly
+    // (no intermediate Vec). The total is summed once for the per-file
+    // share denominator below.
+    let churn_bits = || touched.iter().map(|&(_, churn)| churn as f64);
+    let total: f64 = churn_bits().sum();
+    let commit_entropy = entropy::shannon_entropy(churn_bits());
+
+    for (path, churn) in touched {
+        // A file's share of the commit's entropy; zero when the commit
+        // has no churn (mode-only change) or this file added no lines.
+        let change_entropy = if total > 0.0 {
+            (*churn as f64 / total) * commit_entropy
+        } else {
+            0.0
+        };
+        let accumulator = match accumulators.get_mut(path) {
+            Some(acc) => acc,
+            None if options.include_deleted => accumulators
+                .entry(path.clone())
+                .or_insert_with(|| Accumulator::new(0)),
+            // A file not present at the target ref and not opted in via
+            // --include-deleted: skip recording, but it still counted
+            // toward the entropy distribution and the co-change graph
+            // above/below.
+            None => continue,
+        };
+        accumulator.record(&ChangeRecord {
+            churn: *churn,
+            commit_time: ctx.commit_time,
+            in_recent: ctx.in_recent,
+            class: ctx.class,
+            authors: ctx.authors,
+            change_entropy,
+        });
+    }
+
+    // Co-change edges over the full touched set (cap enforced inside).
+    // The graph borrows each path; the interner clones only on a path's
+    // first appearance, so no per-commit PathBuf clone happens here.
+    let paths: Vec<&Path> = touched.iter().map(|(path, _)| path.as_path()).collect();
+    graph.record_commit(&paths, ctx.in_recent);
 }
 
 /// Follow the rename-alias chain from a historical path to the path the

@@ -34,6 +34,13 @@
 //!   PySecDB).
 //! - File size is a deliberately tiny tie-breaker — large files are
 //!   weakly correlated with defects but the signal saturates fast.
+//! - **v2** adds two recent-window process-entropy terms (issue #330):
+//!   *change entropy* (Hassan 2009; file-level Pearson 0.54 with defects
+//!   on Apache projects) and *co-change graph entropy* (arXiv 2504.18511,
+//!   2025; combining the two improved AUROC in 82.5% of cases). Both
+//!   enter additively, weighted below recent churn/commits but on par
+//!   with the fix term — they are bounded per file and complement, rather
+//!   than restate, the v1 churn/commit signals.
 //!
 //! Bumping the formula in any way **must** increment
 //! [`RISK_SCORE_VERSION`] so downstream consumers can detect the
@@ -42,8 +49,9 @@
 use super::stats::Stats;
 
 /// Version of the weighted composite formula. Increment on any change
-/// to the term set, weights, or bumps below.
-pub const RISK_SCORE_VERSION: u32 = 1;
+/// to the term set, weights, or bumps below. `2` added the change- and
+/// co-change-entropy terms (issue #330).
+pub const RISK_SCORE_VERSION: u32 = 2;
 
 /// RHEL4 high-developer-count threshold (~16× vulnerability likelihood).
 const HIGH_DEV_THRESHOLD: u32 = 9;
@@ -87,6 +95,10 @@ pub struct ScoreInput {
     pub age_days: u32,
     /// Recent-window length in days (new-file threshold).
     pub recent_window_days: u32,
+    /// Recent-window change entropy (Hassan HCM share, in bits).
+    pub change_entropy_recent: f64,
+    /// Recent-window co-change graph entropy (in bits).
+    pub cochange_entropy_recent: f64,
 }
 
 /// Compute the weighted composite risk score for one file.
@@ -109,6 +121,12 @@ pub fn weighted(input: &ScoreInput) -> f64 {
     // Size is a tiny tie-breaker: squared log over 100 keeps even a
     // 10k-line file contributing well under one churn-point.
     let size_factor = ln1p(input.sloc as f64).powi(2) / 100.0;
+    // Recent-window process entropy (v2): scattered changes (Hassan) and
+    // wide co-change blast radius (arXiv 2504.18511) both predict defects.
+    // Already log-scaled (bits), so they enter linearly; the `.max(0.0)`
+    // is defensive against an upstream negative.
+    let entropy_factor =
+        0.10 * input.change_entropy_recent.max(0.0) + 0.05 * input.cochange_entropy_recent.max(0.0);
 
     let new_file_bonus = if input.age_days < input.recent_window_days {
         NEW_FILE_BONUS
@@ -129,6 +147,7 @@ pub fn weighted(input: &ScoreInput) -> f64 {
         + 0.15 * author_factor * (1.0 + dilution)
         + 0.10 * fix_factor
         + 0.05 * long_churn
+        + entropy_factor
         + size_factor;
 
     base * (1.0 + dev_bonus + new_file_bonus)
@@ -161,8 +180,9 @@ pub fn apply_percentile(stats: &mut [Stats]) {
     }
     // Signals contributing to the percentile blend. Ownership enters as
     // its dilution `(1 - share)` so "more diffuse" ranks higher, matching
-    // the weighted formula's direction.
-    let extractors: [fn(&Stats) -> f64; 8] = [
+    // the weighted formula's direction. The two recent-window entropy
+    // signals join in v2 (issue #330), so both formulas read the new data.
+    let extractors: [fn(&Stats) -> f64; 10] = [
         |s| s.churn_recent as f64,
         |s| s.churn_long as f64,
         |s| f64::from(s.commits_recent),
@@ -171,6 +191,8 @@ pub fn apply_percentile(stats: &mut [Stats]) {
         |s| 1.0 - s.ownership_top_share,
         |s| f64::from(s.bug_fix_commits),
         |s| f64::from(s.security_fix_commits),
+        |s| s.change_entropy_recent,
+        |s| s.cochange_entropy_recent,
     ];
 
     let n = stats.len();

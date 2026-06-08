@@ -287,6 +287,143 @@ fn risk_score_ranks_busy_above_quiet() {
     );
 }
 
+/// log₂(3): the entropy of a uniform 3-way distribution.
+const LOG2_3: f64 = 1.584_962_500_721_156;
+
+#[test]
+fn trio_commit_yields_change_and_cochange_entropy() {
+    let repo = Repo::init();
+    // Three one-line files born in a single commit: each contributes 1
+    // line of churn, so the commit's churn distribution is uniform over 3
+    // → change entropy H = log2(3), and each file is credited its 1/3
+    // share. They all co-changed pairwise once → a triangle, so each
+    // file's co-change neighbours are {1, 1} → exactly 1 bit.
+    repo.write("a.rs", "fn a() {}\n");
+    repo.write("b.rs", "fn b() {}\n");
+    repo.write("c.rs", "fn c() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "feat: trio");
+
+    let index = build_history_index(repo.path(), &opts()).expect("walk");
+    for f in ["a.rs", "b.rs", "c.rs"] {
+        let s = stats_for(&index, f);
+        let share = LOG2_3 / 3.0;
+        assert!(
+            (s.change_entropy_long - share).abs() < 1e-9,
+            "{f} change_entropy_long = {} (want {share})",
+            s.change_entropy_long
+        );
+        assert!((s.change_entropy_recent - share).abs() < 1e-9);
+        assert!(
+            (s.cochange_entropy_long - 1.0).abs() < 1e-9,
+            "{f} cochange_entropy_long = {}",
+            s.cochange_entropy_long
+        );
+        assert!((s.cochange_entropy_recent - 1.0).abs() < 1e-9);
+    }
+}
+
+#[test]
+fn single_file_commit_has_zero_entropy() {
+    let repo = Repo::init();
+    // A file that only ever changes alone: a one-file commit has a
+    // degenerate (certain) churn distribution → change entropy 0, and no
+    // co-change partner → co-change entropy 0. This is the "computed
+    // zero" the issue distinguishes from "not computed".
+    repo.write("lonely.rs", "fn l() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "solo");
+
+    let index = build_history_index(repo.path(), &opts()).expect("walk");
+    let s = stats_for(&index, "lonely.rs");
+    assert_eq!(s.change_entropy_long, 0.0);
+    assert_eq!(s.change_entropy_recent, 0.0);
+    assert_eq!(s.cochange_entropy_long, 0.0);
+    assert_eq!(s.cochange_entropy_recent, 0.0);
+}
+
+#[test]
+fn entropy_windows_split_recent_from_long() {
+    let repo = Repo::init();
+    // Long-only triangle 200 days back: a, b, c born together.
+    repo.write("a.rs", "fn a() {}\n");
+    repo.write("b.rs", "fn b() {}\n");
+    repo.write("c.rs", "fn c() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 200 * DAY, "init trio");
+    // Recent edit 10 days back co-changing only a and b (one line each).
+    repo.write("a.rs", "fn a() {}\nfn a2() {}\n");
+    repo.write("b.rs", "fn b() {}\nfn b2() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "edit a+b");
+
+    let index = build_history_index(repo.path(), &opts()).expect("walk");
+    let a = stats_for(&index, "a.rs");
+
+    // Co-change long graph: a–b appeared together twice (init + recent),
+    // a–c once → a's edge weights {2, 1} → entropy ≈ 0.9183 bits.
+    assert!(
+        (a.cochange_entropy_long - 0.918_295_834_054_490).abs() < 1e-9,
+        "a cochange_entropy_long = {}",
+        a.cochange_entropy_long
+    );
+    // Recent subgraph: a co-changed only with b → single neighbour → 0.
+    assert_eq!(
+        a.cochange_entropy_recent, 0.0,
+        "recent co-change sees one neighbour only"
+    );
+
+    // Change entropy long = init-commit share (log2(3)/3, uniform over 3)
+    // + recent-commit share (0.5·log2(2)=0.5, uniform over 2). Recent
+    // window sees only the second commit's 0.5.
+    let want_long = LOG2_3 / 3.0 + 0.5;
+    assert!(
+        (a.change_entropy_long - want_long).abs() < 1e-9,
+        "a change_entropy_long = {} (want {want_long})",
+        a.change_entropy_long
+    );
+    assert!(
+        (a.change_entropy_recent - 0.5).abs() < 1e-9,
+        "a change_entropy_recent = {}",
+        a.change_entropy_recent
+    );
+}
+
+#[test]
+fn cochange_counts_deleted_partners_independent_of_include_deleted() {
+    // A surviving file that historically co-changed with a since-deleted
+    // file should carry that coupling regardless of `--include-deleted`:
+    // the co-change graph is built from the full commit, while the flag
+    // only governs which files get a Stats record. This pins the
+    // documented "graph spans all touched files" design.
+    let repo = Repo::init();
+    repo.write("kept.rs", "fn k() {}\n");
+    repo.write("gone.rs", "fn g() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "feat: pair");
+    repo.git(&["rm", "-q", "gone.rs"]);
+    repo.write("kept.rs", "fn k() {}\nfn k2() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "drop gone");
+
+    // `kept` co-changed with `gone` once (the pair commit) → a single
+    // neighbour → co-change entropy 0 either way, but the edge exists.
+    // To make the neighbour count load-bearing, the value we assert is
+    // the same under both flag settings.
+    let kept = |include_deleted| {
+        build_history_index(
+            repo.path(),
+            &Options {
+                include_deleted,
+                ..opts()
+            },
+        )
+        .expect("walk")
+        .get(Path::new("kept.rs"))
+        .expect("kept.rs present at HEAD")
+        .cochange_entropy_long
+    };
+    assert_eq!(
+        kept(false),
+        kept(true),
+        "co-change entropy must not depend on --include-deleted"
+    );
+}
+
 #[test]
 fn empty_repo_errors_on_unborn_head() {
     // A freshly-initialised repo (no commits) has an unborn HEAD; the

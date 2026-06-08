@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::vcs::HistoryIndex;
+use crate::vcs::entropy::CochangeGraph;
 use crate::vcs::error::Error;
 use crate::vcs::options::{Options, RiskFormula};
 use crate::vcs::score;
@@ -73,22 +74,29 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
             .collect();
 
     let now = options.as_of.unwrap_or_else(current_unix_seconds);
-    history::walk_history(&repo, commit.id, options, now, &mut accumulators)?;
+    let graph = history::walk_history(&repo, commit.id, options, now, &mut accumulators)?;
 
-    let files = finalize(accumulators, options, now);
+    let files = finalize(accumulators, &graph, options, now);
     Ok(HistoryIndex::new(files, workdir, shallow))
 }
 
-/// Finalise every accumulator into a [`Stats`] record, applying the
-/// percentile re-ranking pass when that formula is selected.
+/// Finalise every accumulator into a [`Stats`] record, joining in each
+/// file's co-change graph entropy (the one signal the per-file
+/// accumulator cannot compute alone) and applying the percentile
+/// re-ranking pass when that formula is selected.
 fn finalize(
     accumulators: HashMap<PathBuf, Accumulator>,
+    graph: &CochangeGraph,
     options: &Options,
     now: i64,
 ) -> HashMap<PathBuf, Stats> {
     let (paths, mut stats): (Vec<PathBuf>, Vec<Stats>) = accumulators
         .into_iter()
-        .map(|(path, acc)| (path, acc.finalize(now, options)))
+        .map(|(path, acc)| {
+            let (cochange_long, cochange_recent) = graph.entropy(&path);
+            let stats = acc.finalize(now, options, cochange_long, cochange_recent);
+            (path, stats)
+        })
         .unzip();
 
     if options.risk_formula == RiskFormula::Percentile {

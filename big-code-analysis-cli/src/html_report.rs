@@ -227,6 +227,8 @@ const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for 
 const COMMITS_TOOLTIP: &str = "Distinct commits that touched this file within the analysis window.";
 const CHURN_TOOLTIP: &str = "Lines added + deleted to this file within the analysis window.";
 const AUTHORS_TOOLTIP: &str = "Distinct authors who touched this file within the analysis window.";
+const CHANGE_ENTROPY_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.";
+const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.";
 
 /// Plain-English tooltip catalogue for every AST-report metric column
 /// header emitted by [`generate_html_report`]. Centralised so every
@@ -325,6 +327,10 @@ pub(crate) const VCS_HEADER_TOOLTIPS: &[(&str, &str)] = &[
         "Last mod (d)",
         "Days since the most recent in-window commit touching this file.",
     ),
+    ("Change entropy (recent)", CHANGE_ENTROPY_TOOLTIP),
+    ("Change entropy (total)", CHANGE_ENTROPY_TOOLTIP),
+    ("Co-change entropy (recent)", COCHANGE_ENTROPY_TOOLTIP),
+    ("Co-change entropy (total)", COCHANGE_ENTROPY_TOOLTIP),
     (
         "Hotspot",
         "Complexity \u{D7} recent churn: high-complexity files that also change often. Empty when AST metrics are not joined.",

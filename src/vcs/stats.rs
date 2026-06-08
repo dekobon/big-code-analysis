@@ -14,8 +14,9 @@ use super::options::{Options, SECONDS_PER_DAY};
 use super::score::{self, RISK_SCORE_VERSION, ScoreInput};
 
 /// Output-shape version for the `vcs` block. Bump on any change to the
-/// serialized field set.
-pub const VCS_SCHEMA_VERSION: u32 = 1;
+/// serialized field set. `2` added the change- and co-change-entropy
+/// fields (issue #330).
+pub const VCS_SCHEMA_VERSION: u32 = 2;
 
 /// Per-file change-history metrics.
 ///
@@ -63,6 +64,22 @@ pub struct Stats {
     pub age_days: u32,
     /// Days since the file's most recent in-window commit.
     pub last_modified_days: u32,
+    /// Change entropy over the long window (Hassan 2009 History
+    /// Complexity Metric, in bits): the file's accumulated share
+    /// `Σ pᵢ·Hᵢ` of the churn-distribution entropy of every commit it
+    /// took part in. Higher = the file participates in more scattered,
+    /// distributed changes. `0.0` means it only ever changed alone.
+    pub change_entropy_long: f64,
+    /// Change entropy restricted to the recent window.
+    pub change_entropy_recent: f64,
+    /// Co-change graph entropy over the long window (arXiv 2504.18511,
+    /// 2025, in bits): the Shannon entropy of the file's co-change
+    /// edge-weight distribution. Higher = its changes ripple across many
+    /// different partners. `0.0` is *computed*, not missing — the file
+    /// has no co-change neighbours (only single-file commits).
+    pub cochange_entropy_long: f64,
+    /// Co-change graph entropy restricted to the recent window.
+    pub cochange_entropy_recent: f64,
     /// Composite risk score (weighted or percentile, per options).
     pub risk_score: f64,
     /// Complexity × recent-churn hotspot score; `Some` only when AST
@@ -87,6 +104,10 @@ pub struct Accumulator {
     commits_recent: u32,
     churn_long: u64,
     churn_recent: u64,
+    /// Accumulated change-entropy contribution `Σ pᵢ·Hᵢ` over the long
+    /// window; the recent counterpart sums only recent-window commits.
+    change_entropy_long: f64,
+    change_entropy_recent: f64,
     /// Per-identity edit credits in the long window (ownership + count).
     author_edits_long: HashMap<AuthorId, u32>,
     /// Identities credited within the recent window (count only).
@@ -110,6 +131,12 @@ pub struct ChangeRecord<'a> {
     pub class: Classification,
     /// Non-empty, bot-filtered participant identities for this commit.
     pub authors: &'a [AuthorId],
+    /// This commit's change-entropy contribution to *this* file: the
+    /// file's churn share of the commit times the commit's churn-
+    /// distribution entropy (`pᵢ·H`), in bits. Zero for a single-file
+    /// commit (`H = 0`) or a zero-churn touch (`pᵢ = 0`). The backend
+    /// computes it once the whole commit's churn distribution is known.
+    pub change_entropy: f64,
 }
 
 impl Accumulator {
@@ -126,6 +153,7 @@ impl Accumulator {
     pub fn record(&mut self, change: &ChangeRecord<'_>) {
         self.commits_long += 1;
         self.churn_long += change.churn;
+        self.change_entropy_long += change.change_entropy;
         self.bug_fix_commits += u32::from(change.class.bug_fix);
         self.security_fix_commits += u32::from(change.class.security_fix);
         self.revert_commits += u32::from(change.class.revert);
@@ -149,17 +177,28 @@ impl Accumulator {
         if change.in_recent {
             self.commits_recent += 1;
             self.churn_recent += change.churn;
+            self.change_entropy_recent += change.change_entropy;
             self.authors_recent.extend(change.authors.iter().cloned());
         }
     }
 
     /// Collapse the accumulator into the serializable [`Stats`].
     ///
-    /// `now` is the reference timestamp (wall clock or `--as-of`). The
+    /// `now` is the reference timestamp (wall clock or `--as-of`).
+    /// `cochange_long` / `cochange_recent` are the file's co-change graph
+    /// entropies (computed by the backend from the whole-walk graph, which
+    /// the per-file accumulator cannot see), folded into the score here so
+    /// the weighted formula stays the single risk-score authority. The
     /// resulting risk score uses the weighted formula; percentile
     /// re-ranking is a whole-set pass applied later by the backend.
     #[must_use]
-    pub fn finalize(&self, now: i64, options: &Options) -> Stats {
+    pub fn finalize(
+        &self,
+        now: i64,
+        options: &Options,
+        cochange_long: f64,
+        cochange_recent: f64,
+    ) -> Stats {
         let long_window_days = options.long_window_days();
         let authors_long = u32::try_from(self.author_edits_long.len()).unwrap_or(u32::MAX);
         let authors_recent = u32::try_from(self.authors_recent.len()).unwrap_or(u32::MAX);
@@ -202,6 +241,8 @@ impl Accumulator {
             sloc: self.sloc,
             age_days,
             recent_window_days: options.recent_window_days(),
+            change_entropy_recent: self.change_entropy_recent,
+            cochange_entropy_recent: cochange_recent,
         });
 
         let author_ids = options.emit_author_details.then(|| {
@@ -232,6 +273,10 @@ impl Accumulator {
             revert_commits: self.revert_commits,
             age_days,
             last_modified_days,
+            change_entropy_long: self.change_entropy_long,
+            change_entropy_recent: self.change_entropy_recent,
+            cochange_entropy_long: cochange_long,
+            cochange_entropy_recent: cochange_recent,
             risk_score,
             hotspot_score: None,
             author_ids,

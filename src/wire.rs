@@ -682,6 +682,17 @@ pub struct Vcs {
     pub age_days: u32,
     /// Days since the file's most recent in-window commit.
     pub last_modified_days: u32,
+    /// Change entropy (bits) over the long window — Hassan 2009 History
+    /// Complexity Metric; higher means more scattered changes.
+    pub change_entropy_long: f64,
+    /// Change entropy (bits) over the recent window.
+    pub change_entropy_recent: f64,
+    /// Co-change graph entropy (bits) over the long window — arXiv
+    /// 2504.18511; higher means changes ripple across more partners.
+    /// `0.0` is computed (no co-changes), not missing.
+    pub cochange_entropy_long: f64,
+    /// Co-change graph entropy (bits) over the recent window.
+    pub cochange_entropy_recent: f64,
     /// Ordinal composite risk score.
     pub risk_score: f64,
     /// Complexity × recent-churn hotspot score, when AST metrics were
@@ -715,6 +726,10 @@ impl From<&crate::vcs::Stats> for Vcs {
             revert_commits: s.revert_commits,
             age_days: s.age_days,
             last_modified_days: s.last_modified_days,
+            change_entropy_long: s.change_entropy_long,
+            change_entropy_recent: s.change_entropy_recent,
+            cochange_entropy_long: s.cochange_entropy_long,
+            cochange_entropy_recent: s.cochange_entropy_recent,
             risk_score: s.risk_score,
             hotspot_score: s.hotspot_score,
             author_ids: s.author_ids.clone(),
