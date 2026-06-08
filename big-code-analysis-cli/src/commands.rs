@@ -1542,10 +1542,22 @@ fn run_command_metrics(
     // the dispatch can attach a `vcs` block to each file (issue #328).
     // `--vcs` is additive: outside a repo `default_index` warns and
     // returns `None`, so the AST metrics still emit (vcs block omitted).
-    let vcs_index = if args.vcs {
-        crate::vcs_command::default_index(&globals)
-    } else {
-        None
+    //
+    // Only the structured-output path renders the `vcs` block; the
+    // human-readable dump (no `--format`) cannot show it. So skip the
+    // (expensive) history walk entirely when no format is selected,
+    // warning that `--vcs` had no effect rather than doing the walk and
+    // silently discarding it.
+    let vcs_index = match (args.vcs, structured.output_format.is_some()) {
+        (true, true) => crate::vcs_command::default_index(&globals),
+        (true, false) => {
+            eprintln!(
+                "warning: --vcs has no effect without --format: the human-readable \
+                 metrics view does not render the vcs block"
+            );
+            None
+        }
+        (false, _) => None,
     };
     let action = Action::Metrics {
         format: structured.output_format,
