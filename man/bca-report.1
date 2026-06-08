@@ -4,7 +4,7 @@
 .SH NAME
 bca\-report \- Generate an aggregated report across the analyzed source
 .SH SYNOPSIS
-\fBbca\-report\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-top\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-no\-suppress\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIFORMAT\fR] 
+\fBbca\-report\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-top\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-no\-suppress\fR] [\fB\-\-vcs\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIFORMAT\fR] 
 .SH DESCRIPTION
 Generate an aggregated report across the analyzed source
 .SH OPTIONS
@@ -33,6 +33,9 @@ Path prefix to strip from displayed file paths
 .TP
 \fB\-\-no\-suppress\fR
 Include functions silenced by in\-source suppression markers (`bca: suppress`, `bca: suppress\-file`, `#lizard forgives`) in the hotspot tables. By default the report honors these markers and omits a function from a metric\*(Aqs hotspot table when that metric is suppressed for it — matching `bca check` and the SARIF emitter. Pass this for the raw audit view that lists every offender
+.TP
+\fB\-\-vcs\fR
+Append a "Change\-history risk" section ranking files by VCS risk (churn, authorship, fix history) using default windows, mirroring `bca metrics \-\-vcs`. Ignored (with a warning) outside a git working tree. See `bca vcs` for the standalone, tunable report
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

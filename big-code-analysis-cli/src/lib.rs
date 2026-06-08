@@ -52,6 +52,7 @@ mod metric_diff;
 mod threshold_suggestion;
 mod thresholds;
 mod vcs_command;
+mod vcs_report;
 mod walk_seed;
 
 pub use commands::run;
@@ -71,7 +72,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use baseline::Baseline;
 use check_format::AggregatedFormat;
-use formats::{MetricsFormat, ReportFormat};
+use formats::{MetricsFormat, ReportFormat, VcsFormat};
 use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
 use thresholds::{
@@ -380,10 +381,22 @@ impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
 /// no-ignore are inherited from the global options.
 #[derive(Args, Debug)]
 struct VcsArgs {
-    /// Output format and destination (shared with `metrics`/`ops`). When
-    /// no format is given, a human-readable ranked table is printed.
-    #[clap(flatten)]
-    structured: StructuredArgs,
+    /// Output format. When omitted, a human-readable ranked table is
+    /// printed. `markdown` / `html` render a sortable report page like
+    /// `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit
+    /// structured data. `--output-format` is accepted as a deprecated
+    /// alias (issue #513).
+    #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
+    format: Option<VcsFormat>,
+    /// Output file. Unlike `metrics`/`ops` (which write a directory of
+    /// per-file emissions), a change-history report is a single
+    /// whole-repo document, so this names one file. Stdout if omitted
+    /// (CBOR requires this flag — it is binary).
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
+    /// Pretty-print JSON / TOML output.
+    #[clap(long)]
+    pretty: bool,
     /// Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601
     /// `P1Y`).
     #[clap(long, default_value = "12mo")]
@@ -473,6 +486,12 @@ struct ReportArgs {
     /// Pass this for the raw audit view that lists every offender.
     #[clap(long = "no-suppress")]
     no_suppress: bool,
+    /// Append a "Change-history risk" section ranking files by VCS risk
+    /// (churn, authorship, fix history) using default windows, mirroring
+    /// `bca metrics --vcs`. Ignored (with a warning) outside a git
+    /// working tree. See `bca vcs` for the standalone, tunable report.
+    #[clap(long)]
+    vcs: bool,
 }
 
 impl ReportArgs {

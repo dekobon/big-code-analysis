@@ -35,9 +35,9 @@ use crate::diff;
 use crate::exemptions::{BaselineRow, BaselineSection, ExemptionsReport, FileMarkers, MarkerRow};
 use crate::format_util::MetricScalar;
 use crate::formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
-use crate::html_report::generate_html_report;
+use crate::html_report::{generate_html_report, generate_html_report_with_vcs};
 use crate::manifest::{self, Manifest};
-use crate::markdown_report::{FunctionSummary, generate_report};
+use crate::markdown_report::{FunctionSummary, generate_report, generate_report_with_vcs};
 use crate::metric_catalog::write_metrics;
 use crate::thresholds::{
     ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
@@ -1610,6 +1610,14 @@ fn run_command_report(
         validate_output_path(output, "report");
     }
     let format = args.resolved_format();
+    // Build the change-history report (default windows, top = the same
+    // per-table cap) before the AST walk consumes `globals`. `--vcs` is
+    // additive: outside a git tree `build_default_report` warns and
+    // returns `None`, so the report still renders without the section.
+    let vcs = args
+        .vcs
+        .then(|| crate::vcs_command::build_default_report(&globals, args.top as usize))
+        .flatten();
     let (tx, rx) = std::sync::mpsc::channel();
     let cfg = Config {
         markdown_tx: Some(Mutex::new(tx)),
@@ -1621,9 +1629,16 @@ fn run_command_report(
     // ConcurrentRunner::run() consumed Config (and thus the Sender).
     // All worker threads have joined, so `rx.into_iter()` terminates.
     let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
-    let report = match format {
-        ReportFormat::Markdown => generate_report(&summaries, args.top as usize, policy),
-        ReportFormat::Html => generate_html_report(&summaries, args.top as usize, policy),
+    let top = args.top as usize;
+    let report = match (format, vcs.as_ref()) {
+        (ReportFormat::Markdown, None) => generate_report(&summaries, top, policy),
+        (ReportFormat::Markdown, Some(vcs)) => {
+            generate_report_with_vcs(&summaries, top, policy, Some(vcs))
+        }
+        (ReportFormat::Html, None) => generate_html_report(&summaries, top, policy),
+        (ReportFormat::Html, Some(vcs)) => {
+            generate_html_report_with_vcs(&summaries, top, policy, Some(vcs))
+        }
     };
     write_output_or_stdout(args.output.as_deref(), "write report to", report.as_bytes());
 }

@@ -162,6 +162,44 @@ fn vcs_flags_bind_to_their_fields() {
     assert!(args.emit_author_details);
 }
 
+// `bca vcs` carries its own format set (issue #573): the per-file
+// `MetricsFormat` values plus the rendered `markdown` / `html` pages.
+// Unlike `metrics`/`ops`, `--output` names a single file (a whole-repo
+// report is one document), so these flags live directly on `VcsArgs`,
+// not the shared `StructuredArgs`.
+#[test]
+fn vcs_accepts_rendered_formats() {
+    assert_eq!(
+        parse_vcs(&["vcs", "--format", "html"]).format,
+        Some(VcsFormat::Html)
+    );
+    assert_eq!(
+        parse_vcs(&["vcs", "--format", "markdown"]).format,
+        Some(VcsFormat::Markdown)
+    );
+    // The structured subset still parses, and the deprecated
+    // `--output-format` alias keeps working (issue #513).
+    assert_eq!(
+        parse_vcs(&["vcs", "--output-format", "json"]).format,
+        Some(VcsFormat::Json)
+    );
+}
+
+#[test]
+fn vcs_format_and_output_bind_to_their_fields() {
+    let args = parse_vcs(&[
+        "vcs", "--format", "html", "--output", "vcs.html", "--pretty",
+    ]);
+    assert_eq!(args.format, Some(VcsFormat::Html));
+    assert_eq!(args.output.as_deref(), Some(Path::new("vcs.html")));
+    assert!(args.pretty);
+}
+
+#[test]
+fn vcs_alone_has_no_format() {
+    assert!(parse_vcs(&["vcs"]).format.is_none());
+}
+
 // Offender formats (Checkstyle, SARIF, clang-warning,
 // msvc-warning) moved from `bca metrics` to
 // `bca check --output-format` in issue #235. `MetricsFormat` no
@@ -271,6 +309,14 @@ fn parse_report_args(argv: &[&str]) -> ReportArgs {
 #[test]
 fn report_markdown_parses() {
     assert!(parse(&["report", "markdown"]).is_ok());
+}
+
+// `bca report --vcs` (issue #573) appends a change-history section,
+// mirroring `bca metrics --vcs`. Off by default.
+#[test]
+fn report_vcs_flag_binds() {
+    assert!(parse_report_args(&["report", "html", "--vcs"]).vcs);
+    assert!(!parse_report_args(&["report", "html"]).vcs);
 }
 
 #[test]

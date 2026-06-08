@@ -9,8 +9,8 @@ bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author c
 Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH OPTIONS
 .TP
-\fB\-O\fR, \fB\-\-format\fR \fI<OUTPUT_FORMAT>\fR
-Output format. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR
+Output format. When omitted, a human\-readable ranked table is printed. `markdown` / `html` render a sortable report page like `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit structured data. `\-\-output\-format` is accepted as a deprecated alias (issue #513)
 .br
 
 .br
@@ -26,10 +26,14 @@ json
 toml
 .IP \(bu 2
 yaml
+.IP \(bu 2
+markdown
+.IP \(bu 2
+html
 .RE
 .TP
 \fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
-Output directory. Filenames mirror input paths plus the format extension. Stdout if omitted (CBOR requires this flag)
+Output file. Unlike `metrics`/`ops` (which write a directory of per\-file emissions), a change\-history report is a single whole\-repo document, so this names one file. Stdout if omitted (CBOR requires this flag — it is binary)
 .TP
 \fB\-\-pretty\fR
 Pretty\-print JSON / TOML output

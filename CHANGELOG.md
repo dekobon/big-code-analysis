@@ -38,10 +38,18 @@ for historical reference.
   - Library: `big_code_analysis::vcs::{build_history_index, Options,
     Stats, HistoryIndex, …}`, `wire::Vcs`, and
     `CodeMetrics::vcs: Option<vcs::Stats>` (all behind `vcs-git`).
-  - CLI: a new `bca vcs` subcommand (ranked list; JSON / YAML / TOML /
-    CBOR / CSV or a default table), plus `bca metrics --vcs` to attach a
-    `vcs` block to each file's metrics. `bca vcs` errors clearly outside
-    a git working tree; `--include` / `--exclude` / `--paths` are reused.
+  - CLI: a new `bca vcs` subcommand. `--format` accepts a rendered
+    report page (`markdown` / `html`, a self-contained sortable table
+    styled like `bca report html`), the structured formats (`json` /
+    `yaml` / `toml` / `cbor` / `csv`), or a default ranked table.
+    `bca vcs --output <file>` writes a single whole-repo document (not
+    the per-file directory `metrics` / `ops` emit). Plus `bca metrics
+    --vcs` to attach a `vcs` block to each file's metrics, and `bca
+    report markdown|html --vcs` to append a "Change-history risk"
+    section to the aggregated quality report (#573). The Markdown and
+    HTML renderers share one column spec so they cannot drift. `bca vcs`
+    errors clearly outside a git working tree; `--include` / `--exclude`
+    / `--paths` are reused.
   - Web: a new `POST /vcs` endpoint taking a server-side `repo_path`.
   - Python: `vcs_metrics(repo_path, …)` and an opt-in `vcs=True` on
     `analyze()`.

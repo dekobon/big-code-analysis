@@ -305,5 +305,6 @@ fn report_args(no_suppress: bool) -> ReportArgs {
         top: 20,
         strip_prefix: String::new(),
         no_suppress,
+        vcs: false,
     }
 }
