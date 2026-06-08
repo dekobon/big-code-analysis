@@ -94,6 +94,74 @@ fn metrics_accepts_deprecated_output_format_alias() {
     );
 }
 
+// `bca vcs` (issue #328) wires a dozen flags, several of which are
+// boolean opt-outs (`--no-follow-renames`, `--no-exclude-bots`) or
+// renamed (`--ref` → `reference`) — exactly the bindings a parse test
+// pins against a future field-swap. Inspect the parsed `VcsArgs`, not
+// just `is_ok`.
+fn parse_vcs(argv: &[&str]) -> VcsArgs {
+    match parse(argv).expect("vcs invocation parses").command {
+        Command::Vcs(args) => *args,
+        other => panic!("expected Command::Vcs, got {other:?}"),
+    }
+}
+
+#[test]
+fn vcs_alone_uses_documented_defaults() {
+    let args = parse_vcs(&["vcs"]);
+    assert_eq!(args.long_window, "12mo");
+    assert_eq!(args.recent_window, "90d");
+    assert_eq!(args.top, 50);
+    assert_eq!(args.reference, "HEAD");
+    assert_eq!(args.risk_formula, RiskFormulaArg::Weighted);
+    assert!(!args.full_history);
+    assert!(!args.include_merges);
+    // Follow-renames / exclude-bots are ON unless the `--no-` flag is
+    // passed, so the parsed opt-out booleans default false.
+    assert!(!args.no_follow_renames);
+    assert!(!args.no_exclude_bots);
+    assert!(args.bot_pattern.is_none());
+    assert!(!args.include_deleted);
+    assert!(!args.emit_author_details);
+}
+
+#[test]
+fn vcs_flags_bind_to_their_fields() {
+    let args = parse_vcs(&[
+        "vcs",
+        "--ref",
+        "release/1.x",
+        "--risk-formula",
+        "percentile",
+        "--top",
+        "10",
+        "--long-window",
+        "2y",
+        "--recent-window",
+        "30d",
+        "--full-history",
+        "--include-merges",
+        "--no-follow-renames",
+        "--no-exclude-bots",
+        "--bot-pattern",
+        "\\[bot\\]$",
+        "--include-deleted",
+        "--emit-author-details",
+    ]);
+    assert_eq!(args.reference, "release/1.x");
+    assert_eq!(args.risk_formula, RiskFormulaArg::Percentile);
+    assert_eq!(args.top, 10);
+    assert_eq!(args.long_window, "2y");
+    assert_eq!(args.recent_window, "30d");
+    assert!(args.full_history);
+    assert!(args.include_merges);
+    assert!(args.no_follow_renames);
+    assert!(args.no_exclude_bots);
+    assert_eq!(args.bot_pattern.as_deref(), Some("\\[bot\\]$"));
+    assert!(args.include_deleted);
+    assert!(args.emit_author_details);
+}
+
 // Offender formats (Checkstyle, SARIF, clang-warning,
 // msvc-warning) moved from `bca metrics` to
 // `bca check --output-format` in issue #235. `MetricsFormat` no
