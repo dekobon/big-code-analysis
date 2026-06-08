@@ -5,6 +5,18 @@
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::doc_markdown, clippy::enum_glob_use, clippy::wildcard_imports)]
+// Per-language Cargo features (commit 7e96b466) let a downstream build
+// only a subset of grammars. In such a build the code for the disabled
+// languages — their macro-generated `*Code` / `*Parser` tags plus the
+// getter / checker / metric helpers and shared plumbing only those
+// languages reach — is compiled but never constructed, so `-D dead-code`
+// fires on ~180 items that are all live in the default `all-languages`
+// build. Relax dead-code to a warning only when the full language set is
+// NOT enabled; the default build and `--all-features` (and thus the
+// primary CI gate and `make pre-commit`) still hard-deny it, so genuine
+// dead code is caught there. Fixes the long-red `features
+// (no-default-features / minimal-langs (lib))` CI legs.
+#![cfg_attr(not(feature = "all-languages"), allow(dead_code))]
 
 //! big-code-analysis is a library to analyze and extract information
 //! from source codes written in many different programming languages.
