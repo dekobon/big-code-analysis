@@ -130,7 +130,10 @@ csv.workspace = true
 # backend (issue #328). The feature set is deliberately minimal:
 # `max-performance-safe` (zlib-ng without `unsafe`), `blob-diff` (line
 # churn), `mailmap` (identity canonicalisation), `revision` (rev-walk +
-# revspec parsing), `index` (working-tree path resolution). Gated behind
+# revspec parsing). `index` is listed defensively — `revision`/`mailmap`
+# enable it transitively today, so it is pinned to survive a future gix
+# refactor that decouples them (the walk itself is tree-to-tree and does
+# not read the index/worktree). `sha1` (see below). Gated behind
 # `vcs-git`.
 gix = { version = "^0.83", default-features = false, features = [
   "max-performance-safe",
