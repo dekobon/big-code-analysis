@@ -55,6 +55,10 @@ pub struct WebVcsPayload {
     pub follow_renames: Option<bool>,
     /// Exclude bot identities (default true).
     pub exclude_bots: Option<bool>,
+    /// Override the bot-author exclusion regex (matched against the
+    /// author name/email). Parity with the CLI `--bot-pattern` and the
+    /// Python `vcs_metrics(bot_pattern=…)`.
+    pub bot_pattern: Option<String>,
     /// Reference "now" (RFC 3339 / `@unix` / git date) for snapshots.
     pub as_of: Option<String>,
     /// Emit SHA-256-hashed author identities.
@@ -111,6 +115,9 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
     options.include_merges = payload.include_merges.unwrap_or(options.include_merges);
     options.follow_renames = payload.follow_renames.unwrap_or(options.follow_renames);
     options.exclude_bots = payload.exclude_bots.unwrap_or(options.exclude_bots);
+    if let Some(pattern) = &payload.bot_pattern {
+        options.bot_pattern.clone_from(pattern);
+    }
     options.emit_author_details = payload
         .emit_author_details
         .unwrap_or(options.emit_author_details);

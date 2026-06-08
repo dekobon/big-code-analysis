@@ -2049,3 +2049,52 @@ async fn test_web_vcs_outside_repo_is_400() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+#[actix_rt::test]
+async fn test_web_vcs_wrong_content_type_yields_415() {
+    // `/vcs` must carry the same per-resource fallback as the other POST
+    // endpoints (#515): a wrong Content-Type is a diagnostic 415, not a
+    // bodyless app-level 404.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs")
+        .insert_header(("content-type", "text/plain"))
+        .set_payload("not json")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "/vcs wrong Content-Type must be a 415, not a 404"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_wrong_method_yields_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::get().uri("/vcs").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::METHOD_NOT_ALLOWED,
+        "GET /vcs must be a 405, not a 404"
+    );
+    // The body proves the response came from our guarded_post_fallback
+    // (which names the accepted method), not actix's built-in 405 — i.e.
+    // the per-resource default_service is actually wired.
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("POST"),
+        "405 body should name the accepted method"
+    );
+}
