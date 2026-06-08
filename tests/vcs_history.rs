@@ -450,6 +450,43 @@ fn first_parent_merges_and_full_history_count_branch_work() {
 }
 
 #[test]
+fn shallow_clone_degrades_gracefully() {
+    use std::process::Command;
+    // Source repo with two commits so the shallow tip has a parent that
+    // the depth-1 clone will not fetch (a grafted, absent boundary).
+    let src = Repo::init();
+    src.write("f.rs", "fn a() {}\n");
+    src.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "first");
+    src.write("f.rs", "fn a() {}\nfn b() {}\n");
+    src.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "second");
+
+    // `file://` forces the non-local transport so `--depth` actually
+    // produces a shallow clone (a bare path clone ignores `--depth`).
+    let dest = tempfile::tempdir().expect("tempdir");
+    let url = format!("file://{}", src.path().display());
+    let clone_ok = Command::new("git")
+        .args(["clone", "--quiet", "--depth", "1", &url])
+        .arg(dest.path())
+        .status()
+        .expect("spawn git clone")
+        .success();
+    assert!(clone_ok, "shallow clone failed");
+
+    // Must NOT abort on the missing grafted parent: it is treated as a
+    // boundary (diff against the empty tree) and the result is flagged
+    // truncated rather than erroring out — the graceful path that was
+    // previously dead because the walk aborted before finalizing.
+    let index = build_history_index(dest.path(), &opts()).expect("shallow walk completes");
+    assert!(index.truncated_shallow_clone(), "shallow clone is flagged");
+    let stats = stats_for(&index, "f.rs");
+    assert_eq!(stats.commits_long, 1, "only the shallow tip is present");
+    assert!(
+        stats.churn_long >= 1,
+        "the tip's content counts as additions"
+    );
+}
+
+#[test]
 fn not_a_repository_errors_clearly() {
     let dir = tempfile::tempdir().expect("tempdir");
     let err = build_history_index(dir.path(), &opts()).expect_err("must error outside a repo");
