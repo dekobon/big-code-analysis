@@ -31,6 +31,10 @@ impl Repo {
         // Keep commits hermetic regardless of the host's global config.
         run_git(dir.path(), &["config", "commit.gpgsign", "false"], &[]);
         run_git(dir.path(), &["config", "gc.auto", "0"], &[]);
+        // Pin line endings so churn line-counts are identical on a
+        // contributor with `core.autocrlf=true` (the Git-for-Windows
+        // default) — the integration tests assert exact churn values.
+        run_git(dir.path(), &["config", "core.autocrlf", "false"], &[]);
         Self { dir }
     }
 
@@ -94,7 +98,16 @@ impl Repo {
         ];
         run_git(
             self.dir.path(),
-            &["commit", "-q", "--allow-empty", "-m", message],
+            // `--no-verify` skips any commit/commit-msg hook a
+            // contributor's global `core.hooksPath` might install.
+            &[
+                "commit",
+                "-q",
+                "--no-verify",
+                "--allow-empty",
+                "-m",
+                message,
+            ],
             &env,
         );
     }
