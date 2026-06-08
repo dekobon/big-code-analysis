@@ -222,6 +222,16 @@ change bumps that field, and the serialized field *set* is versioned by
 `vcs_schema_version`. Per-file score *magnitudes* therefore carry the
 same "not byte-stable across bumps" caveat as every other metric value.
 
+Per-function change-history attribution (#329) extends the same opt-in
+surface: `big_code_analysis::vcs::{PerFunctionBlame, LineSpan}`, the
+`vcs::Error::Blame` variant, the `bca metrics --vcs-per-function` flag,
+and the `CodeMetrics::vcs` field now being populated on nested function
+spaces (not only the file space). The per-function block shares
+`wire::Vcs`'s shape and the same `risk_score` / `*_version` contract
+above, but its numbers are a `git blame` *current snapshot* — `churn` is
+surviving-line count, not the file-level added+deleted churn — so values
+are not comparable across the file and function levels by construction.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

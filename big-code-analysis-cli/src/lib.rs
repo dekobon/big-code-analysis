@@ -454,6 +454,16 @@ struct MetricsArgs {
     /// metrics still emit, without the `vcs` block).
     #[clap(long)]
     vcs: bool,
+    /// Additionally attach a `vcs` block to every nested function /
+    /// method / class space, via `git blame` of each file's surviving
+    /// lines (issue #329). Implies `--vcs`. The per-function numbers are
+    /// a current-blame snapshot — `churn` is surviving-line count, not
+    /// the file-level added+deleted churn — so they rank functions
+    /// within a file but are not directly comparable to the file block.
+    /// Costs one blame per file; skipped (with a warning) outside a git
+    /// working tree.
+    #[clap(long = "vcs-per-function")]
+    vcs_per_function: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1208,6 +1218,12 @@ struct Config {
     /// derived from the file's cyclomatic sum) to each file-level space.
     /// `None` for every other flow. Issue #328.
     vcs_index: Option<Arc<big_code_analysis::vcs::HistoryIndex>>,
+    /// Per-function blame engine, shared read-only across workers, set by
+    /// `bca metrics --vcs-per-function`. When present, the per-file
+    /// dispatch blames each file and attaches a `vcs` block to every
+    /// nested function space (in addition to the file-level block from
+    /// `vcs_index`). `None` for every other flow. Issue #329.
+    vcs_blame: Option<Arc<big_code_analysis::vcs::PerFunctionBlame>>,
 }
 
 impl Config {
@@ -1247,6 +1263,9 @@ impl Config {
             fuzzy_baseline: false,
             // Set by `run_command_metrics` only when `--vcs` is passed.
             vcs_index: None,
+            // Set by `run_command_metrics` only when `--vcs-per-function`
+            // is passed.
+            vcs_blame: None,
         }
     }
 

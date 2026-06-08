@@ -156,6 +156,41 @@ $ bca metrics --vcs --paths src/parser.rs --format json
 `bca metrics --vcs` uses the default windows and weighted formula; for
 window / formula tuning use `bca vcs`.
 
+### Per-function attribution
+
+`bca metrics --vcs-per-function` (which implies `--vcs`) additionally
+attaches a `vcs` block to every nested function, method, and class space.
+It blames each file once with `git blame` and buckets the surviving lines
+into the AST function spans, so you can rank the risky *function* inside a
+risky file:
+
+```console
+$ bca metrics --vcs-per-function --paths src/parser.rs --format json
+{ "name": "src/parser.rs",
+  "metrics": { "vcs": { "risk_score": 3.7, ... } },   // file-level block
+  "spaces": [
+    { "name": "parse", "kind": "function",
+      "metrics": { "vcs": { "commits_long": 4, "churn_recent": 12,
+                            "risk_score": 2.1, "hotspot_score": 144.0 } } } ] }
+```
+
+The per-function block is a **current-blame snapshot** and is *not*
+directly comparable to the file-level block: its `churn` counts surviving
+lines whose last touch falls inside the window (not historical
+added+deleted churn), and ownership is credited per touching commit. A
+function nobody has changed within the window reports zero counts. Lines
+whose last touch predates the long window contribute to the function's
+size but to none of the windowed counts.
+
+**Limitations.** Blame follows file renames (so edits under a former path
+still attribute), but attributes a line *moved between functions* to its
+current position only. A function split into two has no record of its
+pre-split identity, and a deleted-then-recreated function attributes to
+the recreating commits. If a file cannot be blamed — untracked, or the
+rare `gix-blame` failure on pathologically repetitive content — its
+per-function blocks are simply omitted while the file-level block (and the
+AST metrics) still emit.
+
 ## Dogfooding in this repo
 
 This project runs `bca vcs` on its own source. `make vcs` prints the

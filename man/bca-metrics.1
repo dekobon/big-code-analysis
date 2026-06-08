@@ -4,7 +4,7 @@
 .SH NAME
 bca\-metrics \- Compute per\-file metrics and emit them in a structured format
 .SH SYNOPSIS
-\fBbca\-metrics\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-vcs\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-metrics\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-vcs\fR] [\fB\-\-vcs\-per\-function\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Compute per\-file metrics and emit them in a structured format
 .SH OPTIONS
@@ -36,6 +36,9 @@ Pretty\-print JSON / TOML output
 .TP
 \fB\-\-vcs\fR
 Also compute change\-history (VCS) metrics and attach a `vcs` block — plus a `hotspot_score` (cyclomatic × recent churn) — to each file\*(Aqs metrics. Uses default windows (12mo / 90d, weighted formula); for window / formula tuning use `bca vcs`. Outside a git working tree this opt\-in is skipped with a warning (the AST metrics still emit, without the `vcs` block)
+.TP
+\fB\-\-vcs\-per\-function\fR
+Additionally attach a `vcs` block to every nested function / method / class space, via `git blame` of each file\*(Aqs surviving lines (issue #329). Implies `\-\-vcs`. The per\-function numbers are a current\-blame snapshot — `churn` is surviving\-line count, not the file\-level added+deleted churn — so they rank functions within a file but are not directly comparable to the file block. Costs one blame per file; skipped (with a warning) outside a git working tree
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

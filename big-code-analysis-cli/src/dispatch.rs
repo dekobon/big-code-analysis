@@ -180,6 +180,11 @@ fn dispatch_metrics(
             // (and hotspot) to its file-level metrics before emitting.
             if let Some(index) = &cfg.vcs_index {
                 crate::vcs_command::inject(&mut space, &path, index);
+                // `--vcs-per-function` (issue #329) additionally blames the
+                // file and attaches a block to each nested function space.
+                if let Some(blame) = &cfg.vcs_blame {
+                    crate::vcs_command::inject_per_function(&mut space, &path, blame);
+                }
             }
             match fmt.dispatch() {
                 MetricsDispatch::Generic(g) => {
@@ -564,6 +569,7 @@ mod tests {
             no_cyclomatic_try: false,
             fuzzy_baseline: false,
             vcs_index: None,
+            vcs_blame: None,
         }
     }
 

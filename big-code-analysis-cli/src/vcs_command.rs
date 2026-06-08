@@ -454,10 +454,105 @@ pub(crate) fn inject(space: &mut FuncSpace, path: &Path, index: &vcs::HistoryInd
         return;
     };
     let mut stat = stat.clone();
+    set_hotspot_score(&mut stat, space);
+    space.metrics.vcs = Some(stat);
+}
+
+/// Fill a `vcs` block's `hotspot_score` from `space`'s own cyclomatic sum
+/// (complexity × recent churn). Shared by the file-level [`inject`] and
+/// the per-function [`assign_child_stats`] so both compute it identically.
+fn set_hotspot_score(stat: &mut vcs::Stats, space: &FuncSpace) {
     #[allow(clippy::cast_precision_loss)]
     let complexity = space.metrics.cyclomatic.cyclomatic_sum() as f64;
     stat.hotspot_score = Some(hotspot::hotspot_score(complexity, stat.churn_recent));
-    space.metrics.vcs = Some(stat);
+}
+
+/// Build a per-function blame engine with **default** windows for
+/// `bca metrics --vcs-per-function`, rooted like [`default_index`].
+///
+/// Mirrors [`default_index`]'s additive-opt-in contract: outside a git
+/// working tree (or with an unborn `HEAD`) it warns once and returns
+/// `None`, so the AST metrics still emit with the per-function `vcs`
+/// blocks simply omitted. Returned in an [`Arc`] so the per-file walk
+/// workers share one read-only engine (issue #329).
+pub(crate) fn default_blame(globals: &GlobalOpts) -> Option<Arc<vcs::PerFunctionBlame>> {
+    match vcs::PerFunctionBlame::open(&resolve_root(globals), Options::default()) {
+        Ok(engine) => Some(Arc::new(engine)),
+        Err(e) => {
+            eprintln!("warning: --vcs-per-function: {e}; per-function change-history omitted");
+            None
+        }
+    }
+}
+
+/// Blame `path` once and attach a `vcs` block to every nested function /
+/// method / class space (issue #329). The file-level (root) space keeps
+/// the file block that [`inject`] attached; only its descendants are
+/// touched here.
+///
+/// A blame failure — an untracked file, a path outside the work tree, or
+/// a genuine backend error — leaves the per-function blocks unset (the
+/// file still emits its AST metrics and file-level `vcs`), so one
+/// unblameable file never aborts the walk.
+pub(crate) fn inject_per_function(
+    space: &mut FuncSpace,
+    path: &Path,
+    blame: &vcs::PerFunctionBlame,
+) {
+    // Pre-order over descendants (the root is the file space). The same
+    // traversal order is replayed in `assign_child_stats`, so the returned
+    // stats line up with the spans one-to-one.
+    let mut spans = Vec::new();
+    collect_child_spans(space, &mut spans);
+    if spans.is_empty() {
+        return;
+    }
+    match blame.per_function(path, &spans) {
+        Ok(stats) => {
+            // `per_function` returns exactly one `Stats` per span, and
+            // `assign_child_stats` replays the identical pre-order, so the
+            // iterator must be fully consumed; a leftover means the two
+            // traversals drifted out of lockstep (a bug to catch in tests).
+            debug_assert_eq!(stats.len(), spans.len());
+            let mut stats = stats.into_iter();
+            assign_child_stats(space, &mut stats);
+            debug_assert!(
+                stats.next().is_none(),
+                "per-function stats outnumbered the spaces they attach to"
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "warning: --vcs-per-function: skipping {}: {e}",
+                path.display()
+            );
+        }
+    }
+}
+
+/// Collect the 1-based inclusive line span of every descendant space, in
+/// pre-order. Saturates a span line past `u32::MAX` (no real source file
+/// reaches that line count) rather than wrapping.
+fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
+    for child in &space.spaces {
+        let start = u32::try_from(child.start_line).unwrap_or(u32::MAX);
+        let end = u32::try_from(child.end_line).unwrap_or(u32::MAX);
+        out.push(vcs::LineSpan::new(start, end));
+        collect_child_spans(child, out);
+    }
+}
+
+/// Replay the [`collect_child_spans`] pre-order, attaching one blame
+/// [`vcs::Stats`] to each descendant space and filling its per-function
+/// `hotspot_score` from that function's own cyclomatic sum.
+fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vcs::Stats>) {
+    for child in &mut space.spaces {
+        if let Some(mut stat) = stats.next() {
+            set_hotspot_score(&mut stat, child);
+            child.metrics.vcs = Some(stat);
+        }
+        assign_child_stats(child, stats);
+    }
 }
 
 #[cfg(test)]

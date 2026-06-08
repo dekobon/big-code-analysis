@@ -10,10 +10,16 @@
 //! tracked text files at that ref (seeding one accumulator per file),
 //! walks history once to fold in per-file signals, then finalises each
 //! accumulator into a [`Stats`] record.
+//!
+//! Per-function attribution (issue #329) is a separate, blame-based
+//! path: see [`PerFunctionBlame`].
 
+mod blame;
 mod history;
 mod identity;
 mod repo;
+
+pub use blame::{LineSpan, PerFunctionBlame};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -127,7 +133,7 @@ pub(crate) fn parse_timestamp(input: &str) -> Result<i64, Error> {
 
 /// Wall-clock time as Unix seconds, saturating rather than panicking if
 /// the system clock predates the epoch.
-fn current_unix_seconds() -> i64 {
+pub(super) fn current_unix_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))

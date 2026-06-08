@@ -58,6 +58,32 @@ for historical reference.
   `--metrics vcs`; VCS is file-level, has no per-function threshold, and
   is not suppressible, so it is exposed via a dedicated `--vcs` flag
   rather than overloading the per-function `Metric` bitfield.
+- Per-function change-history metrics via `git blame` (#329). `bca
+  metrics --vcs-per-function` (which implies `--vcs`) attaches a `vcs`
+  block to every nested function / method / class space in addition to
+  the file-level block, by blaming each file once and bucketing the
+  surviving lines into the AST function spans. Each function's block
+  reuses the same fields and ordinal `risk_score` as the file block,
+  plus a per-function `hotspot_score`. The per-function numbers are a
+  *current-blame snapshot* and deliberately differ in meaning from the
+  file-level walk: `churn` counts surviving lines last touched in the
+  window (not historical added+deleted), and ownership is by touching
+  commit. Surfaces:
+  - Library: `big_code_analysis::vcs::{PerFunctionBlame, LineSpan}` and a
+    new `vcs::Error::Blame` variant (all behind `vcs-git`); nested
+    `CodeMetrics::vcs` is now populated for function spaces, not only the
+    file space.
+  - CLI: `bca metrics --vcs-per-function`.
+  - Enables the `blame` feature on the pinned `gix` dependency.
+
+  *Design note:* the issue proposed a `--metrics vcs:per-function`
+  sub-selector; consistent with the `--vcs` flag chosen for #328, this
+  ships as a dedicated `--vcs-per-function` flag instead. Documented
+  limitations cover renames, function splits, deletion+recreation, and a
+  narrow `gix-blame` robustness bug on pathologically repetitive files
+  (real source is unaffected; an unblameable file degrades gracefully to
+  the file-level block only). Python `analyze()` / web parity for the
+  per-function selector is tracked as a follow-up.
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

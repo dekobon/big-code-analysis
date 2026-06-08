@@ -41,6 +41,11 @@ pub use error::Error;
 pub use options::{Options, RiskFormula, parse_window};
 pub use stats::Stats;
 
+/// Per-function change-history attribution (issue #329), surfaced when a
+/// front end opts into per-function VCS metrics. See [`PerFunctionBlame`].
+#[cfg(feature = "vcs-git")]
+pub use git::{LineSpan, PerFunctionBlame};
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

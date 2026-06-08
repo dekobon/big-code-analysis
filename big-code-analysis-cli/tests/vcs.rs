@@ -144,6 +144,55 @@ fn metrics_vcs_attaches_a_block_with_hotspot() {
 }
 
 #[test]
+fn metrics_vcs_per_function_attaches_nested_blocks() {
+    // `--vcs-per-function` implies `--vcs`, so the file-level block is
+    // still present, and every nested function space additionally carries
+    // a blame-derived block. The fixture's `src/work.rs` ends with two
+    // top-level functions, so the JSON tree must show two nested spaces,
+    // each with its own `vcs` object.
+    let repo = repo_two_commits();
+    let assert = cli()
+        .current_dir(repo.path())
+        .args([
+            "metrics",
+            "--vcs-per-function",
+            "--paths",
+            "src/work.rs",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+
+    // File-level block still attached (implied --vcs).
+    assert!(
+        doc["metrics"]["vcs"].is_object(),
+        "file-level vcs block present under --vcs-per-function"
+    );
+
+    let spaces = doc["spaces"].as_array().expect("nested spaces array");
+    let with_vcs: Vec<&serde_json::Value> = spaces
+        .iter()
+        .filter(|s| s["metrics"]["vcs"].is_object())
+        .collect();
+    assert_eq!(
+        with_vcs.len(),
+        2,
+        "both nested functions carry a per-function vcs block"
+    );
+    // Every nested block must carry a per-function hotspot score derived
+    // from that function's own cyclomatic sum.
+    for space in with_vcs {
+        assert!(
+            space["metrics"]["vcs"]["hotspot_score"].is_number(),
+            "per-function hotspot_score present"
+        );
+    }
+}
+
+#[test]
 fn metrics_without_vcs_flag_has_no_block() {
     let repo = repo_two_commits();
     let assert = cli()

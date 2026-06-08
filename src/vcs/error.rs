@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead)
+// File-level halstead is a many-arm aggregation artifact (the `Display`
+// match grows one arm per variant), not per-function logic complexity
+// (cognitive/cyclomatic stay enforced) — mirrors the sibling vcs modules.
+
 //! Error type for the change-history (VCS) metrics pipeline.
 //!
 //! Generic over the backend: backend-specific failures (a `gix` open
@@ -49,6 +54,8 @@ pub enum Error {
     InvalidTimestamp(String),
     /// The risk-formula name is not one of `weighted` / `percentile`.
     InvalidFormula(String),
+    /// Blaming a file for per-function attribution failed (issue #329).
+    Blame(String),
 }
 
 impl std::fmt::Display for Error {
@@ -75,6 +82,7 @@ impl std::fmt::Display for Error {
                 f,
                 "unknown risk formula {name:?} (expected `weighted` or `percentile`)"
             ),
+            Self::Blame(reason) => write!(f, "failed to blame file: {reason}"),
         }
     }
 }

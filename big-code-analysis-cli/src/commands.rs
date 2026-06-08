@@ -1548,16 +1548,29 @@ fn run_command_metrics(
     // (expensive) history walk entirely when no format is selected,
     // warning that `--vcs` had no effect rather than doing the walk and
     // silently discarding it.
-    let vcs_index = match (args.vcs, structured.output_format.is_some()) {
-        (true, true) => crate::vcs_command::default_index(&globals),
+    // `--vcs-per-function` (issue #329) implies `--vcs`: the file-level
+    // block is still attached, plus a blame-derived block on every nested
+    // function space. The blame engine is built once here and shared
+    // read-only across workers.
+    let want_vcs = args.vcs || args.vcs_per_function;
+    let (vcs_index, vcs_blame) = match (want_vcs, structured.output_format.is_some()) {
+        (true, true) => {
+            let index = crate::vcs_command::default_index(&globals);
+            let blame = if args.vcs_per_function {
+                crate::vcs_command::default_blame(&globals)
+            } else {
+                None
+            };
+            (index, blame)
+        }
         (true, false) => {
             eprintln!(
-                "warning: --vcs has no effect without --format: the human-readable \
-                 metrics view does not render the vcs block"
+                "warning: --vcs / --vcs-per-function has no effect without --format: the \
+                 human-readable metrics view does not render the vcs block"
             );
-            None
+            (None, None)
         }
-        (false, _) => None,
+        (false, _) => (None, None),
     };
     let action = Action::Metrics {
         format: structured.output_format,
@@ -1566,6 +1579,7 @@ fn run_command_metrics(
     let cfg = Config {
         output: structured.output,
         vcs_index,
+        vcs_blame,
         ..Config::new(action, &globals, preproc)
     };
     run_walk(globals, cfg);

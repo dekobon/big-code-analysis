@@ -94,6 +94,38 @@ fn metrics_accepts_deprecated_output_format_alias() {
     );
 }
 
+// `--vcs` / `--vcs-per-function` (issues #328 / #329) are independent
+// boolean opt-ins on `metrics`; `run_command_metrics` treats
+// `--vcs-per-function` as implying `--vcs`. Inspect the parsed fields so
+// a regression that renames or drops either flag is caught.
+fn metrics_vcs_flags(argv: &[&str]) -> (bool, bool) {
+    match parse(argv).expect("metrics invocation parses").command {
+        Command::Metrics(args) => (args.vcs, args.vcs_per_function),
+        other => panic!("expected Command::Metrics, got {other:?}"),
+    }
+}
+
+#[test]
+fn metrics_vcs_flags_default_off() {
+    assert_eq!(metrics_vcs_flags(&["metrics"]), (false, false));
+}
+
+#[test]
+fn metrics_vcs_per_function_flag_binds() {
+    // The two flags bind to distinct fields; `--vcs-per-function` does
+    // not implicitly set the `vcs` field at parse time (the implication
+    // is applied in `run_command_metrics`, not by clap).
+    assert_eq!(
+        metrics_vcs_flags(&["metrics", "--vcs-per-function"]),
+        (false, true)
+    );
+    assert_eq!(metrics_vcs_flags(&["metrics", "--vcs"]), (true, false));
+    assert_eq!(
+        metrics_vcs_flags(&["metrics", "--vcs", "--vcs-per-function"]),
+        (true, true)
+    );
+}
+
 // `bca vcs` (issue #328) wires a dozen flags, several of which are
 // boolean opt-outs (`--no-follow-renames`, `--no-exclude-bots`) or
 // renamed (`--ref` → `reference`) — exactly the bindings a parse test
