@@ -40,7 +40,7 @@ predicates = "^3.0"
 pretty_assertions = "^1.3"
 # `POST /vcs` route tests build a throwaway git working tree on disk
 # (issue #328); the history walk has no in-request representation.
-tempfile = "^3.0"
+tempfile.workspace = true
 tracing-test = "^0.2"
 
 # Debian/Ubuntu packaging — consumed by `cargo deb` in release CI.

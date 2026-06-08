@@ -108,7 +108,7 @@ const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
 /// Error body when `repo_path` is not a git working tree, or a window /
 /// timestamp / formula is malformed (a client mistake → `400`).
-const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, or a window / timestamp / formula is malformed";
+const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref is unresolvable, or a window / timestamp / formula is malformed";
 /// Error body when the history walk itself fails (server-side → `500`).
 const VCS_FAILED: &str = "Failed to walk change history for the supplied repository";
 
@@ -423,7 +423,10 @@ async fn vcs_json(
                 | VcsError::InvalidWindow(_)
                 | VcsError::InvalidTimestamp(_)
                 | VcsError::InvalidFormula(_)
-                | VcsError::InvalidBotPattern(_) => {
+                | VcsError::InvalidBotPattern(_)
+                // A bad client-supplied `ref` (or an unborn HEAD) is a
+                // client mistake, not a server fault — answer 400, not 500.
+                | VcsError::ResolveRef { .. } => {
                     (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST)
                 }
                 _ => (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED),
@@ -691,7 +694,15 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
             .route(web::post().guard(octet_guard()).to(metrics_plain))
             .default_service(web::route().to(guarded_post_fallback)),
     )
-    .service(web::resource("/vcs").route(web::post().guard(json_guard()).to(vcs_json)))
+    .service(
+        web::resource("/vcs")
+            .route(web::post().guard(json_guard()).to(vcs_json))
+            // Carry the same per-resource fallback as every other POST
+            // endpoint (#515): a wrong `Content-Type` or wrong method on
+            // `/vcs` answers a diagnostic 415/405 here rather than
+            // falling through to the app-level 404.
+            .default_service(web::route().to(guarded_post_fallback)),
+    )
     .service(
         web::resource("/function")
             .route(web::post().guard(json_guard()).to(function_json))
