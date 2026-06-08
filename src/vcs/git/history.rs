@@ -56,6 +56,18 @@ pub(crate) fn walk_history(
     // Rename map: a historical path → the more-recent path it became.
     // Resolving the chain yields the file's name at the target ref so
     // edits under former names attribute to the current file.
+    //
+    // Limitation: the alias is populated lazily as renames are met in
+    // the walk's commit-time (newest-first) order, which approximates
+    // topological order. If a rename commit carries an *older*
+    // committer date than an edit to its pre-rename path (possible after
+    // `--date`-rewriting, cherry-pick, or genuine clock skew — normal
+    // rebases keep committer dates monotonic), that older-named edit is
+    // visited first and attributes under the former name (dropped, or
+    // split under `--include-deleted`), undercounting the renamed file.
+    // Exact rename-following would require a topological walk, which
+    // would forgo the commit-time cutoff that prunes out-of-window
+    // history; the approximation is the deliberate v1 trade-off.
     let mut alias: HashMap<PathBuf, PathBuf> = HashMap::new();
 
     let mut platform = repo.rev_walk([tip]);
@@ -143,11 +155,20 @@ fn process_commit(
 
     let commit_tree = commit.tree().map_err(walk_err)?;
     let parent_tree = match first_parent {
-        Some(parent) => repo
-            .find_commit(parent)
-            .map_err(walk_err)?
-            .tree()
-            .map_err(walk_err)?,
+        // A parent whose object is absent is a shallow-clone boundary
+        // (the grafted parent was not fetched). Treat that commit like a
+        // root — diff against the empty tree so its files count as
+        // additions — rather than aborting the whole walk on a "not
+        // found" error. `truncated_shallow_clone` already flags the
+        // result so the counts are understood as lower bounds.
+        Some(parent) => match repo.try_find_object(parent).map_err(walk_err)? {
+            Some(object) => object
+                .peel_to_commit()
+                .map_err(walk_err)?
+                .tree()
+                .map_err(walk_err)?,
+            None => repo.empty_tree(),
+        },
         None => repo.empty_tree(),
     };
 

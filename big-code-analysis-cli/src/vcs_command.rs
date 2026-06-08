@@ -357,6 +357,12 @@ pub(crate) fn default_index(globals: &GlobalOpts) -> Option<Arc<vcs::HistoryInde
 /// Resolve the repository-discovery seed to a directory: `gix::discover`
 /// rejects a file path, so a file seed (`--paths src/foo.rs`) is mapped
 /// to its parent. Defaults to the current directory.
+///
+/// Only the **first** seed is used to discover the repository, so a
+/// multi-repo invocation (`bca vcs ~/repoA ~/repoB`) indexes `repoA`
+/// only; files under a second, different working tree fall outside the
+/// single index and are simply absent from the ranking (omitted, never
+/// misattributed). Whole-repo single-root analysis is the intended use.
 fn resolve_root(globals: &GlobalOpts) -> PathBuf {
     let seed = globals
         .paths
