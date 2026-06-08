@@ -221,12 +221,21 @@ const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}1
 const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
 const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
 
-/// Plain-English tooltip catalogue for every metric column header
-/// emitted by [`generate_html_report`]. Centralised so every section of
-/// the report explains its columns identically. The
+// Change-history (VCS) column tooltips, shared by the recent/total
+// aliased pairs ("Commits (recent)"/"Commits (total)", etc.) so the VCS
+// report explains each column identically.
+const COMMITS_TOOLTIP: &str = "Distinct commits that touched this file within the analysis window.";
+const CHURN_TOOLTIP: &str = "Lines added + deleted to this file within the analysis window.";
+const AUTHORS_TOOLTIP: &str = "Distinct authors who touched this file within the analysis window.";
+
+/// Plain-English tooltip catalogue for every AST-report metric column
+/// header emitted by [`generate_html_report`]. Centralised so every
+/// section of the report explains its columns identically. The
 /// `metric_headers_carry_tooltips` test iterates this slice directly,
 /// so a new entry is automatically required to appear in real output.
-const HEADER_TOOLTIPS: &[(&str, &str)] = &[
+/// Change-history columns live in [`VCS_HEADER_TOOLTIPS`]; both are
+/// consulted by [`header_tooltip`].
+const AST_HEADER_TOOLTIPS: &[(&str, &str)] = &[
     (
         "SLOC",
         "Source Lines Of Code: non-blank, non-comment source lines.",
@@ -273,12 +282,62 @@ const HEADER_TOOLTIPS: &[(&str, &str)] = &[
     ("Files", "Number of source files analysed."),
 ];
 
+/// Plain-English tooltip catalogue for the change-history (VCS) report
+/// columns rendered by [`crate::vcs_report`]. Split from
+/// [`AST_HEADER_TOOLTIPS`] because the two reports emit disjoint column
+/// sets; the `vcs_report` tests drive their coverage from this slice.
+pub(crate) const VCS_HEADER_TOOLTIPS: &[(&str, &str)] = &[
+    (
+        "Risk",
+        "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness.",
+    ),
+    ("Commits (recent)", COMMITS_TOOLTIP),
+    ("Commits (total)", COMMITS_TOOLTIP),
+    ("Churn (recent)", CHURN_TOOLTIP),
+    ("Churn (total)", CHURN_TOOLTIP),
+    ("Authors (recent)", AUTHORS_TOOLTIP),
+    ("Authors (total)", AUTHORS_TOOLTIP),
+    (
+        "Ownership",
+        "Top-author edit share (0\u{2013}1): fraction of edits by the single most active author; lower means more diluted ownership.",
+    ),
+    (
+        "Burst",
+        "Recency of change (0\u{2013}1): recent commits as a share of long-window commits.",
+    ),
+    (
+        "Bug fixes",
+        "Commits classified as bug fixes (by message) within the long window.",
+    ),
+    (
+        "Sec fixes",
+        "Commits classified as security fixes (by message) within the long window; weighted more heavily than bug fixes.",
+    ),
+    (
+        "Reverts",
+        "Revert commits touching this file within the long window.",
+    ),
+    (
+        "Age (d)",
+        "Days since the first in-window commit touching this file (capped at the long window).",
+    ),
+    (
+        "Last mod (d)",
+        "Days since the most recent in-window commit touching this file.",
+    ),
+    (
+        "Hotspot",
+        "Complexity \u{D7} recent churn: high-complexity files that also change often. Empty when AST metrics are not joined.",
+    ),
+];
+
 /// Plain-English tooltip for a metric column header, or `None` when the
 /// header names a non-metric dimension (file, function, class, line,
 /// language).
 fn header_tooltip(header: &str) -> Option<&'static str> {
-    HEADER_TOOLTIPS
+    AST_HEADER_TOOLTIPS
         .iter()
+        .chain(VCS_HEADER_TOOLTIPS)
         .find_map(|&(name, tip)| (name == header).then_some(tip))
 }
 
@@ -288,7 +347,12 @@ fn header_tooltip(header: &str) -> Option<&'static str> {
 /// pick numeric vs string comparison.
 ///
 /// Cell strings are escaped via [`escape_html`]; do not pre-escape.
-fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec<String>]) {
+pub(crate) fn write_table(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    rows: &[Vec<String>],
+) {
     debug_assert_eq!(headers.len(), aligns.len());
     let _ = out.write_str("<table class=\"hotspot\">\n<thead><tr>");
     for (h, a) in headers.iter().zip(aligns) {
@@ -415,16 +479,22 @@ impl GlobalTotals {
     }
 }
 
-fn write_html_head(out: &mut String) {
+/// Write the shared HTML preamble (doctype, head with the inline CSS, and
+/// the opening `<h1>`). `title` fills the `<title>` element and `heading`
+/// the `<h1>`; both are escaped. Shared by the AST report and the VCS
+/// report (`crate::vcs_report`) so the two pages carry identical styling
+/// and the sortable-table CSS.
+pub(crate) fn write_html_head(out: &mut String, title: &str, heading: &str) {
     let _ = out.write_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     let _ = out.write_str("<meta charset=\"utf-8\">\n");
     let _ = writeln!(
         out,
-        "<title>Code Quality Metrics Summary \u{2014} big-code-analysis</title>"
+        "<title>{} \u{2014} big-code-analysis</title>",
+        escape_html(title)
     );
     let _ = writeln!(out, "<style>{INLINE_CSS}</style>");
     let _ = out.write_str("</head>\n<body>\n");
-    let _ = out.write_str("<h1>Code Quality Metrics Summary</h1>\n");
+    let _ = writeln!(out, "<h1>{}</h1>", escape_html(heading));
 }
 
 fn write_global_summary(out: &mut String, totals: &GlobalTotals, by_lang: &LangGroups<'_>) {
@@ -538,7 +608,7 @@ fn write_overview_table(out: &mut String, by_lang: &LangGroups<'_>) {
     );
 }
 
-fn write_html_tail(out: &mut String) {
+pub(crate) fn write_html_tail(out: &mut String) {
     let _ = writeln!(out, "<script>{INLINE_JS}</script>");
     let _ = out.write_str("</body>\n</html>\n");
 }
@@ -551,6 +621,18 @@ pub(crate) fn generate_html_report(
     top_n: usize,
     policy: SuppressionPolicy,
 ) -> String {
+    generate_html_report_with_vcs(summaries, top_n, policy, None)
+}
+
+/// As [`generate_html_report`], optionally inserting a "Change-history
+/// risk" section (`bca report --vcs`) before the closing tail, rendered
+/// through [`crate::vcs_report`].
+pub(crate) fn generate_html_report_with_vcs(
+    summaries: &[FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+    vcs: Option<&crate::vcs_command::Report>,
+) -> String {
     // Each summary contributes at most one row across all hotspot
     // tables (sections × top_n is bounded), but the per-language
     // overview table plus the inline CSS/JS already costs a few KB of
@@ -561,13 +643,20 @@ pub(crate) fn generate_html_report(
     let by_lang = group_by_language(summaries);
     let totals = GlobalTotals::from_summaries(summaries);
 
-    write_html_head(&mut out);
+    write_html_head(
+        &mut out,
+        "Code Quality Metrics Summary",
+        "Code Quality Metrics Summary",
+    );
     write_global_summary(&mut out, &totals, &by_lang);
     if !by_lang.is_empty() {
         write_overview_table(&mut out, &by_lang);
         for (&lang_name, lang_summaries) in &by_lang {
             write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
         }
+    }
+    if let Some(report) = vcs {
+        crate::vcs_report::push_html_section(&mut out, report);
     }
     write_html_tail(&mut out);
     out
@@ -1151,7 +1240,7 @@ mod tests {
         // value directly, so any divergence between `header_tooltip`
         // and `HEADER_TOOLTIPS` would surface as a missing substring
         // here rather than via a separate (tautological) assert_eq.
-        for &(header, tip) in HEADER_TOOLTIPS {
+        for &(header, tip) in AST_HEADER_TOOLTIPS {
             let needle = format!(" title=\"{}\">{header}</th>", escape_html(tip));
             assert!(
                 out.contains(&needle),

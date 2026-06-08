@@ -47,6 +47,23 @@ pub(crate) enum ReportFormat {
     Html,
 }
 
+/// Output formats accepted by `bca vcs`. Superset of the per-file
+/// [`MetricsFormat`] structured set plus the aggregated [`ReportFormat`]
+/// rendered pages (`markdown` / `html`): a whole-repo change-history
+/// report is a single document, so — unlike `metrics` / `ops` — every
+/// format here writes one file (or stdout), never a per-file directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub(crate) enum VcsFormat {
+    Cbor,
+    Csv,
+    Json,
+    Toml,
+    Yaml,
+    Markdown,
+    Html,
+}
+
 /// How a `MetricsFormat` should be dispatched. Carries enough type
 /// information that the compiler — not a pair of boolean predicates
 /// in lock-step with a downstream `match` — enforces that every

@@ -1,0 +1,13 @@
+---
+source: big-code-analysis-cli/src/vcs_report.rs
+expression: md
+---
+# Change-history risk
+
+_Long window 365d, recent window 90d, risk formula v1, schema v1._
+
+| Rank | File               | Risk | Commits (recent) | Commits (total) | Churn (recent) | Churn (total) | Authors (recent) | Authors (total) | Ownership | Burst | Bug fixes | Sec fixes | Reverts | Age (d) | Last mod (d) | Hotspot |
+| ---: | ------------------ | ---: | ---------------: | --------------: | -------------: | ------------: | ---------------: | --------------: | --------: | ----: | --------: | --------: | ------: | ------: | -----------: | ------: |
+|    1 | src/hot.rs         |  9.4 |               50 |              60 |           2000 |          5000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |   123.0 |
+|    2 | src/warm.rs        |  6.1 |               20 |              30 |            800 |          2000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |         |
+|    3 | docs/with\|pipe.md |  2.0 |                1 |              11 |             40 |           100 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |         |

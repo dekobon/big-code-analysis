@@ -208,7 +208,14 @@ the `big_code_analysis::vcs` module (`build_history_index`, `Options`,
 `parse_timestamp`), `wire::Vcs`, `CodeMetrics::vcs`, the `bca vcs`
 subcommand and `bca metrics --vcs` flag, the `POST /vcs` REST endpoint,
 and the Python `vcs_metrics()` function plus the `analyze(vcs=True)`
-keyword. The composite `risk_score` is **ordinal, not cardinal** — only
+keyword. `bca vcs --format markdown|html` and the `bca report
+markdown|html --vcs` "Change-history risk" section (#573) are **one-way
+rendered projections** (like the AST `bca report` output): the page
+*structure* is stable within `1.x`, but the exact bytes are not a
+round-trip format — do not parse them. `bca vcs --output` names a single
+file (a whole-repo report is one document), distinct from the per-file
+*directory* semantics of `bca metrics`/`bca ops --output`. The composite
+`risk_score` is **ordinal, not cardinal** — only
 relative ranks are meaningful — and is formula-versioned
 (`risk_score_version`): the formula may change within `1.x`, but any
 change bumps that field, and the serialized field *set* is versioned by

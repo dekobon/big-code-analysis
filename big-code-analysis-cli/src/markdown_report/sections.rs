@@ -83,7 +83,7 @@ pub(super) fn emit_section_md(
 /// (`escape_name`), paths get GFM-escaped (`escape_cell`), pre-formatted
 /// numerics pass through raw — reproducing the per-cell escaping the
 /// hand-written section writers used.
-fn render_cell_md(cell: Cell) -> String {
+pub(crate) fn render_cell_md(cell: Cell) -> String {
     match cell {
         Cell::Name(s) => escape_name(&s),
         Cell::Path(s) => escape_cell(&s),

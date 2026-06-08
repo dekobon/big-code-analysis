@@ -27,6 +27,11 @@ mod sections;
 // unchanged.
 pub(crate) use hotspot::Align;
 
+// The single Cell→Markdown escaper, shared with the VCS report renderer
+// (`crate::vcs_report`) so both reports map a [`hotspot::Cell`] to Markdown
+// identically.
+pub(crate) use sections::render_cell_md;
+
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
@@ -280,7 +285,12 @@ pub(super) fn mi_rating(mi: f64) -> &'static str {
     }
 }
 
-fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec<String>]) {
+pub(crate) fn write_table(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    rows: &[Vec<String>],
+) {
     debug_assert_eq!(headers.len(), aligns.len());
     let widths = column_widths(headers, rows);
 
@@ -521,6 +531,17 @@ pub(crate) fn generate_report(
     top_n: usize,
     policy: SuppressionPolicy,
 ) -> String {
+    generate_report_with_vcs(summaries, top_n, policy, None)
+}
+
+/// As [`generate_report`], optionally appending a "Change-history risk"
+/// section (`bca report --vcs`) rendered through [`crate::vcs_report`].
+pub(crate) fn generate_report_with_vcs(
+    summaries: &[FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+    vcs: Option<&crate::vcs_command::Report>,
+) -> String {
     let mut out = String::new();
 
     // Group by language display name (BTreeMap → deterministic alphabetical order).
@@ -529,14 +550,16 @@ pub(crate) fn generate_report(
     let totals = GlobalTotals::from_entries(summaries);
     write_global_header(&mut out, &totals, &by_lang);
 
-    if by_lang.is_empty() {
-        return out;
+    if !by_lang.is_empty() {
+        write_per_language_overview(&mut out, &by_lang);
+
+        for (&lang_name, lang_summaries) in &by_lang {
+            write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
+        }
     }
 
-    write_per_language_overview(&mut out, &by_lang);
-
-    for (&lang_name, lang_summaries) in &by_lang {
-        write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
+    if let Some(report) = vcs {
+        crate::vcs_report::push_markdown_section(&mut out, report);
     }
 
     out

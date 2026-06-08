@@ -25,11 +25,33 @@ Change-history risk (long window 365d, recent 90d, formula v1)
 ```
 
 With no `--format`, a human-readable ranked table is printed. Pass
-`--format json|yaml|toml|cbor|csv` for structured output (CBOR requires
-`--output <dir>`). The global `--paths` / `--include` / `--exclude` /
+`--format markdown|html` for a rendered report page, or
+`--format json|yaml|toml|cbor|csv` for structured output. Unlike
+`bca metrics` / `bca ops` (whose `--output` is a *directory* of per-file
+emissions), a change-history report is a single whole-repo document, so
+`bca vcs --output <file>` writes **one file** (CBOR, being binary,
+requires `--output`). The global `--paths` / `--include` / `--exclude` /
 `--no-ignore` filters are reused to pick which tracked files to report.
 
 `bca vcs` errors clearly when run outside a git working tree.
+
+### Rendered report page
+
+```bash
+bca vcs --top 50 --format html --output vcs.html
+bca vcs --top 50 --format markdown --output vcs.md
+```
+
+`--format html` produces a self-contained, sortable page styled exactly
+like `bca report html` (click any column header to re-sort); `--format
+markdown` produces the same ranked table as GitHub-Flavored Markdown.
+Both render every signal column (the complete, sortable view of the same
+data the structured formats carry). The column set is defined once and
+shared by both renderers, so they cannot drift.
+
+To fold the ranking into the aggregated quality report instead of a
+standalone page, pass [`bca report --vcs`](report.md), which appends a
+"Change-history risk" section to `report markdown` / `report html`.
 
 ## Signals
 
@@ -141,10 +163,10 @@ This project runs `bca vcs` on its own source. `make vcs` prints the
 ranked table (path selection and the `.bcaignore` deny-set come from the
 repo-root `bca.toml` manifest, the same config `make self-scan` and
 `make report` use; `BCA_VCS_TOP` overrides the row cap). The Pages CI job
-also publishes a `vcs-report.json` / `vcs-report.txt` under the site's
-`reports/` directory each run. A first-class rendered HTML/Markdown page
-is tracked in issue
-[#573](https://github.com/dekobon/big-code-analysis/issues/573).
+publishes the styled, sortable `vcs-report.html` page alongside the
+machine-readable `vcs-report.json` and the plain `vcs-report.txt` table
+under the site's `reports/` directory each run (issue
+[#573](https://github.com/dekobon/big-code-analysis/issues/573)).
 
 ## REST and Python
 

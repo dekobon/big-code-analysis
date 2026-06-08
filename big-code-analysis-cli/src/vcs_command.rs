@@ -8,8 +8,12 @@
 //! Unlike the AST commands, this runs **one** history walk over the
 //! whole repository (never per file), reuses the global walk filters to
 //! pick which tracked files to report, ranks them by composite risk
-//! score, and emits either a human-readable table (default) or a
-//! structured document (`--format json|yaml|toml|cbor|csv`).
+//! score, and emits one of: a human-readable table (default), a
+//! rendered report page (`--format markdown|html`, see
+//! [`crate::vcs_report`]), or a structured document
+//! (`--format json|yaml|toml|cbor|csv`). Every format writes a single
+//! file (or stdout) — a whole-repo report is one document, not the
+//! per-file directory that `metrics`/`ops` emit (issue #573).
 
 use std::collections::HashSet;
 use std::io::Write;
@@ -24,29 +28,28 @@ use big_code_analysis::vcs::{
 };
 use big_code_analysis::wire;
 
-use crate::die;
-use crate::formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat};
-use crate::{GlobalOpts, VcsArgs};
+use crate::formats::{CBOR_STDOUT_ERROR, VcsFormat};
+use crate::{GlobalOpts, VcsArgs, die};
 
 /// One ranked file in the report: its repo-relative path plus the flat
 /// VCS metric block.
 #[derive(Debug, Serialize)]
-struct FileEntry {
-    path: String,
+pub(crate) struct FileEntry {
+    pub(crate) path: String,
     #[serde(flatten)]
-    vcs: wire::Vcs,
+    pub(crate) vcs: wire::Vcs,
 }
 
 /// The full `bca vcs` report. The window lengths and version stamps are
 /// hoisted to the top so a consumer reads them once, not per file.
 #[derive(Debug, Serialize)]
-struct Report {
-    long_window_days: u32,
-    recent_window_days: u32,
-    risk_score_version: u32,
-    vcs_schema_version: u32,
-    truncated_shallow_clone: bool,
-    files: Vec<FileEntry>,
+pub(crate) struct Report {
+    pub(crate) long_window_days: u32,
+    pub(crate) recent_window_days: u32,
+    pub(crate) risk_score_version: u32,
+    pub(crate) vcs_schema_version: u32,
+    pub(crate) truncated_shallow_clone: bool,
+    pub(crate) files: Vec<FileEntry>,
 }
 
 /// Entry point for `Command::Vcs`.
@@ -78,6 +81,26 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     };
 
     emit(&report, &args).unwrap_or_else(|e| die(format_args!("writing vcs output: {e}")));
+}
+
+/// Build a ranked change-history [`Report`] with **default** windows for
+/// the `bca report --vcs` section, ranking the same tracked files the
+/// walk admits, top `top` by risk. Like `bca metrics --vcs` (and unlike
+/// `bca vcs`), this is an additive opt-in: outside a git working tree
+/// [`default_index`] warns once and returns `None`, so the aggregated
+/// report is still produced with the section simply omitted.
+pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<Report> {
+    let index = default_index(globals)?;
+    let options = Options::default();
+    let entries = rank(globals, &index, top, false);
+    Some(Report {
+        long_window_days: options.long_window_days(),
+        recent_window_days: options.recent_window_days(),
+        risk_score_version: score::RISK_SCORE_VERSION,
+        vcs_schema_version: stats::VCS_SCHEMA_VERSION,
+        truncated_shallow_clone: index.truncated_shallow_clone(),
+        files: entries,
+    })
 }
 
 /// Translate [`VcsArgs`] into a backend [`Options`], dying on a bad
@@ -224,25 +247,59 @@ fn path_to_string(path: &Path) -> Option<String> {
         })
 }
 
-/// Render the report in the requested format (or the default table).
+/// Render the report in the requested format (or the default table). A
+/// whole-repo change-history report is a single document, so every
+/// `--output` here is one file (never a per-file directory like
+/// `metrics`/`ops`); stdout when omitted.
 fn emit(report: &Report, args: &VcsArgs) -> std::io::Result<()> {
-    match args.structured.output_format {
+    let output = args.output.as_ref();
+    match args.format {
         None => write_table(report),
-        Some(MetricsFormat::Csv) => write_csv(report, args.structured.output.as_ref()),
-        Some(MetricsFormat::Cbor) if args.structured.output.is_none() => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            CBOR_STDOUT_ERROR,
-        )),
-        Some(other) => match other.dispatch() {
-            MetricsDispatch::Generic(generic) => generic.dump(
-                report,
-                PathBuf::from("vcs"),
-                args.structured.output.as_ref(),
-                args.structured.pretty,
-            ),
-            // Csv handled above; Cbor-to-stdout rejected above.
-            MetricsDispatch::Csv => unreachable!("csv handled before dispatch"),
+        Some(VcsFormat::Markdown) => {
+            write_text(&crate::vcs_report::render_markdown(report), output)
+        }
+        Some(VcsFormat::Html) => write_text(&crate::vcs_report::render_html(report), output),
+        Some(VcsFormat::Csv) => write_csv(report, output),
+        Some(VcsFormat::Json) => {
+            let json = if args.pretty {
+                serde_json::to_string_pretty(report)
+            } else {
+                serde_json::to_string(report)
+            }
+            .map_err(std::io::Error::other)?;
+            write_text(&json, output)
+        }
+        Some(VcsFormat::Yaml) => {
+            let yaml = serde_yaml::to_string(report).map_err(std::io::Error::other)?;
+            write_text(&yaml, output)
+        }
+        Some(VcsFormat::Toml) => {
+            let toml = if args.pretty {
+                toml::to_string_pretty(report)
+            } else {
+                toml::to_string(report)
+            }
+            .map_err(std::io::Error::other)?;
+            write_text(&toml, output)
+        }
+        // CBOR is binary, so it must land in a file — never stdout.
+        Some(VcsFormat::Cbor) => match output {
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                CBOR_STDOUT_ERROR,
+            )),
+            Some(path) => ciborium::into_writer(report, std::fs::File::create(path)?)
+                .map_err(std::io::Error::other),
         },
+    }
+}
+
+/// Write a rendered text document (Markdown / HTML / JSON / YAML / TOML)
+/// to a single file or stdout.
+fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Result<()> {
+    match output {
+        Some(path) => std::fs::write(path, content),
+        None => std::io::stdout().lock().write_all(content.as_bytes()),
     }
 }
 

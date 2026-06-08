@@ -272,3 +272,153 @@ fn vcs_include_deleted_surfaces_removed_file() {
         "deleted file surfaced with --include-deleted"
     );
 }
+
+#[test]
+fn vcs_markdown_renders_a_ranked_table_to_stdout() {
+    let repo = repo_two_commits();
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--format", "markdown"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("# Change-history risk")
+                .and(predicate::str::contains("| Rank |"))
+                .and(predicate::str::contains("src/work.rs")),
+        );
+}
+
+#[test]
+fn vcs_html_writes_a_single_self_contained_file() {
+    let repo = repo_two_commits();
+    let out = repo.path().join("vcs.html");
+    cli()
+        .current_dir(repo.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--format",
+            "html",
+            "--output",
+            out.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success();
+    // The whole-repo report is a single document, so `--output` must name
+    // one file — not the per-file *directory* `metrics`/`ops` write
+    // (issue #573). Before the fix this path was a directory holding
+    // `vcs.html/vcs.html`.
+    assert!(out.is_file(), "--output must write a single file");
+    let html = std::fs::read_to_string(&out).expect("read html");
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("<table class=\"hotspot\">"));
+    assert!(html.contains("src/work.rs"));
+}
+
+#[test]
+fn vcs_json_output_writes_a_single_file() {
+    // Regression guard for the `--output` semantics fix: structured
+    // formats also write one file now, not a `<dir>/vcs.json` tree.
+    let repo = repo_two_commits();
+    let out = repo.path().join("vcs.json");
+    cli()
+        .current_dir(repo.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--format",
+            "json",
+            "--output",
+            out.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success();
+    assert!(out.is_file(), "--output must write a single file");
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&out).expect("read json")).expect("json");
+    // Non-empty + names the tracked file, so a regression that writes an
+    // empty document to the single file still fails here.
+    let files = doc["files"].as_array().expect("files array");
+    assert!(
+        files.iter().any(|f| f["path"] == "src/work.rs"),
+        "single-file report ranks the tracked file"
+    );
+}
+
+#[test]
+fn vcs_html_is_deterministic_across_runs() {
+    let repo = repo_two_commits();
+    let render = || {
+        let assert = cli()
+            .current_dir(repo.path())
+            .args(["vcs", "--paths", ".", "--format", "html"])
+            .assert()
+            .success();
+        assert.get_output().stdout.clone()
+    };
+    assert_eq!(render(), render(), "HTML output must be byte-stable");
+}
+
+#[test]
+fn report_markdown_vcs_appends_change_history_section() {
+    let repo = repo_two_commits();
+    cli()
+        .current_dir(repo.path())
+        .args(["report", "markdown", "--vcs", "--paths", "."])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("## Change-history risk")
+                .and(predicate::str::contains("| Rank |"))
+                .and(predicate::str::contains("src/work.rs")),
+        );
+}
+
+#[test]
+fn report_html_vcs_appends_sortable_change_history_section() {
+    let repo = repo_two_commits();
+    cli()
+        .current_dir(repo.path())
+        .args(["report", "html", "--vcs", "--paths", "."])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("<h2>Change-history risk</h2>")
+                .and(predicate::str::contains("<table class=\"hotspot\">"))
+                .and(predicate::str::contains("src/work.rs")),
+        );
+}
+
+#[test]
+fn report_without_vcs_flag_has_no_change_history_section() {
+    let repo = repo_two_commits();
+    cli()
+        .current_dir(repo.path())
+        .args(["report", "markdown", "--paths", "."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Change-history risk").not());
+}
+
+#[test]
+fn report_vcs_outside_a_repo_warns_and_still_renders() {
+    // `report --vcs` is additive like `metrics --vcs`: outside a git tree
+    // it must warn and still emit the AST report, just without the
+    // change-history section (issue #573).
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("work.rs"), "fn a() {}\n").expect("write");
+    cli()
+        .current_dir(dir.path())
+        .args(["report", "markdown", "--vcs", "--paths", "work.rs"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning"))
+        // The AST report must still render (the "still renders" claim) —
+        // only the change-history section is omitted.
+        .stdout(
+            predicate::str::contains("Code Quality Metrics Summary")
+                .and(predicate::str::contains("Change-history risk").not()),
+        );
+}

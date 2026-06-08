@@ -273,14 +273,18 @@ jobs:
       # SHA-256 hashes of author emails. The counts/paths/scores emitted
       # without it are all derivable from the public git history.
       #
-      # Two invocations = two history walks (one per format), mirroring
-      # the `report markdown` + `report html` pair above; `bca vcs` lacks
-      # a multi-format mode. Acceptable for this repo's size and
-      # superseded once the rendered VCS page lands (#573).
+      # Three invocations = three history walks (one per format),
+      # mirroring the `report markdown` + `report html` pair above; `bca
+      # vcs` renders one format per run. Acceptable for this repo's size.
+      # `vcs-report.html` is the styled, sortable page (#573); the JSON
+      # is the machine-readable download and the TXT the plain table.
+      # `--output` writes a single file (a whole-repo report is one
+      # document), so only the table still needs a stdout redirect.
       - name: Generate VCS risk report
         run: |
           set -euo pipefail
-          bca vcs --top 100 --format json > vcs-report.json
+          bca vcs --top 100 --format html --output vcs-report.html
+          bca vcs --top 100 --format json --output vcs-report.json
           bca vcs --top 100 > vcs-report.txt
 
       # Run the gate last so the report artifacts above always upload
@@ -359,6 +363,7 @@ jobs:
           path: |
             report.md
             index.html
+            vcs-report.html
             vcs-report.json
             vcs-report.txt
           if-no-files-found: error
@@ -388,9 +393,12 @@ jobs:
           mkdir -p site/reports
           cp reports-staging/index.html site/reports/index.html
           cp reports-staging/report.md   site/reports/report.md
-          # Change-history (VCS) risk report (issue #328) — published
-          # alongside the AST reports so the dogfooded ranking is visible
-          # on the Pages site, not just as a per-run artifact.
+          # Change-history (VCS) risk report (issues #328, #573) —
+          # published alongside the AST reports so the dogfooded ranking
+          # is visible on the Pages site, not just as a per-run artifact.
+          # The HTML page is the styled, sortable view; JSON/TXT remain
+          # the machine-readable and plain-table downloads.
+          cp reports-staging/vcs-report.html site/reports/vcs-report.html
           cp reports-staging/vcs-report.json site/reports/vcs-report.json
           cp reports-staging/vcs-report.txt  site/reports/vcs-report.txt
           # Belt-and-braces in two places:
