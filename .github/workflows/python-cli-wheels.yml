@@ -377,10 +377,24 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Fail if any dependency did not succeed
+        # `skipped` only counts as a failure when the build legs were
+        # *meant* to run — tag pushes, workflow_dispatch, or a labelled
+        # PR. On an unlabelled PR the legs are intentionally skipped, so
+        # treating that skip as a failure would red-X every CLI-touching
+        # PR for no signal (the wheel matrix is opt-in via the
+        # `python-cli-wheels` label). The skipped-is-green required-check
+        # loophole this clause guards against still applies on the runs
+        # that are supposed to build.
         if: >-
           contains(needs.*.result, 'failure')
           || contains(needs.*.result, 'cancelled')
-          || contains(needs.*.result, 'skipped')
+          || (
+            contains(needs.*.result, 'skipped')
+            && (
+              github.event_name != 'pull_request'
+              || contains(github.event.pull_request.labels.*.name, 'python-cli-wheels')
+            )
+          )
         run: exit 1
 
   # PyPI publish — only on a numeric `v*` tag push with NO pre-release
