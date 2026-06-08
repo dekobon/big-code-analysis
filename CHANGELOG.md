@@ -103,6 +103,38 @@ for historical reference.
   (real source is unaffected; an unblameable file degrades gracefully to
   the file-level block only). Python `analyze()` / web parity for the
   per-function selector is tracked as a follow-up.
+- Just-in-time (commit-level) VCS risk scoring (#331). `bca vcs jit
+  <commit>` scores a single commit for defect-induction risk at
+  check-in — the unit a CI gate reviews — rather than ranking files at
+  HEAD. It is a static, rule-based scorer (no trained model, so nothing
+  drifts as a project ages), with feature groups and signs taken from the
+  just-in-time defect-prediction literature (Kamei et al., IEEE TSE 2013;
+  open replications Commit Guru, FSE 2015 and McIntosh & Kamei, IEEE TSE
+  2018): **size** (lines added/deleted, files, hunks), **diffusion**
+  (subsystems, directories, within-commit change entropy), **history**
+  (the touched files' priors — prior changes, distinct authors, bug- and
+  security-fix counts, and the #328 composite `risk_score`, measured from
+  history *before* the commit), **experience** (the author's prior commit
+  count, which *lowers* the score — the one protective Kamei signal), and
+  **purpose** (fix / security-fix / revert classification). The output is
+  a stable JSON document with per-group feature contributions and an
+  ordinal, formula-versioned composite `score`; `--fail-over <SCORE>`
+  exits `2` (the `check` metric-gate convention) for CI use. Merge commits
+  are scored against their first parent and flagged; root commits and new
+  files carry zero priors by construction. Surfaces:
+  - Library: `big_code_analysis::vcs::{score_commit, JitReport,
+    JitFeatures, JitContributions, JitCommit, JIT_SCORE_VERSION,
+    JIT_SCHEMA_VERSION, …}` (behind `vcs-git`); reuses the #328 history
+    walk for the file priors and a separate cheap author-only walk for
+    experience.
+  - CLI: `bca vcs jit <commit> [-O json|yaml|toml|cbor] [--fail-over
+    <SCORE>]`, reusing the parent `bca vcs` window / `--ref` / bot /
+    merge / rename flags. The bare `bca vcs` ranking path is unchanged.
+
+  *Scope note:* scoring an arbitrary `--diff <file>` (no commit, so no
+  author / parent / file-history context — only size and diffusion would
+  be computable) and web / Python parity are deferred to follow-ups;
+  ML-based JIT and server-side hooks are out of scope per the issue.
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

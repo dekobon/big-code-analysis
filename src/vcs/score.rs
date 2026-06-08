@@ -155,8 +155,9 @@ pub fn weighted(input: &ScoreInput) -> f64 {
 
 /// `ln(1 + x)` guarding against a negative argument from clock skew or
 /// an upstream miscount; the domain of every caller is non-negative, so
-/// the clamp is purely defensive.
-fn ln1p(x: f64) -> f64 {
+/// the clamp is purely defensive. Shared with the JIT formula
+/// ([`super::jit`]) so the two scores log-scale counts identically.
+pub(super) fn ln1p(x: f64) -> f64 {
     (1.0 + x.max(0.0)).ln()
 }
 

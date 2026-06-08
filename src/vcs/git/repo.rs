@@ -45,6 +45,32 @@ pub(crate) fn open(root: &Path) -> Result<OpenRepo, Error> {
     })
 }
 
+/// Resolve a revision spelling to the commit it names, peeling through
+/// any tag. Shared by the file-level walk ([`super::build`]) and the
+/// single-commit JIT path ([`super::jit`]) so both map a resolution
+/// failure to the same [`Error::ResolveRef`].
+///
+/// # Errors
+///
+/// Returns [`Error::ResolveRef`] when `reference` does not resolve to a
+/// commit (unknown ref, unborn `HEAD`, …).
+pub(crate) fn resolve_commit<'repo>(
+    repo: &'repo gix::Repository,
+    reference: &str,
+) -> Result<gix::Commit<'repo>, Error> {
+    let resolve_err = |e: &dyn std::fmt::Display| Error::ResolveRef {
+        reference: reference.to_owned(),
+        reason: e.to_string(),
+    };
+    let tip = repo
+        .rev_parse_single(reference.as_bytes())
+        .map_err(|e| resolve_err(&e))?;
+    tip.object()
+        .map_err(|e| resolve_err(&e))?
+        .peel_to_commit()
+        .map_err(|e| resolve_err(&e))
+}
+
 /// Map a discovery failure to a typed error, distinguishing "no
 /// repository here" (a clean user-facing condition) from genuine open
 /// failures.

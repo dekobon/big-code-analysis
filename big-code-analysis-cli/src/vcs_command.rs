@@ -54,8 +54,6 @@ pub(crate) struct Report {
 
 /// Entry point for `Command::Vcs`.
 pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
-    let options = build_options(&args);
-
     // Default the walk root to the current directory so a bare
     // `bca vcs` ranks the repository the user is standing in.
     if globals.paths.is_empty() {
@@ -63,6 +61,14 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     }
     let root = resolve_root(&globals);
 
+    // `bca vcs jit <commit>` is a distinct, single-commit path; the bare
+    // `bca vcs` ranking flow is the `None` case below.
+    if let Some(crate::VcsSubcommand::Jit(jit)) = args.command.as_ref() {
+        crate::vcs_jit::run(&root, &args, jit);
+        return;
+    }
+
+    let options = build_options(&args);
     let index = build_history_index(&root, &options).unwrap_or_else(|e| die(format_args!("{e}")));
     if index.truncated_shallow_clone() {
         eprintln!(
@@ -104,8 +110,10 @@ pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<R
 }
 
 /// Translate [`VcsArgs`] into a backend [`Options`], dying on a bad
-/// window or timestamp.
-fn build_options(args: &VcsArgs) -> Options {
+/// window or timestamp. Shared with the `jit` subcommand
+/// ([`crate::vcs_jit`]), which reuses the same window / bot / merge /
+/// rename flags.
+pub(crate) fn build_options(args: &VcsArgs) -> Options {
     let long_window_secs =
         parse_window(&args.long_window).unwrap_or_else(|e| die(format_args!("{e}")));
     let recent_window_secs =

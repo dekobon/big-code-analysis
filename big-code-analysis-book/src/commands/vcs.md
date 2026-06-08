@@ -225,6 +225,89 @@ rare `gix-blame` failure on pathologically repetitive content — its
 per-function blocks are simply omitted while the file-level block (and the
 AST metrics) still emit.
 
+## Just-in-time (commit-level) scoring
+
+Where everything above ranks *files* at a ref, `bca vcs jit <commit>`
+scores a single *commit* for defect-induction risk — the unit a CI gate
+reviews at check-in. It is a static, rule-based scorer (no trained model,
+so nothing drifts as the project ages), with the feature groups and signs
+taken from the just-in-time defect-prediction literature: Kamei et al.,
+[*A Large-Scale Empirical Study of Just-in-Time Quality
+Assurance*](https://doi.org/10.1109/TSE.2013.2386), IEEE TSE 2013, with
+the open replications [Commit
+Guru](https://doi.org/10.1145/2786805.2803183) (FSE 2015) and McIntosh &
+Kamei, [*Are Fix-Inducing Changes a Moving
+Target?*](https://doi.org/10.1109/TSE.2017.2693980) (IEEE TSE 2018).
+
+```console
+$ bca vcs jit HEAD --pretty
+{
+  "jit_schema_version": 1,
+  "jit_score_version": 1,
+  "score": 4.40,
+  "commit": { "id": "5176d3e…", "parent_count": 1, "is_merge": false,
+              "purpose": { "is_fix": true, "is_security_fix": false,
+                           "is_revert": false } },
+  "features": {
+    "size":       { "lines_added": 942, "lines_deleted": 60,
+                    "files_touched": 19, "hunks": 78 },
+    "diffusion":  { "subsystems": 5, "directories": 8, "entropy": 3.48 },
+    "history":    { "prior_changes": 275, "prior_distinct_authors": 1,
+                    "prior_bug_fix_commits": 237,
+                    "prior_security_fix_commits": 21,
+                    "file_risk_max": 10.97, "file_risk_mean": 3.87,
+                    "new_files": 2 },
+    "experience": { "author_prior_commits": 962,
+                    "author_recent_commits": 962 }
+  },
+  "contributions": { "size": 2.74, "diffusion": 0.97, "history": 1.57,
+                     "purpose": 0.15, "experience": -1.03 }
+}
+```
+
+The five feature groups, and how each moves the score:
+
+| Group | Features | Direction |
+|---|---|---|
+| **Size** | lines added / deleted, files touched, diff hunks | larger ⇒ riskier |
+| **Diffusion** | distinct subsystems & directories, within-commit change entropy | more scattered ⇒ riskier |
+| **History** | the touched files' priors — prior changes, distinct authors, bug- and security-fix counts, and the composite [`risk_score`](#composite-risk-score) — measured from history *before* the commit | turbulent file history ⇒ riskier |
+| **Experience** | the author's prior commit count (long & recent) | more experience ⇒ **less** risky (this group subtracts) |
+| **Purpose** | fix / security-fix / revert classification of the message | fixes add, reverts dampen |
+
+The `contributions` block reports each group's signed contribution to the
+ordinal `score`, so a consumer can see *why* a commit ranked where it did.
+Like the file-level `risk_score`, the score is **ordinal**: rank commits
+by it, or compare a commit against the repository's own distribution, but
+do not read the magnitude as a probability. Any formula change bumps
+`jit_score_version` (separate from the file-level `risk_score_version`).
+
+The commit is scored against its **first parent**. A **merge** commit is
+flagged (`is_merge`, `parent_count ≥ 2`) and scored against that first
+parent. A **root** commit and any **new files** carry zero priors by
+construction — the score then leans on size and author experience, exactly
+as the literature prescribes for changes with no file history.
+
+The window / `--ref` / bot / merge / rename flags are shared with the
+parent `bca vcs` command; the jit-only flags are the positional `<commit>`
+(default `HEAD`), `--format json|yaml|toml|cbor` (default `json`),
+`--output`, `--pretty`, and:
+
+```bash
+# CI gate: exit 2 when the commit scores at or above the threshold.
+bca vcs jit HEAD --fail-over 6.0
+```
+
+`--fail-over` uses exit code `2` (the same "metric gate" convention as
+`bca check`; exit `1` stays reserved for tool errors). Because the score
+is ordinal, calibrate the threshold against your repository's own
+commit-score distribution rather than treating it as an absolute.
+
+> Scoring an arbitrary `--diff <file>` (which has no author, parent, or
+> file history, so only size and diffusion would be computable) and
+> REST / Python parity are deferred follow-ups; ML-based JIT and
+> server-side hooks are out of scope.
+
 ## Dogfooding in this repo
 
 This project runs `bca vcs` on its own source. `make vcs` prints the

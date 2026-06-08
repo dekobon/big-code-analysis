@@ -17,9 +17,11 @@
 mod blame;
 mod history;
 mod identity;
+mod jit;
 mod repo;
 
 pub use blame::{LineSpan, PerFunctionBlame};
+pub(crate) use jit::score_commit;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -52,18 +54,7 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
 
     // Resolve the ref to a commit, peeling through any tag.
-    let resolve_err = |e: &dyn std::fmt::Display| Error::ResolveRef {
-        reference: options.reference.clone(),
-        reason: e.to_string(),
-    };
-    let tip = repo
-        .rev_parse_single(options.reference.as_bytes())
-        .map_err(|e| resolve_err(&e))?;
-    let commit = tip
-        .object()
-        .map_err(|e| resolve_err(&e))?
-        .peel_to_commit()
-        .map_err(|e| resolve_err(&e))?;
+    let commit = repo::resolve_commit(&repo, &options.reference)?;
     let target_tree = commit.tree().map_err(walk_err)?;
 
     // Seed one accumulator per tracked text file at the target ref.

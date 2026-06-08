@@ -52,6 +52,7 @@ mod metric_diff;
 mod threshold_suggestion;
 mod thresholds;
 mod vcs_command;
+mod vcs_jit;
 mod vcs_report;
 mod walk_seed;
 
@@ -72,7 +73,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use baseline::Baseline;
 use check_format::AggregatedFormat;
-use formats::{MetricsFormat, ReportFormat, VcsFormat};
+use formats::{JitFormat, MetricsFormat, ReportFormat, VcsFormat};
 use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
 use thresholds::{
@@ -381,6 +382,13 @@ impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
 /// no-ignore are inherited from the global options.
 #[derive(Args, Debug)]
 struct VcsArgs {
+    /// Optional `vcs` subcommand. With none, `bca vcs` ranks files by
+    /// change-history risk (the default). `jit` instead scores a single
+    /// commit for just-in-time defect-induction risk (issue #331); it
+    /// reuses the window / bot / merge / rename / as-of flags below (it
+    /// names its commit positionally, so `--ref` does not apply).
+    #[command(subcommand)]
+    command: Option<VcsSubcommand>,
     /// Output format. When omitted, a human-readable ranked table is
     /// printed. `markdown` / `html` render a sortable report page like
     /// `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit
@@ -438,6 +446,47 @@ struct VcsArgs {
     /// Emit stats for files deleted at the target ref.
     #[clap(long)]
     include_deleted: bool,
+}
+
+/// Subcommands of `bca vcs`. Only `jit` so far (issue #331); the bare
+/// `bca vcs` ranking path is the `None` case.
+#[derive(Subcommand, Debug)]
+enum VcsSubcommand {
+    /// Score a single commit for just-in-time (commit-level)
+    /// defect-induction risk, the unit a CI gate reviews at check-in
+    /// (issue #331). Emits a JSON breakdown of size / diffusion /
+    /// history / experience / purpose features, their contributions, and
+    /// an ordinal composite score. Window / `--ref` / bot / merge /
+    /// rename behaviour comes from the parent `vcs` flags.
+    Jit(JitArgs),
+}
+
+/// Flags for `bca vcs jit` (issue #331). The history-window, bot, merge,
+/// rename, and as-of options come from the parent [`VcsArgs`] (`--ref`
+/// does not apply — the commit is named positionally); these are the
+/// jit-only additions.
+#[derive(Args, Debug)]
+struct JitArgs {
+    /// Commit / revision to score (any git revision spelling: a SHA, a
+    /// tag, `HEAD`, `main~3`, …). Scored against its first parent.
+    #[clap(value_name = "COMMIT", default_value = "HEAD")]
+    commit: String,
+    /// Output format (`json` default, plus `yaml` / `toml` / `cbor`).
+    #[clap(long = "format", short = 'O', value_enum, default_value_t = JitFormat::default())]
+    format: JitFormat,
+    /// Output file. Stdout if omitted (CBOR requires this flag — it is
+    /// binary).
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
+    /// Pretty-print JSON / TOML output.
+    #[clap(long)]
+    pretty: bool,
+    /// Exit non-zero (code 2, the `check` "metric gate" convention) when
+    /// the composite score is greater than or equal to this threshold.
+    /// For use as a CI gate. The score is ordinal, so calibrate the
+    /// threshold against the repository's own commit-score distribution.
+    #[clap(long, value_name = "SCORE")]
+    fail_over: Option<f64>,
 }
 
 /// Flags for `bca metrics`: the shared structured-output set plus an

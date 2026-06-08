@@ -368,8 +368,9 @@ fn resolve_alias<'a>(alias: &'a HashMap<PathBuf, PathBuf>, path: &'a Path) -> Co
 const MAX_ALIAS_DEPTH: usize = 10_000;
 
 /// Commit timestamp in Unix seconds, preferring the walk's pre-decoded
-/// value and falling back to decoding the commit.
-fn commit_seconds(
+/// value and falling back to decoding the commit. Shared with the
+/// single-commit JIT walk in [`super::jit`].
+pub(super) fn commit_seconds(
     info: &gix::revision::walk::Info<'_>,
     commit: &gix::Commit<'_>,
 ) -> Result<i64, Error> {

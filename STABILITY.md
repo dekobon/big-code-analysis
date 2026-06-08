@@ -232,6 +232,21 @@ above, but its numbers are a `git blame` *current snapshot* — `churn` is
 surviving-line count, not the file-level added+deleted churn — so values
 are not comparable across the file and function levels by construction.
 
+Just-in-time (commit-level) risk scoring (#331) adds a further opt-in
+slice of the same surface: `big_code_analysis::vcs::{score_commit,
+JitReport, JitFeatures, JitContributions, JitCommit, JitSize,
+JitDiffusion, JitHistory, JitExperience, JitPurpose}` plus the
+`JIT_SCORE_VERSION` / `JIT_SCHEMA_VERSION` constants, and the `bca vcs
+jit <commit>` subcommand with its `--fail-over` CI-gate exit code (`2`,
+the `check` metric-gate convention). The `JitReport` JSON *shape* is
+stable within `1.x` and versioned by `jit_schema_version`; the composite
+`score` is **ordinal, not cardinal** and formula-versioned by
+`jit_score_version` (separate from the file-level `risk_score_version`),
+so the same "magnitudes are not byte-stable across bumps" caveat applies.
+The JIT serialized types intentionally derive `Serialize` directly (they
+are pure output DTOs) rather than mirroring through a `wire::*` type the
+way the per-file `Stats` does.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

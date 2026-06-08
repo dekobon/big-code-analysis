@@ -187,6 +187,11 @@ assets = [
     "usr/share/man/man1/",
     "644",
   ],
+  [
+    "../man/bca-vcs-jit.1",
+    "usr/share/man/man1/",
+    "644",
+  ],
 ]
 
 # RHEL/Rocky/Fedora/Amazon Linux packaging — consumed by
@@ -225,5 +230,6 @@ assets = [
   { source = "../man/bca-report.1", dest = "/usr/share/man/man1/bca-report.1", mode = "644" },
   { source = "../man/bca-strip-comments.1", dest = "/usr/share/man/man1/bca-strip-comments.1", mode = "644" },
   { source = "../man/bca-vcs.1", dest = "/usr/share/man/man1/bca-vcs.1", mode = "644" },
+  { source = "../man/bca-vcs-jit.1", dest = "/usr/share/man/man1/bca-vcs-jit.1", mode = "644" },
 ]
 auto-req = "disabled"

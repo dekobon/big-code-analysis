@@ -64,6 +64,21 @@ pub(crate) enum VcsFormat {
     Html,
 }
 
+/// Output formats accepted by `bca vcs jit`. A single commit's JIT score
+/// is one structured document, so only the structured serializers apply
+/// — the ranked-report renderings (`markdown` / `html`) and the per-file
+/// `csv` row shape do not. JSON is the default (the issue's headline
+/// output); CBOR is binary and must go to a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub(crate) enum JitFormat {
+    #[default]
+    Json,
+    Yaml,
+    Toml,
+    Cbor,
+}
+
 /// How a `MetricsFormat` should be dispatched. Carries enough type
 /// information that the compiler — not a pair of boolean predicates
 /// in lock-step with a downstream `match` — enforces that every

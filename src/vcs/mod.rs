@@ -16,10 +16,14 @@
 //! # Layout
 //!
 //! The generic surface (`error`, `options`, `stats`, `identity`,
-//! `classify`, `score`, `hotspot`, and `build_history_index`) carries
-//! no backend reference, so a future backend (Mercurial, Jujutsu, …;
-//! issue #335) reuses it unchanged. Backend-specific code lives under
-//! the `git` module behind the `vcs-git` Cargo feature.
+//! `classify`, `score`, `hotspot`, `jit`, and `build_history_index`)
+//! carries no backend reference, so a future backend (Mercurial,
+//! Jujutsu, …; issue #335) reuses it unchanged. Backend-specific code
+//! lives under the `git` module behind the `vcs-git` Cargo feature.
+//!
+//! Two scoring granularities are offered: `build_history_index` ranks
+//! *files* at a ref (issue #328), while `score_commit` scores a single
+//! *commit* for just-in-time defect-induction risk (issue #331).
 //!
 //! v1 deliberately omits a `Backend` trait: with a single backend it
 //! would be premature abstraction. `build_history_index` delegates to
@@ -31,6 +35,7 @@ pub mod entropy;
 pub mod error;
 pub mod hotspot;
 pub mod identity;
+pub mod jit;
 pub mod options;
 pub mod score;
 pub mod stats;
@@ -39,6 +44,10 @@ pub mod stats;
 pub mod git;
 
 pub use error::Error;
+pub use jit::{
+    JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffusion,
+    JitExperience, JitFeatures, JitHistory, JitPurpose, JitReport, JitSize,
+};
 pub use options::{Options, RiskFormula, parse_window};
 pub use stats::Stats;
 
@@ -158,6 +167,27 @@ pub fn build_history_index(root: &Path, options: &Options) -> Result<HistoryInde
 #[cfg(feature = "vcs-git")]
 pub fn parse_timestamp(input: &str) -> Result<i64, Error> {
     git::parse_timestamp(input)
+}
+
+/// Score a single commit for just-in-time defect-induction risk
+/// (issue #331).
+///
+/// `spec` is any revision spelling the backend resolves to a commit
+/// (`HEAD`, a SHA, a tag, `main~3`, …). The commit is scored against its
+/// first parent; the touched files' priors and the author's experience
+/// are measured from the history *before* it, windowed by `options`.
+/// Returns a [`JitReport`] with the feature breakdown, per-group
+/// contributions, and the ordinal composite [`JitReport::score`].
+///
+/// # Errors
+///
+/// Returns [`Error::NotARepository`] when `root` is not inside a
+/// supported VCS working tree, [`Error::ResolveRef`] when `spec` does not
+/// resolve to a commit, or a walk/diff variant when the history walk
+/// itself fails.
+#[cfg(feature = "vcs-git")]
+pub fn score_commit(root: &Path, spec: &str, options: &Options) -> Result<jit::JitReport, Error> {
+    git::score_commit(root, spec, options)
 }
 
 /// Rank `entries` by descending risk score, breaking ties on the file
