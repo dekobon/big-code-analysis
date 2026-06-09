@@ -222,9 +222,22 @@ pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<Str
     let mut doc: Value = serde_json::from_str(&funcspace_json)
         .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
     let mut wire_vcs = wire::Vcs::from(stat);
-    // Hotspot needs the file-level cyclomatic sum, which is already in
-    // the serialized metrics when cyclomatic was computed.
-    if let Some(sum) = doc
+    attach_vcs_to_space(&mut doc, &mut wire_vcs)?;
+    serde_json::to_string(&doc)
+        .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
+}
+
+/// Fill `wire_vcs.hotspot_score` from the space's own cyclomatic sum and
+/// insert the serialized block under the space's `metrics.vcs`. Shared by
+/// the file-level [`inject_vcs`] and the per-function [`attach_vcs_block`]
+/// so the two paths compute the hotspot and serialize the block
+/// identically and cannot drift (mirrors the CLI's `set_hotspot_score`).
+///
+/// The hotspot needs the cyclomatic sum already in the serialized metrics
+/// (present when cyclomatic was computed); a space without it keeps
+/// `hotspot_score` unset, exactly like the CLI when the sum is zero.
+fn attach_vcs_to_space(space: &mut Value, wire_vcs: &mut wire::Vcs) -> Result<(), PyErr> {
+    if let Some(sum) = space
         .get("metrics")
         .and_then(|m| m.get("cyclomatic"))
         .and_then(|c| c.get("sum"))
@@ -232,13 +245,12 @@ pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<Str
     {
         wire_vcs.hotspot_score = Some(hotspot::hotspot_score(sum, wire_vcs.churn_recent));
     }
-    let vcs_value = serde_json::to_value(&wire_vcs)
+    let vcs_value = serde_json::to_value(&*wire_vcs)
         .map_err(|e| PyValueError::new_err(format!("serializing vcs block: {e}")))?;
-    if let Some(metrics) = doc.get_mut("metrics").and_then(Value::as_object_mut) {
+    if let Some(metrics) = space.get_mut("metrics").and_then(Value::as_object_mut) {
         metrics.insert("vcs".to_owned(), vcs_value);
     }
-    serde_json::to_string(&doc)
-        .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
+    Ok(())
 }
 
 /// Inject a per-function `vcs` block into every nested function / method /
@@ -289,8 +301,18 @@ pub(crate) fn inject_vcs_per_function(
         return Ok(funcspace_json);
     };
 
+    // `per_function` returns exactly one `Stats` per span, and
+    // `assign_child_stats` replays the identical pre-order, so the iterator
+    // must drain fully; a length mismatch or leftover means the two
+    // traversals drifted out of lockstep (mirrors the CLI's debug_asserts in
+    // `vcs_command::inject_per_function`).
+    debug_assert_eq!(stats.len(), spans.len());
     let mut stats = stats.into_iter();
     assign_child_stats(&mut doc, &mut stats)?;
+    debug_assert!(
+        stats.next().is_none(),
+        "per-function VCS stats outnumbered the spaces they attach to"
+    );
     serde_json::to_string(&doc)
         .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
 }
@@ -347,20 +369,7 @@ fn assign_child_stats(
 /// byte-identical to the CLI's.
 fn attach_vcs_block(space: &mut Value, stat: &vcs::Stats) -> Result<(), PyErr> {
     let mut wire_vcs = wire::Vcs::from(stat);
-    if let Some(sum) = space
-        .get("metrics")
-        .and_then(|m| m.get("cyclomatic"))
-        .and_then(|c| c.get("sum"))
-        .and_then(Value::as_f64)
-    {
-        wire_vcs.hotspot_score = Some(hotspot::hotspot_score(sum, wire_vcs.churn_recent));
-    }
-    let vcs_value = serde_json::to_value(&wire_vcs)
-        .map_err(|e| PyValueError::new_err(format!("serializing vcs block: {e}")))?;
-    if let Some(metrics) = space.get_mut("metrics").and_then(Value::as_object_mut) {
-        metrics.insert("vcs".to_owned(), vcs_value);
-    }
-    Ok(())
+    attach_vcs_to_space(space, &mut wire_vcs)
 }
 
 /// Map a [`vcs::Error`] to a Python `ValueError` carrying its message.

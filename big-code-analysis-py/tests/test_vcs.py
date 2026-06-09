@@ -175,18 +175,72 @@ def test_analyze_vcs_per_function_attaches_block_to_each_space(
         assert vcs["churn_recent"] >= 1
         assert "hotspot_score" in vcs
 
+    # Prove genuine per-function attribution, not a broadcast of the
+    # file-level stats onto every space. alpha and beta have distinct
+    # cyclomatic sums, so their hotspot scores (complexity x churn) must
+    # differ; if production were changed to copy the file-level block to
+    # each space, every score would be identical and this would fail.
+    hotspots = [space["metrics"]["vcs"]["hotspot_score"] for space in spaces]
+    assert len(set(hotspots)) > 1, hotspots
 
-def test_analyze_vcs_per_function_matches_cli_block_keys(tmp_path: Path) -> None:
-    """The per-function block carries the same keys as the file-level block
-    that ``vcs=True`` attaches — byte-for-byte parity is the whole point."""
+    # A per-function churn must also differ from the file-level churn: each
+    # function spans only its own lines, so its recent churn is a strict
+    # subset of the whole file's. Broadcasting the file-level block would
+    # make these equal.
+    file_level = bca.analyze(repo / "work.rs", vcs=True)
+    assert file_level is not None
+    file_churn = file_level["metrics"]["vcs"]["churn_recent"]
+    per_fn_churns = [space["metrics"]["vcs"]["churn_recent"] for space in spaces]
+    assert any(churn != file_churn for churn in per_fn_churns), (
+        per_fn_churns,
+        file_churn,
+    )
+
+
+# Fields the per-function and file-level blocks must agree on: the
+# output-shape / formula versions and window lengths are repo-config
+# constants, and in a single-commit fixture every function shares the
+# file's commit/author totals. Churn and the hotspot score deliberately
+# differ per function (see the distinctiveness test above), so they are
+# excluded from this parity check. Comparing this required-key subset is
+# robust to the optional ``hotspot_score`` key dropping out.
+_SHARED_VCS_FIELDS = (
+    "vcs_schema_version",
+    "risk_score_version",
+    "long_window_days",
+    "recent_window_days",
+    "commits_long",
+    "authors_long",
+)
+
+
+def test_analyze_vcs_per_function_matches_file_level_block(tmp_path: Path) -> None:
+    """The per-function block agrees with the file-level block that
+    ``vcs=True`` attaches on the shared required fields — not just key
+    presence, but their values.
+
+    This is Python file-level-vs-per-function parity; CLI parity is
+    transitive, since both front ends serialize the same ``wire::Vcs``.
+    """
     repo = _build_multifn_repo(tmp_path)
     file_level = bca.analyze(repo / "work.rs", vcs=True)
     per_fn = bca.analyze(repo / "work.rs", vcs_per_function=True)
     assert file_level is not None
     assert per_fn is not None
     file_block = file_level["metrics"]["vcs"]
-    for space in _func_spaces(per_fn):
-        assert space["metrics"]["vcs"].keys() == file_block.keys()
+    # Guard against a future field rename silently emptying the subset.
+    for field in _SHARED_VCS_FIELDS:
+        assert field in file_block, field
+
+    spaces = _func_spaces(per_fn)
+    assert len(spaces) == 2
+    for space in spaces:
+        block = space["metrics"]["vcs"]
+        # Every required key the file-level block carries is present.
+        assert set(file_block).issubset(block.keys()), set(file_block) - block.keys()
+        # Value-level agreement on the fields that must match.
+        for field in _SHARED_VCS_FIELDS:
+            assert block[field] == file_block[field], field
 
 
 def test_analyze_without_vcs_per_function_has_no_nested_block(
