@@ -395,7 +395,7 @@ git diff --cached | bca vcs jit --diff - --pretty
 
 The input must be a **git-style** unified diff carrying `diff --git`
 file headers, as produced by `git diff` or `git format-patch`. Plain
-`diff -u` / `diff -ru` output (which has `--- `/`+++ ` pairs but no
+`diff -u` / `diff -ru` output (which has `---`/`+++` header lines but no
 `diff --git` header) parses to zero files, and combined / merge diffs
 (`git diff --cc`, with `@@@` hunk headers) are rejected as a malformed
 diff — pipe a regular two-way `git diff` instead.

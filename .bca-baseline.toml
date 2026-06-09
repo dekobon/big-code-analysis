@@ -100,11 +100,11 @@ path = "src/vcs/git/jit.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 914.0
+value = 1014.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 48.0
+value = 51.0
