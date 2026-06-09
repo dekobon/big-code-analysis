@@ -133,6 +133,7 @@ def analyze(
     skip_generated: bool = True,
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
+    vcs_per_function: bool = False,
 ) -> dict[str, Any] | None:
     """Compute metrics for the file at ``path``.
 
@@ -262,6 +263,22 @@ def analyze(
     ``metrics=``). The block is omitted when the file is untracked,
     binary, or outside any repository. For ranking a whole repository,
     prefer :func:`vcs_metrics`, which walks history once.
+
+    Pass ``vcs_per_function=True`` to attach a ``"vcs"`` block to **each
+    nested function / method / class space** (not just the file-level
+    space) from a single ``git blame`` of the file (issue #329). This
+    mirrors the CLI's ``bca metrics --vcs-per-function`` flag: every
+    descendant space's ``metrics`` gains a ``"vcs"`` key whose shape is
+    byte-identical to the file-level block, with a per-function
+    ``hotspot_score`` derived from that space's own cyclomatic sum. The
+    file is blamed exactly once and the result is shared across all of its
+    spans. ``vcs_per_function`` is independent of ``vcs``: set ``vcs=True``
+    for the file-level block, ``vcs_per_function=True`` for the
+    per-function blocks, or both. Per-function blocks are omitted (the AST
+    metrics still emit) when the file is outside any git working tree, is
+    untracked, lies outside the work tree, or is otherwise unblameable —
+    matching the CLI's per-file graceful degradation. A file with no
+    nested spaces is returned unchanged.
     """
 
 def vcs_metrics(

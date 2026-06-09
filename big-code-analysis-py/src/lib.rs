@@ -181,9 +181,24 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// a bad selection raises without paying I/O cost. Unrequested
 /// metrics are absent (not `None`) from the result dict; derived
 /// metrics (`mi`, `wmc`) pull their dependencies in automatically.
+///
+/// Pass `vcs=True` to attach a file-level `vcs` block (#328), or
+/// `vcs_per_function=True` to attach a `vcs` block to every nested
+/// function space from a single `git blame` (#329 / #578, mirroring
+/// `bca metrics --vcs-per-function`). The two are independent: set
+/// either or both. Per-function blocks degrade gracefully (the AST
+/// metrics still emit) when the file is outside a repository or
+/// otherwise unblameable.
 #[pyfunction]
-#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false))]
-#[allow(clippy::needless_pass_by_value, clippy::fn_params_excessive_bools)]
+#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::fn_params_excessive_bools,
+    // Eight keyword-only PyO3 args: each maps to a distinct documented
+    // `analyze()` keyword, so a params struct would only obscure the FFI
+    // signature CPython binds against.
+    clippy::too_many_arguments
+)]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
 // path conversion: `FromPyObject` materializes a fresh `PathBuf`
 // out of the `os.PathLike` argument, and there is no borrow to
@@ -196,6 +211,7 @@ fn analyze(
     skip_generated: bool,
     metrics: Option<Vec<String>>,
     vcs: bool,
+    vcs_per_function: bool,
 ) -> PyResult<Option<Bound<'_, PyAny>>> {
     // Resolve `metrics=` *before* `py.detach` so a bad name aborts
     // before any file I/O (issue #268 requires the validation to
@@ -228,6 +244,15 @@ fn analyze(
         Some(json) => {
             let json = if vcs {
                 crate::vcs::inject_vcs(json, &path)?
+            } else {
+                json
+            };
+            // `vcs_per_function=True` (#329 / #578) blames the file once and
+            // attaches a `vcs` block to every nested function space. It is
+            // independent of `vcs=` (which blocks only the file-level space),
+            // so both can be set to cover the file and all its functions.
+            let json = if vcs_per_function {
+                crate::vcs::inject_vcs_per_function(json, &path)?
             } else {
                 json
             };

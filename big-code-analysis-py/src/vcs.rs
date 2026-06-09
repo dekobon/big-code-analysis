@@ -241,6 +241,128 @@ pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<Str
         .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
 }
 
+/// Inject a per-function `vcs` block into every nested function / method /
+/// class space of a file's metrics JSON for
+/// `analyze(..., vcs_per_function=True)` (issue #329 / #578). Opens a
+/// `git blame` engine for the file's repository, blames the file **once**,
+/// and attaches one block per descendant space (with a hotspot score from
+/// that space's own cyclomatic sum), returning the rewritten JSON.
+///
+/// The file-level (root) space is left untouched here — it carries the
+/// whole-file block that [`inject_vcs`] attaches when `vcs=True` is also
+/// set. A file outside any repository, an unblameable file (untracked,
+/// outside the work tree, deleted at the target ref), or a file with no
+/// nested spaces is returned unchanged, mirroring the CLI's graceful
+/// degradation (`bca metrics --vcs-per-function` never aborts the walk on
+/// one bad file).
+pub(crate) fn inject_vcs_per_function(
+    funcspace_json: String,
+    file_path: &Path,
+) -> Result<String, PyErr> {
+    let root = file_path.parent().unwrap_or(Path::new("."));
+    // Discovery failures (not a repo) are non-fatal: `analyze` still
+    // returns the AST metrics, just without per-function `vcs` blocks.
+    let Ok(blame) = vcs::PerFunctionBlame::open(root, Options::default()) else {
+        return Ok(funcspace_json);
+    };
+
+    let mut doc: Value = serde_json::from_str(&funcspace_json)
+        .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
+
+    // Pre-order over descendants (the root is the file space). The same
+    // traversal collects the spans and, after the single blame, replays in
+    // lockstep to attach each returned `Stats`, so spans and stats line up
+    // one-to-one (mirrors the CLI's `collect_child_spans` /
+    // `assign_child_stats`).
+    let mut spans = Vec::new();
+    collect_child_spans(&doc, &mut spans);
+    if spans.is_empty() {
+        return Ok(funcspace_json);
+    }
+
+    // Blame the file exactly once and reuse the result across every span —
+    // re-blaming per function would be an O(n) perf bug. A blame failure
+    // leaves the per-function blocks unset (the file still emits its AST
+    // metrics), so one unblameable file is silent rather than fatal —
+    // matching the CLI's per-file skip.
+    let Ok(stats) = blame.per_function(file_path, &spans) else {
+        return Ok(funcspace_json);
+    };
+
+    let mut stats = stats.into_iter();
+    assign_child_stats(&mut doc, &mut stats)?;
+    serde_json::to_string(&doc)
+        .map_err(|e| PyValueError::new_err(format!("reserializing metrics JSON: {e}")))
+}
+
+/// Collect the 1-based inclusive line span of every descendant space, in
+/// pre-order, reading `start_line` / `end_line` from the JSON tree.
+/// Saturates a span line past `u32::MAX` (no real source file reaches that
+/// line count) rather than wrapping. Mirrors the CLI's
+/// `vcs_command::collect_child_spans`, which walks `FuncSpace` structs;
+/// here the same shape is read from the serialized JSON.
+fn collect_child_spans(node: &Value, out: &mut Vec<vcs::LineSpan>) {
+    let Some(children) = node.get("spaces").and_then(Value::as_array) else {
+        return;
+    };
+    for child in children {
+        let start = json_line(child, "start_line");
+        let end = json_line(child, "end_line");
+        out.push(vcs::LineSpan::new(start, end));
+        collect_child_spans(child, out);
+    }
+}
+
+/// Read a 1-based line number field from a space's JSON, saturating to
+/// `u32::MAX` (the serializer emits these as JSON integers).
+fn json_line(node: &Value, field: &str) -> u32 {
+    node.get(field)
+        .and_then(Value::as_u64)
+        .map_or(u32::MAX, |line| u32::try_from(line).unwrap_or(u32::MAX))
+}
+
+/// Replay the [`collect_child_spans`] pre-order, attaching one blame
+/// `vcs::Stats` to each descendant space's `metrics.vcs` and filling its
+/// per-function `hotspot_score` from that space's own cyclomatic sum.
+/// Mirrors the CLI's `vcs_command::assign_child_stats`.
+fn assign_child_stats(
+    node: &mut Value,
+    stats: &mut impl Iterator<Item = vcs::Stats>,
+) -> Result<(), PyErr> {
+    let Some(children) = node.get_mut("spaces").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
+    for child in children {
+        if let Some(stat) = stats.next() {
+            attach_vcs_block(child, &stat)?;
+        }
+        assign_child_stats(child, stats)?;
+    }
+    Ok(())
+}
+
+/// Serialize one `Stats` (with a hotspot score derived from the space's own
+/// cyclomatic sum) into the space's `metrics.vcs`. Mirrors
+/// [`inject_vcs`]'s file-level attachment so the per-function block shape is
+/// byte-identical to the CLI's.
+fn attach_vcs_block(space: &mut Value, stat: &vcs::Stats) -> Result<(), PyErr> {
+    let mut wire_vcs = wire::Vcs::from(stat);
+    if let Some(sum) = space
+        .get("metrics")
+        .and_then(|m| m.get("cyclomatic"))
+        .and_then(|c| c.get("sum"))
+        .and_then(Value::as_f64)
+    {
+        wire_vcs.hotspot_score = Some(hotspot::hotspot_score(sum, wire_vcs.churn_recent));
+    }
+    let vcs_value = serde_json::to_value(&wire_vcs)
+        .map_err(|e| PyValueError::new_err(format!("serializing vcs block: {e}")))?;
+    if let Some(metrics) = space.get_mut("metrics").and_then(Value::as_object_mut) {
+        metrics.insert("vcs".to_owned(), vcs_value);
+    }
+    Ok(())
+}
+
 /// Map a [`vcs::Error`] to a Python `ValueError` carrying its message.
 // Taken by value so it composes directly with `Result::map_err`
 // (`.map_err(vcs_error_to_py)`); `to_string` only borrows it.

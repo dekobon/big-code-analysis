@@ -11,6 +11,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import big_code_analysis as bca
 import pytest
@@ -98,6 +99,116 @@ def test_vcs_metrics_bad_window_raises(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     with pytest.raises(ValueError, match="time window"):
         bca.vcs_metrics(repo, long_window="nonsense")
+
+
+def _build_multifn_repo(root: Path) -> Path:
+    """Init a repo whose ``work.rs`` holds two distinct functions.
+
+    Lines are deliberately unique — identical lines trigger a
+    non-deterministic ``gix`` blame failure (project memory: gix-blame
+    repetitive-content bug), so each function body carries different
+    content.
+    """
+    now = int(time.time())
+    date = f"@{now - 5 * 86_400} +0000"
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Ada",
+        "GIT_AUTHOR_EMAIL": "ada@example.com",
+        "GIT_AUTHOR_DATE": date,
+        "GIT_COMMITTER_NAME": "Ada",
+        "GIT_COMMITTER_EMAIL": "ada@example.com",
+        "GIT_COMMITTER_DATE": date,
+    }
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=root, env=env, check=True)
+
+    git("init", "-q", "-b", "main")
+    git("config", "commit.gpgsign", "false")
+    # Two functions with branching so each space has a non-trivial
+    # cyclomatic sum (a positive hotspot_score). Every line is distinct.
+    (root / "work.rs").write_text(
+        "fn alpha(value: i32) -> i32 {\n"
+        "    if value > 0 {\n"
+        "        return value + 1;\n"
+        "    }\n"
+        "    value - 7\n"
+        "}\n"
+        "\n"
+        "fn beta(flag: bool) -> u8 {\n"
+        "    match flag {\n"
+        "        true => 200,\n"
+        "        false => 13,\n"
+        "    }\n"
+        "}\n"
+    )
+    git("add", ".")
+    git("commit", "-q", "-m", "add alpha and beta")
+    return root
+
+
+def _func_spaces(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten every nested function space (the root file space excluded)."""
+    out: list[dict[str, Any]] = []
+    stack = list(result.get("spaces", []))
+    while stack:
+        space = stack.pop()
+        out.append(space)
+        stack.extend(space.get("spaces", []))
+    return out
+
+
+def test_analyze_vcs_per_function_attaches_block_to_each_space(
+    tmp_path: Path,
+) -> None:
+    repo = _build_multifn_repo(tmp_path)
+    result = bca.analyze(repo / "work.rs", vcs_per_function=True)
+    assert result is not None
+    spaces = _func_spaces(result)
+    # alpha and beta both parse to their own function space.
+    assert len(spaces) == 2
+    for space in spaces:
+        vcs = space["metrics"]["vcs"]
+        # Shape parity with the file-level block (same keys the CLI emits).
+        assert vcs["commits_long"] == 1
+        assert vcs["churn_recent"] >= 1
+        assert "hotspot_score" in vcs
+
+
+def test_analyze_vcs_per_function_matches_cli_block_keys(tmp_path: Path) -> None:
+    """The per-function block carries the same keys as the file-level block
+    that ``vcs=True`` attaches — byte-for-byte parity is the whole point."""
+    repo = _build_multifn_repo(tmp_path)
+    file_level = bca.analyze(repo / "work.rs", vcs=True)
+    per_fn = bca.analyze(repo / "work.rs", vcs_per_function=True)
+    assert file_level is not None
+    assert per_fn is not None
+    file_block = file_level["metrics"]["vcs"]
+    for space in _func_spaces(per_fn):
+        assert space["metrics"]["vcs"].keys() == file_block.keys()
+
+
+def test_analyze_without_vcs_per_function_has_no_nested_block(
+    tmp_path: Path,
+) -> None:
+    repo = _build_multifn_repo(tmp_path)
+    result = bca.analyze(repo / "work.rs")
+    assert result is not None
+    for space in _func_spaces(result):
+        assert "vcs" not in space["metrics"]
+
+
+def test_analyze_vcs_per_function_outside_repo_degrades(tmp_path: Path) -> None:
+    """A file with no enclosing git repo yields no per-function block and
+    no error (graceful degradation matching the CLI)."""
+    (tmp_path / "loose.rs").write_text(
+        "fn one() -> i32 {\n    42\n}\n\nfn two() -> i32 {\n    99\n}\n"
+    )
+    result = bca.analyze(tmp_path / "loose.rs", vcs_per_function=True)
+    assert result is not None
+    for space in _func_spaces(result):
+        assert "vcs" not in space["metrics"]
 
 
 def _build_staged_repo(root: Path) -> Path:
