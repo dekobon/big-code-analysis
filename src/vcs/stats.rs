@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::bus_factor::AuthorContribution;
 use super::classify::Classification;
 use super::identity::AuthorId;
 use super::options::{Options, SECONDS_PER_DAY};
@@ -117,6 +118,11 @@ pub struct Accumulator {
     revert_commits: u32,
     oldest_touch: Option<i64>,
     newest_touch: Option<i64>,
+    /// Participants of the file's earliest observed in-window commit (the
+    /// `FirstAuthorship` input for the bus factor, issue #332). Tracked
+    /// against the minimum timestamp rather than walk order, so an
+    /// out-of-order (clock-skewed) commit cannot misattribute creation.
+    first_authors: Vec<AuthorId>,
 }
 
 /// One commit's effect on one file, as handed to [`Accumulator::record`].
@@ -166,10 +172,15 @@ impl Accumulator {
                 self.author_edits_long.insert(id.clone(), 1);
             }
         }
-        self.oldest_touch = Some(match self.oldest_touch {
-            Some(t) => t.min(change.commit_time),
-            None => change.commit_time,
-        });
+        // A strictly-earlier commit (re)sets first authorship; tracking
+        // the minimum timestamp directly keeps this correct even if the
+        // walk visits an older-named or clock-skewed commit out of order.
+        let is_new_oldest = self.oldest_touch.is_none_or(|t| change.commit_time < t);
+        if is_new_oldest {
+            self.oldest_touch = Some(change.commit_time);
+            self.first_authors.clear();
+            self.first_authors.extend_from_slice(change.authors);
+        }
         self.newest_touch = Some(match self.newest_touch {
             Some(t) => t.max(change.commit_time),
             None => change.commit_time,
@@ -180,6 +191,33 @@ impl Accumulator {
             self.change_entropy_recent += change.change_entropy;
             self.authors_recent.extend(change.authors.iter().cloned());
         }
+    }
+
+    /// The per-developer authorship inputs for the bus-factor aggregate
+    /// (issue #332), or `None` when the file saw no in-window activity (no
+    /// authorship signal, so it is excluded from the bus-factor
+    /// denominator).
+    ///
+    /// `deliveries` is each developer's participation count (`DL`);
+    /// accepted-changes (`AC`) is derived per file by the aggregate, and
+    /// `first_authorship` flags participants of the earliest observed
+    /// commit. Identities are cloned because the aggregate outlives the
+    /// accumulator the walk discards.
+    #[must_use]
+    pub(crate) fn authorship(&self) -> Option<Vec<AuthorContribution>> {
+        if self.author_edits_long.is_empty() {
+            return None;
+        }
+        Some(
+            self.author_edits_long
+                .iter()
+                .map(|(author, &deliveries)| AuthorContribution {
+                    author: author.clone(),
+                    deliveries,
+                    first_authorship: self.first_authors.contains(author),
+                })
+                .collect(),
+        )
     }
 
     /// Collapse the accumulator into the serializable [`Stats`].

@@ -235,13 +235,66 @@ fn write_markdown_body(out: &mut String, report: &Report) {
     out.push('\n');
     if report.files.is_empty() {
         let _ = writeln!(out, "{EMPTY_MESSAGE}");
-        return;
+    } else {
+        let rows: Vec<Vec<String>> = cell_rows(report)
+            .into_iter()
+            .map(|row| row.into_iter().map(render_cell_md).collect())
+            .collect();
+        write_md_table(out, &headers(), &aligns(), &rows);
     }
-    let rows: Vec<Vec<String>> = cell_rows(report)
-        .into_iter()
-        .map(|row| row.into_iter().map(render_cell_md).collect())
-        .collect();
-    write_md_table(out, &headers(), &aligns(), &rows);
+    if let Some(aggregate) = &report.vcs_aggregate {
+        write_markdown_bus_factor(out, &aggregate.bus_factor);
+    }
+}
+
+/// Column headers / alignments for the per-directory bus-factor table,
+/// shared by both formats so they cannot drift.
+fn bus_factor_headers() -> [&'static str; 3] {
+    ["Directory", "Bus factor", "Files"]
+}
+
+/// Alignments matching [`bus_factor_headers`].
+fn bus_factor_aligns() -> [Align; 3] {
+    [Align::Left, Align::Right, Align::Right]
+}
+
+/// The per-directory rows (directory, bus factor, files) for the shared
+/// table renderers.
+fn bus_factor_rows(bf: &big_code_analysis::vcs::BusFactor) -> Vec<Vec<String>> {
+    bf.by_directory
+        .iter()
+        .map(|dir| {
+            vec![
+                dir.directory.clone(),
+                dir.group.bus_factor.to_string(),
+                dir.group.files.to_string(),
+            ]
+        })
+        .collect()
+}
+
+/// Append the bus-factor subsection: a sentence for the repo, then the
+/// per-directory breakdown via the shared Markdown table renderer (which
+/// escapes cells).
+fn write_markdown_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFactor) {
+    let _ = writeln!(
+        out,
+        "\n### Bus factor\n\n_Avelino Degree-of-Authorship, coverage threshold {:.2}._\n",
+        bf.coverage_threshold,
+    );
+    let _ = writeln!(
+        out,
+        "**Repository:** {} (over {} file(s)).\n",
+        bf.repo.bus_factor, bf.repo.files,
+    );
+    if !bf.by_directory.is_empty() {
+        write_md_table(
+            out,
+            &bus_factor_headers(),
+            &bus_factor_aligns(),
+            &bus_factor_rows(bf),
+        );
+    }
 }
 
 // --- HTML -------------------------------------------------------------
@@ -281,13 +334,39 @@ fn write_html_body(out: &mut String, report: &Report) {
     let _ = out.write_str("</div>\n");
     if report.files.is_empty() {
         let _ = writeln!(out, "<p>{EMPTY_MESSAGE}</p>");
-        return;
+    } else {
+        let rows: Vec<Vec<String>> = cell_rows(report)
+            .into_iter()
+            .map(|row| row.into_iter().map(cell_text).collect())
+            .collect();
+        write_html_table(out, &headers(), &aligns(), &rows);
     }
-    let rows: Vec<Vec<String>> = cell_rows(report)
-        .into_iter()
-        .map(|row| row.into_iter().map(cell_text).collect())
-        .collect();
-    write_html_table(out, &headers(), &aligns(), &rows);
+    if let Some(aggregate) = &report.vcs_aggregate {
+        write_html_bus_factor(out, &aggregate.bus_factor);
+    }
+}
+
+/// Append the bus-factor subsection (repo sentence + per-directory table)
+/// to the HTML body, delegating the table to the shared renderer (which
+/// escapes cells).
+fn write_html_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFactor) {
+    let _ = out.write_str("<section class=\"bus-factor\">\n");
+    let _ = writeln!(out, "<h3>Bus factor</h3>");
+    let _ = writeln!(
+        out,
+        "<p class=\"summary\">Avelino Degree-of-Authorship, coverage threshold {:.2}. \
+         Repository: <strong>{}</strong> (over {} file(s)).</p>",
+        bf.coverage_threshold, bf.repo.bus_factor, bf.repo.files,
+    );
+    if !bf.by_directory.is_empty() {
+        write_html_table(
+            out,
+            &bus_factor_headers(),
+            &bus_factor_aligns(),
+            &bus_factor_rows(bf),
+        );
+    }
+    let _ = out.write_str("</section>\n");
 }
 
 #[cfg(test)]
@@ -339,11 +418,44 @@ mod tests {
             risk_score_version: 1,
             vcs_schema_version: 1,
             truncated_shallow_clone: false,
+            vcs_aggregate: Some(sample_aggregate()),
             files: vec![
                 entry("src/hot.rs", 9.4, 50, Some(123.0)),
                 entry("src/warm.rs", 6.1, 20, None),
                 entry("docs/with|pipe.md", 2.0, 1, None),
             ],
+        }
+    }
+
+    /// A small, fixed bus-factor aggregate so the rich-report snapshots
+    /// exercise the rendered `### Bus factor` / `<section>` blocks.
+    fn sample_aggregate() -> big_code_analysis::vcs::VcsAggregate {
+        use big_code_analysis::vcs::{
+            BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor, VcsAggregate,
+        };
+        let group = |bus_factor, files, authors| GroupBusFactor {
+            bus_factor,
+            files,
+            authors,
+            key_author_ids: None,
+        };
+        VcsAggregate {
+            bus_factor: BusFactor {
+                schema_version: BUS_FACTOR_SCHEMA_VERSION,
+                coverage_threshold: 0.5,
+                doa_threshold: 0.75,
+                repo: group(2, 3, 4),
+                by_directory: vec![
+                    DirectoryBusFactor {
+                        directory: "docs".to_owned(),
+                        group: group(1, 1, 1),
+                    },
+                    DirectoryBusFactor {
+                        directory: "src".to_owned(),
+                        group: group(2, 2, 3),
+                    },
+                ],
+            },
         }
     }
 
@@ -372,7 +484,12 @@ mod tests {
     /// value.
     fn md_file_column(md: &str) -> Vec<String> {
         const PIPE_SENTINEL: char = '\u{0}';
-        md.lines()
+        // Scope to the ranked-files table, before the bus-factor
+        // subsection (whose own pipe table would otherwise be parsed as
+        // extra file rows).
+        let files_md = md.split("### Bus factor").next().unwrap_or(md);
+        files_md
+            .lines()
             .filter(|l| l.starts_with('|'))
             .skip(2) // header + separator
             .map(|l| {
@@ -445,8 +562,13 @@ mod tests {
         }
 
         // File column appears at the same index in every row of both
-        // formats, so the ordered File lists must match.
-        let html_files: Vec<String> = html_cell_texts(&html)
+        // formats, so the ordered File lists must match. Scope to the
+        // ranked-files table, before the bus-factor section's own table.
+        let files_html = html
+            .split("<section class=\"bus-factor\">")
+            .next()
+            .unwrap_or(&html);
+        let html_files: Vec<String> = html_cell_texts(files_html)
             .chunks(VCS_SPECS.len())
             .map(|row| row[1].clone())
             .collect();
@@ -461,6 +583,9 @@ mod tests {
     fn empty_report_emits_message_not_table() {
         let report = Report {
             files: Vec::new(),
+            // No matched files means no authorship to aggregate, so the
+            // bus-factor section is absent too.
+            vcs_aggregate: None,
             ..rich_report()
         };
         let md = render_markdown(&report);

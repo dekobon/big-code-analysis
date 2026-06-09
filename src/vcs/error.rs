@@ -54,6 +54,9 @@ pub enum Error {
     InvalidTimestamp(String),
     /// The risk-formula name is not one of `weighted` / `percentile`.
     InvalidFormula(String),
+    /// The bus-factor coverage threshold is outside the open interval
+    /// `(0, 1)` (issue #332).
+    InvalidBusFactorThreshold(String),
     /// Blaming a file for per-function attribution failed (issue #329).
     Blame(String),
 }
@@ -82,6 +85,9 @@ impl std::fmt::Display for Error {
                 f,
                 "unknown risk formula {name:?} (expected `weighted` or `percentile`)"
             ),
+            Self::InvalidBusFactorThreshold(reason) => {
+                write!(f, "invalid bus-factor threshold: {reason}")
+            }
             Self::Blame(reason) => write!(f, "failed to blame file: {reason}"),
         }
     }

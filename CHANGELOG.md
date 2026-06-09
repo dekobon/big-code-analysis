@@ -135,6 +135,42 @@ for historical reference.
   author / parent / file-history context — only size and diffusion would
   be computable) and web / Python parity are deferred to follow-ups;
   ML-based JIT and server-side hooks are out of scope per the issue.
+- Directory- and repo-level **bus factor** (truck factor) VCS aggregate
+  (#332). When a front end opts in, the single history walk now also
+  emits a top-level `vcs_aggregate.bus_factor` object alongside the
+  per-file `vcs` data: the minimum number of developers whose departure
+  would orphan more than a configurable fraction (default `0.5`, per
+  Avelino) of a directory's files. Authorship is scored with the Avelino
+  *Degree-of-Authorship* heuristic (Avelino et al., ICPC 2016 — `3.293 +
+  1.098·FA + 0.164·DL − 0.321·ln(1+AC)`, normalised, with the paper's
+  `0.75` author threshold), and the truck factor is the greedy
+  most-files-first removal. Reported for the whole repository (`repo`)
+  and for each top-level directory and its immediate subdirectories
+  (`by_directory`); under `--emit-author-details` each group also lists
+  the SHA-256-hashed key developers in removal order. Files with no
+  in-window authorship (and bot identities, already filtered) are
+  excluded from the denominator. Surfaces:
+  - Library: `big_code_analysis::vcs::{BusFactor, GroupBusFactor,
+    DirectoryBusFactor, VcsAggregate, BUS_FACTOR_SCHEMA_VERSION}`, a new
+    `HistoryIndex::bus_factor()` accessor + `with_bus_factor` builder,
+    `Options::{compute_bus_factor, bus_factor_threshold}`, a
+    `vcs::options::validate_bus_factor_threshold` helper, and a new
+    `vcs::Error::InvalidBusFactorThreshold` variant (all behind
+    `vcs-git`). The generic `bus_factor` module is backend-neutral.
+  - CLI: `bca vcs` and `bca report --vcs` emit `vcs_aggregate` in every
+    structured format and render it in the table / Markdown / HTML
+    pages; `--bus-factor-threshold <F>` (in `(0, 1)`) tunes the coverage
+    fraction.
+  - Web: `POST /vcs` gains a `bus_factor_threshold` field and returns
+    `vcs_aggregate`.
+  - Python: `vcs_metrics(…, bus_factor_threshold=…)` returns
+    `vcs_aggregate` in the result dict.
+
+  Opt-in by design (`compute_bus_factor`, off by default): it retains
+  per-file authorship beyond the per-file `Stats`, so the repeated
+  JIT-prior and per-file-injection walks neither compute nor pay for it.
+  Additive — no existing field moved, and `vcs_schema_version` is
+  unchanged (the aggregate carries its own `BUS_FACTOR_SCHEMA_VERSION`).
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

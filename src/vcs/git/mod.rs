@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::vcs::HistoryIndex;
+use crate::vcs::bus_factor;
 use crate::vcs::entropy::CochangeGraph;
 use crate::vcs::error::Error;
 use crate::vcs::options::{Options, RiskFormula};
@@ -67,8 +68,46 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     let now = options.as_of.unwrap_or_else(current_unix_seconds);
     let graph = history::walk_history(&repo, commit.id, options, now, &mut accumulators)?;
 
+    // The bus factor needs per-file authorship, which `finalize` discards;
+    // collect it first, and only when opted in (the repeated JIT-prior and
+    // per-file-injection walks leave the flag off, so they pay nothing).
+    let bus_factor = options
+        .compute_bus_factor
+        .then(|| bus_factor_aggregate(&accumulators, options))
+        .flatten();
+
     let files = finalize(accumulators, &graph, options, now);
-    Ok(HistoryIndex::new(files, workdir, shallow))
+    Ok(HistoryIndex::new(files, workdir, shallow).with_bus_factor(bus_factor))
+}
+
+/// Build the directory- / repo-level bus-factor aggregate from the
+/// per-file accumulators (issue #332). Files with no in-window authorship
+/// contribute no signal and are excluded from the denominator; when *no*
+/// file has any (an empty repo, or one whose only commits were bot-only or
+/// out-of-window) the aggregate is `None` so front ends omit the
+/// `vcs_aggregate` block rather than emit a meaningless "0 over 0 files".
+fn bus_factor_aggregate(
+    accumulators: &HashMap<PathBuf, Accumulator>,
+    options: &Options,
+) -> Option<bus_factor::BusFactor> {
+    let authorship: Vec<bus_factor::FileAuthorship> = accumulators
+        .iter()
+        .filter_map(|(path, acc)| {
+            acc.authorship()
+                .map(|contributions| bus_factor::FileAuthorship {
+                    path: path.clone(),
+                    contributions,
+                })
+        })
+        .collect();
+    if authorship.is_empty() {
+        return None;
+    }
+    Some(bus_factor::compute(
+        &authorship,
+        options.bus_factor_threshold,
+        options.emit_author_details,
+    ))
 }
 
 /// Finalise every accumulator into a [`Stats`] record, joining in each

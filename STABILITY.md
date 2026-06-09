@@ -247,6 +247,24 @@ The JIT serialized types intentionally derive `Serialize` directly (they
 are pure output DTOs) rather than mirroring through a `wire::*` type the
 way the per-file `Stats` does.
 
+Directory- / repo-level **bus factor** (#332) adds the last opt-in slice:
+`big_code_analysis::vcs::{BusFactor, GroupBusFactor, DirectoryBusFactor,
+VcsAggregate}` plus the `BUS_FACTOR_SCHEMA_VERSION` constant, the
+`HistoryIndex::bus_factor()` accessor and `with_bus_factor` builder, the
+`Options::{compute_bus_factor, bus_factor_threshold}` fields, the
+`vcs::options::validate_bus_factor_threshold` helper, and the
+`vcs::Error::InvalidBusFactorThreshold` variant. The aggregate is
+surfaced as a top-level `vcs_aggregate` object by `bca vcs`,
+`bca report --vcs`, `POST /vcs`, and `vcs_metrics()`, and is gated on the
+front end opting in (`compute_bus_factor`), so it is purely additive — no
+existing field moved and `vcs_schema_version` is unchanged. Like the JIT
+report, the bus-factor types derive `Serialize` directly; their shape is
+stable within `1.x` and versioned by `BUS_FACTOR_SCHEMA_VERSION`. The
+`bus_factor` count is a small integer with a direct reading (key
+departures that abandon a subsystem), but it inherits the Avelino
+heuristic's caveats (a single-author or very young repository skews it
+downward), so treat it as a planning signal, not a guarantee.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

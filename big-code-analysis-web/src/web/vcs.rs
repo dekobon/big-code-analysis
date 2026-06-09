@@ -65,6 +65,9 @@ pub struct WebVcsPayload {
     pub emit_author_details: Option<bool>,
     /// Include files deleted at the target ref.
     pub include_deleted: Option<bool>,
+    /// Bus-factor coverage (abandonment) threshold in `(0, 1)` (issue
+    /// #332); default `0.5` per Avelino.
+    pub bus_factor_threshold: Option<f64>,
 }
 
 /// One ranked file: repo-relative path plus the flat VCS block.
@@ -88,6 +91,8 @@ pub struct WebVcsResponse {
     pub recent_window_days: u32,
     /// Whether the repository is a shallow clone (truncated history).
     pub truncated_shallow_clone: bool,
+    /// Directory- / repo-level bus factor (issue #332).
+    pub vcs_aggregate: Option<vcs::VcsAggregate>,
     /// Files ranked by descending risk score.
     pub files: Vec<WebVcsFileEntry>,
 }
@@ -122,6 +127,12 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
         .emit_author_details
         .unwrap_or(options.emit_author_details);
     options.include_deleted = payload.include_deleted.unwrap_or(options.include_deleted);
+    // The endpoint always surfaces the aggregate; validate the threshold
+    // up front so a bad value is a clean 4xx, not a clamped surprise.
+    options.compute_bus_factor = true;
+    if let Some(threshold) = payload.bus_factor_threshold {
+        options.bus_factor_threshold = vcs::options::validate_bus_factor_threshold(threshold)?;
+    }
     Ok(options)
 }
 
@@ -154,6 +165,7 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
         truncated_shallow_clone: index.truncated_shallow_clone(),
+        vcs_aggregate: index.vcs_aggregate(),
         files,
     })
 }

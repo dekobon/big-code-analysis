@@ -4,7 +4,7 @@
 .SH NAME
 bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH SYNOPSIS
-\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
+\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH OPTIONS
@@ -86,6 +86,9 @@ Emit SHA\-256\-hashed canonical author identities
 .TP
 \fB\-\-include\-deleted\fR
 Emit stats for files deleted at the target ref
+.TP
+\fB\-\-bus\-factor\-threshold\fR \fI<BUS_FACTOR_THRESHOLD>\fR [default: 0.5]
+Bus\-factor coverage (abandonment) threshold — the fraction of a directory\*(Aqs files that must be orphaned for the truck\-factor greedy removal to stop (issue #332). Must be in `(0, 1)`; default `0.5` per Avelino. Ignored by `bca vcs jit`
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

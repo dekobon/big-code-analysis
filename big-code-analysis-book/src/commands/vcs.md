@@ -308,6 +308,75 @@ commit-score distribution rather than treating it as an absolute.
 > REST / Python parity are deferred follow-ups; ML-based JIT and
 > server-side hooks are out of scope.
 
+## Bus factor (directory & repo level)
+
+Where the per-file `ownership_top_share` measures concentration *within* a
+file, the **bus factor** (a.k.a. truck factor) measures it *across a set of
+files*: the minimum number of developers whose departure would leave more
+than half of a directory's files without a knowledgeable maintainer. `bca
+vcs` emits it as a top-level `vcs_aggregate` object alongside the ranked
+`files`:
+
+```jsonc
+{
+  "vcs_aggregate": {
+    "bus_factor": {
+      "schema_version": 1,
+      "coverage_threshold": 0.5,
+      "doa_threshold": 0.75,
+      "repo": { "bus_factor": 3, "files": 412, "authors": 11 },
+      "by_directory": [
+        { "directory": "src", "bus_factor": 2, "files": 180, "authors": 7 },
+        { "directory": "src/vcs", "bus_factor": 1, "files": 24, "authors": 3 }
+      ]
+    }
+  }
+}
+```
+
+Each developer's authorship of each file is scored with the Avelino
+*Degree-of-Authorship* heuristic (Avelino, Passos, Hora & Valente, *A Novel
+Approach for Estimating Truck Factors*, ICPC 2016):
+
+```text
+DoA(d, f) = 3.293 + 1.098·FA + 0.164·DL − 0.321·ln(1 + AC)
+```
+
+where `FA` is first authorship (`1` if `d` created `f`), `DL` is `d`'s
+deliveries (changes) to `f`, and `AC` is the changes made by *other*
+developers. A developer is an **author** of `f` when their DoA, normalised
+by the file's maximum, clears `0.75` (the paper's threshold). The truck
+factor is then a greedy removal: drop the developer who authors the most
+still-covered files, repeat until more than `--bus-factor-threshold`
+(default `0.5`, per Avelino) of the files are orphaned, and report how many
+were removed. `by_directory` covers each top-level directory and each of
+its immediate subdirectories, computed over every file recursively beneath
+it.
+
+Caveats, by construction:
+
+- A repository (or directory) of mostly single-author files reports a bus
+  factor of `1` — losing that one author orphans each file. This is the
+  heuristic working as intended, not a bug; treat the number as a planning
+  signal, not a guarantee.
+- Bot identities are filtered (like the per-file signals), and files with
+  no in-window activity carry no authorship and are excluded from the
+  denominator.
+- "First authorship" means the earliest commit *observed within the long
+  window*, not necessarily a file's true creation.
+
+The aggregate always reflects the **whole repository** (one history walk
+covers every tracked file); `--paths` / `--include` / `--exclude` scope
+only the ranked per-file list, not the bus factor. To focus on a subsystem,
+read its entry in `by_directory` rather than filtering the walk.
+
+`--emit-author-details` adds a `key_author_ids` list to each group — the
+SHA-256-hashed identities of the removed key developers, in removal order
+(plaintext identities never leave the process). The aggregate is computed
+only for the dedicated `bca vcs` / `bca report --vcs` reports and the REST
+/ Python endpoints; the per-file `bca metrics --vcs` injection path does
+not pay for it.
+
 ## Dogfooding in this repo
 
 This project runs `bca vcs` on its own source. `make vcs` prints the
@@ -330,3 +399,7 @@ for tooling.
 - **Python:** `big_code_analysis.vcs_metrics(repo_path, …)` returns the
   report as a dict, and `analyze(path, vcs=True)` attaches a `vcs` block
   to a single file's metrics.
+
+Both `POST /vcs` and `vcs_metrics()` include the `vcs_aggregate` bus
+factor in the result and accept a `bus_factor_threshold` (in `(0, 1)`) to
+tune the coverage fraction.

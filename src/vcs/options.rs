@@ -31,6 +31,11 @@ pub const DEFAULT_LONG_WINDOW: &str = "12mo";
 /// Default recent window (`90d`).
 pub const DEFAULT_RECENT_WINDOW: &str = "90d";
 
+/// Default bus-factor coverage (abandonment) threshold (`0.5`, per
+/// Avelino). Re-exported from the bus-factor module so the front ends
+/// share one source of truth for the default and the validation bound.
+pub const DEFAULT_BUS_FACTOR_THRESHOLD: f64 = super::bus_factor::DEFAULT_COVERAGE_THRESHOLD;
+
 /// Default bot-author exclusion pattern (case-insensitive, matched as a
 /// substring against both the canonical author name and email). The
 /// `[bot]` suffixes are regex-escaped. Mirrors the well-known automation
@@ -98,6 +103,17 @@ pub struct Options {
     pub emit_author_details: bool,
     /// Emit stats for files deleted at the target ref (default: off).
     pub include_deleted: bool,
+    /// Compute the directory- / repo-level bus-factor aggregate from the
+    /// walk (issue #332). Default off: it retains per-file authorship
+    /// beyond the per-file [`Stats`](crate::vcs::Stats), which the
+    /// repeated JIT-prior and per-file-injection walks neither need nor
+    /// should pay for.
+    pub compute_bus_factor: bool,
+    /// Coverage (abandonment) threshold for the bus factor, in `(0, 1)`
+    /// — the fraction of files that must be orphaned for the greedy
+    /// removal to stop (default [`DEFAULT_BUS_FACTOR_THRESHOLD`], `0.5`
+    /// per Avelino). Ignored unless `compute_bus_factor` is set.
+    pub bus_factor_threshold: f64,
 }
 
 impl Default for Options {
@@ -120,6 +136,8 @@ impl Default for Options {
             risk_formula: RiskFormula::Weighted,
             emit_author_details: false,
             include_deleted: false,
+            compute_bus_factor: false,
+            bus_factor_threshold: DEFAULT_BUS_FACTOR_THRESHOLD,
         }
     }
 }
@@ -145,6 +163,29 @@ impl Options {
 fn secs_to_days(secs: i64) -> u32 {
     let days = (secs + SECONDS_PER_DAY / 2) / SECONDS_PER_DAY;
     u32::try_from(days.max(0)).unwrap_or(u32::MAX)
+}
+
+/// Validate a bus-factor coverage threshold, accepting only a finite
+/// value in the open interval `(0, 1)`.
+///
+/// A `0` would make the first key-developer removal "exceed" the
+/// abandonment fraction (bus factor always 1) and a `1` could never be
+/// exceeded (bus factor = every author), so both extremes are user errors
+/// rather than values to silently clamp. The single source of truth
+/// shared by every front end.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidBusFactorThreshold`] when `threshold` is
+/// non-finite or outside `(0, 1)`.
+pub fn validate_bus_factor_threshold(threshold: f64) -> Result<f64, Error> {
+    if threshold.is_finite() && threshold > 0.0 && threshold < 1.0 {
+        Ok(threshold)
+    } else {
+        Err(Error::InvalidBusFactorThreshold(format!(
+            "{threshold} is not in the open interval (0, 1)"
+        )))
+    }
 }
 
 /// Parse a human time-window string into seconds.

@@ -118,3 +118,27 @@ fn secs_to_days_saturates_huge_and_floors_negative() {
     assert_eq!(secs_to_days(huge), u32::MAX);
     assert_eq!(secs_to_days(-10 * SECONDS_PER_DAY), 0);
 }
+
+#[test]
+fn defaults_leave_bus_factor_off_at_avelino_threshold() {
+    // The aggregate is opt-in (the repeated JIT-prior walks must not pay
+    // for it), and the default coverage threshold is Avelino's 0.5.
+    let options = Options::default();
+    assert!(!options.compute_bus_factor);
+    assert!((options.bus_factor_threshold - 0.5).abs() < f64::EPSILON);
+    assert!((DEFAULT_BUS_FACTOR_THRESHOLD - 0.5).abs() < f64::EPSILON);
+}
+
+#[test]
+fn bus_factor_threshold_accepts_only_the_open_interval() {
+    for good in [0.5, 0.9, 0.01, 0.99] {
+        let got = validate_bus_factor_threshold(good).expect("valid threshold");
+        assert!((got - good).abs() < f64::EPSILON);
+    }
+    for bad in [0.0, 1.0, -0.1, 1.5, f64::NAN, f64::INFINITY] {
+        assert!(
+            validate_bus_factor_threshold(bad).is_err(),
+            "{bad} must be rejected"
+        );
+    }
+}

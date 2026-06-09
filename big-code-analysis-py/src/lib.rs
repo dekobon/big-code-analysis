@@ -359,15 +359,18 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
 ///
 /// `repo_path` is any path inside the working tree. Returns a dict with
 /// the window lengths, version stamps, a `truncated_shallow_clone`
-/// flag, and a `files` list ranked by descending `risk_score` — the
-/// programmatic analogue of `bca vcs`. Raises `ValueError` for a
-/// malformed window / timestamp / formula, or when `repo_path` is not a
-/// git working tree.
+/// flag, a `vcs_aggregate` object carrying the directory- / repo-level
+/// `bus_factor` (Avelino `DoA`, issue #332), and a `files` list ranked by
+/// descending `risk_score` — the programmatic analogue of `bca vcs`.
+/// `bus_factor_threshold` (default `0.5`) sets the coverage/abandonment
+/// fraction. Raises `ValueError` for a malformed window / timestamp /
+/// formula / bus-factor threshold, or when `repo_path` is not a git
+/// working tree.
 ///
 /// The history walk holds the GIL; for per-file AST + VCS in one pass
 /// use `analyze(path, vcs=True)`.
 #[pyfunction]
-#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false))]
+#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
 #[allow(
     clippy::needless_pass_by_value,
     clippy::too_many_arguments,
@@ -389,6 +392,7 @@ fn vcs_metrics(
     as_of: Option<String>,
     emit_author_details: bool,
     include_deleted: bool,
+    bus_factor_threshold: Option<f64>,
 ) -> PyResult<Bound<'_, PyAny>> {
     let params = vcs::VcsParams {
         long_window,
@@ -404,6 +408,7 @@ fn vcs_metrics(
         as_of,
         emit_author_details,
         include_deleted,
+        bus_factor_threshold,
     };
     let json = vcs::vcs_report_json(&repo_path, &params)?;
     conversion::json_string_to_py(py, &json)

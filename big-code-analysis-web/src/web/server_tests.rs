@@ -2030,6 +2030,36 @@ async fn test_web_vcs_ranks_files() {
         .expect("work.rs ranked");
     assert_eq!(work["commits_long"], 1);
     assert_eq!(work["commits_recent"], 1);
+    // The bus-factor aggregate ships alongside the ranked files (#332):
+    // one solo author over one file ⇒ repo bus factor 1.
+    let bus_factor = &res["vcs_aggregate"]["bus_factor"];
+    assert_eq!(bus_factor["repo"]["bus_factor"], 1);
+    assert_eq!(bus_factor["repo"]["files"], 1);
+    assert_eq!(bus_factor["schema_version"], 1);
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_bad_bus_factor_threshold_is_400() {
+    // A threshold outside (0, 1) is a client mistake, so the new
+    // `InvalidBusFactorThreshold` error must map to 400, not 500 (#332).
+    let repo = build_temp_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs").route(web::post().to(vcs_json))),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs")
+        .insert_header(ContentType::json())
+        .set_json(json!({
+            "id": "req-bf",
+            "repo_path": repo.path().to_str().unwrap(),
+            "bus_factor_threshold": 1.5,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 #[actix_rt::test]

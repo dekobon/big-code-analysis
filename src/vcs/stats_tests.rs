@@ -218,3 +218,63 @@ fn future_dated_commit_clamps_age_to_zero() {
     assert_eq!(stats.age_days, 0);
     assert_eq!(stats.last_modified_days, 0);
 }
+
+#[test]
+fn authorship_is_none_without_in_window_activity() {
+    // A tracked-but-untouched file carries no authorship signal, so it is
+    // excluded from the bus-factor denominator (issue #332).
+    assert!(Accumulator::new(120).authorship().is_none());
+}
+
+#[test]
+fn authorship_credits_deliveries_and_first_authorship() {
+    // Ada creates the file, then both Ada and Grace edit it. Deliveries
+    // count each participant's commits; first authorship flags the author
+    // of the earliest commit only.
+    let mut acc = Accumulator::new(100);
+    let ada = [author("ada@example.com")];
+    let grace = [author("grace@example.com")];
+    acc.record(&change(10, 40, &ada, Classification::default()));
+    acc.record(&change(5, 20, &grace, Classification::default()));
+    acc.record(&change(5, 10, &ada, Classification::default()));
+
+    let mut contributions = acc.authorship().expect("active file has authorship");
+    contributions.sort_by(|a, b| b.deliveries.cmp(&a.deliveries));
+    assert_eq!(contributions.len(), 2);
+    // Ada: two deliveries, the file's first author.
+    assert_eq!(contributions[0].deliveries, 2);
+    assert!(contributions[0].first_authorship);
+    // Grace: one delivery, not the first author.
+    assert_eq!(contributions[1].deliveries, 1);
+    assert!(!contributions[1].first_authorship);
+}
+
+#[test]
+fn first_authorship_tracks_the_minimum_timestamp_not_walk_order() {
+    // The walk is newest-first, but a clock-skewed older commit can arrive
+    // after a newer one. First authorship must follow the earliest
+    // timestamp regardless of arrival order (guards the `is_new_oldest`
+    // logic, not a positional assumption).
+    let mut acc = Accumulator::new(100);
+    let grace = [author("grace@example.com")];
+    let ada = [author("ada@example.com")];
+    // Newer commit recorded first (normal newest-first order)...
+    acc.record(&change(5, 10, &grace, Classification::default()));
+    // ...then the genuinely-older creating commit arrives out of order.
+    acc.record(&change(5, 40, &ada, Classification::default()));
+
+    let contributions = acc.authorship().expect("active file");
+    let ada_first = contributions
+        .iter()
+        .find(|c| c.author == author("ada@example.com"))
+        .expect("ada present");
+    let grace_first = contributions
+        .iter()
+        .find(|c| c.author == author("grace@example.com"))
+        .expect("grace present");
+    assert!(
+        ada_first.first_authorship,
+        "earliest commit author is first"
+    );
+    assert!(!grace_first.first_authorship);
+}

@@ -446,6 +446,12 @@ struct VcsArgs {
     /// Emit stats for files deleted at the target ref.
     #[clap(long)]
     include_deleted: bool,
+    /// Bus-factor coverage (abandonment) threshold — the fraction of a
+    /// directory's files that must be orphaned for the truck-factor
+    /// greedy removal to stop (issue #332). Must be in `(0, 1)`; default
+    /// `0.5` per Avelino. Ignored by `bca vcs jit`.
+    #[clap(long, default_value_t = big_code_analysis::vcs::options::DEFAULT_BUS_FACTOR_THRESHOLD)]
+    bus_factor_threshold: f64,
 }
 
 /// Subcommands of `bca vcs`. Only `jit` so far (issue #331); the bare

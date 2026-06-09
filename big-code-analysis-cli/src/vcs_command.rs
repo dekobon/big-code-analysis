@@ -49,6 +49,11 @@ pub(crate) struct Report {
     pub(crate) risk_score_version: u32,
     pub(crate) vcs_schema_version: u32,
     pub(crate) truncated_shallow_clone: bool,
+    /// Directory- / repo-level bus factor (issue #332). Placed before
+    /// `files` so the TOML serialization emits this table ahead of the
+    /// `[[files]]` array; elided when the aggregate was not computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) vcs_aggregate: Option<vcs::VcsAggregate>,
     pub(crate) files: Vec<FileEntry>,
 }
 
@@ -68,7 +73,10 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
         return;
     }
 
-    let options = build_options(&args);
+    let mut options = build_options(&args);
+    // The dedicated `bca vcs` report surfaces the directory/repo bus
+    // factor; the per-file injection paths leave it off.
+    options.compute_bus_factor = true;
     let index = build_history_index(&root, &options).unwrap_or_else(|e| die(format_args!("{e}")));
     if index.truncated_shallow_clone() {
         eprintln!(
@@ -83,6 +91,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
         risk_score_version: score::RISK_SCORE_VERSION,
         vcs_schema_version: stats::VCS_SCHEMA_VERSION,
         truncated_shallow_clone: index.truncated_shallow_clone(),
+        vcs_aggregate: index.vcs_aggregate(),
         files: entries,
     };
 
@@ -96,7 +105,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
 /// [`default_index`] warns once and returns `None`, so the aggregated
 /// report is still produced with the section simply omitted.
 pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<Report> {
-    let index = default_index(globals)?;
+    let index = default_aggregate_index(globals)?;
     let options = Options::default();
     let entries = rank(globals, &index, top, false);
     Some(Report {
@@ -105,8 +114,26 @@ pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<R
         risk_score_version: score::RISK_SCORE_VERSION,
         vcs_schema_version: stats::VCS_SCHEMA_VERSION,
         truncated_shallow_clone: index.truncated_shallow_clone(),
+        vcs_aggregate: index.vcs_aggregate(),
         files: entries,
     })
+}
+
+/// Build a **default-window** index with the bus-factor aggregate enabled,
+/// for the `bca report --vcs` section. Mirrors [`default_index`]'s
+/// additive-opt-in contract (warns and returns `None` outside a repo).
+fn default_aggregate_index(globals: &GlobalOpts) -> Option<vcs::HistoryIndex> {
+    let options = Options {
+        compute_bus_factor: true,
+        ..Options::default()
+    };
+    match build_history_index(&resolve_root(globals), &options) {
+        Ok(index) => Some(index),
+        Err(e) => {
+            eprintln!("warning: --vcs: {e}; change-history metrics omitted");
+            None
+        }
+    }
 }
 
 /// Translate [`VcsArgs`] into a backend [`Options`], dying on a bad
@@ -139,6 +166,13 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
         risk_formula: args.risk_formula.into(),
         emit_author_details: args.emit_author_details,
         include_deleted: args.include_deleted,
+        // The shared builder leaves the aggregate off (the `jit`
+        // subcommand never wants it); the ranking flow turns it on below.
+        compute_bus_factor: false,
+        bus_factor_threshold: vcs::options::validate_bus_factor_threshold(
+            args.bus_factor_threshold,
+        )
+        .unwrap_or_else(|e| die(format_args!("--bus-factor-threshold: {e}"))),
     }
 }
 
@@ -340,6 +374,29 @@ fn write_table(report: &Report) -> std::io::Result<()> {
             format!("{}/{}", v.churn_recent, v.churn_long),
             v.authors_long,
             entry.path,
+        )?;
+    }
+    if let Some(aggregate) = &report.vcs_aggregate {
+        write_bus_factor(&mut out, &aggregate.bus_factor)?;
+    }
+    Ok(())
+}
+
+/// Append the repo-level bus factor and the per-directory breakdown to the
+/// table. Ordinal-but-actionable: each number is the count of key
+/// departures that would abandon more than the coverage threshold of the
+/// group's files.
+fn write_bus_factor(out: &mut impl Write, bf: &vcs::BusFactor) -> std::io::Result<()> {
+    writeln!(
+        out,
+        "\nBus factor (Avelino DoA, coverage {:.2}): repo {} over {} file(s)",
+        bf.coverage_threshold, bf.repo.bus_factor, bf.repo.files,
+    )?;
+    for dir in &bf.by_directory {
+        writeln!(
+            out,
+            "  {:>4}  {} ({} file(s))",
+            dir.group.bus_factor, dir.directory, dir.group.files,
         )?;
     }
     Ok(())

@@ -368,6 +368,9 @@ fn history_features(
         reference: base.to_hex().to_string(),
         as_of: Some(commit_time),
         risk_formula: RiskFormula::Weighted,
+        // The JIT prior walk only needs the per-file index; the bus-factor
+        // aggregate would be wasted work on every scored commit.
+        compute_bus_factor: false,
         ..options.clone()
     };
     let index = crate::vcs::build_history_index(root, &prior_options)?;

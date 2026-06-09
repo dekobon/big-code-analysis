@@ -30,6 +30,7 @@
 //! the one available backend; the trait is extracted when a second
 //! backend lands.
 
+pub mod bus_factor;
 pub mod classify;
 pub mod entropy;
 pub mod error;
@@ -43,6 +44,9 @@ pub mod stats;
 #[cfg(feature = "vcs-git")]
 pub mod git;
 
+pub use bus_factor::{
+    BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor, VcsAggregate,
+};
 pub use error::Error;
 pub use jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffusion,
@@ -66,6 +70,7 @@ pub struct HistoryIndex {
     files: HashMap<PathBuf, Stats>,
     workdir: Option<PathBuf>,
     truncated_shallow_clone: bool,
+    bus_factor: Option<bus_factor::BusFactor>,
 }
 
 impl HistoryIndex {
@@ -80,7 +85,37 @@ impl HistoryIndex {
             files,
             workdir,
             truncated_shallow_clone,
+            bus_factor: None,
         }
+    }
+
+    /// Attach the directory- / repo-level bus-factor aggregate (issue
+    /// #332). A builder rather than a `new` parameter so the established
+    /// constructor signature stays source-compatible for downstream
+    /// backends; the aggregate is computed only when a front end opts in
+    /// via [`Options::compute_bus_factor`].
+    #[must_use]
+    pub fn with_bus_factor(mut self, bus_factor: Option<bus_factor::BusFactor>) -> Self {
+        self.bus_factor = bus_factor;
+        self
+    }
+
+    /// The bus-factor aggregate, if it was computed for this walk.
+    #[must_use]
+    pub fn bus_factor(&self) -> Option<&bus_factor::BusFactor> {
+        self.bus_factor.as_ref()
+    }
+
+    /// The walk's whole-repo aggregates wrapped in the top-level
+    /// [`bus_factor::VcsAggregate`] object the front ends
+    /// emit, or `None` when no aggregate was computed. The single
+    /// projection shared by the CLI / web / Python surfaces so the
+    /// `vcs_aggregate` shape cannot drift between them.
+    #[must_use]
+    pub fn vcs_aggregate(&self) -> Option<bus_factor::VcsAggregate> {
+        self.bus_factor
+            .clone()
+            .map(|bus_factor| bus_factor::VcsAggregate { bus_factor })
     }
 
     /// Look up stats by repository-relative path.

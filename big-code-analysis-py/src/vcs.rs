@@ -43,6 +43,7 @@ pub(crate) struct VcsParams {
     pub as_of: Option<String>,
     pub emit_author_details: bool,
     pub include_deleted: bool,
+    pub bus_factor_threshold: Option<f64>,
 }
 
 /// One ranked file: repo-relative path plus the flat VCS block.
@@ -61,6 +62,8 @@ struct Report {
     risk_score_version: u32,
     vcs_schema_version: u32,
     truncated_shallow_clone: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vcs_aggregate: Option<vcs::VcsAggregate>,
     files: Vec<FileEntry>,
 }
 
@@ -93,6 +96,12 @@ fn options_from(params: &VcsParams) -> Result<Options, PyErr> {
     }
     if let Some(formula) = &params.risk_formula {
         options.risk_formula = formula.parse().map_err(vcs_error_to_py)?;
+    }
+    // `vcs_metrics()` always returns the directory/repo bus factor.
+    options.compute_bus_factor = true;
+    if let Some(threshold) = params.bus_factor_threshold {
+        options.bus_factor_threshold =
+            vcs::options::validate_bus_factor_threshold(threshold).map_err(vcs_error_to_py)?;
     }
     Ok(options)
 }
@@ -127,6 +136,7 @@ pub(crate) fn vcs_report_json(repo_path: &Path, params: &VcsParams) -> Result<St
         risk_score_version: vcs::score::RISK_SCORE_VERSION,
         vcs_schema_version: vcs::stats::VCS_SCHEMA_VERSION,
         truncated_shallow_clone: index.truncated_shallow_clone(),
+        vcs_aggregate: index.vcs_aggregate(),
         files,
     };
     serde_json::to_string(&report)

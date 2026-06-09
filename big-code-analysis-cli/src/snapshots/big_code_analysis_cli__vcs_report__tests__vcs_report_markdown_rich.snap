@@ -11,3 +11,14 @@ _Long window 365d, recent window 90d, risk formula v1, schema v1._
 |    1 | src/hot.rs         |  9.4 |               50 |              60 |           2000 |          5000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |   123.0 |
 |    2 | src/warm.rs        |  6.1 |               20 |              30 |            800 |          2000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
 |    3 | docs/with\|pipe.md |  2.0 |                1 |              11 |             40 |           100 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
+
+### Bus factor
+
+_Avelino Degree-of-Authorship, coverage threshold 0.50._
+
+**Repository:** 2 (over 3 file(s)).
+
+| Directory | Bus factor | Files |
+| --------- | ---------: | ----: |
+| docs      |          1 |     1 |
+| src       |          2 |     2 |

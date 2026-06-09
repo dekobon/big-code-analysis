@@ -23,6 +23,17 @@ expression: html
 <tr><td class="numeric">3</td><td>docs/with|pipe.md</td><td class="numeric">2.0</td><td class="numeric">1</td><td class="numeric">11</td><td class="numeric">40</td><td class="numeric">100</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">0.75</td><td class="numeric">0.50</td><td class="numeric">4</td><td class="numeric">1</td><td class="numeric">0</td><td class="numeric">200</td><td class="numeric">5</td><td class="numeric">1.50</td><td class="numeric">2.50</td><td class="numeric">0.80</td><td class="numeric">1.20</td><td class="numeric"></td></tr>
 </tbody>
 </table>
+<section class="bus-factor">
+<h3>Bus factor</h3>
+<p class="summary">Avelino Degree-of-Authorship, coverage threshold 0.50. Repository: <strong>2</strong> (over 3 file(s)).</p>
+<table class="hotspot">
+<thead><tr><th>Directory</th><th data-numeric="1">Bus factor</th><th data-numeric="1" title="Number of source files analysed.">Files</th></tr></thead>
+<tbody>
+<tr><td>docs</td><td class="numeric">1</td><td class="numeric">1</td></tr>
+<tr><td>src</td><td class="numeric">2</td><td class="numeric">2</td></tr>
+</tbody>
+</table>
+</section>
 </section>
 <script>(function(){function num(s){return s===''?Number.POSITIVE_INFINITY:parseFloat(s.replace(/,/g,''));}document.querySelectorAll('table.hotspot').forEach(function(table){var headers=table.querySelectorAll('thead th');headers.forEach(function(th,idx){th.addEventListener('click',function(){sort(table,idx,th);});});});function sort(tbl,idx,th){var tbody=tbl.tBodies[0];if(!tbody)return;var rows=Array.prototype.slice.call(tbody.rows);var numeric=th.dataset.numeric==='1';var dir=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';tbl.querySelectorAll('thead th').forEach(function(h){h.removeAttribute('aria-sort');});th.setAttribute('aria-sort',dir);var sign=dir==='ascending'?1:-1;rows.sort(function(a,b){var av=a.cells[idx].textContent;var bv=b.cells[idx].textContent;if(numeric){var an=num(av);var bn=num(bv);if(an<bn)return -1*sign;if(an>bn)return 1*sign;return 0;}return av.localeCompare(bv)*sign;});rows.forEach(function(r){tbody.appendChild(r);});}})();</script>
 </body>
