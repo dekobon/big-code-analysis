@@ -2063,6 +2063,32 @@ async fn test_web_vcs_bad_bus_factor_threshold_is_400() {
 }
 
 #[actix_rt::test]
+async fn test_web_vcs_bad_file_types_is_400() {
+    // An unparseable file-type scope is a client mistake, so the new
+    // `InvalidFileTypeScope` error must map to 400, not 500 (#576) — the
+    // same class of regression `test_web_vcs_bad_bus_factor_threshold_is_400`
+    // guards for #332. An empty string normalises to no scope.
+    let repo = build_temp_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs").route(web::post().to(vcs_json))),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs")
+        .insert_header(ContentType::json())
+        .set_json(json!({
+            "id": "req-ft",
+            "repo_path": repo.path().to_str().unwrap(),
+            "file_types": "",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_rt::test]
 async fn test_web_vcs_outside_repo_is_400() {
     let dir = tempfile::tempdir().expect("tempdir");
     let app = test::init_service(

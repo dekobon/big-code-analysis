@@ -108,7 +108,7 @@ const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
 /// Error body when `repo_path` is not a git working tree, or a window /
 /// timestamp / formula is malformed (a client mistake → `400`).
-const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref is unresolvable, or a window / timestamp / formula / bus-factor threshold / trend parameter is malformed";
+const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref is unresolvable, or a window / timestamp / formula / file-type scope / bus-factor threshold / trend parameter is malformed";
 /// Error body when the history walk itself fails (server-side → `500`).
 const VCS_FAILED: &str = "Failed to walk change history for the supplied repository";
 
@@ -446,6 +446,7 @@ fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
         | VcsError::InvalidFormula(_)
         | VcsError::InvalidBotPattern(_)
         | VcsError::InvalidBusFactorThreshold(_)
+        | VcsError::InvalidFileTypeScope(_)
         | VcsError::InvalidTrend(_)
         // A bad client-supplied `ref` (or an unborn HEAD) is a client
         // mistake, not a server fault — answer 400, not 500.
