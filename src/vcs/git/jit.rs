@@ -142,16 +142,24 @@ pub(crate) fn score_diff(diff: &str) -> Result<JitDiffReport, Error> {
 ///
 /// # Errors
 ///
-/// [`Error::InvalidDiff`] when a `@@` hunk header is malformed or a `+`/`-`
+/// [`Error::InvalidDiff`] when a `@@` hunk header is malformed, a `+`/`-`
 /// body line appears before any hunk header (a structurally broken diff),
-/// so a garbage input is a clean client error rather than a silent
-/// mis-count.
+/// or the input carries diff content but no `diff --git` file header at all
+/// (plain `diff -u` or a combined/merge diff) — so a garbage or unsupported
+/// input is a clean client error rather than a silent mis-count or a
+/// misleading zero-churn score.
 fn parse_unified_diff(diff: &str) -> Result<Vec<Touched>, Error> {
     let mut files: Vec<Touched> = Vec::new();
     // The file currently being accumulated: its parsed new-side path (once a
     // `+++` line is seen) and running counters. `None` until the first file
     // header opens a stanza.
     let mut current: Option<DiffFile> = None;
+    // Set when a hunk header or combined-diff marker appears while no stanza
+    // is open. If the input never opens a single `diff --git` stanza, this
+    // turns an otherwise-silent empty result (plain `diff -u`, a
+    // `git diff --cc` combined diff, other non-git diff text) into a clean
+    // `InvalidDiff` instead of a misleading zero-churn score.
+    let mut saw_orphan_marker = false;
 
     for raw in diff.lines() {
         // Tolerate CRLF: `lines()` strips `\n`, this strips a trailing `\r`.
@@ -166,8 +174,21 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<Touched>, Error> {
             continue;
         }
         let Some(file) = current.as_mut() else {
-            // Preamble before the first stanza (commit message, `index`
-            // lines from `git diff` with no `diff --git`, etc.): ignore.
+            // No file stanza is open. `git diff` opens one with a
+            // `diff --git` header above any hunk, so a hunk header or a
+            // `diff --cc`/`diff --combined` marker here means the input is
+            // not a supported git diff (plain `diff -u` carries no
+            // `diff --git`; combined/merge diffs use `diff --cc`). Flag it
+            // and reject after the walk *only if* no stanza ever opens, so a
+            // `git show`/`git log -p` preamble that merely mentions `@@`
+            // before its real `diff --git` stanzas is still accepted.
+            if line.starts_with("@@")
+                || line.starts_with("diff --cc ")
+                || line.starts_with("diff --combined ")
+            {
+                saw_orphan_marker = true;
+            }
+            // Other preamble (commit message, `index` lines, blank): ignore.
             continue;
         };
 
@@ -206,6 +227,13 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<Touched>, Error> {
         // file`.
     }
     flush_diff_file(&mut files, current.take());
+    if files.is_empty() && saw_orphan_marker {
+        return Err(Error::InvalidDiff(
+            "no `diff --git` file headers found; expected a git-style unified \
+             diff (plain `diff -u` and combined/merge diffs are not supported)"
+                .to_owned(),
+        ));
+    }
     Ok(files)
 }
 
@@ -961,6 +989,70 @@ diff --git a/m.rs b/m.rs
 ";
         let err = parse_unified_diff(diff).expect_err("combined diff must be rejected");
         assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn plain_diff_u_without_git_header_is_rejected() {
+        // POSIX `diff -u a.c b.c` output carries `---`/`+++`/`@@` but no
+        // `diff --git` header, so no stanza ever opens. Without the
+        // orphan-marker guard this parses to zero files and scores a
+        // misleading 0.0; it must be rejected as an unsupported diff so a
+        // `--fail-over` gate cannot silently pass a risky change.
+        let diff = "\
+--- a.c\t2026-01-01 00:00:00
++++ b.c\t2026-01-02 00:00:00
+@@ -1,2 +1,2 @@
+ keep
+-old
++new
+";
+        let err = parse_unified_diff(diff).expect_err("plain diff -u must be rejected");
+        assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn combined_cc_diff_with_real_header_is_rejected() {
+        // A real `git diff --cc` combined diff opens with a `diff --cc`
+        // file header (not `diff --git`), so the parser never opens a
+        // stanza and the `@@@` rejection in `parse_hunk_header` is never
+        // reached. The `diff --cc` orphan marker is what rejects it here,
+        // matching the documented "combined/merge diffs not supported".
+        let diff = "\
+diff --cc describe.c
+index abc,def..ghi
+--- a/describe.c
++++ b/describe.c
+@@@ -1,1 -1,1 +1,1 @@@
+- a
+ -b
+++c
+";
+        let err = parse_unified_diff(diff).expect_err("git diff --cc must be rejected");
+        assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn show_style_preamble_mentioning_at_at_still_parses() {
+        // Guard against a false-positive: a `git show` / commit-message
+        // preamble that merely contains a line starting with `@@` *before*
+        // a real `diff --git` stanza must still parse (the stanza opens, so
+        // the orphan marker is moot once files are non-empty).
+        let diff = "\
+commit deadbeef
+Author: A B <a@b.c>
+
+    Refactor the @@ dispatch table
+
+diff --git a/x.rs b/x.rs
+--- a/x.rs
++++ b/x.rs
+@@ -1,1 +1,2 @@
+ keep
++added
+";
+        let files = parse_unified_diff(diff).expect("show-style preamble parses");
+        assert_eq!(files.len(), 1, "one real file stanza");
+        assert_eq!(files[0].added, 1);
     }
 
     #[test]

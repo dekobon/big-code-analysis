@@ -271,14 +271,19 @@ pub fn score_commit(root: &Path, spec: &str, options: &Options) -> Result<jit::J
 /// comparable** to a commit score — rank diffs against other diffs only.
 /// See [`jit::JitDiffReport`] for the full contract.
 ///
-/// `diff` is a unified diff as produced by `git diff` / `diff -u` (one or
-/// more file stanzas). No repository access is needed; `options` does not
+/// `diff` must be a git-style unified diff carrying `diff --git` file
+/// headers (as produced by `git diff` / `git format-patch`), with one or
+/// more file stanzas. Plain `diff -u` output without those headers and
+/// combined / merge diffs (`git diff --cc`, `@@@` headers) are not
+/// supported. No repository access is needed; `options` does not
 /// participate (a bare diff has nothing to window).
 ///
 /// # Errors
 ///
 /// Returns [`Error::InvalidDiff`] when the diff is structurally malformed
-/// (a bad `@@` hunk header, or a `+`/`-` body line outside any hunk).
+/// (a bad `@@` hunk header, or a `+`/`-` body line outside any hunk) or
+/// carries diff content with no `diff --git` file header at all (plain
+/// `diff -u` or a combined/merge diff).
 #[cfg(feature = "vcs-git")]
 pub fn score_diff(diff: &str) -> Result<jit::JitDiffReport, Error> {
     git::score_diff(diff)

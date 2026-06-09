@@ -262,6 +262,18 @@ pub(crate) fn vcs_jit_json(
         .map_err(|e| PyValueError::new_err(format!("serializing jit report: {e}")))
 }
 
+/// The directory to discover the repository from for `file_path`: its
+/// parent, or the current directory for a bare filename. `Path::parent()`
+/// returns `Some("")` (an empty path) — not `None` — for `"foo.rs"`, so an
+/// `unwrap_or(".")` alone would discover from an empty path and silently
+/// find no repository; map that empty parent to `.`.
+fn repo_root_for(file_path: &Path) -> &Path {
+    match file_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    }
+}
+
 /// Inject a `vcs` block into a single file's metrics JSON for
 /// `analyze(..., vcs=True)`. Builds a one-shot index for the file's
 /// repository, attaches the matching block (and a hotspot score from
@@ -269,7 +281,7 @@ pub(crate) fn vcs_jit_json(
 /// rewritten JSON. A file with no index entry (untracked / binary) or
 /// outside any repository is returned unchanged.
 pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<String, PyErr> {
-    let root = file_path.parent().unwrap_or(Path::new("."));
+    let root = repo_root_for(file_path);
     // Discovery failures (not a repo) are non-fatal here: `analyze` still
     // returns the AST metrics, just without a `vcs` block.
     let Ok(index) = build_history_index_cached(root, &Options::default(), &CacheConfig::default())
@@ -335,7 +347,7 @@ pub(crate) fn inject_vcs_per_function(
     funcspace_json: String,
     file_path: &Path,
 ) -> Result<String, PyErr> {
-    let root = file_path.parent().unwrap_or(Path::new("."));
+    let root = repo_root_for(file_path);
     // Discovery failures (not a repo) are non-fatal: `analyze` still
     // returns the AST metrics, just without per-function `vcs` blocks.
     let Ok(blame) = vcs::PerFunctionBlame::open(root, Options::default()) else {

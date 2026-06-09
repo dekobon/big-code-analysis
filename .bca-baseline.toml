@@ -65,7 +65,7 @@ path = "big-code-analysis-py/src/vcs.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 31.0
+value = 32.0
 
 [[entry]]
 path = "src/count.rs"
@@ -100,11 +100,18 @@ path = "src/vcs/git/jit.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1014.0
+value = 1106.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 51.0
+value = 54.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "parse_unified_diff"
+start_line = 151
+metric = "cyclomatic"
+value = 16.0
