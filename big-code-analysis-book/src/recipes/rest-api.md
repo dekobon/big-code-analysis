@@ -149,11 +149,15 @@ curl -s http://127.0.0.1:8080/v1/vcs \
 ```
 
 The body accepts the same knobs as `bca vcs` (`long_window`,
-`recent_window`, `top`, `ref`, `risk_formula`, `full_history`,
-`include_merges`, `follow_renames`, `exclude_bots`, `bot_pattern`,
-`as_of`, `emit_author_details`, `include_deleted`) as optional fields.
-A `repo_path` that is not a git working tree, or a malformed window /
-timestamp / formula, returns `400` with the uniform JSON error body.
+`recent_window`, `top`, `ref`, `risk_formula`, `file_types`,
+`full_history`, `include_merges`, `follow_renames`, `exclude_bots`,
+`bot_pattern`, `as_of`, `emit_author_details`, `include_deleted`,
+`bus_factor_threshold`, `no_cache`, `cache_dir`) as optional fields.
+`file_types` scopes the ranking (`metrics` — the default — / `all` / a
+`rs,py`-style extension list), mirroring the CLI `--file-types`. A
+`repo_path` that is not a git working tree, or a malformed window /
+timestamp / formula / scope, returns `400` with the uniform JSON error
+body.
 
 ### Trend over time
 

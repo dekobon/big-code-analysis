@@ -433,8 +433,8 @@ That is what makes a file born later show as `null` at older points
 series are the `--top` highest-risk by their most-recent sample.
 
 Flags reused from the parent `bca vcs` command: the window (`--long-window`
-/ `--recent-window`), `--ref`, bot / merge / rename toggles, `--as-of`
-(the most-recent anchor), and `--top`. `-O` accepts `json` (default),
+/ `--recent-window`), `--ref`, `--file-types`, bot / merge / rename
+toggles, `--as-of` (the most-recent anchor), and `--top`. `-O` accepts `json` (default),
 `yaml`, or `cbor`; TOML is excluded because an absent point serializes as
 `null`, which TOML cannot represent. The point count is bounded (2–120) to
 keep the per-point history walks tractable on deep histories.
@@ -501,10 +501,13 @@ Caveats, by construction:
 - "First authorship" means the earliest commit *observed within the long
   window*, not necessarily a file's true creation.
 
-The aggregate always reflects the **whole repository** (one history walk
-covers every tracked file); `--paths` / `--include` / `--exclude` scope
-only the ranked per-file list, not the bus factor. To focus on a subsystem,
-read its entry in `by_directory` rather than filtering the walk.
+The aggregate reflects the **whole repository within the file-type
+scope** (one history walk covers every in-scope file — by default the
+files-with-metrics set, see [File-type scope](#file-type-scope) — so
+`--file-types all` widens the bus factor to every tracked file).
+`--paths` / `--include` / `--exclude` scope only the ranked per-file
+list, *not* the bus factor. To focus on a subsystem, read its entry in
+`by_directory` rather than filtering the walk.
 
 `--emit-author-details` adds a `key_author_ids` list to each group — the
 SHA-256-hashed identities of the removed key developers, in removal order
