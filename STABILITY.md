@@ -265,6 +265,21 @@ departures that abandon a subsystem), but it inherits the Avelino
 heuristic's caveats (a single-author or very young repository skews it
 downward), so treat it as a planning signal, not a guarantee.
 
+Historical metric **trend** (#333) adds one more opt-in slice:
+`big_code_analysis::vcs::{build_trend, Trend, TrendDelta, TrendDeltas}`
+plus the `TREND_SCHEMA_VERSION` constant, the
+`wire::{VcsTrend, VcsTrendPoint, VcsTrendDelta, VcsTrendDeltas}`
+projection, and the `vcs::Error::InvalidTrend` variant. The trend is
+surfaced by `bca vcs trend`, `POST /vcs/trend`, and `vcs_trend()`. Each
+sampled point's metric block is the same `wire::Vcs` shape (so its fields
+and `risk_score` carry the same ordinal/versioned contract as `bca vcs`);
+the *container* shape — `as_of_points`, the per-file point arrays (`null`
+where a file did not exist), and the `deltas` summary — is stable within
+`1.x` and versioned by `trend_schema_version`. The per-point timestamps
+and the delta magnitudes are derived from the same ordinal `risk_score`,
+so the "magnitudes are not byte-stable across bumps" caveat applies. The
+new module is additive — no existing field moved.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

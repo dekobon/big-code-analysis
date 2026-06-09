@@ -308,6 +308,63 @@ commit-score distribution rather than treating it as an absolute.
 > REST / Python parity are deferred follow-ups; ML-based JIT and
 > server-side hooks are out of scope.
 
+## Historical trend (over time)
+
+A single `bca vcs` run answers *"what is risky now."* `bca vcs trend`
+answers *"is it getting better or worse"* — the actionable question for a
+technical-debt programme — by sampling the metrics at several points in
+time and emitting a per-file time series.
+
+```console
+$ bca vcs --top 20 trend --points 12 --span 24mo --pretty
+{
+  "trend_schema_version": 1,
+  "vcs_schema_version": 2,
+  "risk_score_version": 2,
+  "long_window_days": 365,
+  "recent_window_days": 90,
+  "truncated_shallow_clone": false,
+  "as_of_points": [ 1700000000, 1705259520, ... ],
+  "files": {
+    "src/parser.rs": [
+      null,                       // did not exist at the oldest point
+      { "as_of": 1705259520, "risk_score": 4.1, ... },
+      { "as_of": 1710519040, "risk_score": 6.8, ... }
+    ]
+  },
+  "deltas": {
+    "improved":  [ { "path": "src/old.rs",    "delta": -3.2, ... } ],
+    "regressed": [ { "path": "src/parser.rs", "delta":  2.7, ... } ]
+  }
+}
+```
+
+`--points N` evenly-spaced samples (inclusive of both endpoints) cover
+`--span DURATION`, ending at `--as-of` (or wall-clock now). `as_of_points`
+lists the sample timestamps oldest-first; every file's array aligns to it
+1:1, with a `null` element marking a point where the file did not exist
+yet. `deltas` ranks the files whose `risk_score` fell the most
+(`improved`) and rose the most (`regressed`) between each file's earliest
+and latest present points; `--top-deltas` trims each list.
+
+Crucially, each point **re-anchors at the mainline tip that existed at or
+before that moment** — it does not just re-window today's `HEAD` tree.
+That is what makes a file born later show as `null` at older points
+(rather than leaking its present-day metrics backwards). Files kept in the
+series are the `--top` highest-risk by their most-recent sample.
+
+Flags reused from the parent `bca vcs` command: the window (`--long-window`
+/ `--recent-window`), `--ref`, bot / merge / rename toggles, `--as-of`
+(the most-recent anchor), and `--top`. `-O` accepts `json` (default),
+`yaml`, or `cbor`; TOML is excluded because an absent point serializes as
+`null`, which TOML cannot represent. The point count is bounded (2–120) to
+keep the per-point history walks tractable on deep histories.
+
+> **Rename caveat.** Renames are followed *within* each sample's walk, but
+> a file renamed *between* two samples appears as two separate path series
+> (its old name, then its new name) rather than one continuous line.
+> Cross-sample rename stitching is a deferred follow-up.
+
 ## Bus factor (directory & repo level)
 
 Where the per-file `ownership_top_share` measures concentration *within* a
@@ -394,11 +451,13 @@ for tooling.
 ## REST and Python
 
 - **REST:** `POST /vcs` with a JSON body `{ "id": "...", "repo_path":
-  "/path/to/repo", ... }` returns the ranked report. See
-  [Driving the REST API](../recipes/rest-api.md).
+  "/path/to/repo", ... }` returns the ranked report, and `POST /vcs/trend`
+  (same fields plus `points` / `span` / `top_deltas`) returns the
+  historical time series. See [Driving the REST API](../recipes/rest-api.md).
 - **Python:** `big_code_analysis.vcs_metrics(repo_path, …)` returns the
-  report as a dict, and `analyze(path, vcs=True)` attaches a `vcs` block
-  to a single file's metrics.
+  ranked report as a dict, `vcs_trend(repo_path, points=…, span=…, …)`
+  returns the time series, and `analyze(path, vcs=True)` attaches a `vcs`
+  block to a single file's metrics.
 
 Both `POST /vcs` and `vcs_metrics()` include the `vcs_aggregate` bus
 factor in the result and accept a `bus_factor_threshold` (in `(0, 1)`) to

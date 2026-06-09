@@ -40,6 +40,7 @@ pub mod jit;
 pub mod options;
 pub mod score;
 pub mod stats;
+pub mod trend;
 
 #[cfg(feature = "vcs-git")]
 pub mod git;
@@ -54,6 +55,7 @@ pub use jit::{
 };
 pub use options::{Options, RiskFormula, parse_window};
 pub use stats::Stats;
+pub use trend::{TREND_SCHEMA_VERSION, Trend, TrendDelta, TrendDeltas};
 
 /// Per-function change-history attribution (issue #329), surfaced when a
 /// front end opts into per-function VCS metrics. See [`PerFunctionBlame`].
@@ -223,6 +225,35 @@ pub fn parse_timestamp(input: &str) -> Result<i64, Error> {
 #[cfg(feature = "vcs-git")]
 pub fn score_commit(root: &Path, spec: &str, options: &Options) -> Result<jit::JitReport, Error> {
     git::score_commit(root, spec, options)
+}
+
+/// Sample the change-history metrics at `points` evenly-spaced moments
+/// across `span_secs`, ending at `options.as_of` (or wall-clock now),
+/// building a [`trend::Trend`] time series (issue #333).
+///
+/// Each point re-anchors at the mainline tip that existed at or before
+/// that moment, so the result is a faithful historical snapshot rather
+/// than today's tree windowed differently — see [`trend`] for the schema
+/// and the cross-snapshot rename limitation. `options` supplies the
+/// windows / bot / merge / rename / formula knobs shared by every point;
+/// its `reference` selects which mainline to follow.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidTrend`] when `points` is outside
+/// `[MIN_TREND_POINTS, MAX_TREND_POINTS]`
+/// ([`trend::MIN_TREND_POINTS`] / [`trend::MAX_TREND_POINTS`]),
+/// [`Error::NotARepository`] when `root` is not a working tree,
+/// [`Error::ResolveRef`] when the base reference does not resolve, or a
+/// walk/diff variant when a sampled snapshot fails.
+#[cfg(feature = "vcs-git")]
+pub fn build_trend(
+    root: &Path,
+    options: &Options,
+    points: usize,
+    span_secs: i64,
+) -> Result<trend::Trend, Error> {
+    git::build_trend(root, options, points, span_secs)
 }
 
 /// Rank `entries` by descending risk score, breaking ties on the file

@@ -19,9 +19,11 @@ mod history;
 mod identity;
 mod jit;
 mod repo;
+mod trend;
 
 pub use blame::{LineSpan, PerFunctionBlame};
 pub(crate) use jit::score_commit;
+pub(crate) use trend::build_trend;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

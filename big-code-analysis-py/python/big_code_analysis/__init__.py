@@ -35,6 +35,7 @@ from ._native import (
     language_for_file,
     to_sarif,
     vcs_metrics,
+    vcs_trend,
 )
 
 #: Canonical metric names, as :class:`MetricName` members. The values
@@ -73,4 +74,5 @@ __all__ = [
     "supported_languages",
     "to_sarif",
     "vcs_metrics",
+    "vcs_trend",
 ]

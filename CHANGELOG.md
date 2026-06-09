@@ -171,6 +171,38 @@ for historical reference.
   JIT-prior and per-file-injection walks neither compute nor pay for it.
   Additive — no existing field moved, and `vcs_schema_version` is
   unchanged (the aggregate carries its own `BUS_FACTOR_SCHEMA_VERSION`).
+- Historical metric **trend** (#333). Samples the change-history metrics
+  at several points in time so a consumer sees whether a file's risk is
+  improving or degrading over the project's life, not only its risk *now*
+  — the actionable question for technical-debt programs (the Kamei JIT
+  survey notes single-snapshot models lose predictive power as a project
+  ages; a trend is the more durable framing). `points` evenly-spaced
+  samples (inclusive of both endpoints) cover a `span`, ending at `as_of`
+  (or wall-clock now); each sample **re-anchors at the mainline tip that
+  existed at or before that moment** (resolved from one first-parent walk)
+  rather than windowing today's `HEAD` tree, so it is a faithful
+  historical snapshot — a file not yet born at an older point is `null`
+  there. The output is a versioned (`trend_schema_version`) time series:
+  `as_of_points` (oldest-first) plus a per-file array aligned to it, and a
+  most-improved / most-regressed `deltas` summary by `risk_score`. The
+  point count is bounded (2–120) to cap the per-point walks on deep
+  histories. Surfaces:
+  - Library: `big_code_analysis::vcs::{build_trend, Trend, TrendDelta,
+    TrendDeltas, TREND_SCHEMA_VERSION}`, the `wire::{VcsTrend,
+    VcsTrendPoint, VcsTrendDelta, VcsTrendDeltas}` projection, and a new
+    `vcs::Error::InvalidTrend` variant (all behind `vcs-git`). The generic
+    `trend` module is backend-neutral.
+  - CLI: `bca vcs trend [--points N] [--span DURATION] [--top-deltas N]
+    [-O json|yaml|cbor]`, reusing the parent `bca vcs` window / `--ref` /
+    bot / merge / rename / `--as-of` / `--top` flags. (TOML is excluded —
+    an absent point serializes as `null`, which TOML cannot represent.)
+  - Web: a new `POST /vcs/trend` endpoint taking the `/vcs` fields plus
+    `points` / `span` / `top_deltas`.
+  - Python: `vcs_trend(repo_path, points=…, span=…, …)`.
+
+  *Rename limitation:* renames are followed *within* each sample's walk,
+  but a file renamed *between* two samples appears as two separate path
+  series (old name, then new); cross-sample rename stitching is deferred.
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

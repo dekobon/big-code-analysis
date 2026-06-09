@@ -155,6 +155,30 @@ The body accepts the same knobs as `bca vcs` (`long_window`,
 A `repo_path` that is not a git working tree, or a malformed window /
 timestamp / formula, returns `400` with the uniform JSON error body.
 
+### Trend over time
+
+`POST /vcs/trend` samples the same metrics at several points in time and
+returns a per-file time series (see [Historical
+trend](../commands/vcs.md#historical-trend-over-time)). The body takes the
+`/vcs` fields plus `points` (>= 2), `span` (default `12mo`), and
+`top_deltas`.
+
+```bash
+curl -s http://127.0.0.1:8080/v1/vcs/trend \
+    -H 'Content-Type: application/json' \
+    -d '{
+          "id": "trend-1",
+          "repo_path": "/srv/checkouts/my-project",
+          "points": 12,
+          "span": "24mo",
+          "top": 20
+        }' \
+  | jq '.deltas.regressed[] | {path, delta}'
+```
+
+A point count below 2 (or above the supported maximum) returns `400` with
+the uniform JSON error body, like the other bad-request cases.
+
 ## Calling the API from CI
 
 The server starts in milliseconds, so for short-lived CI jobs it's

@@ -1,0 +1,43 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-VCS-TREND 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
+.SH NAME
+bca\-vcs\-trend \- Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life (issue #333). Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags
+.SH SYNOPSIS
+\fBbca\-vcs\-trend\fR [\fB\-\-points\fR] [\fB\-\-span\fR] [\fB\-\-top\-deltas\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life (issue #333). Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags
+.SH OPTIONS
+.TP
+\fB\-\-points\fR \fI<POINTS>\fR [default: 12]
+Number of evenly\-spaced sample points across `\-\-span`, inclusive of both endpoints (the oldest is `as\-of − span`, the newest is `as\-of`). Minimum 2; capped (see the error message) to bound the per\-point history walks on deep histories
+.TP
+\fB\-\-span\fR \fI<SPAN>\fR [default: 12mo]
+Total look\-back window the points span (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). With the default 12 points this yields roughly monthly snapshots over the past year
+.TP
+\fB\-\-top\-deltas\fR \fI<TOP_DELTAS>\fR [default: 10]
+Show only the top N files in each improving / regressing delta summary (`0` = all)
+.TP
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: json]
+Output format (`json` default, plus `yaml` / `cbor`). TOML is excluded — absent points serialize as `null`, which TOML cannot represent
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+json
+.IP \(bu 2
+yaml
+.IP \(bu 2
+cbor
+.RE
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output file. Stdout if omitted (CBOR requires this flag — it is binary)
+.TP
+\fB\-\-pretty\fR
+Pretty\-print JSON output
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

@@ -57,6 +57,11 @@ pub enum Error {
     /// The bus-factor coverage threshold is outside the open interval
     /// `(0, 1)` (issue #332).
     InvalidBusFactorThreshold(String),
+    /// The historical-trend parameters are out of range — the point
+    /// count is below the two-point minimum or above
+    /// [`MAX_TREND_POINTS`](crate::vcs::trend::MAX_TREND_POINTS) (issue
+    /// #333).
+    InvalidTrend(String),
     /// Blaming a file for per-function attribution failed (issue #329).
     Blame(String),
 }
@@ -88,6 +93,7 @@ impl std::fmt::Display for Error {
             Self::InvalidBusFactorThreshold(reason) => {
                 write!(f, "invalid bus-factor threshold: {reason}")
             }
+            Self::InvalidTrend(reason) => write!(f, "invalid trend parameters: {reason}"),
             Self::Blame(reason) => write!(f, "failed to blame file: {reason}"),
         }
     }

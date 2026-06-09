@@ -20,7 +20,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use big_code_analysis::vcs::{
-    self, Options, build_history_index, hotspot, parse_timestamp, parse_window,
+    self, Options, build_history_index, build_trend, hotspot, parse_timestamp, parse_window,
 };
 use big_code_analysis::wire;
 
@@ -141,6 +141,36 @@ pub(crate) fn vcs_report_json(repo_path: &Path, params: &VcsParams) -> Result<St
     };
     serde_json::to_string(&report)
         .map_err(|e| PyValueError::new_err(format!("serializing vcs report: {e}")))
+}
+
+/// Walk `repo_path`'s history at several points in time and return the
+/// historical metric trend (issue #333) as a JSON string for
+/// [`crate::conversion::json_string_to_py`].
+///
+/// `params` supplies the shared window / bot / merge / rename / ref / as-of
+/// knobs (its `top` caps how many files the series keeps); `points` and
+/// `span` define the sampling grid, and `top_deltas` trims each delta
+/// list.
+///
+/// # Errors
+///
+/// `ValueError` for a bad option, an out-of-range point count, or a
+/// non-repository path; the walk itself surfaces its failure the same way.
+pub(crate) fn vcs_trend_json(
+    repo_path: &Path,
+    params: &VcsParams,
+    points: usize,
+    span: Option<&str>,
+    top_deltas: Option<usize>,
+) -> Result<String, PyErr> {
+    let options = options_from(params)?;
+    let span_secs =
+        parse_window(span.unwrap_or(vcs::options::DEFAULT_LONG_WINDOW)).map_err(vcs_error_to_py)?;
+    let trend = build_trend(repo_path, &options, points, span_secs).map_err(vcs_error_to_py)?;
+    let wire_trend =
+        wire::VcsTrend::from_trend(&trend, params.top.unwrap_or(0), top_deltas.unwrap_or(0));
+    serde_json::to_string(&wire_trend)
+        .map_err(|e| PyValueError::new_err(format!("serializing vcs trend: {e}")))
 }
 
 /// Inject a `vcs` block into a single file's metrics JSON for

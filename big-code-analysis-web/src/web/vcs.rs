@@ -26,7 +26,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use big_code_analysis::vcs::{self, Options, build_history_index, parse_timestamp, parse_window};
+use big_code_analysis::vcs::{
+    self, Options, build_history_index, build_trend, parse_timestamp, parse_window,
+};
 use big_code_analysis::wire;
 
 /// Request body for `POST /vcs`.
@@ -167,5 +169,67 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
         truncated_shallow_clone: index.truncated_shallow_clone(),
         vcs_aggregate: index.vcs_aggregate(),
         files,
+    })
+}
+
+/// Request body for `POST /vcs/trend` (issue #333). The base fields are
+/// the same as [`WebVcsPayload`] — `top` selects how many files the series
+/// keeps, `as_of` anchors the most-recent point — plus the trend-only
+/// `points` / `span` / `top_deltas`.
+#[derive(Debug, Deserialize)]
+pub struct WebVcsTrendPayload {
+    /// All the shared `/vcs` knobs (`id`, `repo_path`, windows, `ref`, …).
+    #[serde(flatten)]
+    pub base: WebVcsPayload,
+    /// Number of evenly-spaced sample points (>= 2).
+    pub points: usize,
+    /// Total look-back span the points cover (default `12mo`).
+    pub span: Option<String>,
+    /// Top N files per improving / regressing delta list (`0` / absent =
+    /// all).
+    pub top_deltas: Option<usize>,
+}
+
+/// Response body for `POST /vcs/trend`: the echoed id plus the flattened
+/// [`wire::VcsTrend`] time series.
+#[derive(Debug, Serialize)]
+pub struct WebVcsTrendResponse {
+    /// Echoed request identifier.
+    pub id: String,
+    /// The historical metric trend.
+    #[serde(flatten)]
+    pub trend: wire::VcsTrend,
+}
+
+/// Sample the change-history metrics across time for `payload` and return
+/// the time series.
+///
+/// # Errors
+///
+/// Returns a [`vcs::Error`] for a bad option, an out-of-range point count,
+/// a non-repository `repo_path`, or a history-walk failure; the handler
+/// maps it to the appropriate HTTP status.
+pub fn compute_vcs_trend(payload: WebVcsTrendPayload) -> Result<WebVcsTrendResponse, vcs::Error> {
+    let options = options_from(&payload.base)?;
+    let span_secs = parse_window(
+        payload
+            .span
+            .as_deref()
+            .unwrap_or(vcs::options::DEFAULT_LONG_WINDOW),
+    )?;
+    let trend = build_trend(
+        &PathBuf::from(&payload.base.repo_path),
+        &options,
+        payload.points,
+        span_secs,
+    )?;
+    let wire_trend = wire::VcsTrend::from_trend(
+        &trend,
+        payload.base.top.unwrap_or(0),
+        payload.top_deltas.unwrap_or(0),
+    );
+    Ok(WebVcsTrendResponse {
+        id: payload.base.id,
+        trend: wire_trend,
     })
 }

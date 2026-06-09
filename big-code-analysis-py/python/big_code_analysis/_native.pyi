@@ -303,6 +303,55 @@ def vcs_metrics(
         ``repo_path`` is not inside a git working tree.
     """
 
+def vcs_trend(
+    repo_path: str | os.PathLike[str],
+    /,
+    *,
+    points: int = 12,
+    span: str | None = None,
+    top: int | None = None,
+    top_deltas: int | None = None,
+    long_window: str | None = None,
+    recent_window: str | None = None,
+    reference: str | None = None,
+    risk_formula: str | None = None,
+    full_history: bool = False,
+    include_merges: bool = False,
+    follow_renames: bool = True,
+    exclude_bots: bool = True,
+    bot_pattern: str | None = None,
+    as_of: str | None = None,
+    emit_author_details: bool = False,
+    include_deleted: bool = False,
+    bus_factor_threshold: float | None = None,
+) -> dict[str, Any]:
+    """Sample change-history metrics over time as a per-file trend.
+
+    The programmatic analogue of ``bca vcs trend`` (issue #333).
+    ``points`` (>= 2) evenly-spaced samples cover ``span`` (default
+    ``12mo``), ending at ``as_of`` (or wall-clock now). Returns a
+    ``dict`` with ``trend_schema_version``, ``vcs_schema_version``,
+    ``risk_score_version``, the window lengths,
+    ``truncated_shallow_clone``, ``as_of_points`` (sample timestamps,
+    oldest-first), a ``files`` map from path to a point array aligned to
+    ``as_of_points`` (a ``None`` element marks a point where the file did
+    not exist), and a ``deltas`` summary splitting the most-``improved``
+    and most-``regressed`` files by ``risk_score``.
+
+    Each point re-anchors at the mainline tip of that moment, so it is a
+    faithful historical snapshot rather than today's tree windowed
+    differently. ``top`` caps how many files the series keeps (by
+    most-recent risk); ``top_deltas`` trims each delta list. The other
+    knobs match :func:`vcs_metrics`.
+
+    Raises
+    ------
+    ValueError
+        For a malformed option, a point count below 2 or above the
+        supported maximum, or when ``repo_path`` is not inside a git
+        working tree.
+    """
+
 def analyze_source(
     code: str | bytes | bytearray,
     language: str,
