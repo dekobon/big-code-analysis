@@ -239,7 +239,7 @@ fn authorship_credits_deliveries_and_first_authorship() {
     acc.record(&change(5, 10, &ada, Classification::default()));
 
     let mut contributions = acc.authorship().expect("active file has authorship");
-    contributions.sort_by(|a, b| b.deliveries.cmp(&a.deliveries));
+    contributions.sort_by_key(|b| std::cmp::Reverse(b.deliveries));
     assert_eq!(contributions.len(), 2);
     // Ada: two deliveries, the file's first author.
     assert_eq!(contributions[0].deliveries, 2);
