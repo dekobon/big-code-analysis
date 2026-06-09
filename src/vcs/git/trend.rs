@@ -116,14 +116,11 @@ fn first_parent_timeline(
     let mut timeline = Vec::new();
     for info in walk {
         let info = info.map_err(walk_err)?;
-        // `ByCommitTime` populates `info.commit_time`, so the common path
-        // never decodes the commit object; fall back to decoding only if
-        // a future sorting leaves it unset.
-        let seconds = match info.commit_time {
-            Some(seconds) => seconds,
-            None => commit_seconds(&info, &info.object().map_err(walk_err)?)?,
-        };
-        timeline.push((seconds, info.id));
+        // `Info::commit_time` is not populated for this traversal, so the
+        // commit must be decoded to read its time; `commit_seconds` uses
+        // the pre-decoded value when present and decodes otherwise.
+        let commit = info.object().map_err(walk_err)?;
+        timeline.push((commit_seconds(&info, &commit)?, info.id));
     }
     Ok(timeline)
 }
