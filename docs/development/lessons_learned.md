@@ -3611,3 +3611,53 @@ disprove, not a default. This is the find-the-trigger counterpart to lesson #52
 the test-via-revert discipline in `.claude/rules/testing.md`.
 
 ---
+
+## 69. A line-prefix parser must disambiguate structural markers from body content that shares the prefix
+
+A parser that classifies lines by a multi-character prefix has a built-in
+ambiguity: a *content* line can legitimately begin with the same characters as
+a *structural* marker. Prefix matching alone cannot tell them apart — the
+disambiguator is the parser's position/state, not the bytes. Resolve it by
+gating marker detection on where in the grammar you are, and prove the fix with
+a fixture whose body content actually reproduces the colliding prefix.
+
+**The unified-diff scorer dropped deletions and corrupted paths on `--`/`++`
+content (#580; bug shipped in `dc03417d`, fixed in `4f9f293e`).** `bca vcs jit
+--diff` parses a unified diff by line prefix: `+++`/`---` (each followed by a
+space) are file headers, and inside a hunk `+`/`-` are added/deleted body
+lines. But under git's single-char diff prefix, a *deleted* line whose content
+starts with `--` and a space (SQL/Lua/Haskell/Ada comments) renders as
+`--- this is a comment`, and an *added* line starting with `++` and a space
+renders as `+++ foo`. The header arms were checked first and were **not** gated
+on "before the first hunk," so these body lines were misrouted: the deletion was
+silently dropped (undercount) and the `+++` line silently rewrote the file's
+path and dropped the addition — corrupting both the size feature and the
+diffusion path key, the very metrics the feature computes, on entirely realistic
+input. The fix gates the `+++`/`---` arms on `!saw_hunk` (the parser already
+tracked it); once a hunk is open, those lines fall through to the `+`/`-`
+counting arms.
+
+**The first regression fixture was too weak to trigger the bug it guarded.**
+The collision needs the *three*-dash/plus marker plus a space (`---`/`+++`
+followed by a space) — which a body line produces only when its content begins
+with `--`/`++` and a space. The remediation's first fixture used content
+starting with just `--`/`++` (no following space), which, after the diff's
+leading `-`/`+`, produced only a two-dash/plus run — not the three-character
+header marker — so the test passed against the *unfixed* code and protected
+nothing. Test-via-revert (`.claude/rules/testing.md`) exposed it: the
+test had to fail against the pre-fix tree, and it didn't until the fixture was
+corrected to genuinely emit the colliding prefix.
+
+**Lesson:** When a parser keys on a line prefix, enumerate the content that can
+masquerade as each structural marker and disambiguate by parser state
+(position-in-grammar), never by the prefix in isolation. A `+`/`-` body line is
+a `+++`/`---` header only before the first hunk; encode that, do not assume it.
+And a regression test for a prefix collision is only real if its fixture
+actually produces the colliding prefix — verify by revert, because a fixture
+that's one character short passes against the bug and guards nothing. Relates to
+lesson #58 (a wrapper-node + keyword leaf is one operator — guard the leaves)
+and #57 (a structural shape is not a semantic identity — read the bytes); both
+are the AST-side of the same hazard: a token that looks structural may be
+content.
+
+---
