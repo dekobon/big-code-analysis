@@ -100,18 +100,18 @@ path = "src/vcs/git/jit.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1106.0
+value = 1370.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 54.0
+value = 67.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "parse_unified_diff"
-start_line = 151
+start_line = 152
 metric = "cyclomatic"
 value = 16.0

@@ -16,6 +16,7 @@
 //! `risk_score` stay computed by one code path; the experience walk is a
 //! separate, cheap author-only pass (no diffs).
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -327,24 +328,180 @@ fn parse_hunk_header(line: &str) -> Result<(), Error> {
 /// The new-side path from a `diff --git a/<old> b/<new>` header line (the
 /// text after `diff --git `), used as a fallback before the `+++` line is
 /// seen. Returns the `b/<new>` portion with its `b/` prefix dropped, or
-/// `None` if the header does not carry a recognizable `b/` side.
+/// `None` if the header carries no recognizable `b/` side.
+///
+/// Three header shapes are handled, in priority order: a C-quoted new side
+/// (`"b/…"`, the `core.quotePath=true` default for non-ASCII names), an
+/// unquoted symmetric modify (`a/X b/X`, which tolerates a space in `X`), and
+/// a plain unquoted rename/copy (`a/<old> b/<new>`).
 fn diff_git_new_path(rest: &str) -> Option<PathBuf> {
-    // `git diff` writes `a/<old> b/<new>`; the new side is the last
-    // whitespace-separated token starting with `b/`. Paths with spaces are
-    // uncommon in this header form and fall back to the `+++` line.
+    let rest = rest.trim();
+    // A quoted path (`core.quotePath=true`, the default for non-ASCII names)
+    // is wrapped in `"…"` with its bytes escaped, so the quoted span is
+    // self-delimiting even when the name contains spaces. When the new side
+    // is quoted, the last top-level quoted token is unambiguous.
+    if let Some(tok) = last_quoted_token(rest)
+        && let Some(p) = unquote_git_path(tok)
+            .strip_prefix("b/")
+            .filter(|p| !p.is_empty())
+    {
+        return Some(PathBuf::from(p));
+    }
+    // Unquoted `a/<old> b/<new>`. A modify repeats the path (`a/X b/X`), so a
+    // symmetric split recovers a name containing spaces that `rsplit(' ')`
+    // would truncate — e.g. a binary file with a space, which carries no
+    // `+++ b/<path>` line to self-correct.
+    if let Some(p) = symmetric_modify_new_path(rest) {
+        return Some(p);
+    }
+    // Rename / copy without special characters: the new side is the last
+    // whitespace-separated token starting with `b/`.
     rest.rsplit(' ')
         .find_map(|tok| tok.strip_prefix("b/"))
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
 }
 
-/// Normalize a `+++`/`---` unified-diff path: strip the optional `a/` or
-/// `b/` prefix and a trailing tab-delimited timestamp, and treat
-/// `/dev/null` as no path (the absent side of an add / delete).
+/// The last double-quoted top-level token of a `diff --git` header rest, with
+/// its surrounding quotes, or `None` if the header carries no quoted token. A
+/// quoted span is delimited by unescaped `"` and may contain escaped quotes
+/// (`\"`) and spaces, so a quoted path is parsed as a single token here even
+/// when `rsplit(' ')` would shred it.
+fn last_quoted_token(rest: &str) -> Option<&str> {
+    let bytes = rest.as_bytes();
+    let mut i = 0;
+    let mut last = None;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' => i += 1,
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    // A `\<x>` escape spans two bytes; clamp so a trailing
+                    // backslash cannot push the slice end past the string.
+                    i = if bytes[i] == b'\\' {
+                        (i + 2).min(bytes.len())
+                    } else {
+                        i + 1
+                    };
+                }
+                // Advance past the closing quote; the slice `[start..i]` then
+                // spans the whole token, both quotes included.
+                i = (i + 1).min(bytes.len());
+                last = Some(&rest[start..i]);
+            }
+            // Unquoted token: skip to the next space or quote. Bytes inside a
+            // UTF-8 multibyte sequence are all >= 0x80, so comparing to ASCII
+            // never lands mid-character.
+            _ => {
+                while i < bytes.len() && bytes[i] != b' ' && bytes[i] != b'"' {
+                    i += 1;
+                }
+            }
+        }
+    }
+    last
+}
+
+/// Recover the new-side path from an unquoted `a/X b/X` header where old and
+/// new are equal (a modify, not a rename). The symmetric shape lets the path
+/// contain spaces: `body == X + " b/" + X`, so the midpoint split is exact
+/// where `rsplit(' ')` would truncate at the first space. The `first == second`
+/// equality also rejects any non-symmetric header (rename, mismatched halves).
+fn symmetric_modify_new_path(rest: &str) -> Option<PathBuf> {
+    let body = rest.strip_prefix("a/")?;
+    // `body == X " b/" X` ⟹ `len(body) == 2*len(X) + 3`.
+    let x_len = body.len().checked_sub(3)? / 2;
+    let (first, tail) = body.split_at_checked(x_len)?;
+    let second = tail.strip_prefix(" b/")?;
+    (first == second && !first.is_empty()).then(|| PathBuf::from(first))
+}
+
+/// Decode one of git's named single-character C escapes to its byte, or
+/// `None` if `b` is not a recognized named escape (the caller then treats it
+/// as an octal escape or a literal backslash). The control bytes without a
+/// Rust escape (`\a` BEL, `\b` BS, `\v` VT, `\f` FF) are spelled in hex.
+fn decode_named_escape(b: u8) -> Option<u8> {
+    Some(match b {
+        b'a' => 0x07,
+        b'b' => 0x08,
+        b't' => b'\t',
+        b'n' => b'\n',
+        b'v' => 0x0b,
+        b'f' => 0x0c,
+        b'r' => b'\r',
+        b'"' => b'"',
+        b'\\' => b'\\',
+        _ => return None,
+    })
+}
+
+/// Decode git's C-style path quoting (`core.quotePath`, on by default).
+///
+/// `git diff` wraps a path in double quotes and escapes any byte that is
+/// non-ASCII, a control character, a `"`, or a `\` — non-ASCII and other
+/// raw bytes as 3-digit octal `\ooo`, the usual C controls as `\n`/`\t`/…
+/// (e.g. `"a/na\303\257ve.txt"` for `a/naïve.txt`, where `ï` is UTF-8
+/// `0xC3 0xAF`). An unquoted token is returned borrowed unchanged; a quoted
+/// token has its quotes removed and escapes decoded back to bytes, which are
+/// then read as UTF-8. A non-UTF-8 byte sequence (a path under a non-UTF-8
+/// filesystem encoding) is decoded lossily: the diffusion subsystem grouping
+/// this feeds is best-effort, so an approximate name beats the literal
+/// quoted string.
+fn unquote_git_path(token: &str) -> Cow<'_, str> {
+    let Some(inner) = token.strip_prefix('"').and_then(|t| t.strip_suffix('"')) else {
+        return Cow::Borrowed(token);
+    };
+    let raw = inner.as_bytes();
+    let mut out = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        let next = (raw[i] == b'\\').then(|| raw.get(i + 1).copied()).flatten();
+        let Some(next) = next else {
+            out.push(raw[i]);
+            i += 1;
+            continue;
+        };
+        if let Some(byte) = decode_named_escape(next) {
+            out.push(byte);
+            i += 2;
+        } else if next.is_ascii_digit() && next < b'8' {
+            // Up to three octal digits (starting just after the `\`) encode
+            // one byte (git emits `\ooo`, always <= `\377`).
+            let mut val: u16 = 0;
+            let mut j = i + 1;
+            while j < raw.len() && j < i + 4 && raw[j].is_ascii_digit() && raw[j] < b'8' {
+                val = val * 8 + u16::from(raw[j] - b'0');
+                j += 1;
+            }
+            // Mask to the low byte: git emits at most `\377`, but three octal
+            // digits could spell `\400`–`\777`; keep one byte.
+            out.push((val & 0xFF) as u8);
+            i = j;
+        } else {
+            // Unknown escape: git does not emit one, so keep the backslash
+            // literally rather than silently dropping it.
+            out.push(b'\\');
+            i += 1;
+        }
+    }
+    match String::from_utf8(out) {
+        Ok(s) => Cow::Owned(s),
+        Err(e) => Cow::Owned(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
+}
+
 fn unified_path(raw: &str) -> Option<PathBuf> {
     // `git` appends nothing, but POSIX `diff -u` appends a tab + timestamp;
     // cut at the first tab to be tolerant of both.
-    let path = raw.split('\t').next().unwrap_or(raw).trim();
+    let trimmed = raw.split('\t').next().unwrap_or(raw).trim();
+    // Decode git's C-style quoting first, so a `"a/na\303\257ve.txt"` form
+    // yields the real name before the `a/`/`b/` prefix is stripped (the
+    // prefix lives *inside* the quotes). `/dev/null` is never quoted, so the
+    // decode is a no-op there.
+    let path = unquote_git_path(trimmed);
+    let path = path.as_ref();
     if path == "/dev/null" || path.is_empty() {
         return None;
     }
@@ -909,6 +1066,113 @@ Binary files a/logo.png and b/logo.png differ
         let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n";
         let err = parse_unified_diff(diff).expect_err("must reject");
         assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn quoted_non_ascii_path_is_unquoted() {
+        // Default `core.quotePath=true` wraps a non-ASCII path in quotes and
+        // octal-escapes its bytes: `naïve.txt` → `"na\303\257ve.txt"` (ï =
+        // U+00EF = UTF-8 0xC3 0xAF). Both the `diff --git` header and the
+        // `+++` line carry the quoted form; the parsed new-side path must be
+        // the decoded `naïve.txt`, not the literal quoted string, so the
+        // diffusion subsystem grouping keys on the real name.
+        let diff = concat!(
+            "diff --git \"a/na\\303\\257ve.txt\" \"b/na\\303\\257ve.txt\"\n",
+            "index 111..222 100644\n",
+            "--- \"a/na\\303\\257ve.txt\"\n",
+            "+++ \"b/na\\303\\257ve.txt\"\n",
+            "@@ -1,1 +1,1 @@\n",
+            "-old\n",
+            "+new\n",
+        );
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        let t = touched(&files, "naïve.txt");
+        assert_eq!((t.added, t.deleted, t.hunks), (1, 1, 1));
+    }
+
+    #[test]
+    fn spaced_binary_path_keeps_full_name() {
+        // A binary file whose name contains a space is NOT quoted by git (a
+        // space is not a quote-triggering byte) and carries no `+++ b/<path>`
+        // line to self-correct, so the new-side path must be recovered from
+        // the symmetric `a/X b/X` header rather than truncated at the first
+        // space by `rsplit(' ')`.
+        let diff = concat!(
+            "diff --git a/my file.bin b/my file.bin\n",
+            "index 111..222 100644\n",
+            "Binary files a/my file.bin and b/my file.bin differ\n",
+        );
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        let t = touched(&files, "my file.bin");
+        assert_eq!((t.added, t.deleted, t.hunks), (0, 0, 0));
+    }
+
+    #[test]
+    fn quoted_spaced_non_ascii_path_is_unquoted() {
+        // A name with BOTH a space and a non-ASCII byte is quoted (the
+        // non-ASCII byte triggers quoting), so the quoted span is
+        // self-delimiting and the embedded space must not split it. `é` =
+        // U+00E9 = UTF-8 0xC3 0xA9.
+        let diff = concat!(
+            "diff --git \"a/caf\\303\\251 menu.txt\" \"b/caf\\303\\251 menu.txt\"\n",
+            "--- \"a/caf\\303\\251 menu.txt\"\n",
+            "+++ \"b/caf\\303\\251 menu.txt\"\n",
+            "@@ -1,1 +1,1 @@\n",
+            "-x\n",
+            "+y\n",
+        );
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        let t = touched(&files, "café menu.txt");
+        assert_eq!((t.added, t.deleted, t.hunks), (1, 1, 1));
+    }
+
+    #[test]
+    fn unquote_git_path_decodes_escapes_and_passes_plain_through() {
+        use super::unquote_git_path;
+        // Unquoted tokens are returned borrowed, unchanged.
+        assert_eq!(unquote_git_path("b/plain.rs").as_ref(), "b/plain.rs");
+        // Octal byte escapes reassemble a UTF-8 multibyte character.
+        assert_eq!(
+            unquote_git_path("\"b/na\\303\\257ve.txt\"").as_ref(),
+            "b/naïve.txt"
+        );
+        // Named C escapes decode to their control bytes.
+        assert_eq!(unquote_git_path("\"a\\tb\\nc\"").as_ref(), "a\tb\nc");
+        // Escaped quote and backslash decode to the literal characters.
+        assert_eq!(unquote_git_path("\"q\\\"x\"").as_ref(), "q\"x");
+        assert_eq!(
+            unquote_git_path("\"back\\\\slash\"").as_ref(),
+            "back\\slash"
+        );
+    }
+
+    #[test]
+    fn rename_to_non_ascii_quotes_only_new_side() {
+        // A rename from an ASCII name to a non-ASCII one quotes only the new
+        // (`b/`) side: `diff --git a/old.txt "b/na\303\257ve.txt"`. The old
+        // side stays unquoted, so `last_quoted_token` must pick the quoted new
+        // side rather than a quoted old side, and the `+++` line (also quoted)
+        // confirms it. Exercises the single-side-quoted path distinctly from
+        // the both-sides-quoted modify.
+        let diff = concat!(
+            "diff --git a/old.txt \"b/na\\303\\257ve.txt\"\n",
+            "similarity index 100%\n",
+            "rename from old.txt\n",
+            "rename to \"na\\303\\257ve.txt\"\n",
+            "--- a/old.txt\n",
+            "+++ \"b/na\\303\\257ve.txt\"\n",
+            "@@ -1,1 +1,1 @@\n",
+            "-a\n",
+            "+b\n",
+        );
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        // Diffusion keys on the new side, which is the decoded non-ASCII name.
+        let t = touched(&files, "naïve.txt");
+        assert_eq!((t.added, t.deleted), (1, 1));
     }
 
     #[test]

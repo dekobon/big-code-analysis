@@ -1686,6 +1686,16 @@ for historical reference.
 
 ### Fixed
 
+- The unified-diff parser behind `bca vcs jit --diff` (#580) now decodes
+  git's C-style path quoting, so a diff touching a file with a non-ASCII
+  name (`"a/na\303\257ve.txt"` under the default `core.quotePath=true`)
+  keys its diffusion subsystem/directory on the real `naïve.txt` instead
+  of the literal quoted, octal-escaped string. The `diff --git` header
+  parse also recovers a new-side path containing a space — a binary file
+  with a spaced name carries no `+++ b/<path>` line to self-correct — via
+  the symmetric `a/X b/X` shape rather than truncating at the first space.
+  Line/file counts and the partial score were already correct; only the
+  diffusion grouping was affected (#586).
 - The Python `vcs_metrics` type stub omitted the `bus_factor_threshold`
   keyword that the runtime `#[pyfunction]` accepts, so `mypy` / `pyright`
   rejected `vcs_metrics(repo, bus_factor_threshold=0.6)` even though it

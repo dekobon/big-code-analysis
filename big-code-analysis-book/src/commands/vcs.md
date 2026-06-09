@@ -434,6 +434,11 @@ not `score`.
 > mutually exclusive; `--fail-over` works in both modes (calibrate the
 > diff-mode threshold against your own diff-score distribution).
 
+The parser understands git's default C-style path quoting
+(`core.quotePath=true`), so a diff touching a file with a non-ASCII or
+spaced name (which git emits as `"a/na\303\257ve.txt"`) is grouped under
+its decoded path in the diffusion features, not the raw quoted string.
+
 ### REST and Python parity
 
 The JIT score is also available off the CLI:
