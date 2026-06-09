@@ -282,6 +282,7 @@ def vcs_metrics(
     as_of: str | None = None,
     emit_author_details: bool = False,
     include_deleted: bool = False,
+    bus_factor_threshold: float | None = None,
     no_cache: bool = False,
     cache_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -299,8 +300,10 @@ def vcs_metrics(
     ``"percentile"``. ``file_types`` scopes which files are ranked:
     ``"metrics"`` (default — only files bca has metrics for), ``"all"``
     (every tracked text file), or a comma-separated extension allow-list
-    (``"rs,py"``). ``as_of`` (RFC 3339 / ``@unix`` / git date) pins
-    the reference "now" for reproducible snapshots.
+    (``"rs,py"``). ``bus_factor_threshold`` (default ``0.5``) sets the
+    coverage/abandonment fraction for the bus-factor flag. ``as_of``
+    (RFC 3339 / ``@unix`` / git date) pins the reference "now" for
+    reproducible snapshots.
 
     The persistent change-history cache (issue #334) reuses prior work on
     an unchanged tree and walks only new commits when ``HEAD`` advances.
