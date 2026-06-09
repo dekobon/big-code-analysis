@@ -47,9 +47,15 @@ for historical reference.
     --vcs` to attach a `vcs` block to each file's metrics, and `bca
     report markdown|html --vcs` to append a "Change-history risk"
     section to the aggregated quality report (#573). The Markdown and
-    HTML renderers share one column spec so they cannot drift. `bca vcs`
-    errors clearly outside a git working tree; `--include` / `--exclude`
-    / `--paths` are reused.
+    HTML renderers share one column spec so they cannot drift. The HTML
+    report (both `bca vcs --format html` and the `bca report html --vcs`
+    section) severity-heats the `risk_score` cell on a green→yellow→red
+    gradient (#577); because `risk_score` is ordinal, the band is derived
+    from each row's relative rank within the displayed set (five equal
+    quantile bands), not from absolute thresholds, with WCAG-AA-contrast
+    light and dark-mode palettes. Markdown output stays plain text.
+    `bca vcs` errors clearly outside a git working tree; `--include` /
+    `--exclude` / `--paths` are reused.
   - Web: a new `POST /vcs` endpoint taking a server-side `repo_path`.
   - Python: `vcs_metrics(repo_path, …)` and an opt-in `vcs=True` on
     `analyze()`.

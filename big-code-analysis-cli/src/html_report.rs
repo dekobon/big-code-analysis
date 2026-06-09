@@ -136,6 +136,26 @@ table.hotspot th[aria-sort=ascending]::after{content:\" \\2191\"}\
 table.hotspot th[aria-sort=descending]::after{content:\" \\2193\"}\
 table.hotspot tr:nth-child(even) td{background:#fafafa}\
 table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
+table.hotspot td.risk-heat-0,table.hotspot td.risk-heat-1,\
+table.hotspot td.risk-heat-2,table.hotspot td.risk-heat-3,\
+table.hotspot td.risk-heat-4{font-weight:600}\
+table.hotspot tr:nth-child(even) td.risk-heat-0,table.hotspot td.risk-heat-0\
+{background:#f4b8b0;color:#222}\
+table.hotspot tr:nth-child(even) td.risk-heat-1,table.hotspot td.risk-heat-1\
+{background:#f6cba3;color:#222}\
+table.hotspot tr:nth-child(even) td.risk-heat-2,table.hotspot td.risk-heat-2\
+{background:#f1e3a3;color:#222}\
+table.hotspot tr:nth-child(even) td.risk-heat-3,table.hotspot td.risk-heat-3\
+{background:#cfe6b0;color:#222}\
+table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4\
+{background:#bfe3c0;color:#222}\
+@media (prefers-color-scheme:dark){\
+table.hotspot td.risk-heat-0{background:#7a1f17;color:#f0f0f0}\
+table.hotspot td.risk-heat-1{background:#7a4a12;color:#f0f0f0}\
+table.hotspot td.risk-heat-2{background:#6b5e12;color:#f0f0f0}\
+table.hotspot td.risk-heat-3{background:#33591f;color:#f0f0f0}\
+table.hotspot td.risk-heat-4{background:#1f5a2e;color:#f0f0f0}\
+}\
 ";
 
 /// `LANG::name()` -> CSS class suffix table. The renderer uses
@@ -359,6 +379,24 @@ pub(crate) fn write_table(
     aligns: &[Align],
     rows: &[Vec<String>],
 ) {
+    // No extra per-cell classes: every cell carries only its
+    // alignment-derived `numeric` class.
+    write_table_classed(out, headers, aligns, rows, |_, _| None);
+}
+
+/// Like [`write_table`], but a `cell_class` callback can contribute an
+/// extra CSS class (e.g. a severity-heat band) to a specific `<td>`,
+/// keyed by `(row_index, column_index)`. The returned class is appended
+/// after the alignment-derived `numeric` class on a single
+/// space-separated `class="…"` attribute, so [`escape_html`] still runs
+/// exactly once per cell and the attribute is never doubled.
+pub(crate) fn write_table_classed(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    rows: &[Vec<String>],
+    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
+) {
     debug_assert_eq!(headers.len(), aligns.len());
     let _ = out.write_str("<table class=\"hotspot\">\n<thead><tr>");
     for (h, a) in headers.iter().zip(aligns) {
@@ -374,14 +412,23 @@ pub(crate) fn write_table(
         let _ = write!(out, ">{}</th>", escape_html(h));
     }
     let _ = out.write_str("</tr></thead>\n<tbody>\n");
-    for row in rows {
+    for (r, row) in rows.iter().enumerate() {
         debug_assert_eq!(row.len(), headers.len());
         let _ = out.write_str("<tr>");
-        for (cell, a) in row.iter().zip(aligns) {
-            let class = if a.is_numeric() {
-                " class=\"numeric\""
+        for (c, (cell, a)) in row.iter().zip(aligns).enumerate() {
+            // Join the alignment class and any per-cell extra into one
+            // space-separated attribute, so each `<td>` carries at most a
+            // single `class="…"`.
+            let names = a
+                .is_numeric()
+                .then_some("numeric")
+                .into_iter()
+                .chain(cell_class(r, c))
+                .collect::<Vec<_>>();
+            let class = if names.is_empty() {
+                String::new()
             } else {
-                ""
+                format!(" class=\"{}\"", names.join(" "))
             };
             let _ = write!(out, "<td{class}>{}</td>", escape_html(cell));
         }

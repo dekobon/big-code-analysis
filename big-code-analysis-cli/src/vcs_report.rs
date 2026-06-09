@@ -15,13 +15,18 @@
 //! `markdown_and_html_columns_match`). Table markup and escaping are
 //! delegated to the existing renderers' `write_table` helpers
 //! (`crate::markdown_report::write_table` /
-//! `crate::html_report::write_table`) and the shared HTML scaffolding
+//! `crate::html_report::write_table`, or `write_table_classed` for the
+//! HTML severity-heat tint on the `risk_score` cell, see
+//! [`risk_heat_class`]) and the shared HTML scaffolding
 //! (`write_html_head` / `write_html_tail`), so the page carries
 //! `report.html`'s styling and inline click-to-sort behaviour.
 
 use std::fmt::Write as _;
 
-use crate::html_report::{write_html_head, write_html_tail, write_table as write_html_table};
+use crate::html_report::{
+    write_html_head, write_html_tail, write_table as write_html_table,
+    write_table_classed as write_html_table_classed,
+};
 use crate::markdown_report::hotspot::Cell;
 use crate::markdown_report::{Align, render_cell_md, write_table as write_md_table};
 use crate::vcs_command::{FileEntry, Report};
@@ -155,6 +160,60 @@ const VCS_SPECS: &[VcsColumn] = &[
         },
     },
 ];
+
+/// Header of the column that carries the severity-heat tint in the HTML
+/// report. Matched structurally against [`VCS_SPECS`] (see
+/// [`risk_column_index`]) so the heat lands on the right `<td>` even if
+/// the column order changes; the Markdown path ignores it entirely.
+const RISK_COLUMN_HEADER: &str = "Risk";
+
+/// Number of discrete severity-heat bands for the `risk_score` cell.
+/// Five bands give a green→yellow→red gradient coarse enough to stay
+/// WCAG-contrast-correct and snapshot-stable, yet fine enough to separate
+/// the riskiest files. `risk_score` is *ordinal*, so the band derives
+/// from each row's rank, never the absolute value — see [`risk_heat_class`].
+const HEAT_BAND_COUNT: usize = 5;
+
+/// CSS class names for the five severity-heat bands, most-severe first.
+/// Index 0 (`risk-heat-0`, red) tints the top-ranked rows and index 4
+/// (`risk-heat-4`, green) the lowest-ranked. Matching rules live in
+/// `html_report::INLINE_CSS`.
+const HEAT_CLASSES: [&str; HEAT_BAND_COUNT] = [
+    "risk-heat-0",
+    "risk-heat-1",
+    "risk-heat-2",
+    "risk-heat-3",
+    "risk-heat-4",
+];
+
+/// Index of the risk column within [`VCS_SPECS`], or `None` if no column
+/// carries [`RISK_COLUMN_HEADER`] (a spec edit would have to remove it).
+fn risk_column_index() -> Option<usize> {
+    VCS_SPECS
+        .iter()
+        .position(|c| c.header == RISK_COLUMN_HEADER)
+}
+
+/// Severity-heat CSS class for the risk cell of the `row`-th file in a
+/// report of `n_rows` risk-ranked files, or `None` when no band applies.
+///
+/// The band is a function of *rank*, not the raw `risk_score`:
+/// `report.files` is sorted by descending risk, so `row` (0-based) is the
+/// rank. Splitting `[0, n_rows)` into [`HEAT_BAND_COUNT`] equal-width
+/// slices maps the top rows to band 0 (most severe) and the bottom rows to
+/// the last band (least severe), independent of the absolute values.
+///
+/// Edge case: a single row has no ranking to express, so it gets the
+/// least-severe band (a lone file should not look alarming); `n_rows == 0`
+/// never calls this (no rows are rendered).
+fn risk_heat_class(row: usize, n_rows: usize) -> Option<&'static str> {
+    if n_rows <= 1 {
+        return HEAT_CLASSES.last().copied();
+    }
+    // Equal-width rank slices: floor(row * BANDS / n_rows), in range since `row < n_rows`.
+    let band = (row * HEAT_BAND_COUNT) / n_rows;
+    HEAT_CLASSES.get(band).copied()
+}
 
 /// The shared page/section heading.
 const HEADING: &str = "Change-history risk";
@@ -339,7 +398,18 @@ fn write_html_body(out: &mut String, report: &Report) {
             .into_iter()
             .map(|row| row.into_iter().map(cell_text).collect())
             .collect();
-        write_html_table(out, &headers(), &aligns(), &rows);
+        // Tint only the risk cell, by relative rank. `report.files` is
+        // risk-ranked, so the row index is the rank; the Markdown path
+        // (which never calls this) stays plain text.
+        let risk_col = risk_column_index();
+        let n_rows = rows.len();
+        write_html_table_classed(out, &headers(), &aligns(), &rows, |r, c| {
+            if Some(c) == risk_col {
+                risk_heat_class(r, n_rows)
+            } else {
+                None
+            }
+        });
     }
     if let Some(aggregate) = &report.vcs_aggregate {
         write_html_bus_factor(out, &aggregate.bus_factor);
@@ -625,5 +695,103 @@ mod tests {
         };
         assert!(render_markdown(&report).contains(SHALLOW_NOTE));
         assert!(render_html(&report).contains(SHALLOW_NOTE));
+    }
+
+    /// The `risk-heat-N` class on each ranked row's Risk `<td>`, in
+    /// document order, read straight off the rendered tag so the test is
+    /// tied to the actual attribute. Scoped to the `<tbody>` of the
+    /// ranked-files table (before the bus-factor section, which has no
+    /// risk column).
+    fn risk_heat_classes(html: &str) -> Vec<String> {
+        let risk_col = risk_column_index().expect("VCS_SPECS has a Risk column");
+        let files_html = html
+            .split("<section class=\"bus-factor\">")
+            .next()
+            .unwrap_or(html);
+        let mut rest = files_html.split_once("<tbody>").map_or("", |(_, b)| b);
+        let mut classes = Vec::new();
+        while let Some(open) = rest.find("<tr>") {
+            let row = &rest[open + "<tr>".len()..];
+            let Some(close) = row.find("</tr>") else {
+                break;
+            };
+            // The risk cell looks like ` class="numeric risk-heat-0">9.4`.
+            let cell = row[..close].split("<td").nth(risk_col + 1).unwrap_or("");
+            let heat = cell
+                .split_once("risk-heat-")
+                .and_then(|(_, c)| c.split(['"', ' ', '>']).next())
+                .map(|n| format!("risk-heat-{n}"))
+                .unwrap_or_default();
+            classes.push(heat);
+            rest = &row[close + "</tr>".len()..];
+        }
+        classes
+    }
+
+    #[test]
+    fn risk_cell_is_heated_by_rank_not_value() {
+        // Raw scores are tightly clustered and all high (98..94) — an
+        // *absolute*-threshold scheme would paint every row the same
+        // severe band. Relativity demands the top row get the most-severe
+        // class and the bottom the least, purely by rank. Five rows over
+        // five bands map rank r -> band r.
+        let report = Report {
+            vcs_aggregate: None,
+            files: (0..5)
+                .map(|i| entry(&format!("f{i}.rs"), 98.0 - f64::from(i), 5 - i, None))
+                .collect(),
+            ..rich_report()
+        };
+        let html = render_html(&report);
+        assert_eq!(
+            risk_heat_classes(&html),
+            (0..5).map(|i| format!("risk-heat-{i}")).collect::<Vec<_>>(),
+        );
+        // Exactly one heated cell per row — the band lands on a single
+        // column. Scan the body (the `<style>` block also names classes).
+        let body = html.rsplit_once("</style>").map_or("", |(_, b)| b);
+        assert_eq!(body.matches("risk-heat-").count(), report.files.len());
+        // The Markdown path carries no heat classes whatsoever.
+        assert!(!render_markdown(&report).contains("risk-heat-"));
+    }
+
+    #[test]
+    fn risk_heat_band_edges_are_relative() {
+        // Unit check of the rank->band mapping and documented edge cases.
+        assert_eq!(risk_heat_class(0, 1), Some("risk-heat-4")); // lone row: least-severe
+        assert_eq!(risk_heat_class(0, 5), Some("risk-heat-0")); // top: most-severe
+        assert_eq!(risk_heat_class(4, 5), Some("risk-heat-4")); // bottom: least-severe
+        // Remainder rows: 3 over 5 bands -> 0, 1, 3 (no div-by-zero, in range).
+        assert_eq!(risk_heat_class(1, 3), Some("risk-heat-1"));
+        assert_eq!(risk_heat_class(2, 3), Some("risk-heat-3"));
+        // The rich report's three rows render bands 0, 1, 3 in order.
+        assert_eq!(
+            risk_heat_classes(&render_html(&rich_report())),
+            ["risk-heat-0", "risk-heat-1", "risk-heat-3"],
+        );
+    }
+
+    #[test]
+    fn heat_classes_have_light_and_dark_css() {
+        // Every `risk-heat-N` band needs a light-mode rule and a dark-mode
+        // override so the value text stays WCAG-AA legible in both schemes.
+        // Assert against the rendered `<style>`; the heat dark-mode rules
+        // are the *last* `@media` adapter (the palette emits an earlier one).
+        let html = render_html(&rich_report());
+        let dark_block = html
+            .rsplit_once("@media (prefers-color-scheme:dark){")
+            .expect("dark-mode adapter present")
+            .1;
+        for class in HEAT_CLASSES {
+            let light = format!("td.{class}{{background:");
+            assert!(
+                html.contains(&light),
+                "missing light-mode CSS for {class:?}: expected substring {light:?}"
+            );
+            assert!(
+                dark_block.contains(&light),
+                "missing dark-mode override for {class:?}: expected {light:?} in @media block"
+            );
+        }
     }
 }
