@@ -34,6 +34,38 @@ requires `--output`). The global `--paths` / `--include` / `--exclude` /
 
 `bca vcs` errors clearly when run outside a git working tree.
 
+### File-type scope
+
+By default `bca vcs` ranks **only the files bca computes metrics for** —
+the same set `bca metrics` would analyse. High-churn non-source files
+(`CHANGELOG.md`, `Cargo.lock`, generated config) carry no maintainability
+meaning yet maximise the churn / commit / author signals, so ranking them
+beside source code is noise; scoping to files-with-metrics also keeps the
+standalone ranking aligned with the AST hotspot tables in
+[`bca report --vcs`](report.md).
+
+`--file-types <SCOPE>` selects the scope:
+
+| Value | Meaning |
+|---|---|
+| `metrics` *(default)* | Only files bca has a language/metrics for, by extension |
+| `all` | Every tracked, non-binary, non-symlink text file |
+| `rs,py,toml,…` | A comma-separated extension allow-list (leading dots optional, case-insensitive) |
+
+```bash
+bca vcs                          # rank source files only (default)
+bca vcs --file-types all         # rank every tracked text file
+bca vcs --file-types rs,py       # rank only Rust and Python files
+```
+
+The check is **extension-only** (no file content is read) and ANDs with
+the `--paths` / `--include` / `--exclude` / `--no-ignore` filters — a
+file must pass both to be ranked. Extension-less files (`Makefile`,
+`Dockerfile`, `LICENSE`) and unknown extensions are out of the `metrics`
+scope; a custom list is a literal extension filter, so it can include a
+non-metrics type like `toml`. An empty or all-blank custom list is a
+clear error rather than a scope that silently ranks nothing.
+
 ### Rendered report page
 
 ```bash
@@ -164,6 +196,7 @@ cross-project robustness.
 | `--long-window <DUR>` | `12mo` | Long window (`12mo`, `2y`, `8w`, `365d`, ISO 8601 `P1Y`) |
 | `--recent-window <DUR>` | `90d` | Recent window |
 | `--top <N>` | `50` | Show only the top N (`0` = all) |
+| `--file-types <SCOPE>` | `metrics` | Files to rank: `metrics`, `all`, or an extension list (`rs,py`) |
 | `--ref <REF>` | `HEAD` | Revision to analyse |
 | `--full-history` | off | Walk the full DAG (default: first-parent only) |
 | `--include-merges` | off | Include merge commits |
@@ -485,7 +518,9 @@ not pay for it.
 This project runs `bca vcs` on its own source. `make vcs` prints the
 ranked table (path selection and the `.bcaignore` deny-set come from the
 repo-root `bca.toml` manifest, the same config `make self-scan` and
-`make report` use; `BCA_VCS_TOP` overrides the row cap). On every push to
+`make report` use; `BCA_VCS_TOP` overrides the row cap). The manifest's
+`[vcs] file_types` key sets the default scope (the `--file-types` CLI
+flag replaces it when given). On every push to
 `main` the Pages CI job folds the rendered ranking into the flagship
 report — `bca report html --vcs` / `report markdown --vcs` — so the
 published [`reports/index.html`](https://dekobon.github.io/big-code-analysis/reports/index.html)
@@ -504,6 +539,10 @@ for tooling.
   ranked report as a dict, `vcs_trend(repo_path, points=…, span=…, …)`
   returns the time series, and `analyze(path, vcs=True)` attaches a `vcs`
   block to a single file's metrics.
+
+Both `POST /vcs` and `vcs_metrics()` accept an optional `file_types`
+(`"metrics"` / `"all"` / `"rs,py"`) to scope which files are ranked,
+mirroring the CLI `--file-types`.
 
 Both `POST /vcs` and `vcs_metrics()` include the `vcs_aggregate` bus
 factor in the result and accept a `bus_factor_threshold` (in `(0, 1)`) to

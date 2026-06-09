@@ -233,6 +233,11 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   "tiered"` opts into the finer-grained exit codes (mirrors
   `--strict-exit-codes`; see [Exit codes](#exit-codes)); `"default"`
   (the implicit value) keeps the stable `0`/`1`/`2` contract.
+- A `[vcs]` table sets change-history ranking options for `bca vcs`. Its
+  `file_types` key (`"metrics"` — the default — / `"all"` / a
+  `"rs,py"`-style extension list) scopes which files are ranked; as a
+  positive scope key, an explicit `--file-types` CLI flag **replaces** it
+  (see [`bca vcs` file-type scope](../commands/vcs.md#file-type-scope)).
 - A `[thresholds.soft]` table sets per-metric soft-tier limits
   (consumed by `--tier=soft`; see [Two-tier thresholds](#two-tier-thresholds)).
   Unrecognized keys are ignored with a one-line warning, so you can

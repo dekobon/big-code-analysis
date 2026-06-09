@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::str::FromStr;
+
 use super::*;
 
 const DAY: i64 = 86_400;
@@ -141,4 +144,94 @@ fn bus_factor_threshold_accepts_only_the_open_interval() {
             "{bad} must be rejected"
         );
     }
+}
+
+#[test]
+fn default_file_type_scope_is_metrics() {
+    // The new default flips the standalone `bca vcs` ranking from "all
+    // tracked files" to "files with metrics" (issue #576).
+    assert_eq!(Options::default().file_types, FileTypeScope::Metrics);
+    assert_eq!(FileTypeScope::default(), FileTypeScope::Metrics);
+}
+
+#[test]
+fn file_type_scope_parses_keywords() {
+    assert_eq!(
+        FileTypeScope::from_str("metrics").expect("metrics"),
+        FileTypeScope::Metrics
+    );
+    assert_eq!(
+        FileTypeScope::from_str("all").expect("all"),
+        FileTypeScope::All
+    );
+    // Surrounding whitespace is tolerated on the keyword form.
+    assert_eq!(
+        FileTypeScope::from_str("  all  ").expect("padded all"),
+        FileTypeScope::All
+    );
+}
+
+#[test]
+fn file_type_scope_parses_custom_list_and_normalizes() {
+    // Leading dots are stripped, case is lowered, and blanks dropped; the
+    // order of first appearance is preserved and duplicates collapse.
+    let scope = FileTypeScope::from_str(" .RS, py , rs,, .Py ").expect("custom list");
+    assert_eq!(
+        scope,
+        FileTypeScope::Custom(vec!["rs".to_owned(), "py".to_owned()])
+    );
+}
+
+#[test]
+fn file_type_scope_rejects_empty_and_blank_lists() {
+    // An empty value, or one that normalises to nothing, is an error
+    // rather than a scope that silently ranks no files.
+    for bad in ["", "   ", ",", " , . , "] {
+        assert!(
+            matches!(
+                FileTypeScope::from_str(bad),
+                Err(Error::InvalidFileTypeScope(_))
+            ),
+            "{bad:?} must be rejected as an empty scope"
+        );
+    }
+}
+
+#[test]
+fn metrics_scope_includes_source_excludes_non_source() {
+    // The `metrics` scope routes through the same extension predicate the
+    // metrics walk uses, so a recognised source extension is in scope and
+    // docs / config / lockfiles / extension-less files are not.
+    let metrics = FileTypeScope::Metrics;
+    assert!(metrics.includes(Path::new("src/lib.rs")));
+    assert!(metrics.includes(Path::new("app/main.py")));
+    assert!(!metrics.includes(Path::new("CHANGELOG.md")));
+    assert!(!metrics.includes(Path::new("Cargo.lock")));
+    assert!(!metrics.includes(Path::new("Cargo.toml")));
+    assert!(!metrics.includes(Path::new("Makefile")));
+    assert!(!metrics.includes(Path::new("LICENSE")));
+}
+
+#[test]
+fn all_scope_includes_everything() {
+    let all = FileTypeScope::All;
+    assert!(all.includes(Path::new("src/lib.rs")));
+    assert!(all.includes(Path::new("CHANGELOG.md")));
+    assert!(all.includes(Path::new("Makefile")));
+}
+
+#[test]
+fn custom_scope_matches_only_listed_extensions_case_insensitively() {
+    let scope = FileTypeScope::from_str("rs,toml").expect("custom");
+    assert!(scope.includes(Path::new("src/lib.rs")));
+    // A custom list is a literal extension filter, so non-source
+    // extensions like `toml` are honoured even though bca has no metrics
+    // for them.
+    assert!(scope.includes(Path::new("Cargo.toml")));
+    // Matching is case-insensitive on the file's extension.
+    assert!(scope.includes(Path::new("BUILD.RS")));
+    assert!(!scope.includes(Path::new("app/main.py")));
+    assert!(!scope.includes(Path::new("README.md")));
+    // An extension-less file never matches a custom list.
+    assert!(!scope.includes(Path::new("Makefile")));
 }

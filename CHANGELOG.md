@@ -231,6 +231,31 @@ for historical reference.
     and `bca report --vcs` reuse it transparently.
   - Web: `POST /vcs` gains optional `no_cache` / `cache_dir` fields.
   - Python: `vcs_metrics(…, no_cache=False, cache_dir=None)`.
+- File-type scoping for the change-history ranking (#576). `bca vcs` now
+  ranks **only files bca has metrics for by default** instead of every
+  tracked text file, so high-churn non-source files (`CHANGELOG.md`,
+  `Cargo.lock`, CI config) no longer dominate the risk ranking and the
+  standalone ranking agrees with the AST hotspot tables (`bca report
+  --vcs`). A new `--file-types <SCOPE>` flag selects the scope: `metrics`
+  (the default — resolved by the same extension predicate the metrics
+  walk uses, so it stays in lockstep as languages are added/removed),
+  `all` (the previous whole-tree behaviour), or a comma-separated
+  extension allow-list (`rs,py,toml`; leading dots optional,
+  case-insensitive). The filter is extension-only (no blob content is
+  read) and ANDs with `--paths` / `--include` / `--exclude`. Because the
+  whole VCS surface is still unreleased, the default flip is not a
+  stability break. The scope is applied at file enumeration (an
+  out-of-scope file is never seeded), so it does not affect the cached
+  event log — a cache written under one scope replays correctly under
+  another. Surfaces:
+  - Library: `big_code_analysis::vcs::{FileTypeScope, Options::file_types}`
+    and a new `vcs::Error::InvalidFileTypeScope` variant (behind
+    `vcs-git`).
+  - CLI: `bca vcs --file-types <metrics|all|EXT,…>` plus a `bca.toml`
+    `[vcs] file_types` key (the CLI flag replaces the manifest value).
+  - Web: `POST /vcs` gains an optional `file_types` field.
+  - Python: `vcs_metrics(…, file_types=None)` and `vcs_trend(…,
+    file_types=None)`.
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

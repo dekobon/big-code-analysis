@@ -36,6 +36,10 @@ pub(crate) struct VcsParams {
     pub top: Option<usize>,
     pub reference: Option<String>,
     pub risk_formula: Option<String>,
+    /// File-type scope: `"metrics"` (default), `"all"`, or a
+    /// comma-separated extension allow-list (`"rs,py"`). `None` keeps the
+    /// `metrics` default (issue #576).
+    pub file_types: Option<String>,
     pub full_history: bool,
     pub include_merges: bool,
     pub follow_renames: bool,
@@ -113,6 +117,9 @@ fn options_from(params: &VcsParams) -> Result<Options, PyErr> {
     }
     if let Some(formula) = &params.risk_formula {
         options.risk_formula = formula.parse().map_err(vcs_error_to_py)?;
+    }
+    if let Some(scope) = &params.file_types {
+        options.file_types = scope.parse().map_err(vcs_error_to_py)?;
     }
     // `vcs_metrics()` always returns the directory/repo bus factor.
     options.compute_bus_factor = true;

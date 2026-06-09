@@ -308,3 +308,63 @@ fn report_args(no_suppress: bool) -> ReportArgs {
         vcs: false,
     }
 }
+
+/// Parse `argv` into a `VcsArgs`, for the `[vcs]` merge tests. Routing
+/// through clap keeps the args struct in lockstep with the real CLI
+/// surface (no hand-rolled defaults to drift).
+fn vcs_args(argv: &[&str]) -> VcsArgs {
+    use clap::Parser;
+    match crate::Cli::try_parse_from(argv)
+        .expect("vcs parses")
+        .command
+    {
+        crate::Command::Vcs(args) => *args,
+        other => panic!("expected Command::Vcs, got {other:?}"),
+    }
+}
+
+#[test]
+fn merge_vcs_fills_file_types_when_cli_unset() {
+    let m = manifest(toml::from_str("[vcs]\nfile_types = \"all\"\n").expect("parse"));
+    let mut args = vcs_args(&["bca", "vcs"]);
+    assert!(args.file_types.is_none(), "no CLI flag → unset");
+    m.merge_vcs(&mut args);
+    assert_eq!(
+        args.file_types.as_deref(),
+        Some("all"),
+        "the manifest value fills an unset --file-types"
+    );
+}
+
+#[test]
+fn merge_vcs_cli_flag_replaces_manifest() {
+    // `file_types` is a positive scope key: an explicit CLI value wins
+    // outright (it replaces, never unions with, the manifest).
+    let m = manifest(toml::from_str("[vcs]\nfile_types = \"all\"\n").expect("parse"));
+    let mut args = vcs_args(&["bca", "vcs", "--file-types", "rs,py"]);
+    m.merge_vcs(&mut args);
+    assert_eq!(
+        args.file_types.as_deref(),
+        Some("rs,py"),
+        "the CLI flag replaces the manifest value"
+    );
+}
+
+#[test]
+fn merge_vcs_empty_manifest_leaves_cli_unset() {
+    let m = manifest(RawManifest::default());
+    let mut args = vcs_args(&["bca", "vcs"]);
+    m.merge_vcs(&mut args);
+    assert!(
+        args.file_types.is_none(),
+        "no manifest and no CLI flag leaves the scope at its default"
+    );
+}
+
+#[test]
+fn vcs_is_a_known_manifest_key() {
+    // A `[vcs]` table must not draw the "ignoring unrecognized key"
+    // warning (the #409 regression class): every consumed key is listed
+    // in KNOWN_KEYS.
+    assert!(unknown_top_level_keys("[vcs]\nfile_types = \"all\"\n").is_empty());
+}

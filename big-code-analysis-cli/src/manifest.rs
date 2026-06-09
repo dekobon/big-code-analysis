@@ -40,7 +40,8 @@ use serde::Deserialize;
 
 use crate::thresholds::{ParsedThresholds, split_thresholds_table};
 use crate::{
-    CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, ReportArgs, die, die_io, read_utf8_file,
+    CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, ReportArgs, VcsArgs, die, die_io,
+    read_utf8_file,
 };
 
 /// Filename discovered by convention at (or above) the working directory.
@@ -68,6 +69,7 @@ const KNOWN_KEYS: &[&str] = &[
     "thresholds",
     "check",
     "report",
+    "vcs",
 ];
 
 /// A parsed `bca.toml` plus the directory it was found in.
@@ -117,6 +119,22 @@ struct RawManifest {
     /// `bca report markdown|html` hotspot tables.
     #[serde(default)]
     report: RawReport,
+    /// The `[vcs]` table (#576): change-history ranking options. The CLI
+    /// flag wins when both are present.
+    #[serde(default)]
+    vcs: RawVcs,
+}
+
+/// Typed view of the `[vcs]` table (#576). Mirrors the `bca vcs` CLI
+/// flags; the CLI value replaces the manifest value when both are
+/// present.
+#[derive(Debug, Default, Deserialize)]
+struct RawVcs {
+    /// File-type scope for the change-history ranking: `metrics`, `all`,
+    /// or a comma-separated extension allow-list. Parsed (and validated)
+    /// by [`big_code_analysis::vcs::FileTypeScope`] at merge time;
+    /// mirrors `--file-types`, which replaces this value.
+    file_types: Option<String>,
 }
 
 /// Typed view of the `[report]` table (#501). Mirrors the `bca report`
@@ -395,6 +413,22 @@ impl Manifest {
     pub(crate) fn merge_report(&self, args: &mut ReportArgs) {
         if self.raw.report.no_suppress == Some(true) {
             args.no_suppress = true;
+        }
+    }
+
+    /// Merge `[vcs]` options into `args` (#576). `file_types` is a
+    /// positive scope key, so it fills only when the CLI left
+    /// `--file-types` unset — an explicit CLI flag replaces the manifest
+    /// value (it never unions). Parsing / validation is deferred to
+    /// [`build_options`](crate::vcs_command::build_options); the raw
+    /// string is threaded through unchanged so both sources hit the same
+    /// [`FileTypeScope`](big_code_analysis::vcs::FileTypeScope) parser and
+    /// surface one diagnostic.
+    pub(crate) fn merge_vcs(&self, args: &mut VcsArgs) {
+        if args.file_types.is_none()
+            && let Some(file_types) = &self.raw.vcs.file_types
+        {
+            args.file_types = Some(file_types.clone());
         }
     }
 

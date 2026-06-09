@@ -416,6 +416,15 @@ struct VcsArgs {
     /// Show only the top N files by risk score (`0` = all).
     #[clap(long, default_value_t = 50)]
     top: usize,
+    /// Which tracked files to rank (issue #576): `metrics` (only files
+    /// bca has metrics for — the default), `all` (every tracked text
+    /// file), or a comma-separated extension allow-list (`rs,py,toml`).
+    /// Applied on top of `--paths`/`--include`/`--exclude` (AND
+    /// semantics). When omitted, the `bca.toml` `[vcs] file_types` key is
+    /// used if present, else `metrics`. Setting it here replaces the
+    /// manifest value.
+    #[clap(long, value_name = "SCOPE")]
+    file_types: Option<String>,
     /// Revision to analyze.
     #[clap(long = "ref", default_value = "HEAD")]
     reference: String,

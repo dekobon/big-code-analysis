@@ -4,7 +4,7 @@
 .SH NAME
 bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH SYNOPSIS
-\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-\-no\-cache\fR] [\fB\-\-clear\-cache\fR] [\fB\-\-cache\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
+\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-file\-types\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-\-no\-cache\fR] [\fB\-\-clear\-cache\fR] [\fB\-\-cache\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH OPTIONS
@@ -46,6 +46,9 @@ Recent observation window
 .TP
 \fB\-\-top\fR \fI<TOP>\fR [default: 50]
 Show only the top N files by risk score (`0` = all)
+.TP
+\fB\-\-file\-types\fR \fI<SCOPE>\fR
+Which tracked files to rank (issue #576): `metrics` (only files bca has metrics for — the default), `all` (every tracked text file), or a comma\-separated extension allow\-list (`rs,py,toml`). Applied on top of `\-\-paths`/`\-\-include`/`\-\-exclude` (AND semantics). When omitted, the `bca.toml` `[vcs] file_types` key is used if present, else `metrics`. Setting it here replaces the manifest value
 .TP
 \fB\-\-ref\fR \fI<REFERENCE>\fR [default: HEAD]
 Revision to analyze

@@ -204,8 +204,12 @@ impl HistoryCache {
 /// Finalization-only knobs (`--risk-formula`, `--emit-author-details`,
 /// `--include-deleted`, the bus-factor options) are deliberately excluded:
 /// they are applied at replay, so changing one reuses the same event log.
-/// The revision spelling is excluded too — the resolved [`head_sha`] keys
-/// the entry, so two refs naming the same commit share it.
+/// The file-type scope (`--file-types`, #576) is excluded for the same
+/// reason — the cached event log spans every touched file regardless of
+/// scope, and the scope is re-applied to the freshly-enumerated seed and
+/// at replay, so an entry stays reusable across scopes. The revision
+/// spelling is excluded too — the resolved [`head_sha`] keys the entry,
+/// so two refs naming the same commit share it.
 ///
 /// [`head_sha`]: HistoryCache::head_sha
 ///

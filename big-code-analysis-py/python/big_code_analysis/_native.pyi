@@ -273,6 +273,7 @@ def vcs_metrics(
     top: int | None = None,
     reference: str | None = None,
     risk_formula: str | None = None,
+    file_types: str | None = None,
     full_history: bool = False,
     include_merges: bool = False,
     follow_renames: bool = True,
@@ -295,7 +296,10 @@ def vcs_metrics(
 
     Windows accept ``12mo`` / ``2y`` / ``8w`` / ``90d`` or ISO 8601
     (``P1Y``). ``risk_formula`` is ``"weighted"`` (default) or
-    ``"percentile"``. ``as_of`` (RFC 3339 / ``@unix`` / git date) pins
+    ``"percentile"``. ``file_types`` scopes which files are ranked:
+    ``"metrics"`` (default — only files bca has metrics for), ``"all"``
+    (every tracked text file), or a comma-separated extension allow-list
+    (``"rs,py"``). ``as_of`` (RFC 3339 / ``@unix`` / git date) pins
     the reference "now" for reproducible snapshots.
 
     The persistent change-history cache (issue #334) reuses prior work on
@@ -322,6 +326,7 @@ def vcs_trend(
     recent_window: str | None = None,
     reference: str | None = None,
     risk_formula: str | None = None,
+    file_types: str | None = None,
     full_history: bool = False,
     include_merges: bool = False,
     follow_renames: bool = True,

@@ -54,6 +54,9 @@ pub enum Error {
     InvalidTimestamp(String),
     /// The risk-formula name is not one of `weighted` / `percentile`.
     InvalidFormula(String),
+    /// The file-type scope could not be parsed: an empty value, or a
+    /// custom extension list that normalised to nothing (issue #576).
+    InvalidFileTypeScope(String),
     /// The bus-factor coverage threshold is outside the open interval
     /// `(0, 1)` (issue #332).
     InvalidBusFactorThreshold(String),
@@ -96,6 +99,7 @@ impl std::fmt::Display for Error {
                 f,
                 "unknown risk formula {name:?} (expected `weighted` or `percentile`)"
             ),
+            Self::InvalidFileTypeScope(reason) => write!(f, "invalid file-type scope: {reason}"),
             Self::InvalidBusFactorThreshold(reason) => {
                 write!(f, "invalid bus-factor threshold: {reason}")
             }

@@ -370,7 +370,7 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
 /// The history walk holds the GIL; for per-file AST + VCS in one pass
 /// use `analyze(path, vcs=True)`.
 #[pyfunction]
-#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None, no_cache = false, cache_dir = None))]
+#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None, no_cache = false, cache_dir = None))]
 #[allow(
     clippy::needless_pass_by_value,
     clippy::too_many_arguments,
@@ -384,6 +384,7 @@ fn vcs_metrics(
     top: Option<usize>,
     reference: Option<String>,
     risk_formula: Option<String>,
+    file_types: Option<String>,
     full_history: bool,
     include_merges: bool,
     follow_renames: bool,
@@ -402,6 +403,7 @@ fn vcs_metrics(
         top,
         reference,
         risk_formula,
+        file_types,
         full_history,
         include_merges,
         follow_renames,
@@ -436,7 +438,7 @@ fn vcs_metrics(
 /// Each point re-anchors at the mainline tip of that moment, so the result
 /// is a faithful historical snapshot; the repeated walks hold the GIL.
 #[pyfunction]
-#[pyo3(signature = (repo_path, /, *, points = 12, span = None, top = None, top_deltas = None, long_window = None, recent_window = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
+#[pyo3(signature = (repo_path, /, *, points = 12, span = None, top = None, top_deltas = None, long_window = None, recent_window = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
 #[allow(
     clippy::needless_pass_by_value,
     clippy::too_many_arguments,
@@ -453,6 +455,7 @@ fn vcs_trend(
     recent_window: Option<String>,
     reference: Option<String>,
     risk_formula: Option<String>,
+    file_types: Option<String>,
     full_history: bool,
     include_merges: bool,
     follow_renames: bool,
@@ -469,6 +472,7 @@ fn vcs_trend(
         top,
         reference,
         risk_formula,
+        file_types,
         full_history,
         include_merges,
         follow_renames,

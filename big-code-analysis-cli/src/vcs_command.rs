@@ -163,6 +163,15 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
         .as_of
         .as_deref()
         .map(|raw| parse_timestamp(raw).unwrap_or_else(|e| die(format_args!("{e}"))));
+    // `--file-types` (or the manifest `[vcs] file_types` it was filled
+    // from) replaces the default scope; an unset flag keeps `Metrics`.
+    let file_types = args.file_types.as_deref().map_or_else(
+        || vcs::FileTypeScope::Metrics,
+        |raw| {
+            raw.parse()
+                .unwrap_or_else(|e| die(format_args!("--file-types: {e}")))
+        },
+    );
 
     Options {
         long_window_secs,
@@ -187,6 +196,7 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
             args.bus_factor_threshold,
         )
         .unwrap_or_else(|e| die(format_args!("--bus-factor-threshold: {e}"))),
+        file_types,
     }
 }
 

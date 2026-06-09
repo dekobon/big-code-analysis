@@ -1424,7 +1424,12 @@ pub fn run() {
         Command::Functions => run_command_functions(cli.globals, preproc),
         Command::Metrics(args) => run_command_metrics(cli.globals, args, preproc),
         Command::Ops(args) => run_command_ops(cli.globals, args, preproc),
-        Command::Vcs(args) => crate::vcs_command::run(cli.globals, *args),
+        Command::Vcs(mut args) => {
+            if let Some(m) = &manifest {
+                m.merge_vcs(&mut args);
+            }
+            crate::vcs_command::run(cli.globals, *args);
+        }
         Command::Report(args) => {
             run_command_report(cli.globals, args, manifest.as_ref(), preproc);
         }

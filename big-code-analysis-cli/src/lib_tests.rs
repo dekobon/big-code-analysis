@@ -155,6 +155,26 @@ fn vcs_alone_uses_documented_defaults() {
     assert!(args.bot_pattern.is_none());
     assert!(!args.include_deleted);
     assert!(!args.emit_author_details);
+    // `--file-types` is unset by default so the manifest `[vcs]
+    // file_types` can fill it; an unset flag resolves to the `metrics`
+    // scope in `build_options` (issue #576).
+    assert!(args.file_types.is_none());
+}
+
+#[test]
+fn vcs_file_types_flag_binds() {
+    assert_eq!(
+        parse_vcs(&["vcs", "--file-types", "all"])
+            .file_types
+            .as_deref(),
+        Some("all")
+    );
+    assert_eq!(
+        parse_vcs(&["vcs", "--file-types", "rs,py"])
+            .file_types
+            .as_deref(),
+        Some("rs,py")
+    );
 }
 
 #[test]

@@ -57,7 +57,7 @@ pub use jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffusion,
     JitExperience, JitFeatures, JitHistory, JitPurpose, JitReport, JitSize,
 };
-pub use options::{Options, RiskFormula, parse_window};
+pub use options::{FileTypeScope, Options, RiskFormula, parse_window};
 pub use stats::Stats;
 pub use trend::{TREND_SCHEMA_VERSION, Trend, TrendDelta, TrendDeltas};
 

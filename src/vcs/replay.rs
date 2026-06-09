@@ -105,13 +105,17 @@ pub(crate) fn fold_commit(
         };
         let accumulator = match accumulators.get_mut(path) {
             Some(acc) => acc,
-            None if options.include_deleted => accumulators
+            // A deleted file opted in via --include-deleted is still
+            // subject to the file-type scope (issue #576): a deleted
+            // `.md` must not slip back into a `metrics`-scoped ranking
+            // that the seed filter kept out.
+            None if options.include_deleted && options.file_types.includes(path) => accumulators
                 .entry(path.clone())
                 .or_insert_with(|| Accumulator::new(0)),
-            // A file not present at the target ref and not opted in via
-            // --include-deleted: skip recording, but it still counted
-            // toward the entropy distribution and the co-change graph
-            // above/below.
+            // A file not present at the target ref (or out of scope) and
+            // not opted in via --include-deleted: skip recording, but it
+            // still counted toward the entropy distribution and the
+            // co-change graph above/below.
             None => continue,
         };
         accumulator.record(&ChangeRecord {

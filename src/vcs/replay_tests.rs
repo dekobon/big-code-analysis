@@ -1,5 +1,5 @@
 use super::*;
-use crate::vcs::options::Options;
+use crate::vcs::options::{FileTypeScope, Options};
 
 /// Build a [`CommitEvent`] from terse `(path, churn)` and `(src, dst)`
 /// rename literals — keeps the table-driven cases below readable.
@@ -112,5 +112,59 @@ fn replay_reclamps_window_to_the_current_now() {
         later.files.get(Path::new("a.rs")).unwrap().commits_recent,
         0,
         "the same commit has aged out of the recent window at the later now"
+    );
+}
+
+#[test]
+fn replay_include_deleted_respects_file_type_scope() {
+    // A file deleted at the target ref (present in events, absent from the
+    // seed) is re-admitted by --include-deleted only when it passes the
+    // file-type scope (issue #576): a deleted `.rs` returns under the
+    // default `metrics` scope, a deleted `.md` does not.
+    let now = 1_000_000;
+    let options = Options {
+        long_window_secs: 100_000,
+        recent_window_secs: 10_000,
+        include_deleted: true,
+        file_types: FileTypeScope::Metrics,
+        ..Options::default()
+    };
+    // Seed is empty: both touched files were deleted before the ref.
+    let seed = HashMap::new();
+    let events = vec![event(
+        "c1",
+        now - 5_000,
+        &[("gone.rs", 7), ("notes.md", 9)],
+        &[],
+    )];
+
+    let out = replay(seed, &events, &options, now);
+    assert!(
+        out.files.contains_key(Path::new("gone.rs")),
+        "a deleted source file is re-admitted under the metrics scope"
+    );
+    assert!(
+        !out.files.contains_key(Path::new("notes.md")),
+        "a deleted non-source file stays out of a metrics-scoped ranking"
+    );
+}
+
+#[test]
+fn replay_include_deleted_all_scope_admits_every_deleted_file() {
+    // Under the `all` scope, --include-deleted re-admits a deleted file
+    // regardless of extension — the pre-#576 behaviour.
+    let now = 1_000_000;
+    let options = Options {
+        long_window_secs: 100_000,
+        recent_window_secs: 10_000,
+        include_deleted: true,
+        file_types: FileTypeScope::All,
+        ..Options::default()
+    };
+    let events = vec![event("c1", now - 5_000, &[("notes.md", 9)], &[])];
+    let out = replay(HashMap::new(), &events, &options, now);
+    assert!(
+        out.files.contains_key(Path::new("notes.md")),
+        "the `all` scope keeps deleted non-source files"
     );
 }

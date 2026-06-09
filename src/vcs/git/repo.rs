@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use super::diff_err;
 use crate::vcs::error::Error;
+use crate::vcs::options::FileTypeScope;
 
 /// A discovered repository plus the facts the walk needs up front.
 pub(crate) struct OpenRepo {
@@ -88,13 +89,16 @@ fn map_discover_error(root: &Path, error: &gix::discover::Error) -> Error {
     Error::OpenRepository(error.to_string())
 }
 
-/// Enumerate every tracked text file at `target_tree`, mapping its
-/// repository-relative path to its line count (SLOC).
+/// Enumerate the in-scope tracked text files at `target_tree`, mapping
+/// each repository-relative path to its line count (SLOC).
 ///
 /// Binary blobs (line counts unavailable) and symlinks are skipped, as
-/// the issue specifies. Implemented as a diff of the empty tree against
-/// the target tree: every file then appears as an `Addition` whose
-/// "added" line count is the file's total line count.
+/// the issue specifies. `scope` is an additional extension-only filter
+/// (issue #576): an out-of-scope file is dropped *before* its (costlier)
+/// line-count diff runs, so the history walk never seeds an accumulator
+/// for it. Implemented as a diff of the empty tree against the target
+/// tree: every in-scope file then appears as an `Addition` whose "added"
+/// line count is the file's total line count.
 ///
 /// # Errors
 ///
@@ -103,6 +107,7 @@ fn map_discover_error(root: &Path, error: &gix::discover::Error) -> Error {
 pub(crate) fn enumerate_target_files(
     repo: &gix::Repository,
     target_tree: &gix::Tree<'_>,
+    scope: &FileTypeScope,
 ) -> Result<HashMap<PathBuf, u64>, Error> {
     let empty = repo.empty_tree();
     let mut cache = repo.diff_resource_cache_for_tree_diff().map_err(diff_err)?;
@@ -121,6 +126,11 @@ pub(crate) fn enumerate_target_files(
             let entry_mode = change.entry_mode();
             if entry_mode.is_blob() && !entry_mode.is_link() {
                 let path = bstr_to_path(change.location())?;
+                // Extension-only scope check first — it reads no blob, so
+                // an out-of-scope file costs nothing beyond the path decode.
+                if !scope.includes(&path) {
+                    return Ok(ControlFlow::Continue(()));
+                }
                 if let Some(stats) = change
                     .diff(&mut cache)
                     .map_err(diff_err)?

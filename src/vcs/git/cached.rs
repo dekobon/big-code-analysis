@@ -71,7 +71,7 @@ pub(crate) fn build_cached(
         cache::clear_repo(dir)?;
     }
 
-    let seed = repo::enumerate_target_files(&repo, &target_tree)?;
+    let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
 
     // Caching disabled, or no cache location available: plain walk + replay.
     let Some(repo_dir) = repo_dir.filter(|_| config.enabled) else {

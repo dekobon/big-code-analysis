@@ -12,6 +12,8 @@
 //! [`parse_window`] helper is exposed for those front ends to perform
 //! that resolution (and to surface a typed [`Error`] on bad input).
 
+use std::path::Path;
+
 use super::error::Error;
 
 /// Seconds in a day.
@@ -70,6 +72,110 @@ impl std::str::FromStr for RiskFormula {
     }
 }
 
+/// Which tracked files the change-history walk ranks (issue #576).
+///
+/// Applied as an **additional** extension-only filter on top of the
+/// `--paths` / `--include` / `--exclude` globs (AND semantics): a file
+/// must pass both to be ranked. The check never reads blob content, so a
+/// language detected only by an in-file modeline (Emacs / Vim) — never by
+/// its extension — is treated as out-of-scope under [`Metrics`](Self::Metrics);
+/// this is the one documented divergence from the content-aware `bca
+/// metrics` walk.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum FileTypeScope {
+    /// Only files bca computes metrics for — the same set `bca metrics`
+    /// would analyze, resolved by extension via
+    /// [`get_language_for_file`](crate::get_language_for_file). The
+    /// default: it keeps the change-history ranking aligned with the AST
+    /// hotspot tables (which only cover files-with-metrics) and keeps
+    /// high-churn non-source files (`CHANGELOG.md`, `Cargo.lock`, CI
+    /// config) out of the risk ranking. Extension-less files
+    /// (`Makefile`, `Dockerfile`, `LICENSE`) and unknown extensions are
+    /// excluded.
+    #[default]
+    Metrics,
+    /// Every tracked, non-binary, non-symlink text file — the behaviour
+    /// before the `metrics` default was introduced.
+    All,
+    /// A user-supplied allow-list of file extensions, normalised to
+    /// lowercase with any leading dot stripped (`rs`, `py`, `toml`). A
+    /// file is in scope iff its lowercased extension is in the list.
+    Custom(Vec<String>),
+}
+
+impl FileTypeScope {
+    /// Whether `path` is in scope, judged by extension only (no blob
+    /// content is read, so this stays a cheap pre-filter on the file
+    /// enumeration).
+    #[must_use]
+    pub fn includes(&self, path: &Path) -> bool {
+        match self {
+            Self::All => true,
+            // Route through the same extension predicate the metrics walk
+            // resolves a language with, so the `metrics` scope stays in
+            // lockstep with the analyzable-file set as languages are
+            // added or removed.
+            Self::Metrics => crate::get_language_for_file(path).is_some(),
+            Self::Custom(extensions) => path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                // The stored extensions are already lowercased, so an
+                // ASCII case-insensitive compare avoids allocating a
+                // lowercased copy of every file's extension in this
+                // per-file path.
+                .is_some_and(|ext| {
+                    extensions
+                        .iter()
+                        .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+                }),
+        }
+    }
+
+    /// Parse a custom comma-separated extension list, normalising each
+    /// entry (trim, strip a leading dot, lowercase) and dropping blanks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidFileTypeScope`] when the list normalises
+    /// to nothing (empty, or only blanks / bare dots) — a scope that
+    /// would silently rank no files.
+    fn from_extensions(list: &str) -> Result<Self, Error> {
+        let mut extensions: Vec<String> = Vec::new();
+        for raw in list.split(',') {
+            let normalized = raw.trim().trim_start_matches('.').to_lowercase();
+            if normalized.is_empty() {
+                continue;
+            }
+            if !extensions.contains(&normalized) {
+                extensions.push(normalized);
+            }
+        }
+        if extensions.is_empty() {
+            return Err(Error::InvalidFileTypeScope(format!(
+                "{list:?} lists no usable file extensions"
+            )));
+        }
+        Ok(Self::Custom(extensions))
+    }
+}
+
+impl std::str::FromStr for FileTypeScope {
+    type Err = Error;
+
+    /// Parse the user-facing scope: the keywords `metrics` / `all`, or
+    /// any other value as a comma-separated custom extension list. The
+    /// single source of truth shared by the CLI (`--file-types`), the
+    /// `bca.toml` `[vcs] file_types` key, the web front end, and Python.
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s.trim() {
+            "" => Err(Error::InvalidFileTypeScope("the value is empty".to_owned())),
+            "metrics" => Ok(Self::Metrics),
+            "all" => Ok(Self::All),
+            list => Self::from_extensions(list),
+        }
+    }
+}
+
 /// Configuration for a single change-history walk.
 // The booleans are independent on/off CLI toggles (`--full-history`,
 // `--include-merges`, …); packing them into a flags newtype would hide
@@ -114,6 +220,11 @@ pub struct Options {
     /// removal to stop (default [`DEFAULT_BUS_FACTOR_THRESHOLD`], `0.5`
     /// per Avelino). Ignored unless `compute_bus_factor` is set.
     pub bus_factor_threshold: f64,
+    /// Which tracked files to rank (issue #576). Defaults to
+    /// [`FileTypeScope::Metrics`] — only files bca has metrics for — so
+    /// high-churn non-source files do not dominate the risk ranking and
+    /// the change-history view aligns with the AST hotspot tables.
+    pub file_types: FileTypeScope,
 }
 
 impl Default for Options {
@@ -138,6 +249,7 @@ impl Default for Options {
             include_deleted: false,
             compute_bus_factor: false,
             bus_factor_threshold: DEFAULT_BUS_FACTOR_THRESHOLD,
+            file_types: FileTypeScope::Metrics,
         }
     }
 }

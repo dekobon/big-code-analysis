@@ -62,8 +62,9 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     let commit = repo::resolve_commit(&repo, &options.reference)?;
     let target_tree = commit.tree().map_err(walk_err)?;
 
-    // Seed file set (path → SLOC) at the target ref.
-    let seed = repo::enumerate_target_files(&repo, &target_tree)?;
+    // Seed file set (path → SLOC) at the target ref, scoped to the
+    // requested file types (issue #576).
+    let seed = repo::enumerate_target_files(&repo, &target_tree, &options.file_types)?;
 
     let now = options.as_of.unwrap_or_else(current_unix_seconds);
     // Uncached: walk the whole long window (no splice points) and replay

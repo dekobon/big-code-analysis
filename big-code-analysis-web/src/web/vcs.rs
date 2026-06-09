@@ -50,6 +50,10 @@ pub struct WebVcsPayload {
     pub reference: Option<String>,
     /// Composite formula: `weighted` (default) or `percentile`.
     pub risk_formula: Option<String>,
+    /// File-type scope (issue #576): `metrics` (default — only files bca
+    /// has metrics for), `all` (every tracked text file), or a
+    /// comma-separated extension allow-list (`rs,py`).
+    pub file_types: Option<String>,
     /// Walk the full DAG rather than first-parent only.
     pub full_history: Option<bool>,
     /// Include merge commits.
@@ -122,6 +126,9 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
     }
     if let Some(formula) = &payload.risk_formula {
         options.risk_formula = formula.parse()?;
+    }
+    if let Some(scope) = &payload.file_types {
+        options.file_types = scope.parse()?;
     }
     if let Some(raw) = &payload.as_of {
         options.as_of = Some(parse_timestamp(raw)?);

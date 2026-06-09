@@ -204,11 +204,12 @@ surface gated behind the `vcs = ["vcs-git"]` Cargo feature (off by
 default for the library; on by default for the `bca` / `bca-web` /
 Python builds). When enabled, the following join the shape contract:
 the `big_code_analysis::vcs` module (`build_history_index`, `Options`,
-`Stats`, `HistoryIndex`, `RiskFormula`, `parse_window`,
+`Stats`, `HistoryIndex`, `RiskFormula`, `FileTypeScope`, `parse_window`,
 `parse_timestamp`), `wire::Vcs`, `CodeMetrics::vcs`, the `bca vcs`
-subcommand and `bca metrics --vcs` flag, the `POST /vcs` REST endpoint,
-and the Python `vcs_metrics()` function plus the `analyze(vcs=True)`
-keyword. `bca vcs --format markdown|html` and the `bca report
+subcommand (including its `--file-types {metrics|all|EXT,…}` scope flag
+and the matching `bca.toml` `[vcs] file_types` key) and `bca metrics
+--vcs` flag, the `POST /vcs` REST endpoint, and the Python
+`vcs_metrics()` function plus the `analyze(vcs=True)` keyword. `bca vcs --format markdown|html` and the `bca report
 markdown|html --vcs` "Change-history risk" section (#573) are **one-way
 rendered projections** (like the AST `bca report` output): the page
 *structure* is stable within `1.x`, but the exact bytes are not a
