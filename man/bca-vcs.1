@@ -4,7 +4,7 @@
 .SH NAME
 bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH SYNOPSIS
-\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
+\fBbca\-vcs\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-\-no\-cache\fR] [\fB\-\-clear\-cache\fR] [\fB\-\-cache\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
 Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
 .SH OPTIONS
@@ -89,6 +89,15 @@ Emit stats for files deleted at the target ref
 .TP
 \fB\-\-bus\-factor\-threshold\fR \fI<BUS_FACTOR_THRESHOLD>\fR [default: 0.5]
 Bus\-factor coverage (abandonment) threshold — the fraction of a directory\*(Aqs files that must be orphaned for the truck\-factor greedy removal to stop (issue #332). Must be in `(0, 1)`; default `0.5` per Avelino. Ignored by `bca vcs jit`
+.TP
+\fB\-\-no\-cache\fR
+Disable the persistent change\-history cache for the file ranking: always walk fresh, and neither read nor write the cache (issue #334). The cache otherwise reuses prior work on an unchanged tree and walks only new commits when `HEAD` has advanced
+.TP
+\fB\-\-clear\-cache\fR
+Remove this repository\*(Aqs cached history before ranking, forcing a full rebuild. Combine with `\-\-no\-cache` to wipe without re\-priming
+.TP
+\fB\-\-cache\-dir\fR \fI<CACHE_DIR>\fR
+Directory for the persistent history cache. Defaults to `$XDG_CACHE_HOME/big\-code\-analysis/vcs` (or the platform equivalent: `%LOCALAPPDATA%` on Windows, `~/.cache` otherwise)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

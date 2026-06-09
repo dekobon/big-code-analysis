@@ -31,6 +31,7 @@
 //! backend lands.
 
 pub mod bus_factor;
+pub mod cache;
 pub mod classify;
 pub mod entropy;
 pub mod error;
@@ -42,12 +43,15 @@ pub mod score;
 pub mod stats;
 pub mod trend;
 
+pub(crate) mod replay;
+
 #[cfg(feature = "vcs-git")]
 pub mod git;
 
 pub use bus_factor::{
     BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor, VcsAggregate,
 };
+pub use cache::{CACHE_SCHEMA_VERSION, CacheConfig};
 pub use error::Error;
 pub use jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffusion,
@@ -190,6 +194,33 @@ impl HistoryIndex {
 #[cfg(feature = "vcs-git")]
 pub fn build_history_index(root: &Path, options: &Options) -> Result<HistoryIndex, Error> {
     git::build(root, options)
+}
+
+/// Like [`build_history_index`], but reuse and update the persistent
+/// change-history cache per `config` (issue #334).
+///
+/// On an unchanged tree this replays a cached event log instead of
+/// re-walking; when `HEAD` has advanced it walks only the new commits and
+/// splices them onto the cached tail. The result is bit-identical to an
+/// uncached [`build_history_index`] at the same reference time — the cache
+/// is a pure optimization. A missing or corrupt entry is silently
+/// recomputed; an entry is ignored when the schema, score, or option
+/// fingerprint differs (window changes force a fresh walk). With
+/// [`CacheConfig::enabled`] `false` this degrades to a plain walk (still
+/// honouring [`CacheConfig::clear`]).
+///
+/// # Errors
+///
+/// The same variants as [`build_history_index`], plus [`Error::Cache`]
+/// when `--clear-cache` is requested but the cache directory cannot be
+/// removed. A failure to *write* a fresh entry is logged, not returned.
+#[cfg(feature = "vcs-git")]
+pub fn build_history_index_cached(
+    root: &Path,
+    options: &Options,
+    config: &CacheConfig,
+) -> Result<HistoryIndex, Error> {
+    git::build_cached(root, options, config)
 }
 
 /// Parse an `--as-of` timestamp into Unix seconds.

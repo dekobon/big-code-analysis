@@ -1,7 +1,7 @@
-// bca: suppress-file(halstead)
-// File-level halstead is a many-fn aggregation artifact (the hashing +
-// canonicalisation helpers), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
+// bca: suppress-file(halstead, nargs)
+// File-level halstead/nargs are many-fn aggregation artifacts (the hashing
+// + canonicalisation helpers, plus the bot-filter ctor), not per-function
+// logic complexity (cognitive/cyclomatic stay enforced).
 
 //! Canonical author identity and bot-author detection.
 //!
@@ -25,8 +25,28 @@ use super::error::Error;
 /// (some imported histories carry name-only authors). Compared and
 /// hashed by that key so author *counts* and *ownership* are stable
 /// across display-name variation.
+///
+/// The key is normally the plaintext canonical email; a [`from_digest`]
+/// identity instead holds the already-irreversible SHA-256 digest, used
+/// when an identity is reconstructed from the persistent VCS cache (issue
+/// #334), which never stores plaintext author keys on disk. Both forms
+/// share the same equality/hashing contract — distinct-author *counts*
+/// and *ownership* ratios are preserved either way because the digest is
+/// injective for practical purposes — and within any one walk every
+/// identity is of the same form, so the `is_digest` flag never makes two
+/// keys-for-the-same-person compare unequal.
+///
+/// [`from_digest`]: AuthorId::from_digest
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AuthorId(String);
+pub struct AuthorId {
+    /// The canonical key: the lowercased email/name, or — for a
+    /// [`from_digest`](AuthorId::from_digest) identity — its SHA-256 hex.
+    key: String,
+    /// `true` when `key` already holds the SHA-256 digest, so
+    /// [`hashed`](AuthorId::hashed) returns it verbatim rather than
+    /// hashing a second time.
+    is_digest: bool,
+}
 
 impl AuthorId {
     /// Build a canonical identity from raw signature bytes.
@@ -43,16 +63,40 @@ impl AuthorId {
         } else {
             email_key
         };
-        Self(key)
+        Self {
+            key,
+            is_digest: false,
+        }
+    }
+
+    /// Reconstruct an identity from a previously-emitted SHA-256 [`hashed`]
+    /// digest. The persistent VCS cache stores authors in this irreversible
+    /// form (never plaintext), and replaying it must reproduce the same
+    /// author counts, ownership, and emitted hashes as a fresh walk — so a
+    /// `from_digest` identity hashes to itself.
+    ///
+    /// [`hashed`]: AuthorId::hashed
+    #[must_use]
+    pub fn from_digest(digest: String) -> Self {
+        Self {
+            key: digest,
+            is_digest: true,
+        }
     }
 
     /// SHA-256 hex digest of the canonical key, for
     /// `--emit-author-details`. Stable across runs and irreversible, so
-    /// it can be published without disclosing the underlying email.
+    /// it can be published without disclosing the underlying email. A
+    /// [`from_digest`](AuthorId::from_digest) identity already *is* the
+    /// digest, so it is returned unchanged (re-hashing would double-hash
+    /// and diverge from a fresh walk).
     #[must_use]
     pub fn hashed(&self) -> String {
+        if self.is_digest {
+            return self.key.clone();
+        }
         let mut hasher = Sha256::new();
-        hasher.update(self.0.as_bytes());
+        hasher.update(self.key.as_bytes());
         let digest = hasher.finalize();
         let mut hex = String::with_capacity(digest.len() * 2);
         for byte in digest {

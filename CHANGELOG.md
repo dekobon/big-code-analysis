@@ -203,6 +203,34 @@ for historical reference.
   *Rename limitation:* renames are followed *within* each sample's walk,
   but a file renamed *between* two samples appears as two separate path
   series (old name, then new); cross-sample rename stitching is deferred.
+- Persistent change-history **cache** keyed by `HEAD` SHA and repository
+  identity (#334). Re-running a VCS analysis on an unchanged tree now
+  replays a cached, pre-finalize event log instead of re-walking history;
+  when `HEAD` has advanced it walks only the new commits and splices them
+  onto the cached tail. The cache is a pure optimization — a hit is
+  bit-identical to a fresh walk, and re-windowing tracks the current
+  reference time rather than freezing at cache-write time. A force-push
+  (the cached head is no longer an ancestor) falls back to a full walk;
+  an entry is ignored when the cache format, `vcs_schema_version`,
+  `risk_score_version`, or the walk-option fingerprint (windows, traversal
+  mode, merge / rename / bot toggles, `--as-of`) differs, so a window
+  change forces a fresh walk. Writes are atomic (temp file + rename), and
+  a missing or corrupt entry is silently recomputed, never fatal. Author
+  identities are stored only as their irreversible SHA-256 digests —
+  never plaintext — so the cache is not a side channel for raw emails.
+  Surfaces:
+  - Library: `big_code_analysis::vcs::{build_history_index_cached,
+    CacheConfig, CACHE_SCHEMA_VERSION}` and the `vcs::cache` module
+    (behind `vcs-git`); `AuthorId::from_digest` reconstructs a hashed
+    identity for replay. The generic event-log replay (`vcs::replay`) is
+    now the single fold shared by the live walk and a cache hit, so the
+    two cannot diverge.
+  - CLI: `bca vcs --no-cache` / `--clear-cache` / `--cache-dir <DIR>`.
+    The cache defaults to `$XDG_CACHE_HOME/big-code-analysis/vcs` (or the
+    platform equivalent) and is enabled by default; `bca metrics --vcs`
+    and `bca report --vcs` reuse it transparently.
+  - Web: `POST /vcs` gains optional `no_cache` / `cache_dir` fields.
+  - Python: `vcs_metrics(…, no_cache=False, cache_dir=None)`.
 - `Ast::strip_comments()`, `Ast::functions()`, `Ast::dump(cfg)`,
   `Ast::count(filters)`, `Ast::find(filters)`, and `Ast::suppressions()`
   complete the parse-once `Ast` seam: comment removal, function-span

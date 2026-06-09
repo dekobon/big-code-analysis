@@ -48,6 +48,24 @@ fn hashed_is_stable_and_irreversible_looking() {
 }
 
 #[test]
+fn from_digest_hashes_to_itself_and_preserves_identity() {
+    // The persistent cache stores `hashed()` digests, never plaintext;
+    // replaying must reproduce a fresh walk's output exactly. A
+    // reconstructed identity must therefore hash back to the same digest
+    // (no double-hashing) and keep equality/ownership intact.
+    let original = AuthorId::new(b"Ada", b"ada@example.com");
+    let digest = original.hashed();
+    let restored = AuthorId::from_digest(digest.clone());
+    assert_eq!(restored.hashed(), digest);
+    // Two reconstructions of the same digest are one identity (so author
+    // counts and ownership ratios survive a cache round-trip).
+    assert_eq!(restored, AuthorId::from_digest(digest));
+    // Distinct people stay distinct after reconstruction.
+    let other = AuthorId::new(b"Grace", b"grace@example.com").hashed();
+    assert_ne!(restored, AuthorId::from_digest(other));
+}
+
+#[test]
 fn default_bot_pattern_matches_known_bots() {
     let filter = BotFilter::new(DEFAULT_BOT_PATTERN).expect("default pattern compiles");
     assert!(filter.is_bot(

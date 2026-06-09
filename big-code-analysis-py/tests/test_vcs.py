@@ -159,3 +159,26 @@ def test_vcs_trend_too_few_points_raises(tmp_path: Path) -> None:
 def test_vcs_trend_outside_repo_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="version-control"):
         bca.vcs_trend(tmp_path, points=3, span="300d")
+
+
+def test_vcs_metrics_cache_dir_replays_identically(tmp_path: Path) -> None:
+    """A cache hit (issue #334) reproduces the first run's report exactly."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    repo = _build_repo(repo_dir)
+    cache_dir = tmp_path / "cache"
+
+    first = bca.vcs_metrics(repo, as_of="@1700000000", cache_dir=str(cache_dir))
+    # An entry was persisted under the cache directory.
+    assert any(cache_dir.rglob("*.json"))
+    second = bca.vcs_metrics(repo, as_of="@1700000000", cache_dir=str(cache_dir))
+    assert first == second
+
+
+def test_vcs_metrics_no_cache_writes_nothing(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    repo = _build_repo(repo_dir)
+    cache_dir = tmp_path / "cache"
+    bca.vcs_metrics(repo, no_cache=True, cache_dir=str(cache_dir))
+    assert not any(cache_dir.rglob("*.json"))

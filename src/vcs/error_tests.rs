@@ -47,6 +47,10 @@ fn display_covers_every_variant() {
             Error::InvalidFormula("bogus".to_owned()),
             "unknown risk formula",
         ),
+        (
+            Error::Cache("disk full".to_owned()),
+            "history cache error: disk full",
+        ),
     ];
     for (err, expected) in cases {
         let rendered = err.to_string();

@@ -370,7 +370,7 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
 /// The history walk holds the GIL; for per-file AST + VCS in one pass
 /// use `analyze(path, vcs=True)`.
 #[pyfunction]
-#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
+#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None, no_cache = false, cache_dir = None))]
 #[allow(
     clippy::needless_pass_by_value,
     clippy::too_many_arguments,
@@ -393,6 +393,8 @@ fn vcs_metrics(
     emit_author_details: bool,
     include_deleted: bool,
     bus_factor_threshold: Option<f64>,
+    no_cache: bool,
+    cache_dir: Option<String>,
 ) -> PyResult<Bound<'_, PyAny>> {
     let params = vcs::VcsParams {
         long_window,
@@ -409,6 +411,8 @@ fn vcs_metrics(
         emit_author_details,
         include_deleted,
         bus_factor_threshold,
+        no_cache,
+        cache_dir,
     };
     let json = vcs::vcs_report_json(&repo_path, &params)?;
     conversion::json_string_to_py(py, &json)
@@ -474,6 +478,10 @@ fn vcs_trend(
         emit_author_details,
         include_deleted,
         bus_factor_threshold,
+        // Trend resolves a fresh historical tip per point; the file-level
+        // history cache does not apply, so it is left disabled.
+        no_cache: true,
+        cache_dir: None,
     };
     let json = vcs::vcs_trend_json(&repo_path, &params, points, span.as_deref(), top_deltas)?;
     conversion::json_string_to_py(py, &json)

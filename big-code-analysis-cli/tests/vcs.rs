@@ -103,6 +103,120 @@ fn vcs_json_ranks_the_tracked_file() {
     assert_eq!(doc["long_window_days"], 365);
 }
 
+/// Count `*.json` cache entries anywhere under `root`.
+fn count_cache_entries(root: &Path) -> usize {
+    let mut count = 0;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn vcs_cache_dir_persists_and_replays_identically() {
+    let repo = repo_two_commits();
+    let cache = tempfile::tempdir().expect("cache dir");
+    let cache_arg = cache.path().to_str().expect("utf8 cache path");
+
+    let run = || {
+        let assert = cli()
+            .current_dir(repo.path())
+            .args([
+                "vcs",
+                "--paths",
+                ".",
+                "--format",
+                "json",
+                "--as-of",
+                "@1700000000",
+                "--cache-dir",
+                cache_arg,
+            ])
+            .assert()
+            .success();
+        String::from_utf8(assert.get_output().stdout.clone()).expect("utf8")
+    };
+
+    let first = run(); // miss: walks and writes
+    assert_eq!(
+        count_cache_entries(cache.path()),
+        1,
+        "an entry is persisted"
+    );
+    let second = run(); // hit: replays
+    assert_eq!(
+        first, second,
+        "a cache hit is byte-identical to the first run"
+    );
+}
+
+#[test]
+fn vcs_no_cache_writes_nothing() {
+    let repo = repo_two_commits();
+    let cache = tempfile::tempdir().expect("cache dir");
+    cli()
+        .current_dir(repo.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--no-cache",
+            "--cache-dir",
+            cache.path().to_str().expect("utf8"),
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        count_cache_entries(cache.path()),
+        0,
+        "--no-cache neither reads nor writes the cache"
+    );
+}
+
+#[test]
+fn vcs_clear_cache_wipes_persisted_entries() {
+    let repo = repo_two_commits();
+    let cache = tempfile::tempdir().expect("cache dir");
+    let cache_arg = cache.path().to_str().expect("utf8");
+
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--cache-dir", cache_arg])
+        .assert()
+        .success();
+    assert!(count_cache_entries(cache.path()) >= 1);
+
+    cli()
+        .current_dir(repo.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--no-cache",
+            "--clear-cache",
+            "--cache-dir",
+            cache_arg,
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        count_cache_entries(cache.path()),
+        0,
+        "cleared, not re-primed"
+    );
+}
+
 #[test]
 fn vcs_table_is_the_default_output() {
     let repo = repo_two_commits();

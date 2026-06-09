@@ -173,6 +173,52 @@ cross-project robustness.
 | `--risk-formula {weighted\|percentile}` | `weighted` | Composite formula |
 | `--emit-author-details` | off | Emit SHA-256-hashed canonical author IDs |
 | `--include-deleted` | off | Also rank files deleted at the target ref |
+| `--no-cache` | off | Skip the persistent history cache (always walk fresh) |
+| `--clear-cache` | off | Wipe this repo's cached history before running |
+| `--cache-dir <DIR>` | platform cache | Override the cache directory |
+
+## Caching
+
+Ranking re-walks only the part of history inside the long window, but on a
+large, active repository that is still the dominant cost — and in CI the
+interesting deltas between runs are just the commits pushed since the last
+one. `bca vcs` therefore keeps a **persistent cache** of each walk, keyed
+by the resolved `HEAD` SHA and the repository's identity:
+
+- On an **unchanged tree** the prior result is replayed, no history walk.
+- When **`HEAD` has advanced** the walk visits only the new commits and
+  splices them onto the cached history.
+- A **force-push** (the cached head is no longer an ancestor of the new
+  one) falls back to a full walk.
+
+The cache is a pure optimization: a hit is **bit-identical** to a fresh
+walk, and the time windows are recomputed against the *current* moment on
+every run, so a cached result is never stale. An entry is ignored — and
+the history recomputed — whenever the schema, the score-formula version,
+or the *walk-affecting* options differ; in particular **changing a window
+forces a fresh walk**. (Finalization-only knobs such as `--risk-formula`,
+`--emit-author-details`, and `--include-deleted` are applied on replay, so
+they reuse the same cached walk.)
+
+By default the cache lives under
+`$XDG_CACHE_HOME/big-code-analysis/vcs` (`%LOCALAPPDATA%` on Windows,
+`~/.cache` otherwise). Author identities are stored only as their
+irreversible SHA-256 digests — never plaintext — so the cache is not a
+side channel for raw author emails. The same cache transparently
+accelerates `bca metrics --vcs` and `bca report --vcs`.
+
+```bash
+# First run primes the cache; the second replays it.
+bca vcs --paths .
+bca vcs --paths .                 # reuses prior work
+
+bca vcs --no-cache --paths .      # ignore the cache for this run
+bca vcs --clear-cache --paths .   # rebuild from scratch
+bca vcs --cache-dir /tmp/bca-cache --paths .
+```
+
+The REST (`POST /vcs`) and Python (`vcs_metrics`) surfaces expose the same
+behaviour through optional `no_cache` / `cache_dir` parameters.
 
 ## In `bca metrics`
 

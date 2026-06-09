@@ -24,7 +24,8 @@ use serde::Serialize;
 
 use big_code_analysis::FuncSpace;
 use big_code_analysis::vcs::{
-    self, Options, build_history_index, hotspot, parse_timestamp, parse_window, score, stats,
+    self, CacheConfig, Options, build_history_index_cached, hotspot, parse_timestamp, parse_window,
+    score, stats,
 };
 use big_code_analysis::wire;
 
@@ -84,7 +85,13 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     // The dedicated `bca vcs` report surfaces the directory/repo bus
     // factor; the per-file injection paths leave it off.
     options.compute_bus_factor = true;
-    let index = build_history_index(&root, &options).unwrap_or_else(|e| die(format_args!("{e}")));
+    let cache_config = CacheConfig {
+        enabled: !args.no_cache,
+        clear: args.clear_cache,
+        dir: args.cache_dir.clone(),
+    };
+    let index = build_history_index_cached(&root, &options, &cache_config)
+        .unwrap_or_else(|e| die(format_args!("{e}")));
     if index.truncated_shallow_clone() {
         eprintln!(
             "Warning: shallow clone detected — history is truncated, so counts are lower bounds"
@@ -134,7 +141,7 @@ fn default_aggregate_index(globals: &GlobalOpts) -> Option<vcs::HistoryIndex> {
         compute_bus_factor: true,
         ..Options::default()
     };
-    match build_history_index(&resolve_root(globals), &options) {
+    match build_history_index_cached(&resolve_root(globals), &options, &CacheConfig::default()) {
         Ok(index) => Some(index),
         Err(e) => {
             eprintln!("warning: --vcs: {e}; change-history metrics omitted");
@@ -490,7 +497,11 @@ fn csv_err(error: csv::Error) -> std::io::Error {
 /// behaviour). Returned in an [`Arc`] so the per-file walk workers
 /// share one read-only index.
 pub(crate) fn default_index(globals: &GlobalOpts) -> Option<Arc<vcs::HistoryIndex>> {
-    match build_history_index(&resolve_root(globals), &Options::default()) {
+    match build_history_index_cached(
+        &resolve_root(globals),
+        &Options::default(),
+        &CacheConfig::default(),
+    ) {
         Ok(index) => Some(Arc::new(index)),
         Err(e) => {
             eprintln!("warning: --vcs: {e}; change-history metrics omitted");

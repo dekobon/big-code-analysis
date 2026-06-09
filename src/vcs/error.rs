@@ -64,6 +64,12 @@ pub enum Error {
     InvalidTrend(String),
     /// Blaming a file for per-function attribution failed (issue #329).
     Blame(String),
+    /// Reading, writing, or clearing the persistent history cache failed
+    /// (issue #334). A *missing* or *corrupt* cache entry is not an error —
+    /// it is silently ignored and the history is recomputed — so this
+    /// variant is reserved for genuine I/O failures the caller asked to
+    /// surface (e.g. `--clear-cache` on an unwritable directory).
+    Cache(String),
 }
 
 impl std::fmt::Display for Error {
@@ -95,6 +101,7 @@ impl std::fmt::Display for Error {
             }
             Self::InvalidTrend(reason) => write!(f, "invalid trend parameters: {reason}"),
             Self::Blame(reason) => write!(f, "failed to blame file: {reason}"),
+            Self::Cache(reason) => write!(f, "history cache error: {reason}"),
         }
     }
 }

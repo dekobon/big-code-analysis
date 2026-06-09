@@ -40,13 +40,6 @@ metric = "cognitive"
 value = 24.0
 
 [[entry]]
-path = "big-code-analysis-web/src/web/server.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 800.0
-
-[[entry]]
 path = "src/count.rs"
 qualified = "<file>"
 start_line = 1
@@ -66,3 +59,10 @@ qualified = "record_indirect_includes"
 start_line = 227
 metric = "cognitive"
 value = 25.0
+
+[[entry]]
+path = "src/vcs/error.rs"
+qualified = "Error::fmt"
+start_line = 76
+metric = "cyclomatic"
+value = 15.0

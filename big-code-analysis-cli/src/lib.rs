@@ -453,6 +453,21 @@ struct VcsArgs {
     /// `0.5` per Avelino. Ignored by `bca vcs jit`.
     #[clap(long, default_value_t = big_code_analysis::vcs::options::DEFAULT_BUS_FACTOR_THRESHOLD)]
     bus_factor_threshold: f64,
+    /// Disable the persistent change-history cache for the file ranking:
+    /// always walk fresh, and neither read nor write the cache (issue
+    /// #334). The cache otherwise reuses prior work on an unchanged tree
+    /// and walks only new commits when `HEAD` has advanced.
+    #[clap(long)]
+    no_cache: bool,
+    /// Remove this repository's cached history before ranking, forcing a
+    /// full rebuild. Combine with `--no-cache` to wipe without re-priming.
+    #[clap(long)]
+    clear_cache: bool,
+    /// Directory for the persistent history cache. Defaults to
+    /// `$XDG_CACHE_HOME/big-code-analysis/vcs` (or the platform
+    /// equivalent: `%LOCALAPPDATA%` on Windows, `~/.cache` otherwise).
+    #[clap(long, value_parser)]
+    cache_dir: Option<PathBuf>,
 }
 
 /// Subcommands of `bca vcs`: `jit` (issue #331) and `trend` (issue #333);

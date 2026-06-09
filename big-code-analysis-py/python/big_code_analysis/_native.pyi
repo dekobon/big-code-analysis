@@ -281,6 +281,8 @@ def vcs_metrics(
     as_of: str | None = None,
     emit_author_details: bool = False,
     include_deleted: bool = False,
+    no_cache: bool = False,
+    cache_dir: str | None = None,
 ) -> dict[str, Any]:
     """Rank the files in a git repository by change-history risk.
 
@@ -295,6 +297,11 @@ def vcs_metrics(
     (``P1Y``). ``risk_formula`` is ``"weighted"`` (default) or
     ``"percentile"``. ``as_of`` (RFC 3339 / ``@unix`` / git date) pins
     the reference "now" for reproducible snapshots.
+
+    The persistent change-history cache (issue #334) reuses prior work on
+    an unchanged tree and walks only new commits when ``HEAD`` advances.
+    Pass ``no_cache=True`` to skip it, or ``cache_dir`` to override its
+    location (default: the platform cache directory).
 
     Raises
     ------

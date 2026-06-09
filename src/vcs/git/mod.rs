@@ -7,14 +7,18 @@
 //!
 //! `build` is the single entry point `build_history_index` delegates
 //! to. It opens the repository, resolves the target ref, enumerates the
-//! tracked text files at that ref (seeding one accumulator per file),
-//! walks history once to fold in per-file signals, then finalises each
-//! accumulator into a [`Stats`] record.
+//! tracked text files at that ref, walks history once into a raw
+//! `CommitEvent` log, then replays that
+//! log into per-file [`Stats`](crate::vcs::stats::Stats) (the `replay`
+//! module). Routing the walk through the same replay a cache hit uses is
+//! what keeps the two bit-identical (issue #334); `build_cached` adds the
+//! persistent-cache layer on top.
 //!
 //! Per-function attribution (issue #329) is a separate, blame-based
 //! path: see [`PerFunctionBlame`].
 
 mod blame;
+mod cached;
 mod history;
 mod identity;
 mod jit;
@@ -22,26 +26,24 @@ mod repo;
 mod trend;
 
 pub use blame::{LineSpan, PerFunctionBlame};
+pub(crate) use cached::build_cached;
 pub(crate) use jit::score_commit;
 pub(crate) use trend::build_trend;
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::vcs::HistoryIndex;
-use crate::vcs::bus_factor;
-use crate::vcs::entropy::CochangeGraph;
 use crate::vcs::error::Error;
-use crate::vcs::options::{Options, RiskFormula};
-use crate::vcs::score;
-use crate::vcs::stats::{Accumulator, Stats};
+use crate::vcs::options::Options;
+use crate::vcs::replay;
 
 /// Object-cache budget for the walk. Tree diffs look up the same blobs
 /// repeatedly; a few MiB of cache turns an O(commits²)-ish blob-decode
 /// pattern into something tractable (gix docs guidance). Only applied
 /// when the repository config has not already set one.
-const OBJECT_CACHE_BYTES: usize = 8 * 1024 * 1024;
+pub(super) const OBJECT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Walk git history rooted at `root` and build a [`HistoryIndex`].
 ///
@@ -60,82 +62,16 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     let commit = repo::resolve_commit(&repo, &options.reference)?;
     let target_tree = commit.tree().map_err(walk_err)?;
 
-    // Seed one accumulator per tracked text file at the target ref.
-    let mut accumulators: HashMap<PathBuf, Accumulator> =
-        repo::enumerate_target_files(&repo, &target_tree)?
-            .into_iter()
-            .map(|(path, sloc)| (path, Accumulator::new(sloc)))
-            .collect();
+    // Seed file set (path → SLOC) at the target ref.
+    let seed = repo::enumerate_target_files(&repo, &target_tree)?;
 
     let now = options.as_of.unwrap_or_else(current_unix_seconds);
-    let graph = history::walk_history(&repo, commit.id, options, now, &mut accumulators)?;
-
-    // The bus factor needs per-file authorship, which `finalize` discards;
-    // collect it first, and only when opted in (the repeated JIT-prior and
-    // per-file-injection walks leave the flag off, so they pay nothing).
-    let bus_factor = options
-        .compute_bus_factor
-        .then(|| bus_factor_aggregate(&accumulators, options))
-        .flatten();
-
-    let files = finalize(accumulators, &graph, options, now);
-    Ok(HistoryIndex::new(files, workdir, shallow).with_bus_factor(bus_factor))
-}
-
-/// Build the directory- / repo-level bus-factor aggregate from the
-/// per-file accumulators (issue #332). Files with no in-window authorship
-/// contribute no signal and are excluded from the denominator; when *no*
-/// file has any (an empty repo, or one whose only commits were bot-only or
-/// out-of-window) the aggregate is `None` so front ends omit the
-/// `vcs_aggregate` block rather than emit a meaningless "0 over 0 files".
-fn bus_factor_aggregate(
-    accumulators: &HashMap<PathBuf, Accumulator>,
-    options: &Options,
-) -> Option<bus_factor::BusFactor> {
-    let authorship: Vec<bus_factor::FileAuthorship> = accumulators
-        .iter()
-        .filter_map(|(path, acc)| {
-            acc.authorship()
-                .map(|contributions| bus_factor::FileAuthorship {
-                    path: path.clone(),
-                    contributions,
-                })
-        })
-        .collect();
-    if authorship.is_empty() {
-        return None;
-    }
-    Some(bus_factor::compute(
-        &authorship,
-        options.bus_factor_threshold,
-        options.emit_author_details,
-    ))
-}
-
-/// Finalise every accumulator into a [`Stats`] record, joining in each
-/// file's co-change graph entropy (the one signal the per-file
-/// accumulator cannot compute alone) and applying the percentile
-/// re-ranking pass when that formula is selected.
-fn finalize(
-    accumulators: HashMap<PathBuf, Accumulator>,
-    graph: &CochangeGraph,
-    options: &Options,
-    now: i64,
-) -> HashMap<PathBuf, Stats> {
-    let (paths, mut stats): (Vec<PathBuf>, Vec<Stats>) = accumulators
-        .into_iter()
-        .map(|(path, acc)| {
-            let (cochange_long, cochange_recent) = graph.entropy(&path);
-            let stats = acc.finalize(now, options, cochange_long, cochange_recent);
-            (path, stats)
-        })
-        .unzip();
-
-    if options.risk_formula == RiskFormula::Percentile {
-        score::apply_percentile(&mut stats);
-    }
-
-    paths.into_iter().zip(stats).collect()
+    // Uncached: walk the whole long window (no splice points) and replay
+    // the resulting event log — the same fold a cache hit takes, so the
+    // two cannot diverge.
+    let (events, _) = history::collect_events(&repo, commit.id, options, now, &HashSet::new())?;
+    let out = replay::replay(seed, &events, options, now);
+    Ok(HistoryIndex::new(out.files, workdir, shallow).with_bus_factor(out.bus_factor))
 }
 
 /// Map any backend error into [`Error::Walk`] — the catch-all for

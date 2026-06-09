@@ -20,7 +20,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use big_code_analysis::vcs::{
-    self, Options, build_history_index, build_trend, hotspot, parse_timestamp, parse_window,
+    self, CacheConfig, Options, build_history_index_cached, build_trend, hotspot, parse_timestamp,
+    parse_window,
 };
 use big_code_analysis::wire;
 
@@ -44,6 +45,22 @@ pub(crate) struct VcsParams {
     pub emit_author_details: bool,
     pub include_deleted: bool,
     pub bus_factor_threshold: Option<f64>,
+    /// Disable the persistent change-history cache for this call (issue
+    /// #334). Default `false` (cache enabled).
+    pub no_cache: bool,
+    /// Override the cache directory; `None` uses the platform default.
+    pub cache_dir: Option<String>,
+}
+
+impl VcsParams {
+    /// The persistent-cache configuration these params imply.
+    fn cache_config(&self) -> CacheConfig {
+        CacheConfig {
+            enabled: !self.no_cache,
+            clear: false,
+            dir: self.cache_dir.as_ref().map(std::path::PathBuf::from),
+        }
+    }
 }
 
 /// One ranked file: repo-relative path plus the flat VCS block.
@@ -115,7 +132,8 @@ fn options_from(params: &VcsParams) -> Result<Options, PyErr> {
 /// itself surfaces its failure the same way.
 pub(crate) fn vcs_report_json(repo_path: &Path, params: &VcsParams) -> Result<String, PyErr> {
     let options = options_from(params)?;
-    let index = build_history_index(repo_path, &options).map_err(vcs_error_to_py)?;
+    let index = build_history_index_cached(repo_path, &options, &params.cache_config())
+        .map_err(vcs_error_to_py)?;
 
     let mut files: Vec<FileEntry> = index
         .iter()
@@ -183,7 +201,8 @@ pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<Str
     let root = file_path.parent().unwrap_or(Path::new("."));
     // Discovery failures (not a repo) are non-fatal here: `analyze` still
     // returns the AST metrics, just without a `vcs` block.
-    let Ok(index) = build_history_index(root, &Options::default()) else {
+    let Ok(index) = build_history_index_cached(root, &Options::default(), &CacheConfig::default())
+    else {
         return Ok(funcspace_json);
     };
     let canonical = file_path

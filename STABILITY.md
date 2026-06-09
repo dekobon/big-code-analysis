@@ -280,6 +280,23 @@ and the delta magnitudes are derived from the same ordinal `risk_score`,
 so the "magnitudes are not byte-stable across bumps" caveat applies. The
 new module is additive — no existing field moved.
 
+The persistent change-history **cache** (#334) is an additive, opt-out
+optimization: `big_code_analysis::vcs::{build_history_index_cached,
+CacheConfig, CACHE_SCHEMA_VERSION}`, the `vcs::cache` module, the
+`vcs::Error::Cache` variant, and `AuthorId::from_digest`. It is surfaced
+by `bca vcs --no-cache` / `--clear-cache` / `--cache-dir` (and reused
+transparently by `bca metrics --vcs` / `bca report --vcs`), the
+`POST /vcs` `no_cache` / `cache_dir` fields, and the
+`vcs_metrics(no_cache=…, cache_dir=…)` parameters. The contract is purely
+behavioural — a cache hit produces output **bit-identical** to an uncached
+`build_history_index` at the same reference time — so the cache never
+changes the `wire::Vcs` shape or any metric value. The **on-disk file
+format** (the `HistoryCache` / `CommitEvent` JSON, versioned by
+`CACHE_SCHEMA_VERSION`) is deliberately **not** a stability surface: it is
+private machine-local state under the user's cache directory, may change
+between releases (a stale or unreadable entry is silently recomputed), and
+must not be parsed or relied on by downstream code.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

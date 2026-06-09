@@ -27,7 +27,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use big_code_analysis::vcs::{
-    self, Options, build_history_index, build_trend, parse_timestamp, parse_window,
+    self, CacheConfig, Options, build_history_index_cached, build_trend, parse_timestamp,
+    parse_window,
 };
 use big_code_analysis::wire;
 
@@ -70,6 +71,13 @@ pub struct WebVcsPayload {
     /// Bus-factor coverage (abandonment) threshold in `(0, 1)` (issue
     /// #332); default `0.5` per Avelino.
     pub bus_factor_threshold: Option<f64>,
+    /// Disable the persistent change-history cache for this request
+    /// (issue #334). Default `false` — the cache reuses prior work on an
+    /// unchanged tree and walks only new commits when `HEAD` advances.
+    pub no_cache: Option<bool>,
+    /// Override the server-side cache directory. Defaults to the platform
+    /// cache location (`$XDG_CACHE_HOME/big-code-analysis/vcs`, etc.).
+    pub cache_dir: Option<String>,
 }
 
 /// One ranked file: repo-relative path plus the flat VCS block.
@@ -147,7 +155,12 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
 /// appropriate HTTP status.
 pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error> {
     let options = options_from(&payload)?;
-    let index = build_history_index(&PathBuf::from(&payload.repo_path), &options)?;
+    let config = CacheConfig {
+        enabled: !payload.no_cache.unwrap_or(false),
+        clear: false,
+        dir: payload.cache_dir.as_ref().map(PathBuf::from),
+    };
+    let index = build_history_index_cached(&PathBuf::from(&payload.repo_path), &options, &config)?;
 
     let mut files: Vec<WebVcsFileEntry> = index
         .iter()
