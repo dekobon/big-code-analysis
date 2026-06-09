@@ -105,6 +105,105 @@ fn fail_over_at_or_above_threshold_exits_two() {
         .stderr(predicate::str::contains("fail-over threshold"));
 }
 
+/// A small unified diff touching two subsystems, written to a temp file.
+const SAMPLE_DIFF: &str = "\
+diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,1 +1,3 @@
+ keep
++added1
++added2
+diff --git a/docs/b.md b/docs/b.md
+--- a/docs/b.md
++++ b/docs/b.md
+@@ -1,1 +1,2 @@
+ title
++body
+";
+
+#[test]
+fn diff_mode_emits_partial_report_with_unavailable_groups() {
+    // `bca vcs jit --diff <file>` (issue #580): a bare diff scores only the
+    // size + diffusion groups, and the JSON must mark the other groups
+    // UNAVAILABLE (absent), not present as zero. No repository is needed.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let diff_path = dir.path().join("change.diff");
+    std::fs::write(&diff_path, SAMPLE_DIFF).expect("write diff");
+
+    let output = bca(dir.path())
+        .args(["vcs", "jit", "--diff"])
+        .arg(&diff_path)
+        .args(["-O", "json"])
+        .output()
+        .expect("run bca vcs jit --diff");
+    assert!(output.status.success(), "diff scoring should exit 0");
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("diff output is valid JSON");
+    assert_eq!(
+        json["source"], "diff",
+        "report self-identifies as diff mode"
+    );
+    assert!(json["partial_score"].is_number());
+    assert_eq!(json["size"]["files_touched"], 2);
+    assert_eq!(json["size"]["lines_added"], 3);
+    assert_eq!(json["diffusion"]["subsystems"], 2, "src + docs");
+    // The unavailable groups must be absent — distinct from a real zero.
+    let obj = json.as_object().expect("object");
+    for absent in ["history", "experience", "purpose", "commit", "score"] {
+        assert!(
+            !obj.contains_key(absent),
+            "diff report must omit `{absent}` so it is not misread as low risk"
+        );
+    }
+}
+
+#[test]
+fn diff_mode_reads_stdin_with_dash() {
+    // `--diff -` reads the diff from stdin, the conventional CLI marker.
+    let dir = tempfile::tempdir().expect("tempdir");
+    bca(dir.path())
+        .args(["vcs", "jit", "--diff", "-", "-O", "json"])
+        .write_stdin(SAMPLE_DIFF)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"source\":\"diff\""));
+}
+
+#[test]
+fn diff_mode_malformed_input_errors() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let diff_path = dir.path().join("bad.diff");
+    std::fs::write(
+        &diff_path,
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n",
+    )
+    .expect("write diff");
+    bca(dir.path())
+        .args(["vcs", "jit", "--diff"])
+        .arg(&diff_path)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("invalid unified diff"));
+}
+
+#[test]
+fn diff_and_commit_spec_are_mutually_exclusive() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let diff_path = dir.path().join("change.diff");
+    std::fs::write(&diff_path, SAMPLE_DIFF).expect("write diff");
+    // Supplying both a positional commit and --diff is a clap usage error.
+    bca(dir.path())
+        .args(["vcs", "jit", "HEAD", "--diff"])
+        .arg(&diff_path)
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
 #[test]
 fn outside_a_repo_errors() {
     let dir = tempfile::tempdir().expect("tempdir");

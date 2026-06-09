@@ -10,7 +10,7 @@
 // literals (0.0) from the formula's zero terms.
 #![allow(clippy::float_cmp)]
 
-use big_code_analysis::vcs::{self, Options, score_commit};
+use big_code_analysis::vcs::{self, JitSource, Options, score_commit, score_diff};
 
 mod common;
 use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
@@ -267,4 +267,126 @@ fn report_carries_stable_version_stamps() {
     assert_eq!(report.long_window_days, 365);
     assert_eq!(report.recent_window_days, 90);
     assert_eq!(report.commit.id.len(), 40, "full hex sha1");
+}
+
+// --- Arbitrary-diff scoring (issue #580) ---------------------------------
+
+#[test]
+fn commit_mode_serialized_shape_is_unchanged_by_diff_feature() {
+    // The diff feature is purely additive: a commit report's serialized
+    // top-level key set must NOT have gained or lost any field, so the
+    // existing `bca vcs jit <commit>` output stays byte-stable.
+    let repo = Repo::init();
+    repo.write("a.rs", "x\ny\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "init");
+
+    let report = score(&repo, "HEAD");
+    let json = serde_json::to_value(&report).expect("serialize commit report");
+    let keys: std::collections::BTreeSet<&str> = json
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let expected: std::collections::BTreeSet<&str> = [
+        "jit_schema_version",
+        "jit_score_version",
+        "long_window_days",
+        "recent_window_days",
+        "score",
+        "commit",
+        "features",
+        "contributions",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(keys, expected, "commit-mode key set must be unchanged");
+    // A commit report must NOT carry the diff-only markers.
+    assert!(!keys.contains("source"));
+    assert!(!keys.contains("partial_score"));
+}
+
+#[test]
+fn diff_mode_marks_unavailable_groups_distinct_from_zero() {
+    // A two-subsystem diff: size + diffusion are computable; history /
+    // experience / purpose have no input. They must be ABSENT from the
+    // report (not present as a real zero), so a consumer cannot read an
+    // unavailable group as "low risk".
+    let diff = "\
+diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,1 +1,3 @@
+ keep
++added1
++added2
+diff --git a/docs/b.md b/docs/b.md
+--- a/docs/b.md
++++ b/docs/b.md
+@@ -1,1 +1,2 @@
+ title
++body
+";
+    let report = score_diff(diff).expect("score diff");
+    assert_eq!(report.source, JitSource::Diff);
+    assert_eq!(report.size.files_touched, 2);
+    assert_eq!(report.size.lines_added, 3);
+    assert_eq!(report.diffusion.subsystems, 2, "src + docs");
+    assert!(report.partial_score > 0.0);
+
+    let json = serde_json::to_value(&report).expect("serialize diff report");
+    let obj = json.as_object().expect("object");
+    assert_eq!(obj["source"], "diff");
+    // The whole point: the unavailable groups have no key at all.
+    for absent in ["history", "experience", "purpose", "commit", "score"] {
+        assert!(
+            !obj.contains_key(absent),
+            "diff report must omit `{absent}` (would be misread as a real value)"
+        );
+    }
+    assert!(obj.contains_key("partial_score"));
+}
+
+#[test]
+fn diff_mode_partial_score_is_lower_than_an_equivalent_commit() {
+    // The not-comparable caveat made concrete: a commit whose diff is
+    // identical scores HIGHER than the bare diff, because the commit also
+    // folds in history / experience / purpose. So the two scores live on
+    // different scales and must not be compared.
+    let repo = Repo::init();
+    repo.write("src/a.rs", "keep\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 20 * DAY, "fix base");
+    repo.write("src/a.rs", "keep\nadded1\nadded2\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 5 * DAY, "fix more");
+    let commit = score(&repo, "HEAD");
+
+    // The same churn as a bare diff (one file, two added lines, one hunk).
+    let diff = "\
+diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,1 +1,3 @@
+ keep
++added1
++added2
+";
+    let report = score_diff(diff).expect("score diff");
+    // The diff's size term matches the commit's size term (same churn), but
+    // the commit's total adds the history + purpose terms on top.
+    assert!(
+        commit.score > report.partial_score,
+        "commit score {} must exceed the partial diff score {}",
+        commit.score,
+        report.partial_score
+    );
+}
+
+#[test]
+fn malformed_diff_is_an_error_not_a_panic() {
+    let err = score_diff("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n")
+        .expect_err("malformed hunk header must error");
+    assert!(
+        matches!(err, vcs::Error::InvalidDiff(_)),
+        "expected InvalidDiff, got {err:?}"
+    );
 }

@@ -19,11 +19,18 @@ metric = "halstead.effort"
 value = 55546.053164509794
 
 [[entry]]
+path = "big-code-analysis-cli/src/vcs_jit.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nexits"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/vcs_report.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 797.0
+value = 820.0
 
 [[entry]]
 path = "big-code-analysis-py/src/codegen.rs"
@@ -40,11 +47,25 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "_native"
+start_line = 576
+metric = "abc"
+value = 48.0
+
+[[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "collect_offenders"
 start_line = 454
 metric = "cognitive"
 value = 24.0
+
+[[entry]]
+path = "big-code-analysis-py/src/vcs.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nom"
+value = 31.0
 
 [[entry]]
 path = "src/count.rs"
@@ -70,6 +91,20 @@ value = 25.0
 [[entry]]
 path = "src/vcs/error.rs"
 qualified = "Error::fmt"
-start_line = 79
+start_line = 84
 metric = "cyclomatic"
-value = 16.0
+value = 17.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 914.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nom"
+value = 48.0

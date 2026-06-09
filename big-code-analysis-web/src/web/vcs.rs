@@ -27,8 +27,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use big_code_analysis::vcs::{
-    self, CacheConfig, Options, build_history_index_cached, build_trend, parse_timestamp,
-    parse_window,
+    self, CacheConfig, JitDiffReport, JitReport, Options, build_history_index_cached, build_trend,
+    parse_timestamp, parse_window, score_commit, score_diff,
 };
 use big_code_analysis::wire;
 
@@ -189,6 +189,115 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
         truncated_shallow_clone: index.truncated_shallow_clone(),
         vcs_aggregate: index.vcs_aggregate(),
         files,
+    })
+}
+
+/// Request body for `POST /vcs/jit` (issues #331 / #580). Scores a single
+/// commit on a server-side repository, or — when `diff` is supplied — an
+/// arbitrary unified diff carried in the request body (no repository
+/// needed). The two are mutually exclusive.
+#[derive(Debug, Deserialize)]
+pub struct WebVcsJitPayload {
+    /// Request identifier echoed back in the response.
+    pub id: String,
+    /// Server-side path to (a directory inside) the git working tree.
+    /// Required for commit scoring; ignored (and may be omitted) in
+    /// diff-only mode.
+    pub repo_path: Option<String>,
+    /// Commit / revision to score (default `HEAD`). Mutually exclusive with
+    /// `diff`.
+    pub commit: Option<String>,
+    /// An arbitrary unified diff to score instead of a commit (issue #580).
+    /// Only the size and diffusion groups are computable, so the response
+    /// is a partial report whose score is **not comparable** to a commit
+    /// score. Mutually exclusive with `repo_path` / `commit`.
+    pub diff: Option<String>,
+    /// Long window (default `12mo`). Commit mode only.
+    pub long_window: Option<String>,
+    /// Recent window (default `90d`). Commit mode only.
+    pub recent_window: Option<String>,
+    /// Walk the full DAG rather than first-parent only. Commit mode only.
+    pub full_history: Option<bool>,
+    /// Include merge commits in the experience walk. Commit mode only.
+    pub include_merges: Option<bool>,
+    /// Follow renames (default true). Commit mode only.
+    pub follow_renames: Option<bool>,
+    /// Reference "now" (RFC 3339 / `@unix` / git date). Commit mode only.
+    pub as_of: Option<String>,
+}
+
+/// Response body for `POST /vcs/jit`. The echoed `id` plus the flattened
+/// report — either a commit [`JitReport`] or a partial diff
+/// [`JitDiffReport`]; the report's own `source` field (`"commit"` /
+/// `"diff"`) tells them apart. Untagged so the report fields sit at the top
+/// level without an extra wrapper key.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum WebVcsJitReport {
+    /// A full commit score.
+    Commit(JitReport),
+    /// A partial diff score (issue #580).
+    Diff(JitDiffReport),
+}
+
+/// Response body for `POST /vcs/jit`: the echoed id plus the flattened JIT
+/// report.
+#[derive(Debug, Serialize)]
+pub struct WebVcsJitResponse {
+    /// Echoed request identifier.
+    pub id: String,
+    /// The JIT report (commit or diff mode).
+    #[serde(flatten)]
+    pub report: WebVcsJitReport,
+}
+
+/// Translate the JIT payload's commit-mode knobs into backend [`Options`].
+/// The full ranking knob set does not apply here (a single commit is
+/// scored, not a file ranking), so only the windows / history / rename /
+/// as-of options are honored.
+fn jit_options_from(payload: &WebVcsJitPayload) -> Result<Options, vcs::Error> {
+    let mut options = Options::default();
+    if let Some(spec) = &payload.long_window {
+        options.long_window_secs = parse_window(spec)?;
+    }
+    if let Some(spec) = &payload.recent_window {
+        options.recent_window_secs = parse_window(spec)?;
+    }
+    if let Some(raw) = &payload.as_of {
+        options.as_of = Some(parse_timestamp(raw)?);
+    }
+    options.full_history = payload.full_history.unwrap_or(options.full_history);
+    options.include_merges = payload.include_merges.unwrap_or(options.include_merges);
+    options.follow_renames = payload.follow_renames.unwrap_or(options.follow_renames);
+    Ok(options)
+}
+
+/// Score a commit or a diff for `payload` and return the JIT report.
+///
+/// # Errors
+///
+/// Returns a [`vcs::Error`] for a bad option, a missing `repo_path` in
+/// commit mode, a non-repository `repo_path`, an unresolvable commit, a
+/// malformed diff, or a history-walk failure; the handler maps it to the
+/// appropriate HTTP status.
+pub fn compute_vcs_jit(payload: WebVcsJitPayload) -> Result<WebVcsJitResponse, vcs::Error> {
+    let report = if let Some(diff) = &payload.diff {
+        WebVcsJitReport::Diff(score_diff(diff)?)
+    } else {
+        let options = jit_options_from(&payload)?;
+        // A commit score needs a repository; a missing `repo_path` is a
+        // client mistake, surfaced as the same not-a-repository 400 as a
+        // path that exists but is not a working tree.
+        let repo_path = payload
+            .repo_path
+            .as_ref()
+            .ok_or_else(|| vcs::Error::NotARepository(PathBuf::from("")))?;
+        let spec = payload.commit.as_deref().unwrap_or("HEAD");
+        WebVcsJitReport::Commit(score_commit(&PathBuf::from(repo_path), spec, &options)?)
+    };
+    Ok(WebVcsJitResponse {
+        id: payload.id,
+        report,
     })
 }
 

@@ -25,7 +25,10 @@ use tokio::sync::Semaphore;
 use super::comment::{WebCommentCfg, WebCommentInfo, WebCommentPayload, strip_comments};
 use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
 use super::metrics::{WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
-use super::vcs::{WebVcsPayload, WebVcsTrendPayload, compute_vcs, compute_vcs_trend};
+use super::vcs::{
+    WebVcsJitPayload, WebVcsPayload, WebVcsTrendPayload, compute_vcs, compute_vcs_jit,
+    compute_vcs_trend,
+};
 
 use big_code_analysis::vcs::Error as VcsError;
 use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language};
@@ -108,7 +111,7 @@ const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
 /// Error body when `repo_path` is not a git working tree, or a window /
 /// timestamp / formula is malformed (a client mistake → `400`).
-const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref is unresolvable, or a window / timestamp / formula / file-type scope / bus-factor threshold / trend parameter is malformed";
+const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref/commit is unresolvable, the supplied diff is malformed, or a window / timestamp / formula / file-type scope / bus-factor threshold / trend parameter is malformed";
 /// Error body when the history walk itself fails (server-side → `500`).
 const VCS_FAILED: &str = "Failed to walk change history for the supplied repository";
 
@@ -433,11 +436,27 @@ async fn vcs_trend_json(
     }
 }
 
-/// Map a [`VcsError`] from `/vcs` or `/vcs/trend` to the uniform JSON error
-/// response. Bad path / window / timestamp / pattern / formula / threshold
-/// / trend-parameter / `ref` are client mistakes (`400`); an actual walk
-/// failure is a `500`. The real error is logged server-side; the client
-/// sees the uniform body.
+async fn vcs_jit_json(
+    item: web::Json<WebVcsJitPayload>,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let payload = item.into_inner();
+    let payload_id = payload.id.clone();
+    // Commit scoring is blocking I/O (a history walk); diff scoring is pure
+    // CPU. Both run on the same timeout-guarded blocking pool as the other
+    // endpoints for one uniform guard.
+    let result = run_parse(&config, &payload_id, move || compute_vcs_jit(payload)).await?;
+    match result {
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Err(error) => Ok(vcs_error_response(&error, payload_id)),
+    }
+}
+
+/// Map a [`VcsError`] from `/vcs`, `/vcs/trend`, or `/vcs/jit` to the
+/// uniform JSON error response. Bad path / window / timestamp / pattern /
+/// formula / threshold / trend-parameter / `ref` / diff are client mistakes
+/// (`400`); an actual walk failure is a `500`. The real error is logged
+/// server-side; the client sees the uniform body.
 fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
     let (status, body) = match error {
         VcsError::NotARepository(_)
@@ -448,6 +467,9 @@ fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
         | VcsError::InvalidBusFactorThreshold(_)
         | VcsError::InvalidFileTypeScope(_)
         | VcsError::InvalidTrend(_)
+        // A malformed unified diff supplied to `/vcs/jit` is a client
+        // mistake (issue #580), not a server fault — answer 400, not 500.
+        | VcsError::InvalidDiff(_)
         // A bad client-supplied `ref` (or an unborn HEAD) is a client
         // mistake, not a server fault — answer 400, not 500.
         | VcsError::ResolveRef { .. } => (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST),
@@ -728,6 +750,14 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
         // `/vcs` (its response is a time series, not a ranked snapshot).
         web::resource("/vcs/trend")
             .route(web::post().guard(json_guard()).to(vcs_trend_json))
+            .default_service(web::route().to(guarded_post_fallback)),
+    )
+    .service(
+        // Just-in-time commit (or arbitrary-diff) risk scoring (issues
+        // #331 / #580). A distinct resource from `/vcs` (it scores one
+        // commit / diff, not a file ranking).
+        web::resource("/vcs/jit")
+            .route(web::post().guard(json_guard()).to(vcs_jit_json))
             .default_service(web::route().to(guarded_post_fallback)),
     )
     .service(

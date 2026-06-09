@@ -34,6 +34,7 @@ from ._native import (
     language_extensions,
     language_for_file,
     to_sarif,
+    vcs_jit,
     vcs_metrics,
     vcs_trend,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "language_for_file",
     "supported_languages",
     "to_sarif",
+    "vcs_jit",
     "vcs_metrics",
     "vcs_trend",
 ]

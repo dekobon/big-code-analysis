@@ -384,6 +384,45 @@ def vcs_trend(
         working tree.
     """
 
+def vcs_jit(
+    repo_path: str | os.PathLike[str] | None = None,
+    /,
+    *,
+    commit: str = "HEAD",
+    diff: str | None = None,
+    long_window: str | None = None,
+    recent_window: str | None = None,
+    full_history: bool = False,
+    include_merges: bool = False,
+    follow_renames: bool = True,
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    """Score a single commit (or an arbitrary diff) for just-in-time risk.
+
+    The programmatic analogue of ``bca vcs jit`` (issues #331 / #580).
+    ``repo_path`` is any path inside the working tree; ``commit`` is any
+    git revision spelling (default ``"HEAD"``), scored against its first
+    parent. Returns a ``dict`` with ``jit_schema_version``,
+    ``jit_score_version``, the window lengths, the ordinal composite
+    ``score``, the ``commit`` block, the ``features`` (size / diffusion /
+    history / experience), and the per-group ``contributions``.
+
+    Pass ``diff`` (a unified diff string) to score a bare diff instead of a
+    commit. A bare diff carries no author / parent / history, so only the
+    size and diffusion groups are computable: the returned dict then has
+    ``source == "diff"``, a ``partial_score`` that is **not comparable** to
+    a commit ``score``, and **no** history / experience / purpose groups
+    (they are absent, not zero, so an unavailable group can never be
+    misread as "low risk"). In diff mode ``repo_path`` / ``commit`` and the
+    window knobs are ignored.
+
+    Raises
+    ------
+    ValueError
+        For a malformed window / timestamp, an unresolvable commit, a
+        malformed diff, or when ``repo_path`` is not a git working tree.
+    """
+
 def analyze_source(
     code: str | bytes | bytearray,
     language: str,

@@ -27,7 +27,7 @@ mod trend;
 
 pub use blame::{LineSpan, PerFunctionBlame};
 pub(crate) use cached::build_cached;
-pub(crate) use jit::score_commit;
+pub(crate) use jit::{score_commit, score_diff};
 pub(crate) use trend::build_trend;
 
 use std::collections::HashSet;

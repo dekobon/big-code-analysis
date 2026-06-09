@@ -32,12 +32,13 @@ use crate::vcs::entropy::shannon_entropy;
 use crate::vcs::error::Error;
 use crate::vcs::identity::AuthorId;
 use crate::vcs::jit::{
-    JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitDiffusion, JitExperience, JitFeatures,
-    JitHistory, JitPurpose, JitReport, JitSize, score,
+    JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitDiffReport, JitDiffusion, JitExperience,
+    JitFeatures, JitHistory, JitPurpose, JitReport, JitSize, JitSource, score, score_diff_features,
 };
 use crate::vcs::options::{Options, RiskFormula};
 
 /// One text file the scored commit touched.
+#[cfg_attr(test, derive(Debug))]
 struct Touched {
     /// The file's path in the scored commit's tree (for diffusion and the
     /// new-name side of a rename).
@@ -102,6 +103,212 @@ pub(crate) fn score_commit(root: &Path, spec: &str, options: &Options) -> Result
         features,
         contributions,
     })
+}
+
+/// Score an arbitrary unified diff (issue #580). See
+/// [`crate::vcs::score_diff`] for the public contract: only the size and
+/// diffusion groups are computable, so the result is a partial
+/// [`JitDiffReport`] that is **not comparable** to a commit score.
+///
+/// The diff text is parsed into the same per-file `(added, deleted, hunks,
+/// path)` shape [`collect_touched`] produces, then fed through the *same*
+/// [`size_features`] / [`diffusion_features`] / scoring path as a commit —
+/// no forked metric math.
+pub(crate) fn score_diff(diff: &str) -> Result<JitDiffReport, Error> {
+    let touched = parse_unified_diff(diff)?;
+    let size = size_features(&touched);
+    let diffusion = diffusion_features(&touched);
+    let (partial_score, contributions) = score_diff_features(size, diffusion);
+    Ok(JitDiffReport {
+        jit_schema_version: JIT_SCHEMA_VERSION,
+        jit_score_version: JIT_SCORE_VERSION,
+        source: JitSource::Diff,
+        partial_score,
+        size,
+        diffusion,
+        contributions,
+    })
+}
+
+/// Parse a unified diff into the per-file [`Touched`] shape, counting added
+/// (`+`) and removed (`-`) body lines and the hunk (`@@`) count for each
+/// file. Binary-file stanzas contribute a touched file with zero line churn
+/// (mirroring [`collect_touched`], which skips binary blobs' line counts);
+/// renames without a body change still count as a touched file.
+///
+/// The scored-commit-side path is the new (`+++ b/…`) name so diffusion
+/// keys on the post-change tree, matching the commit path; `parent_path` is
+/// always `None` (a bare diff has no prior history to look up).
+///
+/// # Errors
+///
+/// [`Error::InvalidDiff`] when a `@@` hunk header is malformed or a `+`/`-`
+/// body line appears before any hunk header (a structurally broken diff),
+/// so a garbage input is a clean client error rather than a silent
+/// mis-count.
+fn parse_unified_diff(diff: &str) -> Result<Vec<Touched>, Error> {
+    let mut files: Vec<Touched> = Vec::new();
+    // The file currently being accumulated: its parsed new-side path (once a
+    // `+++` line is seen) and running counters. `None` until the first file
+    // header opens a stanza.
+    let mut current: Option<DiffFile> = None;
+
+    for raw in diff.lines() {
+        // Tolerate CRLF: `lines()` strips `\n`, this strips a trailing `\r`.
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            // A new file stanza begins. Flush the previous file (if any) and
+            // seed the path from the `a/… b/…` header as a fallback for a
+            // binary or rename-only stanza that carries no `+++` line.
+            flush_diff_file(&mut files, current.take());
+            current = Some(DiffFile::new(diff_git_new_path(rest)));
+            continue;
+        }
+        let Some(file) = current.as_mut() else {
+            // Preamble before the first stanza (commit message, `index`
+            // lines from `git diff` with no `diff --git`, etc.): ignore.
+            continue;
+        };
+
+        if let Some(path) = line.strip_prefix("+++ ") {
+            file.set_new_path(path);
+        } else if line.starts_with("--- ") {
+            // Old-side path: not needed (diffusion keys on the new side),
+            // and must not be counted as an added body line.
+        } else if line.starts_with("@@") {
+            parse_hunk_header(line)?;
+            file.saw_hunk = true;
+            file.hunks = file.hunks.saturating_add(1);
+        } else if line.starts_with('+') {
+            file.require_open_hunk()?;
+            file.added = file.added.saturating_add(1);
+        } else if line.starts_with('-') {
+            file.require_open_hunk()?;
+            file.deleted = file.deleted.saturating_add(1);
+        }
+        // Everything else is ignored: context lines (' '), `index`,
+        // `old/new mode`, `rename from/to`, a `Binary files … differ`
+        // marker (the file still flushes as a zero-churn touched entry, like
+        // the commit path skips binary blobs), and `\ No newline at end of
+        // file`.
+    }
+    flush_diff_file(&mut files, current.take());
+    Ok(files)
+}
+
+/// Accumulator for one file stanza while parsing a unified diff.
+struct DiffFile {
+    /// New-side path, seeded from the `diff --git` header and refined by the
+    /// `+++ b/…` line. `None` only for a `/dev/null` new side (a deletion).
+    new_path: Option<PathBuf>,
+    /// Whether a `@@` hunk header has been seen yet (body lines before one
+    /// are a malformed diff).
+    saw_hunk: bool,
+    added: u64,
+    deleted: u64,
+    hunks: u32,
+}
+
+impl DiffFile {
+    fn new(new_path: Option<PathBuf>) -> Self {
+        Self {
+            new_path,
+            saw_hunk: false,
+            added: 0,
+            deleted: 0,
+            hunks: 0,
+        }
+    }
+
+    /// Refine the new-side path from a `+++ ` header, dropping the `b/`
+    /// prefix. A `/dev/null` new side marks a *deletion*: keep the
+    /// `diff --git` header fallback (the `b/<old>` path) so the deleted file
+    /// still has a name and counts toward the features.
+    fn set_new_path(&mut self, raw: &str) {
+        if let Some(path) = unified_path(raw) {
+            self.new_path = Some(path);
+        }
+    }
+
+    /// Confirm a hunk header has opened, so a subsequent body line is
+    /// well-formed (a `+`/`-` line before any `@@` is a malformed diff).
+    fn require_open_hunk(&self) -> Result<(), Error> {
+        if self.saw_hunk {
+            Ok(())
+        } else {
+            Err(Error::InvalidDiff(
+                "a +/- line appears before any @@ hunk header".to_owned(),
+            ))
+        }
+    }
+}
+
+/// Push a finished [`DiffFile`] onto the touched list as a [`Touched`],
+/// preferring the new-side path and falling back to the repo root for a
+/// pure deletion (`/dev/null` new side) so the file still counts toward the
+/// size and diffusion features.
+fn flush_diff_file(files: &mut Vec<Touched>, file: Option<DiffFile>) {
+    let Some(file) = file else { return };
+    let path = file.new_path.unwrap_or_else(|| PathBuf::from(""));
+    files.push(Touched {
+        path,
+        parent_path: None,
+        added: file.added,
+        deleted: file.deleted,
+        hunks: file.hunks,
+    });
+}
+
+/// Validate a `@@ -a,b +c,d @@` hunk header: it must carry both a `-` and a
+/// `+` range marker. A line starting `@@` without them is a malformed
+/// header.
+fn parse_hunk_header(line: &str) -> Result<(), Error> {
+    // The minimal well-formed header is `@@ -l +l @@`; require both range
+    // markers rather than fully parsing the (optional) counts, which the
+    // size features do not use.
+    if line.contains(" -") && line.contains(" +") {
+        Ok(())
+    } else {
+        Err(Error::InvalidDiff(format!(
+            "malformed hunk header: {line:?}"
+        )))
+    }
+}
+
+/// The new-side path from a `diff --git a/<old> b/<new>` header line (the
+/// text after `diff --git `), used as a fallback before the `+++` line is
+/// seen. Returns the `b/<new>` portion with its `b/` prefix dropped, or
+/// `None` if the header does not carry a recognizable `b/` side.
+fn diff_git_new_path(rest: &str) -> Option<PathBuf> {
+    // `git diff` writes `a/<old> b/<new>`; the new side is the last
+    // whitespace-separated token starting with `b/`. Paths with spaces are
+    // uncommon in this header form and fall back to the `+++` line.
+    rest.rsplit(' ')
+        .find_map(|tok| tok.strip_prefix("b/"))
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Normalize a `+++`/`---` unified-diff path: strip the optional `a/` or
+/// `b/` prefix and a trailing tab-delimited timestamp, and treat
+/// `/dev/null` as no path (the absent side of an add / delete).
+fn unified_path(raw: &str) -> Option<PathBuf> {
+    // `git` appends nothing, but POSIX `diff -u` appends a tab + timestamp;
+    // cut at the first tab to be tolerant of both.
+    let path = raw.split('\t').next().unwrap_or(raw).trim();
+    if path == "/dev/null" || path.is_empty() {
+        return None;
+    }
+    let stripped = path
+        .strip_prefix("a/")
+        .or_else(|| path.strip_prefix("b/"))
+        .unwrap_or(path);
+    if stripped.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(stripped))
+    }
 }
 
 /// Per-commit timing facts shared by the feature computations, bundled so
@@ -471,4 +678,237 @@ fn experience_features(
         }
     }
     Ok(experience)
+}
+
+#[cfg(test)]
+mod diff_parse_tests {
+    //! Unit tests for the unified-diff parser backing `score_diff` (issue
+    //! #580). These exercise the `(added, deleted, hunks, path)` extraction
+    //! and the partial-report contract directly on diff text — no
+    //! repository needed.
+    #![allow(clippy::float_cmp)]
+
+    use super::{parse_unified_diff, score_diff};
+    use crate::vcs::JitSource;
+    use crate::vcs::error::Error;
+    use std::path::Path;
+
+    /// Find the parsed touched-file entry for a path, by its new-side name.
+    fn touched<'a>(files: &'a [super::Touched], path: &str) -> &'a super::Touched {
+        files
+            .iter()
+            .find(|t| t.path == Path::new(path))
+            .unwrap_or_else(|| panic!("no touched entry for {path}; got {:?}", paths(files)))
+    }
+
+    fn paths(files: &[super::Touched]) -> Vec<String> {
+        files.iter().map(|t| t.path.display().to_string()).collect()
+    }
+
+    #[test]
+    fn single_file_added_and_deleted_lines() {
+        let diff = "\
+diff --git a/src/a.rs b/src/a.rs
+index 111..222 100644
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,3 +1,4 @@
+ ctx
+-old
++new1
++new2
+ tail
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        let t = touched(&files, "src/a.rs");
+        // expected: two `+` body lines, one `-` body line, one hunk; the
+        // ` ctx` / ` tail` context lines and the `---`/`+++`/`index`
+        // headers are NOT counted.
+        assert_eq!(t.added, 2, "two added lines");
+        assert_eq!(t.deleted, 1, "one deleted line");
+        assert_eq!(t.hunks, 1, "one hunk");
+    }
+
+    #[test]
+    fn multi_file_diff_separates_files_and_counts_hunks() {
+        let diff = "\
+diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,1 +1,2 @@
+ keep
++added
+diff --git a/docs/b.md b/docs/b.md
+--- a/docs/b.md
++++ b/docs/b.md
+@@ -1,2 +1,1 @@
+-removed1
+-removed2
++merged
+@@ -10,1 +9,1 @@
+-x
++y
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 2, "two distinct files");
+        let a = touched(&files, "src/a.rs");
+        assert_eq!((a.added, a.deleted, a.hunks), (1, 0, 1));
+        let b = touched(&files, "docs/b.md");
+        // expected: across two hunks, 2 `+` and 3 `-` body lines.
+        assert_eq!((b.added, b.deleted, b.hunks), (2, 3, 2));
+    }
+
+    #[test]
+    fn rename_uses_new_side_path() {
+        let diff = "\
+diff --git a/old/name.rs b/new/name.rs
+similarity index 95%
+rename from old/name.rs
+rename to new/name.rs
+--- a/old/name.rs
++++ b/new/name.rs
+@@ -1,1 +1,1 @@
+-a
++b
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        // The new-side path is what diffusion keys on (matches the commit
+        // path); the `rename from`/`rename to` lines are not body lines.
+        let t = touched(&files, "new/name.rs");
+        assert_eq!((t.added, t.deleted), (1, 1));
+    }
+
+    #[test]
+    fn new_file_has_no_dev_null_path() {
+        let diff = "\
+diff --git a/created.rs b/created.rs
+new file mode 100644
+index 000..abc
+--- /dev/null
++++ b/created.rs
+@@ -0,0 +1,2 @@
++line1
++line2
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        // `/dev/null` on the old side must not become the path; the new
+        // side wins.
+        let t = touched(&files, "created.rs");
+        assert_eq!((t.added, t.deleted), (2, 0));
+    }
+
+    #[test]
+    fn deleted_file_dev_null_new_side_falls_back_to_header() {
+        let diff = "\
+diff --git a/gone.rs b/gone.rs
+deleted file mode 100644
+--- a/gone.rs
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line1
+-line2
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        // The new side is `/dev/null`; the path falls back to the `b/gone.rs`
+        // from the `diff --git` header so the deletion still counts.
+        let t = touched(&files, "gone.rs");
+        assert_eq!((t.added, t.deleted), (0, 2));
+    }
+
+    #[test]
+    fn binary_file_counts_as_touched_with_zero_lines() {
+        let diff = "\
+diff --git a/logo.png b/logo.png
+index 111..222 100644
+Binary files a/logo.png and b/logo.png differ
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1, "binary file still counts as touched");
+        let t = touched(&files, "logo.png");
+        // No line churn or hunks for a binary blob (mirrors the commit
+        // path, which skips binary blobs' line counts).
+        assert_eq!((t.added, t.deleted, t.hunks), (0, 0, 0));
+    }
+
+    #[test]
+    fn crlf_line_endings_are_tolerated() {
+        let diff = "diff --git a/a.rs b/a.rs\r\n--- a/a.rs\r\n+++ b/a.rs\r\n@@ -1,1 +1,1 @@\r\n-x\r\n+y\r\n";
+        let files = parse_unified_diff(diff).expect("parse");
+        let t = touched(&files, "a.rs");
+        assert_eq!((t.added, t.deleted, t.hunks), (1, 1, 1));
+    }
+
+    #[test]
+    fn empty_diff_yields_no_files() {
+        let files = parse_unified_diff("").expect("parse empty");
+        assert!(files.is_empty(), "an empty diff touches no files");
+    }
+
+    #[test]
+    fn body_line_before_hunk_is_malformed() {
+        // A `+`/`-` body line before any `@@` header is structurally broken.
+        let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n+orphan\n";
+        let err = parse_unified_diff(diff).expect_err("must reject");
+        assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn malformed_hunk_header_is_rejected() {
+        let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n";
+        let err = parse_unified_diff(diff).expect_err("must reject");
+        assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn score_diff_marks_unavailable_groups_and_is_partial() {
+        // A two-subsystem diff: size + diffusion are present; the report
+        // type itself has NO history / experience / purpose fields, so an
+        // absent group can never be read as a real zero (the #580 trap).
+        let diff = "\
+diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,1 +1,3 @@
+ keep
++one
++two
+diff --git a/docs/b.md b/docs/b.md
+--- a/docs/b.md
++++ b/docs/b.md
+@@ -1,1 +1,2 @@
+ title
++body
+";
+        let report = score_diff(diff).expect("score diff");
+        assert_eq!(report.source, JitSource::Diff);
+        assert_eq!(report.size.files_touched, 2);
+        assert_eq!(report.size.lines_added, 3);
+        assert_eq!(report.diffusion.subsystems, 2, "src + docs");
+        // The partial score is exactly size + diffusion contributions (the
+        // unavailable groups contribute nothing because they are absent).
+        let expected = report.contributions.size + report.contributions.diffusion;
+        assert!(
+            (report.partial_score - expected).abs() < 1e-12,
+            "partial score {} != size+diffusion {expected}",
+            report.partial_score
+        );
+        assert!(report.partial_score > 0.0);
+
+        // The serialized JSON must NOT carry history / experience / purpose
+        // keys at all — proving "unavailable" is distinct from "zero".
+        let json = serde_json::to_value(&report).expect("serialize");
+        let obj = json.as_object().expect("object");
+        assert_eq!(obj["source"], "diff");
+        for absent in ["history", "experience", "purpose", "commit", "score"] {
+            assert!(
+                !obj.contains_key(absent),
+                "diff report must not carry `{absent}` (would be misread as a real value)"
+            );
+        }
+        assert!(obj.contains_key("partial_score"));
+    }
 }

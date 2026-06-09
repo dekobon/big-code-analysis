@@ -2258,3 +2258,161 @@ async fn test_web_vcs_trend_too_few_points_is_400() {
         "a sub-minimum point count is a client error"
     );
 }
+
+// --- POST /vcs/jit (issues #331 / #580) ----------------------------------
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_commit_happy_path() {
+    let repo = build_temp_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs/jit")
+        .insert_header(ContentType::json())
+        .set_json(json!({
+            "id": "jit-1",
+            "repo_path": repo.path().to_str().unwrap(),
+            "commit": "HEAD",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["id"], "jit-1");
+    assert_eq!(body["jit_schema_version"], 1);
+    // A full commit report carries the score + every feature group.
+    assert!(body["score"].is_number());
+    assert!(body["commit"]["id"].is_string());
+    for group in ["size", "diffusion", "history", "experience"] {
+        assert!(body["features"][group].is_object(), "features.{group}");
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_diff_mode_partial_report() {
+    // A bare diff in the request body (issue #580): no repo needed. The
+    // response is the partial report — `source: "diff"`, a `partial_score`,
+    // and NO history / experience / purpose / score keys.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,1 +1,3 @@\n keep\n+one\n+two\n";
+    let req = test::TestRequest::post()
+        .uri("/vcs/jit")
+        .insert_header(ContentType::json())
+        .set_json(json!({ "id": "jit-diff", "diff": diff }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["id"], "jit-diff");
+    assert_eq!(body["source"], "diff");
+    assert!(body["partial_score"].is_number());
+    assert_eq!(body["size"]["lines_added"], 2);
+    let obj = body.as_object().expect("object");
+    for absent in ["history", "experience", "purpose", "commit", "score"] {
+        assert!(
+            !obj.contains_key(absent),
+            "diff report must omit `{absent}`"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_malformed_diff_is_400() {
+    // The load-bearing regression (project memory / #515-style): a malformed
+    // diff is a client mistake. The new `InvalidDiff` variant MUST map to
+    // 400, not the catch-all 500, or it would fall through.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs/jit")
+        .insert_header(ContentType::json())
+        .set_json(json!({
+            "id": "jit-bad",
+            "diff": "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "a malformed diff must be a 400, not a 500"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    // The body must name the problem (so a 400 is actionable, not opaque).
+    assert_eq!(body["id"], "jit-bad");
+    let msg = body["error"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("diff"),
+        "the 400 body must name the diff as the problem, got {msg:?}"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_missing_repo_path_is_400() {
+    // Commit mode with no repo_path is a client mistake (no repository to
+    // score), surfaced as the not-a-repository 400.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs/jit")
+        .insert_header(ContentType::json())
+        .set_json(json!({ "id": "jit-norepo" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_wrong_method_yields_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::get().uri("/vcs/jit").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::METHOD_NOT_ALLOWED,
+        "GET /vcs/jit must be a 405, not a 404"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_wrong_content_type_yields_415() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs/jit")
+        .insert_header((http::header::CONTENT_TYPE, "text/plain"))
+        .set_payload("not json")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "/vcs/jit wrong Content-Type must be a 415, not a 404"
+    );
+}

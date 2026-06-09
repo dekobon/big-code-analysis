@@ -67,6 +67,11 @@ pub enum Error {
     InvalidTrend(String),
     /// Blaming a file for per-function attribution failed (issue #329).
     Blame(String),
+    /// An arbitrary unified diff supplied to
+    /// [`score_diff`](crate::vcs::score_diff) could not be parsed (issue
+    /// #580). A client-input error: the diff was malformed (a hunk header
+    /// the parser could not read, a body line outside any hunk, …).
+    InvalidDiff(String),
     /// Reading, writing, or clearing the persistent history cache failed
     /// (issue #334). A *missing* or *corrupt* cache entry is not an error —
     /// it is silently ignored and the history is recomputed — so this
@@ -105,6 +110,7 @@ impl std::fmt::Display for Error {
             }
             Self::InvalidTrend(reason) => write!(f, "invalid trend parameters: {reason}"),
             Self::Blame(reason) => write!(f, "failed to blame file: {reason}"),
+            Self::InvalidDiff(reason) => write!(f, "invalid unified diff: {reason}"),
             Self::Cache(reason) => write!(f, "history cache error: {reason}"),
         }
     }

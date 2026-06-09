@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use big_code_analysis::vcs::{
     self, CacheConfig, Options, build_history_index_cached, build_trend, hotspot, parse_timestamp,
-    parse_window,
+    parse_window, score_commit, score_diff,
 };
 use big_code_analysis::wire;
 
@@ -196,6 +196,75 @@ pub(crate) fn vcs_trend_json(
         wire::VcsTrend::from_trend(&trend, params.top.unwrap_or(0), top_deltas.unwrap_or(0));
     serde_json::to_string(&wire_trend)
         .map_err(|e| PyValueError::new_err(format!("serializing vcs trend: {e}")))
+}
+
+/// The commit-mode knobs accepted by [`vcs_jit_json`]; all optional. The
+/// full ranking-knob set does not apply when scoring a single commit, so
+/// only the windows / history / rename / as-of options are honored.
+#[derive(Default)]
+pub(crate) struct JitParams {
+    pub long_window: Option<String>,
+    pub recent_window: Option<String>,
+    pub full_history: bool,
+    pub include_merges: bool,
+    pub follow_renames: bool,
+    pub as_of: Option<String>,
+}
+
+impl JitParams {
+    /// Build [`Options`] for a commit score, surfacing a `ValueError` on a
+    /// bad window / timestamp.
+    fn options(&self) -> Result<Options, PyErr> {
+        let mut options = Options {
+            full_history: self.full_history,
+            include_merges: self.include_merges,
+            follow_renames: self.follow_renames,
+            ..Options::default()
+        };
+        if let Some(spec) = &self.long_window {
+            options.long_window_secs = parse_window(spec).map_err(vcs_error_to_py)?;
+        }
+        if let Some(spec) = &self.recent_window {
+            options.recent_window_secs = parse_window(spec).map_err(vcs_error_to_py)?;
+        }
+        if let Some(raw) = &self.as_of {
+            options.as_of = Some(parse_timestamp(raw).map_err(vcs_error_to_py)?);
+        }
+        Ok(options)
+    }
+}
+
+/// Score a single commit (issue #331), or — when `diff` is supplied — an
+/// arbitrary unified diff (issue #580), returning the JIT report as a JSON
+/// string for [`crate::conversion::json_string_to_py`].
+///
+/// In diff mode only the size and diffusion groups are computable, so the
+/// returned report's `source` is `"diff"` and its `partial_score` is **not
+/// comparable** to a commit score. `repo_path` / `commit` / the window
+/// knobs are ignored in diff mode.
+///
+/// # Errors
+///
+/// `ValueError` for a bad option, a non-repository `repo_path`, an
+/// unresolvable commit, or a malformed diff.
+pub(crate) fn vcs_jit_json(
+    repo_path: Option<&Path>,
+    commit: &str,
+    diff: Option<&str>,
+    params: &JitParams,
+) -> Result<String, PyErr> {
+    if let Some(diff) = diff {
+        let report = score_diff(diff).map_err(vcs_error_to_py)?;
+        return serde_json::to_string(&report)
+            .map_err(|e| PyValueError::new_err(format!("serializing jit diff report: {e}")));
+    }
+    let root = repo_path.ok_or_else(|| {
+        PyValueError::new_err("vcs_jit requires repo_path when no diff is supplied")
+    })?;
+    let options = params.options()?;
+    let report = score_commit(root, commit, &options).map_err(vcs_error_to_py)?;
+    serde_json::to_string(&report)
+        .map_err(|e| PyValueError::new_err(format!("serializing jit report: {e}")))
 }
 
 /// Inject a `vcs` block into a single file's metrics JSON for

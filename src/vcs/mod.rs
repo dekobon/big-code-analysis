@@ -54,8 +54,9 @@ pub use bus_factor::{
 pub use cache::{CACHE_SCHEMA_VERSION, CacheConfig};
 pub use error::Error;
 pub use jit::{
-    JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffusion,
-    JitExperience, JitFeatures, JitHistory, JitPurpose, JitReport, JitSize,
+    JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffContributions,
+    JitDiffReport, JitDiffusion, JitExperience, JitFeatures, JitHistory, JitPurpose, JitReport,
+    JitSize, JitSource,
 };
 pub use options::{FileTypeScope, Options, RiskFormula, parse_window};
 pub use stats::Stats;
@@ -256,6 +257,31 @@ pub fn parse_timestamp(input: &str) -> Result<i64, Error> {
 #[cfg(feature = "vcs-git")]
 pub fn score_commit(root: &Path, spec: &str, options: &Options) -> Result<jit::JitReport, Error> {
     git::score_commit(root, spec, options)
+}
+
+/// Score an arbitrary unified `diff` for just-in-time defect-induction risk
+/// (issue #580).
+///
+/// Unlike [`score_commit`], a bare diff carries **no author, parent, or
+/// file history**, so only the *size* and *diffusion* feature groups are
+/// computable. The result is a partial [`jit::JitDiffReport`] whose
+/// history / experience / purpose groups are **absent from the type**
+/// (not present as zero), and whose
+/// [`partial_score`](jit::JitDiffReport::partial_score) is **not
+/// comparable** to a commit score — rank diffs against other diffs only.
+/// See [`jit::JitDiffReport`] for the full contract.
+///
+/// `diff` is a unified diff as produced by `git diff` / `diff -u` (one or
+/// more file stanzas). No repository access is needed; `options` does not
+/// participate (a bare diff has nothing to window).
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidDiff`] when the diff is structurally malformed
+/// (a bad `@@` hunk header, or a `+`/`-` body line outside any hunk).
+#[cfg(feature = "vcs-git")]
+pub fn score_diff(diff: &str) -> Result<jit::JitDiffReport, Error> {
+    git::score_diff(diff)
 }
 
 /// Sample the change-history metrics at `points` evenly-spaced moments

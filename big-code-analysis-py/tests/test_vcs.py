@@ -347,3 +347,63 @@ def test_vcs_metrics_no_cache_writes_nothing(tmp_path: Path) -> None:
     cache_dir = tmp_path / "cache"
     bca.vcs_metrics(repo, no_cache=True, cache_dir=str(cache_dir))
     assert not any(cache_dir.rglob("*.json"))
+
+
+def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
+    """vcs_jit(repo, commit) returns the full commit JIT report (issue
+    #331). The commit-mode report carries the score plus every feature
+    group, mirroring ``bca vcs jit``."""
+    repo = _build_repo(tmp_path)
+    report = bca.vcs_jit(repo, commit="HEAD")
+    assert report["jit_schema_version"] == 1
+    assert report["jit_score_version"] == 1
+    assert isinstance(report["score"], (int, float))
+    assert isinstance(report["commit"]["id"], str)
+    assert len(report["commit"]["id"]) == 40
+    for group in ("size", "diffusion", "history", "experience"):
+        assert isinstance(report["features"][group], dict), group
+    # A bug-fix message ("fix bug in work") is classified.
+    assert report["commit"]["purpose"]["is_fix"] is True
+
+
+_SAMPLE_DIFF = (
+    "diff --git a/src/a.rs b/src/a.rs\n"
+    "--- a/src/a.rs\n"
+    "+++ b/src/a.rs\n"
+    "@@ -1,1 +1,3 @@\n"
+    " keep\n"
+    "+added1\n"
+    "+added2\n"
+    "diff --git a/docs/b.md b/docs/b.md\n"
+    "--- a/docs/b.md\n"
+    "+++ b/docs/b.md\n"
+    "@@ -1,1 +1,2 @@\n"
+    " title\n"
+    "+body\n"
+)
+
+
+def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
+    """vcs_jit(diff=...) scores an arbitrary diff (issue #580). Only size and
+    diffusion are computable, so the report is marked ``source == "diff"``
+    and the unavailable groups are ABSENT (not present as zero) — a consumer
+    cannot read a missing group as "low risk"."""
+    report = bca.vcs_jit(diff=_SAMPLE_DIFF)
+    assert report["source"] == "diff"
+    assert isinstance(report["partial_score"], (int, float))
+    assert report["size"]["files_touched"] == 2
+    assert report["size"]["lines_added"] == 3
+    assert report["diffusion"]["subsystems"] == 2  # src + docs
+    # The whole point of #580: the unavailable groups have no key at all.
+    for absent in ("history", "experience", "purpose", "commit", "score"):
+        assert absent not in report, absent
+
+
+def test_vcs_jit_malformed_diff_raises() -> None:
+    with pytest.raises(ValueError, match="diff"):
+        bca.vcs_jit(diff="diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n")
+
+
+def test_vcs_jit_outside_repo_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="version-control"):
+        bca.vcs_jit(tmp_path, commit="HEAD")

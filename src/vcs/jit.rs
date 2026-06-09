@@ -61,14 +61,18 @@
 //! not read the absolute magnitude as a probability. Any change to the
 //! term set or weights **must** bump [`JIT_SCORE_VERSION`].
 //!
-//! # Scope (v1)
+//! # Scope
 //!
-//! Scoring an arbitrary unprovenanced diff (`--diff <file>`) is **not**
-//! implemented: a bare diff carries no author, parent, or file history,
-//! so only the size and diffusion groups would be computable and the
-//! resulting partial score would mislead. v1 scores a real commit (which
-//! has all five groups) and defers diff scoring to a follow-up. ML-based
-//! JIT and server-side hook integration are out of scope per issue #331.
+//! [`score`] / [`JitReport`] cover a real commit (all five groups).
+//! Scoring an arbitrary unprovenanced diff (`bca vcs jit --diff <file>`)
+//! is supported as a deliberately *partial* path (issue #580): a bare
+//! diff carries no author, parent, or file history, so only the size and
+//! diffusion groups are computable. That path produces a distinct
+//! [`JitDiffReport`] whose unavailable groups are **absent from the type**
+//! (not present as zero), and whose [`partial_score`](JitDiffReport::partial_score)
+//! is **not comparable** to a commit score — see [`JitDiffReport`].
+//! ML-based JIT and server-side hook integration remain out of scope per
+//! issues #331 / #580.
 
 use serde::Serialize;
 
@@ -288,6 +292,104 @@ pub fn score(features: &JitFeatures, purpose: JitPurpose) -> (f64, JitContributi
     };
     let total = (size + diffusion + history + purpose_term + experience).max(0.0);
     (total, contributions)
+}
+
+/// The result of scoring an arbitrary unified diff (issue #580).
+///
+/// A bare diff carries **no author, parent, or file history**, so only the
+/// *size* and *diffusion* feature groups are computable. The *history*,
+/// *experience*, and *purpose* groups have no input and are therefore
+/// **absent from this type entirely** — not present as zero. This is the
+/// whole point of a distinct report shape: a consumer cannot read an
+/// unavailable group as "low risk", because there is no field to read (the
+/// failure mode #580 warns about).
+///
+/// # Not comparable to a commit score
+///
+/// [`partial_score`](JitDiffReport::partial_score) sums only the size and
+/// diffusion contributions, so it is **always lower** than the full
+/// [`JitReport::score`] for the same change would be (which also folds in
+/// history, experience, and purpose). The two scores live on different
+/// scales: rank diffs against other *diffs*, never against commit scores.
+/// The `source` field is a permanent `"diff"` marker so a serialized
+/// report is self-identifying.
+///
+/// Field order keeps every top-level scalar before the nested tables so
+/// the report serializes cleanly to TOML.
+#[derive(Clone, Debug, Serialize)]
+pub struct JitDiffReport {
+    /// Output-shape version ([`JIT_SCHEMA_VERSION`]). Shared with
+    /// [`JitReport`] so both jit shapes version together.
+    pub jit_schema_version: u32,
+    /// Composite-formula version ([`JIT_SCORE_VERSION`]).
+    pub jit_score_version: u32,
+    /// Permanent discriminator: always [`JitSource::Diff`]. Distinguishes a
+    /// diff-only report from a commit report at a glance in JSON / YAML.
+    pub source: JitSource,
+    /// The partial (size + diffusion only) ordinal score. **Not comparable**
+    /// to [`JitReport::score`] — see the type docs.
+    pub partial_score: f64,
+    /// Size of the change. Computable from a bare diff.
+    pub size: JitSize,
+    /// Spread of the change. Computable from a bare diff.
+    pub diffusion: JitDiffusion,
+    /// The two available contributions (size, diffusion). History,
+    /// experience, and purpose contributions are absent because their
+    /// inputs are absent.
+    pub contributions: JitDiffContributions,
+}
+
+/// Which input a JIT report was scored from. Serializes to a lowercase
+/// string (`"commit"` / `"diff"`) so consumers can branch on it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JitSource {
+    /// Scored from a real commit (all five feature groups present).
+    #[default]
+    Commit,
+    /// Scored from a bare unified diff (only size + diffusion present;
+    /// issue #580).
+    Diff,
+}
+
+/// The contributions available from a bare diff: size and diffusion only.
+/// History, experience, and purpose are omitted (no input), so — unlike
+/// [`JitContributions`] — there is no zero-valued field a consumer could
+/// misread as "this group is low risk".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct JitDiffContributions {
+    /// Size term (≥ 0).
+    pub size: f64,
+    /// Diffusion term (≥ 0).
+    pub diffusion: f64,
+}
+
+/// Compute the partial (size + diffusion only) JIT score for an arbitrary
+/// diff, reusing the *same* [`score`] math as a commit so the two terms are
+/// computed by one code path. The history, experience, and purpose terms
+/// are left at their zero defaults (no input), and their zero contributions
+/// are discarded — only size and diffusion survive into the returned
+/// [`JitDiffContributions`].
+///
+/// The returned score is **not comparable** to a commit score; see
+/// [`JitDiffReport`].
+#[must_use]
+pub fn score_diff_features(size: JitSize, diffusion: JitDiffusion) -> (f64, JitDiffContributions) {
+    let features = JitFeatures {
+        size,
+        diffusion,
+        ..JitFeatures::default()
+    };
+    // Reuse the commit-scoring formula, then keep only the two terms a bare
+    // diff can supply. The default history/experience contribute exactly
+    // zero and there is no message, so the partial total is just size +
+    // diffusion (already floored at >= 0 inside `score`).
+    let (_total, contributions) = score(&features, JitPurpose::default());
+    let partial = JitDiffContributions {
+        size: contributions.size,
+        diffusion: contributions.diffusion,
+    };
+    (partial.size + partial.diffusion, partial)
 }
 
 /// Additive adjustments for `FIX` / security / revert (Kamei `FIX` is

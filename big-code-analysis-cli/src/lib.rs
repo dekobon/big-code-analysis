@@ -507,9 +507,19 @@ enum VcsSubcommand {
 #[derive(Args, Debug)]
 struct JitArgs {
     /// Commit / revision to score (any git revision spelling: a SHA, a
-    /// tag, `HEAD`, `main~3`, …). Scored against its first parent.
-    #[clap(value_name = "COMMIT", default_value = "HEAD")]
+    /// tag, `HEAD`, `main~3`, …). Scored against its first parent. Mutually
+    /// exclusive with `--diff`.
+    #[clap(value_name = "COMMIT", default_value = "HEAD", conflicts_with = "diff")]
     commit: String,
+    /// Score an arbitrary unified diff instead of a commit (issue #580).
+    /// Reads the diff from the given file, or from stdin when the value is
+    /// `-`. A bare diff has no author / parent / history, so ONLY the size
+    /// and diffusion groups are scored; the result is a deliberately
+    /// PARTIAL report (history / experience / purpose are marked
+    /// unavailable, not zero) and its score is NOT comparable to a commit
+    /// score. Mutually exclusive with the positional commit spec.
+    #[clap(long, value_name = "FILE")]
+    diff: Option<PathBuf>,
     /// Output format (`json` default, plus `yaml` / `toml` / `cbor`).
     #[clap(long = "format", short = 'O', value_enum, default_value_t = JitFormat::default())]
     format: JitFormat,

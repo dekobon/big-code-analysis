@@ -183,6 +183,39 @@ curl -s http://127.0.0.1:8080/v1/vcs/trend \
 A point count below 2 (or above the supported maximum) returns `400` with
 the uniform JSON error body, like the other bad-request cases.
 
+### Just-in-time commit / diff scoring
+
+`POST /vcs/jit` scores a single commit (see [Just-in-time
+scoring](../commands/vcs.md#just-in-time-commit-level-scoring)). The body
+takes `repo_path`, `commit` (default `HEAD`), and the `long_window` /
+`recent_window` / `full_history` / `include_merges` / `follow_renames` /
+`as_of` knobs; it returns the commit `JitReport` JSON with the echoed
+`id`.
+
+```bash
+curl -s http://127.0.0.1:8080/v1/vcs/jit \
+    -H 'Content-Type: application/json' \
+    -d '{ "id": "jit-1", "repo_path": "/srv/checkouts/my-project",
+          "commit": "HEAD" }' \
+  | jq '{score, purpose: .commit.purpose}'
+```
+
+To score an arbitrary diff instead, send a `diff` field carrying the
+unified diff (no `repo_path` needed). The response is then the *partial*
+report — `source: "diff"`, a `partial_score`, and **no** history /
+experience / purpose groups, which are absent rather than zero. The
+partial score is **not comparable** to a commit score.
+
+```bash
+git diff | jq -Rs '{id: "jit-diff", diff: .}' \
+  | curl -s http://127.0.0.1:8080/v1/vcs/jit \
+      -H 'Content-Type: application/json' -d @- \
+  | jq '{source, partial_score}'
+```
+
+A malformed diff (or an unresolvable `commit`, or a `repo_path` that is
+not a git working tree) returns `400` with the uniform JSON error body.
+
 ## Calling the API from CI
 
 The server starts in milliseconds, so for short-lived CI jobs it's

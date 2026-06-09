@@ -516,6 +516,55 @@ fn vcs_trend(
     conversion::json_string_to_py(py, &json)
 }
 
+/// Score a single commit for just-in-time (commit-level) defect-induction
+/// risk (issue #331), or — when `diff` is supplied — an arbitrary unified
+/// diff (issue #580).
+///
+/// `repo_path` is any path inside the working tree; `commit` is any git
+/// revision spelling (default `HEAD`), scored against its first parent.
+/// Returns a dict with the size / diffusion / history / experience features,
+/// their per-group contributions, the ordinal composite `score`, and the
+/// `commit` block; the programmatic analogue of `bca vcs jit`.
+///
+/// Pass `diff` (a unified diff string) to score a bare diff instead. A
+/// bare diff has no author / parent / history, so only the size and
+/// diffusion groups are computable: the returned dict has `source ==
+/// "diff"`, a `partial_score` that is **not comparable** to a commit score,
+/// and no history / experience / purpose groups (they are absent, not
+/// zero). In diff mode `repo_path` / `commit` / the window knobs are
+/// ignored. Raises `ValueError` for a malformed option, an unresolvable
+/// commit, a malformed diff, or when `repo_path` is not a git working tree.
+#[pyfunction]
+#[pyo3(signature = (repo_path = None, /, *, commit = "HEAD".to_owned(), diff = None, long_window = None, recent_window = None, full_history = false, include_merges = false, follow_renames = true, as_of = None))]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools
+)]
+fn vcs_jit(
+    py: Python<'_>,
+    repo_path: Option<PathBuf>,
+    commit: String,
+    diff: Option<String>,
+    long_window: Option<String>,
+    recent_window: Option<String>,
+    full_history: bool,
+    include_merges: bool,
+    follow_renames: bool,
+    as_of: Option<String>,
+) -> PyResult<Bound<'_, PyAny>> {
+    let params = vcs::JitParams {
+        long_window,
+        recent_window,
+        full_history,
+        include_merges,
+        follow_renames,
+        as_of,
+    };
+    let json = vcs::vcs_jit_json(repo_path.as_deref(), &commit, diff.as_deref(), &params)?;
+    conversion::json_string_to_py(py, &json)
+}
+
 /// `big_code_analysis._native` module entry point.
 ///
 /// Re-exported by the pure-Python `big_code_analysis` package so
@@ -542,6 +591,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(vcs_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(vcs_trend, m)?)?;
+    m.add_function(wrap_pyfunction!(vcs_jit, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_batch, m)?)?;
     m.add_function(wrap_pyfunction!(language_for_file, m)?)?;

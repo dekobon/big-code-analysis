@@ -382,10 +382,63 @@ bca vcs jit HEAD --fail-over 6.0
 is ordinal, calibrate the threshold against your repository's own
 commit-score distribution rather than treating it as an absolute.
 
-> Scoring an arbitrary `--diff <file>` (which has no author, parent, or
-> file history, so only size and diffusion would be computable) and
-> REST / Python parity are deferred follow-ups; ML-based JIT and
-> server-side hooks are out of scope.
+### Scoring an arbitrary diff (`--diff`)
+
+`bca vcs jit --diff <file>` scores a bare unified diff instead of a
+commit (use `--diff -` to read the diff from stdin). This is handy in a
+pre-commit hook or a code-review bot, where the change exists only as a
+diff and has not been committed yet.
+
+```bash
+git diff --cached | bca vcs jit --diff - --pretty
+```
+
+A bare diff carries **no author, parent, or file history**, so only the
+**size** and **diffusion** groups are computable. The output is therefore
+a deliberately *partial* report — a distinct shape from a commit report:
+
+```console
+$ git diff | bca vcs jit --diff - --pretty
+{
+  "jit_schema_version": 1,
+  "jit_score_version": 1,
+  "source": "diff",
+  "partial_score": 1.83,
+  "size":      { "lines_added": 42, "lines_deleted": 8,
+                 "files_touched": 3, "hunks": 6 },
+  "diffusion": { "subsystems": 2, "directories": 3, "entropy": 1.46 },
+  "contributions": { "size": 1.18, "diffusion": 0.65 }
+}
+```
+
+The `source` field is a permanent `"diff"` marker, and the history /
+experience / purpose groups are **absent from the report entirely** —
+*not* present as zero. Zero is a real value (a commit genuinely with no
+prior history scores those groups at zero); an absent group means
+"unavailable", so a consumer can never mistake an unscored group for
+"low risk". For the same reason the score field is named `partial_score`,
+not `score`.
+
+> **A diff-only score is not comparable to a commit score.** The partial
+> score sums only size + diffusion, so it is always lower than the full
+> commit score for the same change (which also folds in history,
+> experience, and purpose). Rank diffs against *other diffs*, never
+> against commit scores. `--diff` and the positional `<commit>` are
+> mutually exclusive; `--fail-over` works in both modes (calibrate the
+> diff-mode threshold against your own diff-score distribution).
+
+### REST and Python parity
+
+The JIT score is also available off the CLI:
+
+- **REST:** `POST /vcs/jit` with `{ "id", "repo_path", "commit" }` returns
+  the commit `JitReport` JSON, or `{ "id", "diff" }` returns the partial
+  diff report. See [Driving the REST API](../recipes/rest-api.md).
+- **Python:** `vcs_jit(repo_path, commit=...)` returns the commit report
+  as a `dict`, or `vcs_jit(diff=...)` the partial diff report. See the
+  [Python bindings](../python/README.md).
+
+ML-based JIT models and server-side hook integration remain out of scope.
 
 ## Historical trend (over time)
 
