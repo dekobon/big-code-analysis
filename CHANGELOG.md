@@ -795,6 +795,23 @@ for historical reference.
   `halstead.effort`). Up to three ties listed; unrelated input
   still falls back to the prior "unknown metric" error. Fixes
   [#381](https://github.com/dekobon/big-code-analysis/issues/381).
+- Python `analyze()` gains a keyword-only `vcs_per_function=True` flag
+  that mirrors the CLI's `bca metrics --vcs-per-function`: it blames the
+  file once and attaches a per-function `vcs` block (byte-identical in
+  shape to the CLI's) to every nested function/method/class space in the
+  returned JSON tree. Independent of the file-level `vcs=` opt-in; degrades
+  gracefully outside a git repository (#578).
+- `bca vcs jit --diff <file>` (and `--diff -` for stdin) scores an
+  arbitrary `git diff`-style unified diff. A bare diff carries no author,
+  parent, or file history, so only the size and diffusion feature groups
+  are computable; the result is a distinct partial report (`source:
+  "diff"`, `partial_score`) whose history/experience/purpose groups are
+  *absent* (not zero) and whose score is **not comparable** to a commit
+  score. New library surface `vcs::score_diff`. Just-in-time scoring is
+  now also exposed via the REST `POST /vcs/jit` endpoint and the Python
+  `vcs_jit(repo_path, commit=…, diff=…)` binding, both reusing
+  `score_commit` / `score_diff`. Commit-mode JIT output is unchanged
+  (#580).
 
 ### Changed
 
@@ -1658,9 +1675,22 @@ for historical reference.
   bare `.unwrap()` on infallible constant-pattern compilation,
   completing the #343 non-test `unwrap` sweep. No behavior change
   (#549).
+- `vcs::Options` and its sibling `vcs::CacheConfig` are now
+  `#[non_exhaustive]`; external crates construct them via
+  `Options::default()` / `CacheConfig::default()` plus field assignment
+  (struct-literal and `..Default::default()` are forbidden cross-crate).
+  Future additive VCS option fields are no longer a breaking change for
+  external constructors. Landable now because the VCS surface is
+  unreleased — not a break for any existing user. Part of #505's 2.0
+  preparation (#584).
 
 ### Fixed
 
+- The Python `vcs_metrics` type stub omitted the `bus_factor_threshold`
+  keyword that the runtime `#[pyfunction]` accepts, so `mypy` / `pyright`
+  rejected `vcs_metrics(repo, bus_factor_threshold=0.6)` even though it
+  worked at runtime. The stub now lists it, matching the runtime
+  signature order (#583).
 - Per-function `git blame` (`bca metrics --vcs-per-function`) now retries
   each ODB object lookup that can hit the transient `gix-odb` object-lookup
   miss tracked in #579 — the whole-file blame and the post-blame commit
