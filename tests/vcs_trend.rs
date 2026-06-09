@@ -160,8 +160,68 @@ fn wire_top_files_keeps_the_riskiest() {
     let trend = build_trend(repo.path(), &opts(), 3, 300 * DAY).expect("trend");
     let full = wire::VcsTrend::from_trend(&trend, 0, 0);
     assert_eq!(full.files.len(), 2);
+
+    // Identify the file `top_files = 1` must retain, ranking with the same
+    // contract as the projection (descending most-recent risk, ties broken
+    // by path ascending) so a tie can't make this assertion ambiguous.
+    let mut ranked: Vec<(String, f64)> = full
+        .files
+        .iter()
+        .map(|(path, points)| {
+            let last_risk = points
+                .iter()
+                .rev()
+                .find_map(|p| p.as_ref().map(|pt| pt.vcs.risk_score))
+                .expect("each kept file has a present point");
+            (path.clone(), last_risk)
+        })
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .expect("finite risk scores")
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let riskiest = ranked[0].0.clone();
+
     let one = wire::VcsTrend::from_trend(&trend, 1, 0);
     assert_eq!(one.files.len(), 1, "top_files = 1 keeps a single series");
+    assert!(
+        one.files.contains_key(&riskiest),
+        "top_files = 1 keeps the highest most-recent-risk file ({riskiest})"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn wire_drops_non_utf8_paths() {
+    // A non-UTF-8 path cannot be a JSON object key, so `from_trend` (and
+    // the delta projection) must drop it rather than mangle it. Build a
+    // `Trend` directly with such a path present at two points (so it would
+    // otherwise be both a file series and a delta entry).
+    use std::collections::HashMap;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let bad = PathBuf::from(OsStr::from_bytes(b"bad\xffname.rs"));
+    let stat = |risk: f64| vcs::Stats {
+        risk_score: risk,
+        ..Default::default()
+    };
+    let mut p0 = HashMap::new();
+    p0.insert(bad.clone(), stat(5.0));
+    let mut p1 = HashMap::new();
+    p1.insert(bad.clone(), stat(9.0)); // risk moved → eligible for a delta
+    let trend = vcs::Trend::from_snapshots(vec![0, 1], vec![p0, p1], 365, 90, false);
+
+    // Compute-side keeps the path (it is a `PathBuf`); the wire projection
+    // drops it from both the file map and the delta lists.
+    assert_eq!(trend.len(), 1, "compute-side trend retains the bad path");
+    let wire = wire::VcsTrend::from_trend(&trend, 0, 0);
+    assert!(wire.files.is_empty(), "non-UTF-8 path dropped from files");
+    assert!(
+        wire.deltas.improved.is_empty() && wire.deltas.regressed.is_empty(),
+        "non-UTF-8 path dropped from deltas"
+    );
 }
 
 #[test]

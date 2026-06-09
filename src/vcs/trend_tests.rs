@@ -147,6 +147,45 @@ fn deltas_split_improved_from_regressed_and_sort_by_magnitude() {
 }
 
 #[test]
+fn deltas_regressed_sorted_descending_with_tiebreak() {
+    // Three regressors; two share the same magnitude (+4) and must
+    // tie-break on path ascending. A list of >= 2 is what actually
+    // exercises the `regressed` sort comparator (a 1-element sort never
+    // invokes the closure).
+    let stamps = vec![0, 1];
+    let snap = |big: f64, a: f64, z: f64| {
+        let mut m = HashMap::new();
+        m.insert(PathBuf::from("big.rs"), stats(big));
+        m.insert(PathBuf::from("a.rs"), stats(a));
+        m.insert(PathBuf::from("z.rs"), stats(z));
+        m
+    };
+    // Each file rises (regresses): big by +9, a and z by +4.
+    let trend = Trend::from_snapshots(
+        stamps,
+        vec![snap(1.0, 1.0, 1.0), snap(10.0, 5.0, 5.0)],
+        365,
+        90,
+        false,
+    );
+    let regressed: Vec<_> = trend
+        .deltas(0)
+        .regressed
+        .iter()
+        .map(|d| (d.path.clone(), d.delta))
+        .collect();
+    assert_eq!(
+        regressed,
+        vec![
+            (PathBuf::from("big.rs"), 9.0),
+            (PathBuf::from("a.rs"), 4.0),
+            (PathBuf::from("z.rs"), 4.0),
+        ],
+        "regressed sorts by descending delta, ties by path ascending"
+    );
+}
+
+#[test]
 fn deltas_break_equal_magnitude_ties_by_path() {
     // Two files improve by the same amount (-3); the tie must resolve on
     // path ascending so the output is deterministic.

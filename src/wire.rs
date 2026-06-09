@@ -840,19 +840,17 @@ impl VcsTrend {
         let as_of_points = trend.as_of_points().to_vec();
 
         // Rank files by most-recent present risk so `top_files` keeps the
-        // currently-riskiest, mirroring `bca vcs`'s ranking.
+        // currently-riskiest. Reuse the shared `rank_by_risk` so the
+        // descending-risk + path tie-break and the `top` truncation match
+        // `bca vcs` / `POST /vcs` exactly (a non-UTF-8 path sorts as "" and
+        // is dropped below).
         let mut ranked: Vec<(&std::path::PathBuf, &[Option<crate::vcs::Stats>], f64)> = trend
             .iter()
             .map(|(path, points)| (path, points, latest_present_risk(points)))
             .collect();
-        ranked.sort_by(|a, b| {
-            b.2.partial_cmp(&a.2)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(b.0))
+        crate::vcs::rank_by_risk(&mut ranked, top_files, |entry| {
+            (entry.0.to_str().unwrap_or(""), entry.2)
         });
-        if top_files > 0 && ranked.len() > top_files {
-            ranked.truncate(top_files);
-        }
 
         let files = ranked
             .into_iter()
@@ -912,6 +910,44 @@ fn latest_present_risk(points: &[Option<crate::vcs::Stats>]) -> f64 {
         .rev()
         .find_map(|s| s.as_ref().map(|s| s.risk_score))
         .unwrap_or(0.0)
+}
+
+#[cfg(all(test, feature = "vcs-git"))]
+mod trend_wire_tests {
+    use super::*;
+
+    // Exact-equality on f64 is intentional: the values are the
+    // exactly-representable literals fed into the fixtures.
+    #[allow(clippy::float_cmp)]
+    fn risk(points: &[Option<f64>]) -> f64 {
+        let owned: Vec<Option<crate::vcs::Stats>> = points
+            .iter()
+            .map(|p| {
+                p.map(|risk_score| crate::vcs::Stats {
+                    risk_score,
+                    ..Default::default()
+                })
+            })
+            .collect();
+        latest_present_risk(&owned)
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn latest_present_risk_picks_the_newest_present_point() {
+        // Scans from the back: the most-recent present point wins, even
+        // with later `None`s and earlier present points.
+        assert_eq!(risk(&[Some(1.0), None, Some(3.0), None]), 3.0);
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn latest_present_risk_defaults_to_zero_when_all_absent() {
+        // The documented fallback for a file with no present point (which
+        // the trend builder never produces, but the helper still defines).
+        assert_eq!(risk(&[None, None]), 0.0);
+        assert_eq!(risk(&[]), 0.0);
+    }
 }
 
 /// Wire form of [`crate::spaces::CodeMetrics`].
