@@ -716,7 +716,12 @@ mod tests {
                 break;
             };
             // The risk cell looks like ` class="numeric risk-heat-0">9.4`.
-            let cell = row[..close].split("<td").nth(risk_col + 1).unwrap_or("");
+            // Fail loudly on a structural miss (column reorder / markup
+            // drift) rather than silently pushing an empty class.
+            let cell = row[..close]
+                .split("<td")
+                .nth(risk_col + 1)
+                .expect("rendered row has a Risk cell");
             let heat = cell
                 .split_once("risk-heat-")
                 .and_then(|(_, c)| c.split(['"', ' ', '>']).next())
@@ -753,6 +758,24 @@ mod tests {
         assert_eq!(body.matches("risk-heat-").count(), report.files.len());
         // The Markdown path carries no heat classes whatsoever.
         assert!(!render_markdown(&report).contains("risk-heat-"));
+
+        // Invert value vs. position to assert (not merely construct) that
+        // the band keys off rank alone: hand the rows in *ascending* raw
+        // score (lowest first). If heat read the absolute value, the first
+        // row's low score would land in a less-severe band; because it is
+        // positional, the first row must still get the most-severe class.
+        let ascending = Report {
+            vcs_aggregate: None,
+            files: (0..5)
+                .map(|i| entry(&format!("f{i}.rs"), 10.0 + f64::from(i), i + 1, None))
+                .collect(),
+            ..rich_report()
+        };
+        assert_eq!(
+            risk_heat_classes(&render_html(&ascending)),
+            (0..5).map(|i| format!("risk-heat-{i}")).collect::<Vec<_>>(),
+            "band must follow row position, not raw risk_score magnitude",
+        );
     }
 
     #[test]

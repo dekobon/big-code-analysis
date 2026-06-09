@@ -416,21 +416,26 @@ pub(crate) fn write_table_classed(
         debug_assert_eq!(row.len(), headers.len());
         let _ = out.write_str("<tr>");
         for (c, (cell, a)) in row.iter().zip(aligns).enumerate() {
-            // Join the alignment class and any per-cell extra into one
+            // Emit the alignment class and any per-cell extra as one
             // space-separated attribute, so each `<td>` carries at most a
-            // single `class="…"`.
-            let names = a
-                .is_numeric()
-                .then_some("numeric")
-                .into_iter()
-                .chain(cell_class(r, c))
-                .collect::<Vec<_>>();
-            let class = if names.is_empty() {
-                String::new()
-            } else {
-                format!(" class=\"{}\"", names.join(" "))
+            // single `class="…"`. Keep the no-extra-class path (the common
+            // case for every table, including the unheated AST report)
+            // allocation-free with `&'static str` arms; only the heated
+            // cells pay for a `format!`.
+            let _ = match (a.is_numeric(), cell_class(r, c)) {
+                (false, None) => write!(out, "<td>{}</td>", escape_html(cell)),
+                (true, None) => write!(out, "<td class=\"numeric\">{}</td>", escape_html(cell)),
+                (false, Some(extra)) => {
+                    write!(out, "<td class=\"{extra}\">{}</td>", escape_html(cell))
+                }
+                (true, Some(extra)) => {
+                    write!(
+                        out,
+                        "<td class=\"numeric {extra}\">{}</td>",
+                        escape_html(cell)
+                    )
+                }
             };
-            let _ = write!(out, "<td{class}>{}</td>", escape_html(cell));
         }
         let _ = out.write_str("</tr>\n");
     }
