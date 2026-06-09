@@ -414,6 +414,71 @@ fn vcs_metrics(
     conversion::json_string_to_py(py, &json)
 }
 
+/// Sample the change-history metrics at several points in time and return
+/// the per-file historical trend (issue #333).
+///
+/// `repo_path` is any path inside the working tree. `points` (>= 2) and
+/// `span` (default `12mo`) define the evenly-spaced sampling grid, ending
+/// at `as_of` (or wall-clock now). Returns a dict with `as_of_points`
+/// (the sample timestamps, oldest-first), a `files` map from
+/// repository-relative path to a point array aligned to `as_of_points`
+/// (a `None` element marks a point where the file did not exist), and an
+/// improving / regressing `deltas` summary — the programmatic analogue of
+/// `bca vcs trend`. `top` caps how many files the series keeps (by
+/// most-recent risk); `top_deltas` trims each delta list. Raises
+/// `ValueError` for a malformed option, an out-of-range point count, or
+/// when `repo_path` is not a git working tree.
+///
+/// Each point re-anchors at the mainline tip of that moment, so the result
+/// is a faithful historical snapshot; the repeated walks hold the GIL.
+#[pyfunction]
+#[pyo3(signature = (repo_path, /, *, points = 12, span = None, top = None, top_deltas = None, long_window = None, recent_window = None, reference = None, risk_formula = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_arguments,
+    clippy::fn_params_excessive_bools
+)]
+fn vcs_trend(
+    py: Python<'_>,
+    repo_path: PathBuf,
+    points: usize,
+    span: Option<String>,
+    top: Option<usize>,
+    top_deltas: Option<usize>,
+    long_window: Option<String>,
+    recent_window: Option<String>,
+    reference: Option<String>,
+    risk_formula: Option<String>,
+    full_history: bool,
+    include_merges: bool,
+    follow_renames: bool,
+    exclude_bots: bool,
+    bot_pattern: Option<String>,
+    as_of: Option<String>,
+    emit_author_details: bool,
+    include_deleted: bool,
+    bus_factor_threshold: Option<f64>,
+) -> PyResult<Bound<'_, PyAny>> {
+    let params = vcs::VcsParams {
+        long_window,
+        recent_window,
+        top,
+        reference,
+        risk_formula,
+        full_history,
+        include_merges,
+        follow_renames,
+        exclude_bots,
+        bot_pattern,
+        as_of,
+        emit_author_details,
+        include_deleted,
+        bus_factor_threshold,
+    };
+    let json = vcs::vcs_trend_json(&repo_path, &params, points, span.as_deref(), top_deltas)?;
+    conversion::json_string_to_py(py, &json)
+}
+
 /// `big_code_analysis._native` module entry point.
 ///
 /// Re-exported by the pure-Python `big_code_analysis` package so
@@ -439,6 +504,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAnalysisError>()?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(vcs_metrics, m)?)?;
+    m.add_function(wrap_pyfunction!(vcs_trend, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_batch, m)?)?;
     m.add_function(wrap_pyfunction!(language_for_file, m)?)?;

@@ -66,11 +66,18 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     }
     let root = resolve_root(&globals);
 
-    // `bca vcs jit <commit>` is a distinct, single-commit path; the bare
-    // `bca vcs` ranking flow is the `None` case below.
-    if let Some(crate::VcsSubcommand::Jit(jit)) = args.command.as_ref() {
-        crate::vcs_jit::run(&root, &args, jit);
-        return;
+    // `bca vcs jit <commit>` and `bca vcs trend` are distinct paths; the
+    // bare `bca vcs` ranking flow is the `None` case below.
+    match args.command.as_ref() {
+        Some(crate::VcsSubcommand::Jit(jit)) => {
+            crate::vcs_jit::run(&root, &args, jit);
+            return;
+        }
+        Some(crate::VcsSubcommand::Trend(trend)) => {
+            crate::vcs_trend::run(&root, &args, trend);
+            return;
+        }
+        None => {}
     }
 
     let mut options = build_options(&args);

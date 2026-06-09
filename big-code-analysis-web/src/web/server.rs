@@ -25,7 +25,7 @@ use tokio::sync::Semaphore;
 use super::comment::{WebCommentCfg, WebCommentInfo, WebCommentPayload, strip_comments};
 use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
 use super::metrics::{WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
-use super::vcs::{WebVcsPayload, compute_vcs};
+use super::vcs::{WebVcsPayload, WebVcsTrendPayload, compute_vcs, compute_vcs_trend};
 
 use big_code_analysis::vcs::Error as VcsError;
 use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language};
@@ -108,7 +108,7 @@ const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
 /// Error body when `repo_path` is not a git working tree, or a window /
 /// timestamp / formula is malformed (a client mistake → `400`).
-const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref is unresolvable, or a window / timestamp / formula / bus-factor threshold is malformed";
+const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref is unresolvable, or a window / timestamp / formula / bus-factor threshold / trend parameter is malformed";
 /// Error body when the history walk itself fails (server-side → `500`).
 const VCS_FAILED: &str = "Failed to walk change history for the supplied repository";
 
@@ -414,28 +414,46 @@ async fn vcs_json(
     let result = run_parse(&config, &payload_id, move || compute_vcs(payload)).await?;
     match result {
         Ok(response) => Ok(HttpResponse::Ok().json(response)),
-        Err(error) => {
-            // Bad path / window / timestamp / pattern are client mistakes
-            // (`400`); an actual walk failure is a `500`. The real error
-            // is logged server-side; the client sees the uniform body.
-            let (status, body) = match error {
-                VcsError::NotARepository(_)
-                | VcsError::InvalidWindow(_)
-                | VcsError::InvalidTimestamp(_)
-                | VcsError::InvalidFormula(_)
-                | VcsError::InvalidBotPattern(_)
-                | VcsError::InvalidBusFactorThreshold(_)
-                // A bad client-supplied `ref` (or an unborn HEAD) is a
-                // client mistake, not a server fault — answer 400, not 500.
-                | VcsError::ResolveRef { .. } => {
-                    (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST)
-                }
-                _ => (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED),
-            };
-            tracing::warn!(payload_id = %payload_id, error = %error, "vcs request failed");
-            Ok(json_error(status, body, payload_id))
-        }
+        Err(error) => Ok(vcs_error_response(&error, payload_id)),
     }
+}
+
+async fn vcs_trend_json(
+    item: web::Json<WebVcsTrendPayload>,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let payload = item.into_inner();
+    let payload_id = payload.base.id.clone();
+    // The repeated history walks are blocking I/O, so they run on the same
+    // timeout-guarded blocking pool as the other endpoints.
+    let result = run_parse(&config, &payload_id, move || compute_vcs_trend(payload)).await?;
+    match result {
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Err(error) => Ok(vcs_error_response(&error, payload_id)),
+    }
+}
+
+/// Map a [`VcsError`] from `/vcs` or `/vcs/trend` to the uniform JSON error
+/// response. Bad path / window / timestamp / pattern / formula / threshold
+/// / trend-parameter / `ref` are client mistakes (`400`); an actual walk
+/// failure is a `500`. The real error is logged server-side; the client
+/// sees the uniform body.
+fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
+    let (status, body) = match error {
+        VcsError::NotARepository(_)
+        | VcsError::InvalidWindow(_)
+        | VcsError::InvalidTimestamp(_)
+        | VcsError::InvalidFormula(_)
+        | VcsError::InvalidBotPattern(_)
+        | VcsError::InvalidBusFactorThreshold(_)
+        | VcsError::InvalidTrend(_)
+        // A bad client-supplied `ref` (or an unborn HEAD) is a client
+        // mistake, not a server fault — answer 400, not 500.
+        | VcsError::ResolveRef { .. } => (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST),
+        _ => (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED),
+    };
+    tracing::warn!(payload_id = %payload_id, error = %error, "vcs request failed");
+    json_error(status, body, payload_id)
 }
 
 async fn metrics_plain(
@@ -702,6 +720,13 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
             // endpoint (#515): a wrong `Content-Type` or wrong method on
             // `/vcs` answers a diagnostic 415/405 here rather than
             // falling through to the app-level 404.
+            .default_service(web::route().to(guarded_post_fallback)),
+    )
+    .service(
+        // Historical metric trend (issue #333). A distinct resource from
+        // `/vcs` (its response is a time series, not a ranked snapshot).
+        web::resource("/vcs/trend")
+            .route(web::post().guard(json_guard()).to(vcs_trend_json))
             .default_service(web::route().to(guarded_post_fallback)),
     )
     .service(

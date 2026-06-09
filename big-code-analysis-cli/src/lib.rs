@@ -54,6 +54,7 @@ mod thresholds;
 mod vcs_command;
 mod vcs_jit;
 mod vcs_report;
+mod vcs_trend;
 mod walk_seed;
 
 pub use commands::run;
@@ -73,7 +74,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use baseline::Baseline;
 use check_format::AggregatedFormat;
-use formats::{JitFormat, MetricsFormat, ReportFormat, VcsFormat};
+use formats::{JitFormat, MetricsFormat, ReportFormat, TrendFormat, VcsFormat};
 use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
 use thresholds::{
@@ -454,8 +455,8 @@ struct VcsArgs {
     bus_factor_threshold: f64,
 }
 
-/// Subcommands of `bca vcs`. Only `jit` so far (issue #331); the bare
-/// `bca vcs` ranking path is the `None` case.
+/// Subcommands of `bca vcs`: `jit` (issue #331) and `trend` (issue #333);
+/// the bare `bca vcs` ranking path is the `None` case.
 #[derive(Subcommand, Debug)]
 enum VcsSubcommand {
     /// Score a single commit for just-in-time (commit-level)
@@ -465,6 +466,14 @@ enum VcsSubcommand {
     /// an ordinal composite score. Window / `--ref` / bot / merge /
     /// rename behaviour comes from the parent `vcs` flags.
     Jit(JitArgs),
+    /// Sample the change-history metrics at several points in time and
+    /// emit a per-file time series, surfacing whether code is improving or
+    /// degrading over the project's life (issue #333). Each point
+    /// re-anchors at the mainline tip of that moment, so it is a faithful
+    /// historical snapshot. Window / `--ref` / bot / merge / rename / as-of
+    /// (the most-recent anchor) and `--top` (files kept) come from the
+    /// parent `vcs` flags.
+    Trend(TrendArgs),
 }
 
 /// Flags for `bca vcs jit` (issue #331). The history-window, bot, merge,
@@ -493,6 +502,41 @@ struct JitArgs {
     /// threshold against the repository's own commit-score distribution.
     #[clap(long, value_name = "SCORE")]
     fail_over: Option<f64>,
+}
+
+/// Flags for `bca vcs trend` (issue #333). The history-window, bot, merge,
+/// rename, `--ref`, and `--as-of` (the most-recent point's anchor) options
+/// come from the parent [`VcsArgs`], as does `--top` (how many files to
+/// keep, ranked by most-recent risk); these are the trend-only additions.
+#[derive(Args, Debug)]
+struct TrendArgs {
+    /// Number of evenly-spaced sample points across `--span`, inclusive of
+    /// both endpoints (the oldest is `as-of − span`, the newest is
+    /// `as-of`). Minimum 2; capped (see the error message) to bound the
+    /// per-point history walks on deep histories.
+    #[clap(long, default_value_t = 12)]
+    points: usize,
+    /// Total look-back window the points span (`12mo`, `2y`, `52w`, `365d`,
+    /// or ISO 8601 `P1Y`). With the default 12 points this yields roughly
+    /// monthly snapshots over the past year.
+    #[clap(long, default_value = "12mo")]
+    span: String,
+    /// Show only the top N files in each improving / regressing delta
+    /// summary (`0` = all).
+    #[clap(long, default_value_t = 10)]
+    top_deltas: usize,
+    /// Output format (`json` default, plus `yaml` / `cbor`). TOML is
+    /// excluded — absent points serialize as `null`, which TOML cannot
+    /// represent.
+    #[clap(long = "format", short = 'O', value_enum, default_value_t = TrendFormat::default())]
+    format: TrendFormat,
+    /// Output file. Stdout if omitted (CBOR requires this flag — it is
+    /// binary).
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
+    /// Pretty-print JSON output.
+    #[clap(long)]
+    pretty: bool,
 }
 
 /// Flags for `bca metrics`: the shared structured-output set plus an

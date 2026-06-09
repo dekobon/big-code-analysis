@@ -79,6 +79,21 @@ pub(crate) enum JitFormat {
     Cbor,
 }
 
+/// Output formats accepted by `bca vcs trend` (issue #333). A historical
+/// time series is one nested structured document, so the ranked-report
+/// renderings (`markdown` / `html`) and the per-file `csv` row shape do
+/// not apply. TOML is also excluded: a file absent at a point serializes
+/// as a `null` array element, which TOML cannot represent. JSON is the
+/// default; CBOR is binary and must go to a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub(crate) enum TrendFormat {
+    #[default]
+    Json,
+    Yaml,
+    Cbor,
+}
+
 /// How a `MetricsFormat` should be dispatched. Carries enough type
 /// information that the compiler — not a pair of boolean predicates
 /// in lock-step with a downstream `match` — enforces that every

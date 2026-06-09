@@ -2128,3 +2128,107 @@ async fn test_web_vcs_wrong_method_yields_405() {
         "405 body should name the accepted method"
     );
 }
+
+/// Build a deterministic two-commit git repo for the `/vcs/trend` tests:
+/// `early.rs` at `now − 300d`, `late.rs` added at `now − 100d`. Returns
+/// the tempdir (auto-removed on drop).
+fn build_trend_repo() -> tempfile::TempDir {
+    use std::process::Command;
+    const FIXED_NOW: i64 = 1_700_000_000;
+    const DAY: i64 = 86_400;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let run = |args: &[&str], date: Option<i64>| {
+        let mut cmd = Command::new("git");
+        cmd.args(args).current_dir(dir.path());
+        if let Some(secs) = date {
+            let d = format!("@{secs} +0000");
+            cmd.envs([
+                ("GIT_AUTHOR_NAME", "Ada"),
+                ("GIT_AUTHOR_EMAIL", "ada@example.com"),
+                ("GIT_AUTHOR_DATE", d.as_str()),
+                ("GIT_COMMITTER_NAME", "Ada"),
+                ("GIT_COMMITTER_EMAIL", "ada@example.com"),
+                ("GIT_COMMITTER_DATE", d.as_str()),
+            ]);
+        }
+        assert!(cmd.status().expect("spawn git").success(), "git {args:?}");
+    };
+    run(&["init", "-q", "-b", "main"], None);
+    run(&["config", "commit.gpgsign", "false"], None);
+    std::fs::write(dir.path().join("early.rs"), "fn a() {}\n").expect("write");
+    run(&["add", "-A"], None);
+    run(
+        &["commit", "-q", "--no-verify", "-m", "early"],
+        Some(FIXED_NOW - 300 * DAY),
+    );
+    std::fs::write(dir.path().join("late.rs"), "fn b() {}\n").expect("write");
+    run(&["add", "-A"], None);
+    run(
+        &["commit", "-q", "--no-verify", "-m", "late"],
+        Some(FIXED_NOW - 100 * DAY),
+    );
+    dir
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_trend_json_shape() {
+    let repo = build_trend_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let payload = json!({
+        "id": "trend-1",
+        "repo_path": repo.path().to_str().unwrap(),
+        "as_of": "@1700000000",
+        "points": 3,
+        "span": "300d",
+    });
+    let req = test::TestRequest::post()
+        .uri("/vcs/trend")
+        .insert_header(ContentType::json())
+        .set_json(&payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["id"], "trend-1");
+    assert_eq!(body["trend_schema_version"], 1);
+    assert_eq!(body["as_of_points"].as_array().unwrap().len(), 3);
+    // late.rs is absent at the oldest point (it was added later).
+    let late = body["files"]["late.rs"].as_array().expect("late.rs series");
+    assert!(late[0].is_null(), "late.rs is null at the oldest point");
+    assert!(late[2].is_object(), "late.rs present at the newest point");
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_trend_too_few_points_is_400() {
+    let repo = build_trend_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let payload = json!({
+        "id": "trend-bad",
+        "repo_path": repo.path().to_str().unwrap(),
+        "points": 1,
+        "span": "300d",
+    });
+    let req = test::TestRequest::post()
+        .uri("/vcs/trend")
+        .insert_header(ContentType::json())
+        .set_json(&payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "a sub-minimum point count is a client error"
+    );
+}

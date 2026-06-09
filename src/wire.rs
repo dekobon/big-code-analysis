@@ -737,6 +737,183 @@ impl From<&crate::vcs::Stats> for Vcs {
     }
 }
 
+/// Wire form of one sampled point in a historical metric trend (issue
+/// #333): the sample timestamp plus the file's full VCS block at that
+/// moment. `as_of` leads; the flattened block carries the same keys as a
+/// standalone [`Vcs`] record.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VcsTrendPoint {
+    /// Unix-second timestamp this point was sampled at.
+    pub as_of: i64,
+    /// The file's change-history metrics at `as_of`.
+    #[serde(flatten)]
+    pub vcs: Vcs,
+}
+
+/// Wire form of one file's risk-score movement across the trend.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VcsTrendDelta {
+    /// Repository-relative path.
+    pub path: String,
+    /// Timestamp of the file's earliest present point.
+    pub first_as_of: i64,
+    /// Timestamp of the file's latest present point.
+    pub last_as_of: i64,
+    /// `risk_score` at the earliest present point.
+    pub first_risk_score: f64,
+    /// `risk_score` at the latest present point.
+    pub last_risk_score: f64,
+    /// `last_risk_score - first_risk_score`; negative means improved.
+    pub delta: f64,
+}
+
+#[cfg(feature = "vcs-git")]
+impl VcsTrendDelta {
+    /// Project a compute-side [`crate::vcs::TrendDelta`], dropping a
+    /// non-UTF-8 path (which cannot be a JSON key) by returning `None` —
+    /// the same path policy the file map uses.
+    fn from_delta(d: &crate::vcs::TrendDelta) -> Option<Self> {
+        Some(Self {
+            path: d.path.to_str()?.to_owned(),
+            first_as_of: d.first_as_of,
+            last_as_of: d.last_as_of,
+            first_risk_score: d.first_risk_score,
+            last_risk_score: d.last_risk_score,
+            delta: d.delta,
+        })
+    }
+}
+
+/// Wire form of the improving / regressing delta summary.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct VcsTrendDeltas {
+    /// Files whose risk fell, most-improved first.
+    pub improved: Vec<VcsTrendDelta>,
+    /// Files whose risk rose, most-regressed first.
+    pub regressed: Vec<VcsTrendDelta>,
+}
+
+/// Wire form of a historical metric trend (issue #333) — the single
+/// serialized shape shared by `bca vcs trend`, `POST /vcs/trend`, and the
+/// Python `vcs_trend()`.
+///
+/// `as_of_points` lists the sample timestamps oldest-first; every file's
+/// array in `files` aligns to it 1:1, with a `null` element where the file
+/// did not exist at that point. `files` is keyed by repository-relative
+/// path and ordered lexicographically for deterministic output.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VcsTrend {
+    /// Trend-document shape version
+    /// ([`crate::vcs::TREND_SCHEMA_VERSION`]).
+    pub trend_schema_version: u32,
+    /// Per-point metric-block shape version.
+    pub vcs_schema_version: u32,
+    /// Composite-formula version.
+    pub risk_score_version: u32,
+    /// Long window length, in days (constant across points).
+    pub long_window_days: u32,
+    /// Recent window length, in days (constant across points).
+    pub recent_window_days: u32,
+    /// Whether any sampled snapshot came from a shallow clone.
+    pub truncated_shallow_clone: bool,
+    /// Sample timestamps, oldest-first.
+    pub as_of_points: Vec<i64>,
+    /// Per-file time series; `null` marks a point where the file was
+    /// absent.
+    pub files: std::collections::BTreeMap<String, Vec<Option<VcsTrendPoint>>>,
+    /// The most-improved / most-regressed files by risk delta.
+    pub deltas: VcsTrendDeltas,
+}
+
+#[cfg(feature = "vcs-git")]
+impl VcsTrend {
+    /// Project a compute-side [`crate::vcs::Trend`] into the wire shape,
+    /// keeping the `top_files` highest-risk files (by their most-recent
+    /// present `risk_score`; `0` keeps all) and the `top_deltas`
+    /// strongest movers in each delta list.
+    #[must_use]
+    pub fn from_trend(trend: &crate::vcs::Trend, top_files: usize, top_deltas: usize) -> Self {
+        let as_of_points = trend.as_of_points().to_vec();
+
+        // Rank files by most-recent present risk so `top_files` keeps the
+        // currently-riskiest, mirroring `bca vcs`'s ranking.
+        let mut ranked: Vec<(&std::path::PathBuf, &[Option<crate::vcs::Stats>], f64)> = trend
+            .iter()
+            .map(|(path, points)| (path, points, latest_present_risk(points)))
+            .collect();
+        ranked.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(b.0))
+        });
+        if top_files > 0 && ranked.len() > top_files {
+            ranked.truncate(top_files);
+        }
+
+        let files = ranked
+            .into_iter()
+            .filter_map(|(path, points, _)| {
+                // A non-UTF-8 path cannot be a JSON object key; drop it,
+                // matching the per-file endpoints' policy.
+                let key = path.to_str()?.to_owned();
+                let series = points
+                    .iter()
+                    .zip(&as_of_points)
+                    .map(|(stats, &as_of)| {
+                        stats.as_ref().map(|s| VcsTrendPoint {
+                            as_of,
+                            vcs: Vcs::from(s),
+                        })
+                    })
+                    .collect();
+                Some((key, series))
+            })
+            .collect();
+
+        let compute_deltas = trend.deltas(top_deltas);
+        let deltas = VcsTrendDeltas {
+            improved: compute_deltas
+                .improved
+                .iter()
+                .filter_map(VcsTrendDelta::from_delta)
+                .collect(),
+            regressed: compute_deltas
+                .regressed
+                .iter()
+                .filter_map(VcsTrendDelta::from_delta)
+                .collect(),
+        };
+
+        Self {
+            trend_schema_version: crate::vcs::TREND_SCHEMA_VERSION,
+            vcs_schema_version: crate::vcs::stats::VCS_SCHEMA_VERSION,
+            risk_score_version: crate::vcs::score::RISK_SCORE_VERSION,
+            long_window_days: trend.long_window_days(),
+            recent_window_days: trend.recent_window_days(),
+            truncated_shallow_clone: trend.truncated_shallow_clone(),
+            as_of_points,
+            files,
+            deltas,
+        }
+    }
+}
+
+/// A file's `risk_score` at its most-recent present point, or `0.0` if it
+/// has no present point (which the trend builder never produces). Used to
+/// rank files for `top_files` truncation.
+#[cfg(feature = "vcs-git")]
+fn latest_present_risk(points: &[Option<crate::vcs::Stats>]) -> f64 {
+    points
+        .iter()
+        .rev()
+        .find_map(|s| s.as_ref().map(|s| s.risk_score))
+        .unwrap_or(0.0)
+}
+
 /// Wire form of [`crate::spaces::CodeMetrics`].
 ///
 /// Each metric is an `Option` skipped when `None`: an unselected metric
