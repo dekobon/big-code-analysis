@@ -96,22 +96,8 @@ metric = "cyclomatic"
 value = 17.0
 
 [[entry]]
-path = "src/vcs/git/jit.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1370.0
-
-[[entry]]
-path = "src/vcs/git/jit.rs"
-qualified = "<file>"
-start_line = 1
-metric = "nom"
-value = 67.0
-
-[[entry]]
-path = "src/vcs/git/jit.rs"
+path = "src/vcs/git/diff_parse.rs"
 qualified = "parse_unified_diff"
-start_line = 152
+start_line = 75
 metric = "cyclomatic"
 value = 16.0
