@@ -2353,10 +2353,14 @@ async fn test_web_vcs_jit_malformed_diff_is_400() {
     let body: Value = test::read_body_json(resp).await;
     // The body must name the problem (so a 400 is actionable, not opaque).
     assert_eq!(body["id"], "jit-bad");
-    let msg = body["error"].as_str().unwrap_or_default();
-    assert!(
-        msg.contains("diff"),
-        "the 400 body must name the diff as the problem, got {msg:?}"
+    // Pin the exact uniform bad-request contract string rather than a
+    // fragile `contains("diff")` substring: this proves the malformed diff
+    // routes through the documented `VCS_BAD_REQUEST` error shape, not some
+    // other 400 that merely happens to mention "diff".
+    assert_eq!(
+        body["error"].as_str(),
+        Some(VCS_BAD_REQUEST),
+        "the 400 body must be the documented uniform bad-request contract string"
     );
 }
 
@@ -2393,6 +2397,15 @@ async fn test_web_vcs_jit_wrong_method_yields_405() {
         resp.status(),
         StatusCode::METHOD_NOT_ALLOWED,
         "GET /vcs/jit must be a 405, not a 404"
+    );
+    // The 405 and the 415 come from the same method-branching fallback, so
+    // a swap of the two branches would still yield the right status. Assert
+    // the body names the accepted method (POST) — mirroring the sibling
+    // `/vcs` method test — so the branches can't be silently transposed.
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("POST"),
+        "405 body should name the accepted method"
     );
 }
 

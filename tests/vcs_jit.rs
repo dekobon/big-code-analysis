@@ -371,6 +371,15 @@ diff --git a/src/a.rs b/src/a.rs
 +added2
 ";
     let report = score_diff(diff).expect("score diff");
+    // Pin that the diff and commit measured the SAME churn — otherwise an
+    // undercounting parser (the Finding-1 `--- `/`+++ ` class of bug) could
+    // shrink the diff's size term and pass `commit > diff` for the wrong
+    // reason. With identical size groups, the only legitimate cause of
+    // `commit > diff` is the extra history / experience / purpose terms.
+    assert_eq!(
+        report.size, commit.features.size,
+        "same churn → identical size group; only the absent groups should differ"
+    );
     // The diff's size term matches the commit's size term (same churn), but
     // the commit's total adds the history + purpose terms on top.
     assert!(

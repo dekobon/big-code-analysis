@@ -171,15 +171,27 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<Touched>, Error> {
             continue;
         };
 
-        if let Some(path) = line.strip_prefix("+++ ") {
-            file.set_new_path(path);
-        } else if line.starts_with("--- ") {
-            // Old-side path: not needed (diffusion keys on the new side),
-            // and must not be counted as an added body line.
-        } else if line.starts_with("@@") {
+        if line.starts_with("@@") {
+            // Check the hunk header before the `+`/`-` content branches so a
+            // `@@@`/`@@` line is never mistaken for a body line.
             parse_hunk_header(line)?;
             file.saw_hunk = true;
             file.hunks = file.hunks.saturating_add(1);
+        } else if !file.saw_hunk && line.starts_with("+++ ") {
+            // The `+++ b/<path>` new-side header only ever appears *before*
+            // the first `@@` of a file. Once a hunk is open, a `+++ …` line
+            // is a real added body line whose content starts with `++ `
+            // (e.g. a `++` operator), so it falls through to the `+` branch.
+            if let Some(path) = line.strip_prefix("+++ ") {
+                file.set_new_path(path);
+            }
+        } else if !file.saw_hunk && line.starts_with("--- ") {
+            // Pre-hunk old-side path: not needed (diffusion keys on the new
+            // side), and must not be counted as a deleted body line. After a
+            // hunk opens, a `--- …` line is a real deleted body line (e.g. a
+            // SQL/Lua/Haskell `--` comment) and falls through to the `-`
+            // branch — gating on `!saw_hunk` is what stops that deletion from
+            // being silently dropped.
         } else if line.starts_with('+') {
             file.require_open_hunk()?;
             file.added = file.added.saturating_add(1);
@@ -262,8 +274,16 @@ fn flush_diff_file(files: &mut Vec<Touched>, file: Option<DiffFile>) {
 
 /// Validate a `@@ -a,b +c,d @@` hunk header: it must carry both a `-` and a
 /// `+` range marker. A line starting `@@` without them is a malformed
-/// header.
+/// header. A `@@@` header (a combined / merge diff, `git diff --cc`) is
+/// rejected outright: its 2-column `+`/`-` body prefixes would be
+/// miscounted, and combined diffs are outside this parser's documented
+/// `git diff` / `diff -u` scope.
 fn parse_hunk_header(line: &str) -> Result<(), Error> {
+    if line.starts_with("@@@") {
+        return Err(Error::InvalidDiff(
+            "combined/merge diffs (@@@ headers) are not supported".to_owned(),
+        ));
+    }
     // The minimal well-formed header is `@@ -l +l @@`; require both range
     // markers rather than fully parsing the (optional) counts, which the
     // size features do not use.
@@ -860,6 +880,86 @@ Binary files a/logo.png and b/logo.png differ
     fn malformed_hunk_header_is_rejected() {
         let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n";
         let err = parse_unified_diff(diff).expect_err("must reject");
+        assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn deleted_line_starting_with_dash_dash_is_counted() {
+        // Regression (#580): a deleted line whose CONTENT begins with `-- `
+        // (a SQL/Lua/Haskell/Ada comment) renders, under git's single-char
+        // `-` prefix, as a body line literally beginning `--- `. The old
+        // ungated `starts_with("--- ")` header branch SILENTLY DROPPED it.
+        // Gating the header on `!saw_hunk` makes the post-hunk `--- …` line
+        // count as a deletion.
+        let diff = "\
+diff --git a/q.sql b/q.sql
+--- a/q.sql
++++ b/q.sql
+@@ -1,2 +1,1 @@
+ SELECT 1;
+--- this is a sql comment
++SELECT 2;
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        let t = touched(&files, "q.sql");
+        // expected: one real `+` line and one `-` line (the `-- comment`);
+        // the pre-fix parser dropped the deletion entirely (deleted == 0).
+        assert_eq!(t.added, 1, "one added line");
+        assert_eq!(
+            t.deleted, 1,
+            "the `-- sql comment` deletion must be counted, not dropped"
+        );
+        assert_eq!(t.hunks, 1);
+    }
+
+    #[test]
+    fn added_line_starting_with_plus_plus_keeps_path_and_counts() {
+        // Regression (#580): an added line whose CONTENT begins with `++ `
+        // renders as a body line literally beginning `+++ `. The old
+        // ungated `strip_prefix("+++ ")` header branch REWROTE the file path
+        // to the line's content AND dropped the addition. Gating the header
+        // on `!saw_hunk` keeps the path and counts the line.
+        let diff = "\
+diff --git a/m.cpp b/m.cpp
+--- a/m.cpp
++++ b/m.cpp
+@@ -1,1 +1,2 @@
+ int x = 0;
++++ foo bar baz
+";
+        let files = parse_unified_diff(diff).expect("parse");
+        assert_eq!(files.len(), 1);
+        // The path must stay the real `m.cpp` from the header, NOT be
+        // corrupted to `foo bar baz` by the misread body line.
+        let t = touched(&files, "m.cpp");
+        assert_eq!(t.added, 1, "the `++ …` line must be counted as added");
+        assert_eq!(t.deleted, 0);
+        assert_eq!(
+            paths(&files),
+            vec!["m.cpp".to_owned()],
+            "the `+++ …` body line must not rewrite the file path"
+        );
+    }
+
+    #[test]
+    fn combined_merge_diff_is_rejected() {
+        // A combined / merge diff (`git diff --cc`) uses `@@@` headers and
+        // 2-column +/- prefixes that this parser would miscount. Reject it
+        // cleanly as a malformed diff instead of silently mis-scoring.
+        // Use a `diff --git` header so the stanza opens and the `@@@`
+        // header reaches `parse_hunk_header`; a real `git diff --cc`
+        // preamble varies but the `@@@` hunk header is the invariant marker.
+        let diff = "\
+diff --git a/m.rs b/m.rs
+--- a/m.rs
++++ b/m.rs
+@@@ -1,1 -1,1 +1,1 @@@
+- a
+ -b
+++c
+";
+        let err = parse_unified_diff(diff).expect_err("combined diff must be rejected");
         assert!(matches!(err, Error::InvalidDiff(_)), "got {err:?}");
     }
 

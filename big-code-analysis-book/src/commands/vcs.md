@@ -384,14 +384,21 @@ commit-score distribution rather than treating it as an absolute.
 
 ### Scoring an arbitrary diff (`--diff`)
 
-`bca vcs jit --diff <file>` scores a bare unified diff instead of a
-commit (use `--diff -` to read the diff from stdin). This is handy in a
+`bca vcs jit --diff <file>` scores a `git diff` instead of a commit
+(use `--diff -` to read the diff from stdin). This is handy in a
 pre-commit hook or a code-review bot, where the change exists only as a
 diff and has not been committed yet.
 
 ```bash
 git diff --cached | bca vcs jit --diff - --pretty
 ```
+
+The input must be a **git-style** unified diff carrying `diff --git`
+file headers, as produced by `git diff` or `git format-patch`. Plain
+`diff -u` / `diff -ru` output (which has `--- `/`+++ ` pairs but no
+`diff --git` header) parses to zero files, and combined / merge diffs
+(`git diff --cc`, with `@@@` hunk headers) are rejected as a malformed
+diff — pipe a regular two-way `git diff` instead.
 
 A bare diff carries **no author, parent, or file history**, so only the
 **size** and **diffusion** groups are computable. The output is therefore

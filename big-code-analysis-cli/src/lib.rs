@@ -511,13 +511,16 @@ struct JitArgs {
     /// exclusive with `--diff`.
     #[clap(value_name = "COMMIT", default_value = "HEAD", conflicts_with = "diff")]
     commit: String,
-    /// Score an arbitrary unified diff instead of a commit (issue #580).
-    /// Reads the diff from the given file, or from stdin when the value is
-    /// `-`. A bare diff has no author / parent / history, so ONLY the size
-    /// and diffusion groups are scored; the result is a deliberately
-    /// PARTIAL report (history / experience / purpose are marked
-    /// unavailable, not zero) and its score is NOT comparable to a commit
-    /// score. Mutually exclusive with the positional commit spec.
+    /// Score a `git diff` instead of a commit (issue #580). Reads the diff
+    /// from the given file, or from stdin when the value is `-`. The input
+    /// must be a git-style unified diff with `diff --git` file headers (as
+    /// produced by `git diff` / `git format-patch`); plain `diff -u` output
+    /// without those headers and combined / merge diffs (`git diff --cc`,
+    /// `@@@` headers) are not supported. A bare diff has no author / parent /
+    /// history, so ONLY the size and diffusion groups are scored; the result
+    /// is a deliberately PARTIAL report (history / experience / purpose are
+    /// marked unavailable, not zero) and its score is NOT comparable to a
+    /// commit score. Mutually exclusive with the positional commit spec.
     #[clap(long, value_name = "FILE")]
     diff: Option<PathBuf>,
     /// Output format (`json` default, plus `yaml` / `toml` / `cbor`).
