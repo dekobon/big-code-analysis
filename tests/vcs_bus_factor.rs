@@ -13,11 +13,10 @@ use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
 
 /// Options pinned to the fixture clock with the bus-factor aggregate on.
 fn opts() -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        compute_bus_factor: true,
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options.compute_bus_factor = true;
+    options
 }
 
 /// The per-directory bus factor for `dir`, or `None` when absent.
@@ -153,10 +152,8 @@ fn key_author_ids_emitted_under_opt_in() {
     repo.write("a.rs", "fn a() {}\n");
     repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "init");
 
-    let with_details = Options {
-        emit_author_details: true,
-        ..opts()
-    };
+    let mut with_details = opts();
+    with_details.emit_author_details = true;
     let index = build_history_index(repo.path(), &with_details).expect("walk");
     let bf = index.bus_factor().expect("aggregate computed");
     let ids = bf.repo.key_author_ids.as_ref().expect("ids emitted");

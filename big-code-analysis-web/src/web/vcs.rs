@@ -162,11 +162,9 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
 /// appropriate HTTP status.
 pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error> {
     let options = options_from(&payload)?;
-    let config = CacheConfig {
-        enabled: !payload.no_cache.unwrap_or(false),
-        clear: false,
-        dir: payload.cache_dir.as_ref().map(PathBuf::from),
-    };
+    let mut config = CacheConfig::default();
+    config.enabled = !payload.no_cache.unwrap_or(false);
+    config.dir = payload.cache_dir.as_ref().map(PathBuf::from);
     let index = build_history_index_cached(&PathBuf::from(&payload.repo_path), &options, &config)?;
 
     let mut files: Vec<WebVcsFileEntry> = index

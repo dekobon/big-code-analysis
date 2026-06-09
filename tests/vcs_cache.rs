@@ -25,20 +25,19 @@ use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
 /// Options pinned to the fixture's reference time so windowing is stable
 /// across the back-to-back runs a cache hit requires.
 fn opts() -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        compute_bus_factor: true,
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options.compute_bus_factor = true;
+    options
 }
 
 /// A cache config rooted at an explicit temp directory.
 fn config(dir: &Path, enabled: bool, clear: bool) -> CacheConfig {
-    CacheConfig {
-        enabled,
-        clear,
-        dir: Some(dir.to_path_buf()),
-    }
+    let mut config = CacheConfig::default();
+    config.enabled = enabled;
+    config.clear = clear;
+    config.dir = Some(dir.to_path_buf());
+    config
 }
 
 /// Comparable view of an index: every file's stats keyed by path. `Stats`
@@ -250,10 +249,8 @@ fn cached_and_uncached_agree_under_emit_author_details() {
     // injective, and a reconstructed identity hashes to itself).
     let repo = build_repo();
     let cache_dir = tempfile::tempdir().expect("tempdir");
-    let options = Options {
-        emit_author_details: true,
-        ..opts()
-    };
+    let mut options = opts();
+    options.emit_author_details = true;
 
     let fresh = build_history_index(repo.path(), &options).expect("fresh");
     let cfg = config(cache_dir.path(), true, false);
@@ -286,10 +283,8 @@ fn full_history_mode_caches_and_replays() {
     let repo = build_repo();
     let cache_dir = tempfile::tempdir().expect("tempdir");
     let cfg = config(cache_dir.path(), true, false);
-    let full = Options {
-        full_history: true,
-        ..opts()
-    };
+    let mut full = opts();
+    full.full_history = true;
 
     let uncached = build_history_index(repo.path(), &full).expect("uncached full-history");
     let miss = build_history_index_cached(repo.path(), &full, &cfg).expect("miss writes");
@@ -341,11 +336,9 @@ fn a_changed_window_is_not_served_from_a_stale_fingerprint() {
     // A shorter long window changes the fingerprint, so the entry is
     // ignored and the result matches a fresh short-window walk (here, the
     // 30-day-old commit drops out of a 7-day long window).
-    let short = Options {
-        long_window_secs: 7 * DAY,
-        recent_window_secs: 2 * DAY,
-        ..opts()
-    };
+    let mut short = opts();
+    short.long_window_secs = 7 * DAY;
+    short.recent_window_secs = 2 * DAY;
     let cached = build_history_index_cached(repo.path(), &short, &cfg).expect("short cached");
     let uncached = build_history_index(repo.path(), &short).expect("short uncached");
     assert_eq!(snapshot(&uncached), snapshot(&cached));

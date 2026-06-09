@@ -59,11 +59,10 @@ pub(crate) struct VcsParams {
 impl VcsParams {
     /// The persistent-cache configuration these params imply.
     fn cache_config(&self) -> CacheConfig {
-        CacheConfig {
-            enabled: !self.no_cache,
-            clear: false,
-            dir: self.cache_dir.as_ref().map(std::path::PathBuf::from),
-        }
+        let mut config = CacheConfig::default();
+        config.enabled = !self.no_cache;
+        config.dir = self.cache_dir.as_ref().map(std::path::PathBuf::from);
+        config
     }
 }
 
@@ -91,15 +90,13 @@ struct Report {
 /// Build [`Options`] from Python params, surfacing a `ValueError` on a
 /// bad window / timestamp / formula.
 fn options_from(params: &VcsParams) -> Result<Options, PyErr> {
-    let mut options = Options {
-        full_history: params.full_history,
-        include_merges: params.include_merges,
-        follow_renames: params.follow_renames,
-        exclude_bots: params.exclude_bots,
-        emit_author_details: params.emit_author_details,
-        include_deleted: params.include_deleted,
-        ..Options::default()
-    };
+    let mut options = Options::default();
+    options.full_history = params.full_history;
+    options.include_merges = params.include_merges;
+    options.follow_renames = params.follow_renames;
+    options.exclude_bots = params.exclude_bots;
+    options.emit_author_details = params.emit_author_details;
+    options.include_deleted = params.include_deleted;
     if let Some(spec) = &params.long_window {
         options.long_window_secs = parse_window(spec).map_err(vcs_error_to_py)?;
     }
@@ -215,12 +212,10 @@ impl JitParams {
     /// Build [`Options`] for a commit score, surfacing a `ValueError` on a
     /// bad window / timestamp.
     fn options(&self) -> Result<Options, PyErr> {
-        let mut options = Options {
-            full_history: self.full_history,
-            include_merges: self.include_merges,
-            follow_renames: self.follow_renames,
-            ..Options::default()
-        };
+        let mut options = Options::default();
+        options.full_history = self.full_history;
+        options.include_merges = self.include_merges;
+        options.follow_renames = self.follow_renames;
         if let Some(spec) = &self.long_window {
             options.long_window_secs = parse_window(spec).map_err(vcs_error_to_py)?;
         }

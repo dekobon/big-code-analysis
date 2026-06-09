@@ -221,6 +221,26 @@ fn all_scope_includes_everything() {
 }
 
 #[test]
+// Clippy would have us collapse this back into a struct literal, but that
+// literal is exactly what `#[non_exhaustive]` forbids for external crates —
+// the whole point of this test is to pin the default-then-assign path they
+// must use instead.
+#[allow(clippy::field_reassign_with_default)]
+fn default_then_assign_is_the_supported_construction_path() {
+    // `Options` is `#[non_exhaustive]`, so external crates cannot use a
+    // struct literal or `..Options::default()`; the contract (STABILITY.md)
+    // is `Options::default()` followed by per-field assignment. This pins
+    // that the `pub` fields stay assignable after `default()`.
+    let mut o = Options::default();
+    o.long_window_secs = 1;
+    o.compute_bus_factor = true;
+    o.file_types = FileTypeScope::All;
+    assert_eq!(o.long_window_secs, 1);
+    assert!(o.compute_bus_factor);
+    assert!(matches!(o.file_types, FileTypeScope::All));
+}
+
+#[test]
 fn custom_scope_matches_only_listed_extensions_case_insensitively() {
     let scope = FileTypeScope::from_str("rs,toml").expect("custom");
     assert!(scope.includes(Path::new("src/lib.rs")));

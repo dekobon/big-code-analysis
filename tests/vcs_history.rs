@@ -19,10 +19,9 @@ use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
 
 /// Options pinned to the fixture clock; tweak fields per test.
 fn opts() -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options
 }
 
 fn stats_for<'a>(index: &'a vcs::HistoryIndex, rel: &str) -> &'a vcs::Stats {
@@ -80,10 +79,8 @@ fn bots_excluded_by_default_then_included() {
             FIXED_NOW - 10 * DAY,
             "bump dep",
         );
-        let options = Options {
-            exclude_bots,
-            ..opts()
-        };
+        let mut options = opts();
+        options.exclude_bots = exclude_bots;
         let index = build_history_index(repo.path(), &options).expect("walk");
         let stats = stats_for(&index, "f.rs");
         (stats.commits_long, stats.authors_long)
@@ -108,10 +105,8 @@ fn renames_followed_by_default() {
             FIXED_NOW - 10 * DAY,
             "rename to b",
         );
-        let options = Options {
-            follow_renames,
-            ..opts()
-        };
+        let mut options = opts();
+        options.follow_renames = follow_renames;
         let index = build_history_index(repo.path(), &options).expect("walk");
         stats_for(&index, "b.rs").commits_long
     };
@@ -405,17 +400,13 @@ fn cochange_counts_deleted_partners_independent_of_include_deleted() {
     // To make the neighbour count load-bearing, the value we assert is
     // the same under both flag settings.
     let kept = |include_deleted| {
-        build_history_index(
-            repo.path(),
-            &Options {
-                include_deleted,
-                ..opts()
-            },
-        )
-        .expect("walk")
-        .get(Path::new("kept.rs"))
-        .expect("kept.rs present at HEAD")
-        .cochange_entropy_long
+        let mut options = opts();
+        options.include_deleted = include_deleted;
+        build_history_index(repo.path(), &options)
+            .expect("walk")
+            .get(Path::new("kept.rs"))
+            .expect("kept.rs present at HEAD")
+            .cochange_entropy_long
     };
     assert_eq!(
         kept(false),
@@ -462,10 +453,8 @@ fn percentile_formula_reranks_end_to_end() {
             "busy",
         );
     }
-    let options = Options {
-        risk_formula: vcs::RiskFormula::Percentile,
-        ..opts()
-    };
+    let mut options = opts();
+    options.risk_formula = vcs::RiskFormula::Percentile;
     let index = build_history_index(repo.path(), &options).expect("walk");
     let busy = stats_for(&index, "busy.rs").risk_score;
     let quiet = stats_for(&index, "quiet.rs").risk_score;
@@ -494,14 +483,9 @@ fn include_deleted_surfaces_a_removed_file() {
     let default = build_history_index(repo.path(), &opts()).expect("walk");
     assert!(default.get(Path::new("gone.rs")).is_none());
     // Opt-in: the deleted file is surfaced with its in-window history.
-    let with_deleted = build_history_index(
-        repo.path(),
-        &Options {
-            include_deleted: true,
-            ..opts()
-        },
-    )
-    .expect("walk");
+    let mut deleted_options = opts();
+    deleted_options.include_deleted = true;
+    let with_deleted = build_history_index(repo.path(), &deleted_options).expect("walk");
     let gone = with_deleted
         .get(Path::new("gone.rs"))
         .expect("deleted file surfaced under include_deleted");
@@ -551,22 +535,16 @@ fn first_parent_merges_and_full_history_count_branch_work() {
     assert_eq!(commits_long(&opts()), 0, "first-parent skips branch work");
     // Including merges: the merge commit's diff against its first parent
     // introduces f.rs, so it is counted once.
-    assert_eq!(
-        commits_long(&Options {
-            include_merges: true,
-            ..opts()
-        }),
-        1,
-        "the merge commit introduces f.rs"
-    );
+    let mut merges = opts();
+    merges.include_merges = true;
+    assert_eq!(commits_long(&merges), 1, "the merge commit introduces f.rs");
     // Full history walks the second parent, counting the branch commit.
     // The merge is still skipped (full_history does not imply
     // include_merges), so it is exactly one.
+    let mut full = opts();
+    full.full_history = true;
     assert_eq!(
-        commits_long(&Options {
-            full_history: true,
-            ..opts()
-        }),
+        commits_long(&full),
         1,
         "full history reaches the branch commit"
     );
@@ -575,12 +553,11 @@ fn first_parent_merges_and_full_history_count_branch_work() {
     // (M). This double-count is the documented consequence of walking
     // the full DAG *and* attributing merges; pinned so it cannot change
     // silently.
+    let mut full_with_merges = opts();
+    full_with_merges.full_history = true;
+    full_with_merges.include_merges = true;
     assert_eq!(
-        commits_long(&Options {
-            full_history: true,
-            include_merges: true,
-            ..opts()
-        }),
+        commits_long(&full_with_merges),
         2,
         "full DAG + merges attributes both the branch and merge commits"
     );

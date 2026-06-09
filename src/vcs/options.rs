@@ -182,6 +182,10 @@ impl std::str::FromStr for FileTypeScope {
 // each one's meaning at construction sites for no real gain.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug)]
+// Sealed against external struct-literal construction so future additive
+// fields stay non-breaking: downstream crates start from `Options::default()`
+// and assign the `pub` fields they care about (see STABILITY.md).
+#[non_exhaustive]
 pub struct Options {
     /// Long observation window, in seconds (default ≈ 365 days).
     pub long_window_secs: i64,

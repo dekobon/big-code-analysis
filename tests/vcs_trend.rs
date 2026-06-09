@@ -22,10 +22,9 @@ use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
 /// Base options pinned to the fixture clock; the trend's most-recent point
 /// lands exactly on `FIXED_NOW`.
 fn opts() -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options
 }
 
 /// A three-commit history: `early.rs` is born first and edited twice;

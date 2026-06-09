@@ -41,11 +41,10 @@ fn fixture() -> Repo {
 
 /// Options pinned to the fixture clock with the given file-type scope.
 fn opts(file_types: FileTypeScope) -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        file_types,
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options.file_types = file_types;
+    options
 }
 
 /// The repo-relative paths the index ranked, as a sorted set for stable

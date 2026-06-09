@@ -20,10 +20,9 @@ use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
 
 /// Options pinned to the fixture clock; tweak fields per test.
 fn opts() -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options
 }
 
 /// Blame `rel` in `repo` and return one `Stats` per span, in order.
@@ -140,10 +139,8 @@ fn bot_only_commit_excluded_by_default() {
             FIXED_NOW - 5 * DAY,
             "bump",
         );
-        let options = Options {
-            exclude_bots,
-            ..opts()
-        };
+        let mut options = opts();
+        options.exclude_bots = exclude_bots;
         let stats = per_function(&repo, options, "src/work.rs", &[LineSpan::new(4, 6)]);
         (stats[0].commits_long, stats[0].authors_long)
     };
@@ -180,10 +177,8 @@ fn follows_a_file_rename_across_history() {
             FIXED_NOW - 5 * DAY,
             "move + edit",
         );
-        let options = Options {
-            follow_renames,
-            ..opts()
-        };
+        let mut options = opts();
+        options.follow_renames = follow_renames;
         let mut stats = per_function(&repo, options, "new.rs", &[LineSpan::new(1, 3)]);
         stats.remove(0)
     };

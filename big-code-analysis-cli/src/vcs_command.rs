@@ -85,11 +85,10 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     // The dedicated `bca vcs` report surfaces the directory/repo bus
     // factor; the per-file injection paths leave it off.
     options.compute_bus_factor = true;
-    let cache_config = CacheConfig {
-        enabled: !args.no_cache,
-        clear: args.clear_cache,
-        dir: args.cache_dir.clone(),
-    };
+    let mut cache_config = CacheConfig::default();
+    cache_config.enabled = !args.no_cache;
+    cache_config.clear = args.clear_cache;
+    cache_config.dir.clone_from(&args.cache_dir);
     let index = build_history_index_cached(&root, &options, &cache_config)
         .unwrap_or_else(|e| die(format_args!("{e}")));
     if index.truncated_shallow_clone() {
@@ -137,10 +136,8 @@ pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<R
 /// for the `bca report --vcs` section. Mirrors [`default_index`]'s
 /// additive-opt-in contract (warns and returns `None` outside a repo).
 fn default_aggregate_index(globals: &GlobalOpts) -> Option<vcs::HistoryIndex> {
-    let options = Options {
-        compute_bus_factor: true,
-        ..Options::default()
-    };
+    let mut options = Options::default();
+    options.compute_bus_factor = true;
     match build_history_index_cached(&resolve_root(globals), &options, &CacheConfig::default()) {
         Ok(index) => Some(index),
         Err(e) => {
@@ -173,31 +170,30 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
         },
     );
 
-    Options {
-        long_window_secs,
-        recent_window_secs,
-        reference: args.reference.clone(),
-        full_history: args.full_history,
-        include_merges: args.include_merges,
-        follow_renames: !args.no_follow_renames,
-        exclude_bots: !args.no_exclude_bots,
-        bot_pattern: args
-            .bot_pattern
-            .clone()
-            .unwrap_or_else(|| vcs::options::DEFAULT_BOT_PATTERN.to_owned()),
-        as_of,
-        risk_formula: args.risk_formula.into(),
-        emit_author_details: args.emit_author_details,
-        include_deleted: args.include_deleted,
-        // The shared builder leaves the aggregate off (the `jit`
-        // subcommand never wants it); the ranking flow turns it on below.
-        compute_bus_factor: false,
-        bus_factor_threshold: vcs::options::validate_bus_factor_threshold(
-            args.bus_factor_threshold,
-        )
-        .unwrap_or_else(|e| die(format_args!("--bus-factor-threshold: {e}"))),
-        file_types,
-    }
+    let mut options = Options::default();
+    options.long_window_secs = long_window_secs;
+    options.recent_window_secs = recent_window_secs;
+    options.reference.clone_from(&args.reference);
+    options.full_history = args.full_history;
+    options.include_merges = args.include_merges;
+    options.follow_renames = !args.no_follow_renames;
+    options.exclude_bots = !args.no_exclude_bots;
+    options.bot_pattern = args
+        .bot_pattern
+        .clone()
+        .unwrap_or_else(|| vcs::options::DEFAULT_BOT_PATTERN.to_owned());
+    options.as_of = as_of;
+    options.risk_formula = args.risk_formula.into();
+    options.emit_author_details = args.emit_author_details;
+    options.include_deleted = args.include_deleted;
+    // The shared builder leaves the aggregate off (the `jit` subcommand never
+    // wants it); the ranking flow turns it on below. `Default` already sets it
+    // `false`, so no explicit assignment is needed here.
+    options.bus_factor_threshold =
+        vcs::options::validate_bus_factor_threshold(args.bus_factor_threshold)
+            .unwrap_or_else(|e| die(format_args!("--bus-factor-threshold: {e}")));
+    options.file_types = file_types;
+    options
 }
 
 /// Select the tracked files the global filters admit, sort them by risk

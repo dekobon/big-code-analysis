@@ -17,10 +17,9 @@ use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
 
 /// Options pinned to the fixture clock; tweak fields per test.
 fn opts() -> Options {
-    Options {
-        as_of: Some(FIXED_NOW),
-        ..Options::default()
-    }
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options
 }
 
 fn score(repo: &Repo, spec: &str) -> vcs::JitReport {
@@ -175,10 +174,8 @@ fn experience_anchors_on_commit_time_not_wall_clock() {
     repo.write("f.rs", "1\n2\n3\n4\n");
     repo.commit("Ada", "ada@example.com", FIXED_NOW, "scored");
 
-    let options = Options {
-        as_of: Some(FIXED_NOW + 400 * DAY),
-        ..Options::default()
-    };
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW + 400 * DAY);
     let report = score_commit(repo.path(), "HEAD", &options).expect("score commit");
 
     assert_eq!(

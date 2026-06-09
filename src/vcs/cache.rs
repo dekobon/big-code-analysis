@@ -70,6 +70,10 @@ pub const CACHE_SCHEMA_VERSION: u32 = 1;
 /// directory, so a front end opts *out* (rather than in) — matching the
 /// issue's `--no-cache` / `--clear-cache` flags.
 #[derive(Clone, Debug)]
+// Sealed like `Options`: external front ends construct via
+// `CacheConfig::default()` + field assignment so additive knobs stay
+// non-breaking (see STABILITY.md).
+#[non_exhaustive]
 pub struct CacheConfig {
     /// Read from and write to the cache. `false` forces a fresh walk and
     /// skips persistence (`--no-cache`).

@@ -298,6 +298,17 @@ private machine-local state under the user's cache directory, may change
 between releases (a stale or unreadable entry is silently recomputed), and
 must not be parsed or relied on by downstream code.
 
+The VCS front-end **input** config structs — `vcs::Options` and
+`vcs::CacheConfig` — are both `#[non_exhaustive]`. Downstream crates
+construct them by starting from `Options::default()` / `CacheConfig::default()`
+and assigning the `pub` fields they need, **not** by struct literal or
+`..Default::default()` functional update (both of which `#[non_exhaustive]`
+forbids across crates). The fields stay `pub` so this default-then-assign
+form is the supported path, and any field added in a later `1.x` is therefore
+additive and non-breaking for external constructors. This was landed early
+(part of the `2.0` `#[non_exhaustive]` sweep, #505) because the VCS surface
+is still unreleased, so sealing it now breaks no existing downstream user.
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current
