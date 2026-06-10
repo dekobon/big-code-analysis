@@ -152,18 +152,23 @@ fn include_flag_repeats_accumulate() {
 #[test]
 fn bare_include_is_usage_error() {
     let (dir, _path) = fixture();
+    // `--include` trailing a real subcommand with no value of its own.
+    // Under `num_args(1)` clap demands the missing value and errors
+    // "a value is required for '--include'". Under the pre-#601
+    // `num_args(0..)` arity a zero-value `--include` was legal, so this
+    // ran `metrics` and never reached a usage error — that is the
+    // regression this discriminator catches. Putting the subcommand
+    // first means clap cannot satisfy the value by swallowing it, so the
+    // two arities diverge here where `--include metrics` would not.
     let assert = cli(dir.path())
-        .args(["--include", "metrics"])
+        .args(["metrics", "--include"])
         .assert()
-        // clap consumes `metrics` as the single `--include` value, then
-        // errors because no subcommand was provided. Either way a bare
-        // `--include` no longer succeeds as a no-op; assert the parser
-        // error code.
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     assert!(
-        stderr.contains("error:"),
-        "bare --include should be a usage error; stderr was:\n{stderr}"
+        stderr.contains("a value is required for '--include"),
+        "bare --include must error that a value is required (num_args(1)); \
+         stderr was:\n{stderr}"
     );
 }
 

@@ -1192,7 +1192,16 @@ fn resolve_language_forces_preproc_for_producer() {
 #[test]
 fn valid_languages_lists_known_names_sorted() {
     let listing = valid_languages();
-    assert!(listing.starts_with("valid languages are: "));
-    assert!(listing.contains("rust"));
-    assert!(listing.contains("python"));
+    let body = listing
+        .strip_prefix("valid languages are: ")
+        .expect("listing carries the documented prefix");
+    let names: Vec<&str> = body.split(", ").collect();
+    assert!(names.contains(&"rust"), "rust missing from: {body}");
+    assert!(names.contains(&"python"), "python missing from: {body}");
+    // The name promises sorted output; assert it, so dropping the
+    // `sort_unstable` in `valid_languages` fails here rather than
+    // silently shipping an unordered hint to users.
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(names, sorted, "languages must be listed sorted: {body}");
 }
