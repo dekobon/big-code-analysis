@@ -389,6 +389,19 @@ fn dispatch_report(
         for s in summaries {
             let _ = sender.send(s);
         }
+        // `report --vcs` joins the file's hotspot score (complexity ×
+        // recent churn) onto the change-history section, mirroring
+        // `bca metrics --vcs`. Stream the file-level cyclomatic sum keyed
+        // by the absolute walk path so the downstream join canonicalizes
+        // and matches against the index work-tree exactly like
+        // `vcs_command::inject` (issue #615).
+        if let Some(ref hotspot_tx) = cfg.report_hotspot_tx
+            && let Ok(hotspot_sender) = hotspot_tx.lock()
+        {
+            #[allow(clippy::cast_precision_loss)]
+            let cyclomatic_sum = space.metrics.cyclomatic.cyclomatic_sum() as f64;
+            let _ = hotspot_sender.send((path.clone(), cyclomatic_sum));
+        }
     }
     Ok(())
 }
@@ -564,6 +577,7 @@ mod tests {
             preproc: None,
             count_lock: None,
             markdown_tx: None,
+            report_hotspot_tx: None,
             strip_prefix: String::new(),
             threshold_set: None,
             check_tx: None,

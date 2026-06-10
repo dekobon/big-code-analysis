@@ -117,11 +117,11 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
 /// `bca vcs`), this is an additive opt-in: outside a git working tree
 /// [`default_index`] warns once and returns `None`, so the aggregated
 /// report is still produced with the section simply omitted.
-pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<Report> {
+pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<DefaultReport> {
     let index = default_aggregate_index(globals)?;
     let options = Options::default();
     let entries = rank(globals, &index, top, false);
-    Some(Report {
+    let report = Report {
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
         risk_score_version: score::RISK_SCORE_VERSION,
@@ -129,7 +129,68 @@ pub(crate) fn build_default_report(globals: &GlobalOpts, top: usize) -> Option<R
         truncated_shallow_clone: index.truncated_shallow_clone(),
         vcs_aggregate: index.vcs_aggregate(),
         files: entries,
+    };
+    Some(DefaultReport {
+        report,
+        workdir: index.workdir().map(Path::to_path_buf),
     })
+}
+
+/// A `report --vcs` change-history [`Report`] plus the repository work-tree
+/// it was indexed from. The work-tree is retained so [`join_hotspot_scores`]
+/// can canonicalize the AST walk's absolute file paths to the same
+/// repo-relative keys [`FileEntry::path`] carries — the join that fills the
+/// hotspot column (issue #615).
+pub(crate) struct DefaultReport {
+    pub(crate) report: Report,
+    workdir: Option<PathBuf>,
+}
+
+impl DefaultReport {
+    /// Join the per-file hotspot scores from the AST walk onto the
+    /// change-history rows, computing each file's `complexity × recent
+    /// churn` exactly as `bca metrics --vcs` does ([`set_hotspot_score`]).
+    ///
+    /// `cyclomatic_sums` is the stream the report walk emits: `(absolute
+    /// file path, file-level cyclomatic sum)`. Each absolute path is
+    /// canonicalized and stripped against the index work-tree — the same
+    /// match [`inject`] performs — so a row gets its score regardless of
+    /// `--strip-prefix` or how the walk root was spelled. Files with no
+    /// matching change-history row (untracked / outside the work-tree)
+    /// are silently skipped; rows with no matching AST file (a tracked
+    /// non-source file, e.g. a deleted entry) keep `hotspot_score == None`.
+    pub(crate) fn join_hotspot_scores(&mut self, cyclomatic_sums: &[(PathBuf, f64)]) {
+        let Some(workdir) = self.workdir.as_deref() else {
+            return;
+        };
+        // Index the change-history rows by repo-relative path for an
+        // O(files) join rather than a quadratic scan per source file. Keys
+        // are owned so the map does not borrow `files` while we mutate it.
+        let mut by_path: std::collections::HashMap<String, usize> = self
+            .report
+            .files
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.path.clone(), i))
+            .collect();
+        for (abs, cyclomatic_sum) in cyclomatic_sums {
+            let Some(rel) = abs
+                .canonicalize()
+                .ok()
+                .and_then(|c| c.strip_prefix(workdir).ok().map(Path::to_path_buf))
+                .and_then(|rel| path_to_string(&rel))
+            else {
+                continue;
+            };
+            if let Some(idx) = by_path.remove(rel.as_str()) {
+                let entry = &mut self.report.files[idx];
+                entry.vcs.hotspot_score = Some(hotspot::hotspot_score(
+                    *cyclomatic_sum,
+                    entry.vcs.churn_recent,
+                ));
+            }
+        }
+    }
 }
 
 /// Build a **default-window** index with the bus-factor aggregate enabled,
@@ -661,6 +722,113 @@ fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vc
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `FileEntry` whose only varied fields are the path, recent churn,
+    /// and (initially absent) hotspot score — enough to exercise the join.
+    fn file_entry(path: &str, churn_recent: u64) -> FileEntry {
+        FileEntry {
+            path: path.to_owned(),
+            vcs: wire::Vcs {
+                vcs_schema_version: 1,
+                risk_score_version: 1,
+                long_window_days: 365,
+                recent_window_days: 90,
+                commits_long: 5,
+                commits_recent: 2,
+                churn_long: churn_recent * 3,
+                churn_recent,
+                authors_long: 2,
+                authors_recent: 1,
+                ownership_top_share: 0.5,
+                burst: 0.4,
+                bug_fix_commits: 1,
+                security_fix_commits: 0,
+                revert_commits: 0,
+                age_days: 100,
+                last_modified_days: 3,
+                change_entropy_long: 1.0,
+                change_entropy_recent: 0.5,
+                cochange_entropy_long: 0.7,
+                cochange_entropy_recent: 0.3,
+                risk_score: 1.0,
+                hotspot_score: None,
+                author_ids: None,
+            },
+        }
+    }
+
+    #[test]
+    fn join_hotspot_scores_fills_matching_rows_and_skips_others() {
+        // The work-tree the change-history paths are relative to. Real
+        // files are created so `canonicalize` (which `join_hotspot_scores`
+        // mirrors from `inject`) resolves them; the join must key off the
+        // canonicalized-then-stripped repo-relative path, not the raw
+        // absolute path the AST walk emits.
+        let workdir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(workdir.path().join("src")).expect("mkdir src");
+        let abs_a = workdir.path().join("src/a.rs");
+        let abs_b = workdir.path().join("src/b.rs");
+        std::fs::write(&abs_a, b"fn a() {}").expect("write a");
+        std::fs::write(&abs_b, b"fn b() {}").expect("write b");
+
+        let report = Report {
+            long_window_days: 365,
+            recent_window_days: 90,
+            risk_score_version: 1,
+            vcs_schema_version: 1,
+            truncated_shallow_clone: false,
+            vcs_aggregate: None,
+            // `b.rs` has no AST entry below, so it must stay `None`.
+            files: vec![file_entry("src/a.rs", 40), file_entry("src/b.rs", 10)],
+        };
+        let mut default = DefaultReport {
+            report,
+            workdir: Some(workdir.path().to_path_buf()),
+        };
+
+        // `a.rs` cyclomatic sum 7; `extra.rs` has no change-history row and
+        // must be ignored without panicking.
+        let cyclomatic_sums = vec![
+            (abs_a.clone(), 7.0),
+            (workdir.path().join("src/extra.rs"), 99.0),
+        ];
+        default.join_hotspot_scores(&cyclomatic_sums);
+
+        let a = &default.report.files[0];
+        assert_eq!(a.path, "src/a.rs");
+        assert_eq!(
+            a.vcs.hotspot_score,
+            Some(hotspot::hotspot_score(7.0, 40)),
+            "matched row gets complexity × recent churn"
+        );
+        let b = &default.report.files[1];
+        assert_eq!(b.path, "src/b.rs");
+        assert_eq!(
+            b.vcs.hotspot_score, None,
+            "a row with no AST file keeps a None score"
+        );
+    }
+
+    #[test]
+    fn join_hotspot_scores_no_op_without_a_workdir() {
+        // Outside a work-tree (no index) the join cannot resolve paths and
+        // must leave every score untouched rather than guessing.
+        let report = Report {
+            long_window_days: 365,
+            recent_window_days: 90,
+            risk_score_version: 1,
+            vcs_schema_version: 1,
+            truncated_shallow_clone: false,
+            vcs_aggregate: None,
+            files: vec![file_entry("src/a.rs", 40)],
+        };
+        let mut default = DefaultReport {
+            report,
+            workdir: None,
+        };
+        default.join_hotspot_scores(&[(PathBuf::from("/whatever/src/a.rs"), 7.0)]);
+        assert_eq!(default.report.files[0].vcs.hotspot_score, None);
+    }
 
     #[test]
     fn path_to_string_normalizes_separators_to_forward_slash() {

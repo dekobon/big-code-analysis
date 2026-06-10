@@ -1711,21 +1711,40 @@ fn run_command_report(
     // per-table cap) before the AST walk consumes `globals`. `--vcs` is
     // additive: outside a git tree `build_default_report` warns and
     // returns `None`, so the report still renders without the section.
-    let vcs = args
+    let mut vcs = args
         .vcs
         .then(|| crate::vcs_command::build_default_report(&globals, args.top))
         .flatten();
     let (tx, rx) = std::sync::mpsc::channel();
+    // When the change-history section is present, also collect each file's
+    // cyclomatic sum so its hotspot score can be joined after the walk
+    // (issue #615). Only wired for `report --vcs`; a plain `report` leaves
+    // the sender `None` and the hotspot column omitted downstream.
+    let (hotspot_rx, report_hotspot_tx) = if vcs.is_some() {
+        let (htx, hrx) = std::sync::mpsc::channel();
+        (Some(hrx), Some(Mutex::new(htx)))
+    } else {
+        (None, None)
+    };
     let cfg = Config {
         markdown_tx: Some(Mutex::new(tx)),
+        report_hotspot_tx,
         strip_prefix: args.strip_prefix,
         ..Config::new(Action::Report, &globals, preproc)
     };
     run_walk(globals, cfg);
 
-    // ConcurrentRunner::run() consumed Config (and thus the Sender).
+    // ConcurrentRunner::run() consumed Config (and thus the Senders).
     // All worker threads have joined, so `rx.into_iter()` terminates.
     let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
+    // Join the per-file hotspot scores onto the change-history rows before
+    // rendering, so `report --vcs` fills the Hotspot column from the AST
+    // metrics computed in this same run (issue #615).
+    if let (Some(default), Some(hotspot_rx)) = (vcs.as_mut(), hotspot_rx) {
+        let cyclomatic_sums: Vec<(PathBuf, f64)> = hotspot_rx.into_iter().collect();
+        default.join_hotspot_scores(&cyclomatic_sums);
+    }
+    let vcs = vcs.map(|d| d.report);
     let top = args.top;
     let report = match (format, vcs.as_ref()) {
         (ReportFormat::Markdown, None) => generate_report(&summaries, top, policy),

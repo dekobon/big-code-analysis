@@ -40,6 +40,13 @@ metric = "loc.sloc"
 value = 970.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 843.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
 qualified = "<file>"
 start_line = 1
@@ -51,7 +58,7 @@ path = "big-code-analysis-cli/src/vcs_report.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 985.0
+value = 1075.0
 
 [[entry]]
 path = "big-code-analysis-py/src/codegen.rs"

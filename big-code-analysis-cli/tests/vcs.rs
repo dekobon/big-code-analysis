@@ -540,6 +540,44 @@ fn report_markdown_vcs_appends_change_history_section() {
 }
 
 #[test]
+fn report_markdown_vcs_fills_the_hotspot_column() {
+    // Issue #615: `report --vcs` computes AST metrics in the same run, so
+    // the change-history section must join a real `hotspot_score`
+    // (complexity × recent churn) onto each file — not leave the trailing
+    // column blank. The fixture file has a non-zero recent churn and a
+    // cyclomatic sum > 0, so a join produces a positive value.
+    let repo = repo_two_commits();
+    let assert = cli()
+        .current_dir(repo.path())
+        .args(["report", "markdown", "--vcs", "--paths", "."])
+        .assert()
+        .success();
+    let md = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    // The column header and legend entry are present (not omitted).
+    assert!(md.contains("| Hotspot |"), "Hotspot header should render");
+    // Locate the data row for the tracked file and read its trailing
+    // Hotspot cell — the last `|`-delimited field. It must parse to a
+    // positive number, proving the join happened.
+    let row = md
+        .lines()
+        .find(|l| l.starts_with('|') && l.contains("src/work.rs"))
+        .expect("a data row for src/work.rs");
+    let hotspot_cell = row
+        .trim_end_matches('|')
+        .rsplit('|')
+        .next()
+        .expect("a trailing Hotspot cell")
+        .trim();
+    let value: f64 = hotspot_cell
+        .parse()
+        .unwrap_or_else(|_| panic!("Hotspot cell {hotspot_cell:?} should be a number, not blank"));
+    assert!(
+        value > 0.0,
+        "joined hotspot score should be positive, got {value}"
+    );
+}
+
+#[test]
 fn report_html_vcs_appends_sortable_change_history_section() {
     let repo = repo_two_commits();
     cli()

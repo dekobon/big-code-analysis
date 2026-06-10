@@ -43,6 +43,6 @@ _Avelino Degree-of-Authorship, coverage threshold 0.50._
 - **Change entropy (total)** — Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.
 - **Co-change entropy (recent)** — Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.
 - **Co-change entropy (total)** — Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.
-- **Hotspot** — Complexity × recent churn: high-complexity files that also change often. Empty when AST metrics are not joined.
+- **Hotspot** — Complexity × recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.
 - **Bus factor** — Avelino Degree-of-Authorship bus factor: minimum authors covering this directory's code ownership above the coverage threshold.
 - **Files** — Files in this directory contributing to its bus factor.

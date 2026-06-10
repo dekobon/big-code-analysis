@@ -67,7 +67,7 @@ const AGE_TOOLTIP: &str =
 const LAST_MOD_TOOLTIP: &str = "Days since the most recent in-window commit touching this file.";
 const CHANGE_ENTROPY_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.";
 const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.";
-const HOTSPOT_TOOLTIP: &str = "Complexity \u{D7} recent churn: high-complexity files that also change often. Empty when AST metrics are not joined.";
+const HOTSPOT_TOOLTIP: &str = "Complexity \u{D7} recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.";
 
 /// The change-history columns, defined once and rendered identically by
 /// both formats. Order and content mirror the structured CSV record (so
@@ -195,9 +195,11 @@ const VCS_SPECS: &[VcsColumn] = &[
         tooltip: Some(COCHANGE_ENTROPY_TOOLTIP),
     },
     VcsColumn {
-        header: "Hotspot",
+        header: HOTSPOT_HEADER,
         align: Align::Right,
-        // Empty when AST metrics are not joined (plain `bca vcs`).
+        // Rendered only when some row carries a score (see `active_specs`);
+        // the `unwrap_or_default` is a defensive blank for the unreachable
+        // mixed case where the column survives but a single row is `None`.
         cell: |_, e| {
             Cell::Num(
                 e.vcs
@@ -209,6 +211,25 @@ const VCS_SPECS: &[VcsColumn] = &[
         tooltip: Some(HOTSPOT_TOOLTIP),
     },
 ];
+
+/// Header of the Hotspot column. The column is data-dependent: it renders
+/// only when at least one row carries a `hotspot_score` (i.e. AST metrics
+/// were joined, as in `report --vcs`), and is dropped entirely otherwise so
+/// plain `bca vcs` shows no permanently-blank column (issue #615). Named so
+/// [`active_specs`] can match it structurally rather than by position.
+const HOTSPOT_HEADER: &str = "Hotspot";
+
+/// The columns to render for `report`: every spec, minus the Hotspot column
+/// when no row carries a score. Both formats and the legend draw from this
+/// one function so they cannot drift (the cross-format parity guard checks
+/// the result, not the raw `VCS_SPECS`).
+fn active_specs(report: &Report) -> Vec<&'static VcsColumn> {
+    let any_hotspot = report.files.iter().any(|e| e.vcs.hotspot_score.is_some());
+    VCS_SPECS
+        .iter()
+        .filter(|c| any_hotspot || c.header != HOTSPOT_HEADER)
+        .collect()
+}
 
 /// Header of the column that carries the severity-heat tint in the HTML
 /// report. Matched structurally against [`VCS_SPECS`] (see
@@ -270,23 +291,23 @@ const HEADING: &str = "Change-history risk";
 /// Shown in both formats when no tracked file matched the walk filters.
 const EMPTY_MESSAGE: &str = "No tracked files matched.";
 
-fn headers() -> Vec<&'static str> {
-    VCS_SPECS.iter().map(|c| c.header).collect()
+fn headers(specs: &[&VcsColumn]) -> Vec<&'static str> {
+    specs.iter().map(|c| c.header).collect()
 }
 
-fn aligns() -> Vec<Align> {
-    VCS_SPECS.iter().map(|c| c.align).collect()
+fn aligns(specs: &[&VcsColumn]) -> Vec<Align> {
+    specs.iter().map(|c| c.align).collect()
 }
 
 /// The ranked rows as `Cell`s — one inner `Vec` per file, in column
 /// order. `report.files` is already risk-ranked, so the enumeration
 /// index drives the 1-based Rank column.
-fn cell_rows(report: &Report) -> Vec<Vec<Cell>> {
+fn cell_rows(report: &Report, specs: &[&VcsColumn]) -> Vec<Vec<Cell>> {
     report
         .files
         .iter()
         .enumerate()
-        .map(|(i, entry)| VCS_SPECS.iter().map(|c| (c.cell)(i + 1, entry)).collect())
+        .map(|(i, entry)| specs.iter().map(|c| (c.cell)(i + 1, entry)).collect())
         .collect()
 }
 
@@ -341,21 +362,23 @@ fn write_markdown_body(out: &mut String, report: &Report) {
         let _ = writeln!(out, "\n> **Note:** {SHALLOW_NOTE}");
     }
     out.push('\n');
+    let specs = active_specs(report);
     if report.files.is_empty() {
         let _ = writeln!(out, "{EMPTY_MESSAGE}");
     } else {
-        let rows: Vec<Vec<String>> = cell_rows(report)
+        let rows: Vec<Vec<String>> = cell_rows(report, &specs)
             .into_iter()
             .map(|row| row.into_iter().map(render_cell_md).collect())
             .collect();
-        write_md_table(out, &headers(), &aligns(), &rows);
+        write_md_table(out, &headers(&specs), &aligns(&specs), &rows);
     }
     if let Some(aggregate) = &report.vcs_aggregate {
         write_markdown_bus_factor(out, &aggregate.bus_factor);
     }
-    // Footer legend defining every change-history column (issue #611).
+    // Footer legend defining every rendered change-history column (issue
+    // #611); an omitted Hotspot column (issue #615) drops its legend entry.
     if !report.files.is_empty() {
-        write_md_legend(out, &legend_entries());
+        write_md_legend(out, &legend_entries(&specs));
     }
 }
 
@@ -389,9 +412,9 @@ fn bus_factor_tooltips() -> [Option<&'static str>; 3] {
 /// in column order, skipping identity columns. Both the HTML legend and the
 /// Markdown legend draw from this so a column's definition renders
 /// identically in the `title=` tooltip and the legend (issue #611).
-fn legend_entries() -> Vec<(&'static str, &'static str)> {
+fn legend_entries(specs: &[&VcsColumn]) -> Vec<(&'static str, &'static str)> {
     let mut entries: Vec<(&'static str, &'static str)> = Vec::new();
-    for col in VCS_SPECS {
+    for col in specs {
         if let Some(tip) = col.tooltip
             && !entries.iter().any(|(h, _)| *h == col.header)
         {
@@ -411,9 +434,10 @@ fn legend_entries() -> Vec<(&'static str, &'static str)> {
     entries
 }
 
-/// Tooltips for the ranked-file table, by column index (from `VCS_SPECS`).
-fn vcs_tooltips() -> Vec<Option<&'static str>> {
-    VCS_SPECS.iter().map(|c| c.tooltip).collect()
+/// Tooltips for the ranked-file table, by column index (from the active
+/// spec set, so an omitted Hotspot column drops its tooltip too).
+fn vcs_tooltips(specs: &[&VcsColumn]) -> Vec<Option<&'static str>> {
+    specs.iter().map(|c| c.tooltip).collect()
 }
 
 /// The per-directory rows (directory, bus factor, files) for the shared
@@ -490,23 +514,26 @@ fn write_html_body(out: &mut String, report: &Report) {
         let _ = writeln!(out, "<p class=\"note\">{SHALLOW_NOTE}</p>");
     }
     let _ = out.write_str("</div>\n");
+    let specs = active_specs(report);
     if report.files.is_empty() {
         let _ = writeln!(out, "<p>{EMPTY_MESSAGE}</p>");
     } else {
-        let rows: Vec<Vec<String>> = cell_rows(report)
+        let rows: Vec<Vec<String>> = cell_rows(report, &specs)
             .into_iter()
             .map(|row| row.into_iter().map(cell_text).collect())
             .collect();
         // Tint only the risk cell, by relative rank. `report.files` is
         // risk-ranked, so the row index is the rank; the Markdown path
-        // (which never calls this) stays plain text.
+        // (which never calls this) stays plain text. Omitting the trailing
+        // Hotspot column never shifts the Risk column, so the index stays
+        // valid against the active spec set.
         let risk_col = risk_column_index();
         let n_rows = rows.len();
         write_html_table_classed(
             out,
-            &headers(),
-            &aligns(),
-            &vcs_tooltips(),
+            &headers(&specs),
+            &aligns(&specs),
+            &vcs_tooltips(&specs),
             &rows,
             |r, c| {
                 if Some(c) == risk_col {
@@ -521,9 +548,10 @@ fn write_html_body(out: &mut String, report: &Report) {
         write_html_bus_factor(out, &aggregate.bus_factor);
     }
     // A visible legend so the column definitions survive print, mobile, and
-    // screen readers (the `title=` tooltips are hover-only) — issue #611.
+    // screen readers (the `title=` tooltips are hover-only) — issue #611;
+    // an omitted Hotspot column (issue #615) drops its legend entry too.
     if !report.files.is_empty() {
-        write_legend_html(out, &legend_entries());
+        write_legend_html(out, &legend_entries(&specs));
     }
 }
 
@@ -731,8 +759,9 @@ mod tests {
         let report = rich_report();
         let md = render_markdown(&report);
         let html = render_html(&report);
+        let specs = active_specs(&report);
 
-        for header in headers() {
+        for header in headers(&specs) {
             assert!(
                 md.contains(header),
                 "Markdown missing column header {header:?}"
@@ -751,7 +780,7 @@ mod tests {
             .next()
             .unwrap_or(&html);
         let html_files: Vec<String> = html_cell_texts(files_html)
-            .chunks(VCS_SPECS.len())
+            .chunks(specs.len())
             .map(|row| row[1].clone())
             .collect();
         // Both extractors return the logical (unescaped) path, so the
@@ -779,6 +808,66 @@ mod tests {
     }
 
     #[test]
+    fn hotspot_column_renders_when_any_row_has_a_score() {
+        // `rich_report` has one scored row and two `None` rows — the
+        // join-present case (e.g. `report --vcs`). The Hotspot column and
+        // its legend entry must render, and the scored value must appear.
+        let report = rich_report();
+        let specs = active_specs(&report);
+        assert!(
+            specs.iter().any(|c| c.header == HOTSPOT_HEADER),
+            "a scored row must keep the Hotspot column"
+        );
+        let md = render_markdown(&report);
+        let html = render_html(&report);
+        assert!(md.contains("| Hotspot |"), "Markdown keeps Hotspot header");
+        assert!(html.contains(">Hotspot</th>"), "HTML keeps Hotspot header");
+        // `Some(123.0)` formats with one decimal place.
+        assert!(md.contains("123.0"), "Markdown renders the hotspot value");
+        assert!(html.contains("123.0"), "HTML renders the hotspot value");
+        // The legend documents the rendered column.
+        assert!(
+            legend_entries(&specs)
+                .iter()
+                .any(|(h, _)| *h == HOTSPOT_HEADER),
+            "legend keeps the Hotspot entry when the column renders"
+        );
+    }
+
+    #[test]
+    fn hotspot_column_omitted_when_no_row_has_a_score() {
+        // Plain `bca vcs` (no AST join): every row's `hotspot_score` is
+        // `None`. The all-blank column is dropped from both formats and the
+        // legend, instead of a permanently-empty trailing column (#615).
+        let report = Report {
+            vcs_aggregate: None,
+            files: vec![
+                entry("src/a.rs", 9.0, 30, None),
+                entry("src/b.rs", 4.0, 10, None),
+            ],
+            ..rich_report()
+        };
+        let specs = active_specs(&report);
+        assert!(
+            !specs.iter().any(|c| c.header == HOTSPOT_HEADER),
+            "an all-None report must drop the Hotspot column"
+        );
+        let md = render_markdown(&report);
+        let html = render_html(&report);
+        assert!(
+            !md.contains("Hotspot"),
+            "Markdown must omit the Hotspot column entirely"
+        );
+        assert!(
+            !html.contains("Hotspot"),
+            "HTML must omit the Hotspot column entirely (header + legend)"
+        );
+        // A still-rendered column proves the table itself is intact.
+        assert!(md.contains("| Rank |"));
+        assert!(html.contains(">Risk</th>"));
+    }
+
+    #[test]
     fn every_vcs_header_carries_a_tooltip() {
         // Drive from the shared specs (mirrors the AST report's
         // `metric_headers_carry_tooltips`): every change-history column
@@ -788,8 +877,9 @@ mod tests {
         // test. `legend_entries` is the single source the HTML tooltips
         // and both legends draw from.
         use crate::html_report::escape_html;
-        let html = render_html(&rich_report());
-        for (header, tip) in legend_entries() {
+        let report = rich_report();
+        let html = render_html(&report);
+        for (header, tip) in legend_entries(&active_specs(&report)) {
             let needle = format!(
                 " title=\"{}\">{}</th>",
                 escape_html(tip),
@@ -816,7 +906,7 @@ mod tests {
             html.contains("<summary>Legend</summary>"),
             "HTML legend missing"
         );
-        for (header, tip) in legend_entries() {
+        for (header, tip) in legend_entries(&active_specs(&report)) {
             assert!(
                 md.contains(&format!("**{header}**")),
                 "Markdown legend missing header {header:?}"

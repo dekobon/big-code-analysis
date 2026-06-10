@@ -1407,6 +1407,16 @@ struct Config {
     /// Sender for streaming `FunctionSummary` records when running `report`.
     /// Wrapped in `Mutex` because `mpsc::Sender` is `Send` but not `Sync`.
     markdown_tx: Option<Mutex<std::sync::mpsc::Sender<FunctionSummary>>>,
+    /// Sender for streaming each file's `(absolute path, cyclomatic sum)`
+    /// when running `report --vcs`, so the change-history section can join
+    /// the same hotspot score (`complexity × recent churn`) that
+    /// `bca metrics --vcs` attaches per file (issue #615). The absolute
+    /// path is canonicalized against the index work-tree downstream — the
+    /// identical match `vcs_command::inject` uses — so the join is correct
+    /// regardless of `--strip-prefix` or the walk-root spelling. `None`
+    /// for every flow other than `report --vcs`. Wrapped in `Mutex` for the
+    /// same reason as `markdown_tx`.
+    report_hotspot_tx: Option<Mutex<std::sync::mpsc::Sender<(PathBuf, f64)>>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
     /// Pre-resolved thresholds for `Action::Check`. `None` for every
@@ -1508,6 +1518,7 @@ impl Config {
             preproc,
             count_lock: None,
             markdown_tx: None,
+            report_hotspot_tx: None,
             strip_prefix: String::new(),
             threshold_set: None,
             check_tx: None,
