@@ -182,16 +182,21 @@ struct GlobalOpts {
     /// Input files or directories to analyze.
     #[clap(long, short, value_parser, global = true)]
     paths: Vec<PathBuf>,
-    /// Glob to include files.
-    #[clap(long, short = 'I', num_args(0..), global = true)]
+    /// Glob to include files. Repeat the flag to add multiple globs
+    /// (`-I '*.rs' -I '*.toml'`); each occurrence takes exactly one
+    /// value, so a positional argument that follows is never swallowed.
+    #[clap(long, short = 'I', num_args(1), action = clap::ArgAction::Append, global = true)]
     include: Vec<String>,
-    /// Glob to exclude files. As a negative filter key (#539), CLI
+    /// Glob to exclude files. Repeat the flag to add multiple globs
+    /// (`-X '*.tmp' -X '*.bak'`); each occurrence takes exactly one
+    /// value, so a positional argument that follows is never swallowed.
+    /// As a negative filter key (#539), CLI
     /// values are *merged with* (unioned, not a replacement for) any
     /// `bca.toml` `exclude` list and any `--exclude-from` patterns, so a
     /// CLI `--exclude` never silently un-excludes a directory the
     /// project config deliberately skipped. Pass `--no-config` to ignore
     /// the manifest entirely.
-    #[clap(long, short = 'X', num_args(0..), global = true)]
+    #[clap(long, short = 'X', num_args(1), action = clap::ArgAction::Append, global = true)]
     exclude: Vec<String>,
     /// Number of jobs.
     ///

@@ -102,9 +102,9 @@ fn exclude_from_unions_with_exclude_flag() {
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
-            // `--exclude=VAL` form binds the value to the flag; the
-            // bare `-X VAL` shape would let clap's `num_args(0..)`
-            // gobble `metrics` as another exclude.
+            // `--exclude` now takes exactly one value per occurrence
+            // (#601), so `metrics` is parsed as a positional, not a
+            // second exclude glob. The `=VAL` form is kept for clarity.
             "--exclude=**/drop_b.py",
             "metrics",
             "-O",

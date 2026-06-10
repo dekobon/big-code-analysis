@@ -12,11 +12,11 @@ Analyze source code.
 \fB\-p\fR, \fB\-\-paths\fR \fI<PATHS>\fR
 Input files or directories to analyze
 .TP
-\fB\-I\fR, \fB\-\-include\fR [\fI<INCLUDE>...\fR]
-Glob to include files
+\fB\-I\fR, \fB\-\-include\fR \fI<INCLUDE>\fR
+Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed
 .TP
-\fB\-X\fR, \fB\-\-exclude\fR [\fI<EXCLUDE>...\fR]
-Glob to exclude files. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+\fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
 .TP
 \fB\-j\fR, \fB\-\-num\-jobs\fR \fI<N|auto>\fR [default: auto]
 Number of jobs.

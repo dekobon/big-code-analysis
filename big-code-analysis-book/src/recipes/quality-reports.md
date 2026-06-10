@@ -164,7 +164,8 @@ git diff --name-only --diff-filter=AM origin/main...HEAD \
   argument works the same way: `--paths-from changed.txt`.
 - Paths fed in this way are treated as **explicit**, so they bypass
   any `.gitignore` rule that would have hidden them in a directory
-  walk. Combine with `-I '*.py' '*.rs'` to filter by language.
+  walk. Combine with `-I '*.py' -I '*.rs'` to filter by language
+  (repeat the flag once per glob).
 
 For a PR-scoped Markdown summary, swap `metrics` for the report
 pipeline:
@@ -177,6 +178,6 @@ git diff --name-only --diff-filter=AM origin/main...HEAD \
 
 `.gitignore` is honored automatically when walking a directory, so
 recipes earlier in this page no longer need an explicit
-`-X "**/target/**" "**/node_modules/**"` if those paths are already
+`-X "**/target/**" -X "**/node_modules/**"` if those paths are already
 covered by your project's `.gitignore`. Add `--no-ignore` if you do
 need to analyze gitignored trees.

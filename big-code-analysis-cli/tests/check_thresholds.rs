@@ -680,33 +680,33 @@ pub fn outer() -> i32 {
 
 // ─── argv shape contract ─────────────────────────────────────────────
 //
-// `--exclude` is a global variadic option (`num_args(0..)`) on the
-// root command. clap collects every positional that follows it,
-// including the subcommand token, until it sees the next flag. Without
-// a separating flag between the exclude list and the subcommand, the
-// subcommand is silently consumed as another exclude glob.
+// As of #601, `--exclude` (and `--include`) take exactly one value per
+// occurrence (`num_args(1)`, repeatable via `ArgAction::Append`). A
+// positional that follows — including a subcommand token — is no longer
+// swallowed as an extra glob, so no separator flag is required between
+// the exclude list and the subcommand.
 //
-// CI relies on `--num-jobs "$(nproc)"` (or any non-variadic flag)
-// being interposed between `--exclude …` and `check`. The two tests
-// below pin both directions of that contract:
+// The two tests below pin both directions of that contract:
 //
-//  * `check_subcommand_swallowed_by_variadic_exclude` is the negative
-//    pin — if clap or our argv shape ever changes so that the
-//    subcommand IS recognised after a bare variadic, this test fails
-//    and we can safely simplify the workflow defence.
-//  * `check_runs_with_num_jobs_separator` is the positive pin — the
-//    exact argv shape `.github/workflows/pages.yml` uses must keep
-//    working.
+//  * `check_recognised_after_single_value_exclude` is the regression
+//    pin for #601 — `--exclude GLOB check` must recognise `check` as
+//    the subcommand without an interposed flag. Before #601 the
+//    variadic `num_args(0..)` consumed `check` as another glob and clap
+//    errored on a missing <COMMAND>.
+//  * `check_runs_with_num_jobs_separator` is the historical positive
+//    pin — the argv shape `.github/workflows/pages.yml` uses (with the
+//    `--num-jobs` separator) must keep working; the separator is now
+//    redundant but harmless.
 
 #[test]
-fn check_subcommand_swallowed_by_variadic_exclude() {
+fn check_recognised_after_single_value_exclude() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    // No separator between `--exclude` values and `check`. clap eats
-    // `check` as one more glob, then errors because no subcommand was
-    // ever provided.
-    let assert = cli(dir.path())
+    // No separator between the single `--exclude` value and `check`.
+    // Post-#601 `--exclude` binds exactly one glob, so `check` is parsed
+    // as the subcommand. Pre-#601 this errored with a missing <COMMAND>.
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -717,14 +717,7 @@ fn check_subcommand_swallowed_by_variadic_exclude() {
             "cyclomatic=10",
         ])
         .assert()
-        // Exit 2 is clap's parser-error code (see clap_builder::error).
-        .code(2);
-    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
-    assert!(
-        stderr.contains("<COMMAND>"),
-        "expected clap to complain that <COMMAND> is missing (because \
-         `check` was consumed by --exclude); stderr was:\n{stderr}",
-    );
+        .success();
 }
 
 #[test]
@@ -732,10 +725,10 @@ fn check_runs_with_num_jobs_separator() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    // `--num-jobs` is a non-variadic flag; placing it between the
-    // exclude list and the subcommand terminates the variadic and lets
-    // clap recognise `check`. This is the exact argv shape the Pages
-    // workflow uses.
+    // The historical argv shape with `--num-jobs` interposed between the
+    // exclude value and the subcommand. The separator is redundant
+    // post-#601 but must remain harmless — this is the exact shape the
+    // Pages workflow uses.
     cli(dir.path())
         .args([
             "--paths",
