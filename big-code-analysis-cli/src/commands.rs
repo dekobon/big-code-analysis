@@ -1079,8 +1079,10 @@ fn classify_check_outcome(
         match coverage {
             Some(Coverage::Regressed { .. }) => has_regression = true,
             // `Coverage::New`, or `None` when no `--baseline` was given.
-            // `Coverage::Covered` never reaches here — `filter_by_baseline`
-            // drops it before the kept set is built.
+            // `Coverage::Covered` never reaches here: by default
+            // `filter_by_baseline` drops it, and under `--report-suppressed`
+            // `run_check` partitions it into the `suppressed` set — so the
+            // `active` slice this fn classifies is always Covered-free.
             _ => has_new = true,
         }
     }
