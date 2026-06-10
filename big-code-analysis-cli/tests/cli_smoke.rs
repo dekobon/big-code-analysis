@@ -392,3 +392,85 @@ fn walkdir_entries(dir: &std::path::Path, ext: &str) -> impl Iterator<Item = std
     visit(dir, ext, &mut found);
     found.into_iter()
 }
+
+// Issue #595: forcing a language by canonical name (`-l rust`) on an
+// extensionless file must produce metrics. Pre-#595 the value was only
+// resolved through `get_from_ext`, so `rust` (a name, not an extension)
+// silently disabled analysis — empty output, exit 0.
+#[test]
+fn force_language_by_name_analyzes_extensionless_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("noext_sample");
+    std::fs::write(&file, b"fn main() { let x = 1; }\n").unwrap();
+
+    let output = cli()
+        .args([
+            "--paths",
+            file.to_str().unwrap(),
+            "-l",
+            "rust",
+            "metrics",
+            "-O",
+            "json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let text = String::from_utf8(output).expect("stdout is utf-8");
+    assert!(
+        !text.trim().is_empty(),
+        "forcing `-l rust` on an extensionless file must emit metrics, got empty output"
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(text.trim()).expect("metrics output must be valid JSON");
+    assert!(
+        parsed.get("metrics").is_some(),
+        "expected a metrics record, got: {parsed}"
+    );
+}
+
+// Issue #595: the extension spelling (`-l rs`) keeps working.
+#[test]
+fn force_language_by_extension_still_works() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("noext_sample");
+    std::fs::write(&file, b"fn main() { let x = 1; }\n").unwrap();
+
+    cli()
+        .args([
+            "--paths",
+            file.to_str().unwrap(),
+            "-l",
+            "rs",
+            "metrics",
+            "-O",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"metrics\""));
+}
+
+// Issue #595: an unknown `--language` value is now a hard error (exit 1)
+// that lists the valid language names — it no longer silently disables
+// analysis with exit 0.
+#[test]
+fn unknown_language_value_exits_one_and_lists_valid_values() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("noext_sample");
+    std::fs::write(&file, b"fn main() {}\n").unwrap();
+
+    cli()
+        .args(["--paths", file.to_str().unwrap(), "-l", "bogus", "metrics"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(
+            predicate::str::contains("unknown --language value 'bogus'")
+                .and(predicate::str::contains("valid languages are:"))
+                .and(predicate::str::contains("rust")),
+        );
+}

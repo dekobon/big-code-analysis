@@ -1094,12 +1094,12 @@ fn format_remediation_block(globals: &GlobalOpts, args: &CheckArgs) -> Option<St
     // `--exclude`, `--exclude-from`, `--config`, `--baseline`) but
     // intentionally omits selectors that don't affect baseline
     // composition (`--num-jobs`) and ones that would bloat the
-    // common-case command (`--include`, `--language-type`,
+    // common-case command (`--include`, `--language`,
     // `--paths-from`, `--exclude-tests`). Surface the omission so a
     // user with a non-trivial scope re-adds them rather than
     // assuming the printed command is complete.
     out.push_str(
-        "  (mirrors path filters only — re-add any --include / --language-type / --exclude-tests / --paths-from flags as needed)\n",
+        "  (mirrors path filters only — re-add any --include / --language / --exclude-tests / --paths-from flags as needed)\n",
     );
     out.push_str(
         "* Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html\n",

@@ -207,9 +207,11 @@ struct GlobalOpts {
         value_name = "N|auto"
     )]
     num_jobs: NumJobs,
-    /// Force a language type instead of inferring from extension.
-    #[clap(long, short = 'l', global = true)]
-    language_type: Option<String>,
+    /// Force a language instead of inferring from extension. Accepts a
+    /// canonical language name (`rust`, `python`, `cpp`, …) or a file
+    /// extension (`rs`, `py`, …). An unrecognized value is a hard error.
+    #[clap(long, short = 'l', global = true, alias = "language-type")]
+    language: Option<String>,
     /// Print warnings (skipped files, unrecognized languages).
     #[clap(long, short, global = true)]
     warning: bool,
@@ -1369,7 +1371,7 @@ impl Config {
     /// `line_start`/`line_end` bounds) are set on the returned value at
     /// the call site.
     fn new(action: Action, globals: &GlobalOpts, preproc: Option<Arc<PreprocResults>>) -> Self {
-        let language = resolve_language(globals.language_type.as_deref(), &action);
+        let language = resolve_language(globals.language.as_deref(), &action);
         Self {
             action,
             output: None,
@@ -1472,6 +1474,15 @@ fn group_files_by_basename(paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>>
     all_files
 }
 
+/// Resolve the optional `--language` value to a forced [`LANG`].
+///
+/// Accepts either a canonical language name (`rust`, `python`, `cpp`,
+/// …, via [`LANG`]'s `FromStr`) or a file extension (`rs`, `py`, …, via
+/// [`get_from_ext`]). The name spelling is tried first so the obvious
+/// `-l rust` works; extensions remain accepted for backward
+/// compatibility. An unrecognized value is a hard error (`die`, exit 1)
+/// listing the valid language names — previously such a value silently
+/// disabled analysis with exit 0 (issue #595).
 fn resolve_language(typ: Option<&str>, action: &Action) -> Option<LANG> {
     // Force `Preproc` for the producer so `act_on_file`'s "skip
     // unrecognized" guard never fires — every walked file must reach the
@@ -1479,12 +1490,29 @@ fn resolve_language(typ: Option<&str>, action: &Action) -> Option<LANG> {
     if matches!(action, Action::PreprocProduce) {
         return Some(LANG::Preproc);
     }
-    match typ.unwrap_or("") {
-        "" => None,
-        "ccomment" => Some(LANG::Ccomment),
-        "preproc" => Some(LANG::Preproc),
-        other => get_from_ext(other),
-    }
+    let value = typ?;
+    // Try the canonical name first (`rust`), then fall back to treating
+    // the value as a file extension (`rs`). Both are user-reasonable
+    // spellings of the same intent.
+    value
+        .parse::<LANG>()
+        .ok()
+        .or_else(|| get_from_ext(value))
+        .or_else(|| {
+            die(format_args!(
+                "unknown --language value '{value}'; {}",
+                valid_languages()
+            ))
+        })
+}
+
+/// Build the "valid values" suffix for the `--language` error, listing
+/// every canonical language name. Mirrors the unknown-metric error
+/// style used by `--threshold`.
+fn valid_languages() -> String {
+    let mut names: Vec<&'static str> = LANG::into_enum_iter().map(|lang| lang.name()).collect();
+    names.sort_unstable();
+    format!("valid languages are: {}", names.join(", "))
 }
 
 /// Load existing preproc JSON for the consumer side. The producer side

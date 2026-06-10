@@ -77,7 +77,8 @@ Run `bca <COMMAND> --help` for command-specific options.
 - `-I, --include [<GLOB>...]` — include files matching pattern.
 - `-X, --exclude [<GLOB>...]` — exclude files matching pattern.
 - `-j, --num-jobs <N>` — worker threads.
-- `-l, --language-type <LANG>` — force a language instead of inferring.
+- `-l, --language <LANG>` — force a language instead of inferring. Accepts
+  a language name (`rust`) or extension (`rs`); unknown values error out.
 - `-w, --warning` — print warnings (skipped files, unrecognized
   languages).
 - `--no-skip-generated` — disable auto-skip of files marked as generated

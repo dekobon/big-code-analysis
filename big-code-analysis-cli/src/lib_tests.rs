@@ -1125,3 +1125,70 @@ fn line_range_flag_before_subcommand_is_rejected() {
     assert!(parse(&["--line-start", "5", "dump"]).is_err());
     assert!(parse(&["--ls", "5", "dump"]).is_err());
 }
+
+// Issue #595: `--language-type` was renamed to `--language`. The short
+// form is unchanged and the old long spelling stays as a hidden alias
+// for one release cycle. Inspect the parsed value so a regression that
+// drops the alias or rewires the field is caught.
+#[test]
+fn language_flag_parses_under_new_and_legacy_spellings() {
+    let canonical = parse(&["--language", "rust", "metrics"]).expect("--language parses");
+    assert_eq!(canonical.globals.language.as_deref(), Some("rust"));
+
+    let short = parse(&["-l", "rust", "metrics"]).expect("-l parses");
+    assert_eq!(short.globals.language.as_deref(), Some("rust"));
+
+    let alias = parse(&["--language-type", "rust", "metrics"]).expect("alias parses");
+    assert_eq!(alias.globals.language.as_deref(), Some("rust"));
+}
+
+// Issue #595: `resolve_language` must accept both a canonical language
+// name and a file extension, and `die` (process-exit, not testable
+// here) on anything else. Cover the two success spellings plus the
+// `None`/`PreprocProduce` paths.
+#[test]
+fn resolve_language_accepts_name_and_extension() {
+    // Canonical name spelling (`rust`), the obvious form that pre-#595
+    // silently disabled analysis for.
+    assert_eq!(
+        resolve_language(Some("rust"), &Action::Functions),
+        Some(LANG::Rust)
+    );
+    // Extension spelling (`rs`) stays accepted for compatibility.
+    assert_eq!(
+        resolve_language(Some("rs"), &Action::Functions),
+        Some(LANG::Rust)
+    );
+    // The two helper languages resolve through their canonical names.
+    assert_eq!(
+        resolve_language(Some("preproc"), &Action::Functions),
+        Some(LANG::Preproc)
+    );
+    assert_eq!(
+        resolve_language(Some("ccomment"), &Action::Functions),
+        Some(LANG::Ccomment)
+    );
+}
+
+#[test]
+fn resolve_language_none_when_flag_absent() {
+    assert_eq!(resolve_language(None, &Action::Functions), None);
+}
+
+#[test]
+fn resolve_language_forces_preproc_for_producer() {
+    // The producer override fires before any value parsing, so even a
+    // bogus value cannot derail it.
+    assert_eq!(
+        resolve_language(Some("bogus"), &Action::PreprocProduce),
+        Some(LANG::Preproc)
+    );
+}
+
+#[test]
+fn valid_languages_lists_known_names_sorted() {
+    let listing = valid_languages();
+    assert!(listing.starts_with("valid languages are: "));
+    assert!(listing.contains("rust"));
+    assert!(listing.contains("python"));
+}

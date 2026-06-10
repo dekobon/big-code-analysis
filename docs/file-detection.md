@@ -146,12 +146,13 @@ generated lookups update automatically.
   and REST server both go through it. `get_language_for_file` is
   available for callers that have only a path.
 - **CLI (`bca`)** — auto-detects via `guess_language`
-  unless the user passes `--language-type <name>` (short form `-l`).
-  The flag value is resolved through `get_from_ext` plus two manual
-  aliases (`ccomment`, `preproc`) and an `Action::PreprocProduce`
-  short-circuit. An unrecognised value yields `None` from the
-  resolver, which then falls back to `guess_language` — the file is
-  skipped only if auto-detection also fails. See
+  unless the user passes `--language <name>` (short form `-l`; the old
+  `--language-type` spelling stays as a hidden alias for one release
+  cycle). The flag value is resolved by trying `LANG`'s `FromStr`
+  (canonical name, e.g. `rust`) first, then `get_from_ext` (extension,
+  e.g. `rs`), with an `Action::PreprocProduce` short-circuit. An
+  unrecognised value is a hard error (exit 1) that lists the valid
+  language names — it no longer silently disables analysis. See
   [`big-code-analysis-cli/src/main.rs`](../big-code-analysis-cli/src/main.rs).
 - **REST (`bca-web`)** — every endpoint that takes a path plus
   buffer calls `guess_language` to resolve the language before

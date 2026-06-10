@@ -4,7 +4,7 @@
 .SH NAME
 bca \- Analyze source code.
 .SH SYNOPSIS
-\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\-type\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-no\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-no\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Analyze source code.
 .SH OPTIONS
@@ -23,8 +23,8 @@ Number of jobs.
 
 Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-num\-jobs 1` forces serial mode for debugging.
 .TP
-\fB\-l\fR, \fB\-\-language\-type\fR \fI<LANGUAGE_TYPE>\fR
-Force a language type instead of inferring from extension
+\fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
+Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
 .TP
 \fB\-w\fR, \fB\-\-warning\fR
 Print warnings (skipped files, unrecognized languages)
