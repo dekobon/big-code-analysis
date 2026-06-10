@@ -369,18 +369,16 @@ pub(crate) fn write_table(
     }
 }
 
-/// Append a `### Legend` section: a definition-list-style bullet per
-/// `(header, definition)` pair, so a Markdown reader (a PR comment, a
-/// pasted issue) can learn what each column abbreviation means — the
-/// same definitions the HTML report shows as hover tooltips, drawn from
-/// the shared column specs so the two formats cannot drift (issue #611).
-/// The header abbreviation is wrapped in backticks (it is a code-like
-/// token) and the definition is GFM-escaped. Renders nothing when
-/// `entries` is empty.
 /// Append a "Legend" subsection at the given heading `level` (number of
-/// `#`). Threaded rather than hardcoded so an embedding page can keep its
-/// document outline gap-free — a standalone VCS page (`#` title) needs an
-/// `##` legend, an embedded one (`##` section) needs `###` (issue #618).
+/// leading `#`): a definition-list-style bullet per `(header, definition)`
+/// pair, so a Markdown reader (a PR comment, a pasted issue) can learn what
+/// each column abbreviation means — the same definitions the HTML report
+/// shows as hover tooltips, drawn from the shared column specs so the two
+/// formats cannot drift (issue #611). The header is emitted in bold and the
+/// definition is GFM-escaped. The heading level is threaded rather than
+/// hardcoded so an embedding page keeps its outline gap-free — a standalone
+/// VCS page (`#` title) needs an `##` legend, an embedded one (`##` section)
+/// needs `###` (issue #618). Renders nothing when `entries` is empty.
 pub(crate) fn write_legend(out: &mut String, level: usize, entries: &[(&str, &str)]) {
     if entries.is_empty() {
         return;
