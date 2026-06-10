@@ -2387,9 +2387,21 @@ async fn vcs_error_response_maps_classification_to_status() {
         "id-1".to_owned(),
     );
     assert_eq!(client.status(), StatusCode::BAD_REQUEST);
+    // The status and body are a pair: a 400 must carry the client-facing
+    // message and echo the id, not the generic failure body.
+    let client_body = actix_web::body::to_bytes(client.into_body()).await.unwrap();
+    let client_json: Value = serde_json::from_slice(&client_body).unwrap();
+    assert_eq!(client_json["error"], json!(VCS_BAD_REQUEST));
+    assert_eq!(client_json["id"], json!("id-1"));
 
     let internal = vcs_error_response(&VcsError::Walk("boom".to_owned()), "id-2".to_owned());
     assert_eq!(internal.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let internal_body = actix_web::body::to_bytes(internal.into_body())
+        .await
+        .unwrap();
+    let internal_json: Value = serde_json::from_slice(&internal_body).unwrap();
+    assert_eq!(internal_json["error"], json!(VCS_FAILED));
+    assert_eq!(internal_json["id"], json!("id-2"));
 }
 
 #[actix_rt::test]
