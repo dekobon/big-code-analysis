@@ -5,7 +5,7 @@
 // file out of the self-scan walker.
 
 use actix_web::web::Bytes;
-use actix_web::{http::StatusCode, http::header::ContentType, test};
+use actix_web::{ResponseError as _, http::StatusCode, http::header::ContentType, test};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use serde_json::value::Value;
@@ -40,10 +40,16 @@ fn test_config_with_timeout(d: Duration) -> web::Data<ParseConfig> {
     })
 }
 
-async fn assert_error_sanitized(result: Result<String, actix_web::Error>) {
+async fn assert_error_sanitized(result: Result<String, ParseError>) {
     let err = result.unwrap_err();
     let resp = err.error_response();
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    // The 500 now carries the uniform `{error, id}` JSON body (#639), not
+    // a bare `text/plain` string.
+    assert_eq!(
+        resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
     let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
     let body_str = String::from_utf8_lossy(&body);
     assert!(
@@ -58,7 +64,8 @@ async fn assert_error_sanitized(result: Result<String, actix_web::Error>) {
         !body_str.contains("secret internal detail"),
         "response body must not contain the panic message: {body_str}"
     );
-    assert_eq!(body_str, "Internal server error");
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["error"], json!("Internal server error"));
 }
 
 #[actix_rt::test]
@@ -1002,8 +1009,16 @@ async fn test_run_parse_timeout_returns_504() {
     let err = result.unwrap_err();
     let resp = err.error_response();
     assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+    // The 504 now carries the uniform `{error, id}` JSON body (#639); the
+    // `id` echoes the correlation id passed to `run_parse`.
+    assert_eq!(
+        resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
     let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
-    assert_eq!(String::from_utf8_lossy(&body), PARSE_TIMEOUT);
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["error"], json!(PARSE_TIMEOUT));
+    assert_eq!(parsed["id"], json!("req-timeout"));
     // The timeout must be logged server-side, correlated to the request id.
     assert!(logs_contain("Parse timed out"));
     assert!(logs_contain("req-timeout"));
@@ -1064,8 +1079,11 @@ async fn test_run_parse_rejects_with_503_when_orphan_threshold_exceeded() {
     let err = result.unwrap_err();
     let resp = err.error_response();
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    // 503 now carries the uniform `{error, id}` JSON body (#639).
     let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
-    assert_eq!(String::from_utf8_lossy(&body), "parse pool saturated");
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["error"], json!("parse pool saturated"));
+    assert_eq!(parsed["id"], json!("req-503"));
 }
 
 #[actix_rt::test]
@@ -1130,8 +1148,11 @@ async fn test_run_parse_rechecks_orphan_cap_after_semaphore_admission() {
     let err = outcome.unwrap_err();
     let resp = err.error_response();
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    // 503 now carries the uniform `{error, id}` JSON body (#639).
     let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
-    assert_eq!(String::from_utf8_lossy(&body), "parse pool saturated");
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["error"], json!("parse pool saturated"));
+    assert_eq!(parsed["id"], json!("req-recheck"));
     assert!(
         !closure_ran.load(Ordering::Acquire),
         "closure must not run when orphan cap is exceeded post-admission",
@@ -2634,4 +2655,165 @@ async fn test_web_vcs_jit_wrong_content_type_yields_415() {
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
         "/vcs/jit wrong Content-Type must be a 415, not a 404"
     );
+}
+
+// --- Extractor / body-limit error paths must also return `{error, id}` ---
+//
+// Regression coverage for #639: actix extractor failures (malformed JSON,
+// missing field, missing query param), body-size rejections (413 on both
+// the JSON and octet-stream paths), and a transport read error previously
+// bypassed the published `{error, id}` JSON contract by emitting actix's
+// default `text/plain` / HTML bodies. Each test below builds the app via
+// the production `configure_routes`, so it exercises the real
+// `JsonConfig` / `QueryConfig` error handlers, and asserts the response is
+// `application/json` carrying a parseable `{error, id}` shape.
+
+/// Asserts the response status is `expected`, its `Content-Type` is
+/// `application/json`, and its body parses as `{error, id}` with a
+/// non-empty `error` and the given `id`. The serde-derived `error`
+/// message is returned for callers that want to assert on its content.
+async fn assert_extractor_json_error(
+    resp: actix_web::dev::ServiceResponse,
+    expected: StatusCode,
+    expected_id: &str,
+) -> String {
+    assert_eq!(resp.status(), expected);
+    assert_eq!(
+        resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+        "application/json",
+        "extractor error must be application/json, not actix's default plaintext"
+    );
+    let body = test::read_body(resp).await;
+    assert_uniform_error_body(&body, expected_id);
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    parsed["error"].as_str().unwrap().to_string()
+}
+
+#[actix_rt::test]
+async fn test_web_malformed_json_body_yields_400_json() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/v1/ast")
+        .insert_header(("content-type", "application/json"))
+        // Syntactically invalid JSON: a bare opening brace.
+        .set_payload("{")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_extractor_json_error(resp, StatusCode::BAD_REQUEST, "").await;
+}
+
+#[actix_rt::test]
+async fn test_web_missing_json_field_yields_400_json() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // Valid JSON, but omits the required `file_name` field, so serde's
+    // "missing field" error fires inside the extractor.
+    let req = test::TestRequest::post()
+        .uri("/v1/ast")
+        .insert_header(("content-type", "application/json"))
+        .set_payload(r#"{"id":"x","code":"int x;","comment":false,"span":true}"#)
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    let msg = assert_extractor_json_error(resp, StatusCode::BAD_REQUEST, "").await;
+    // serde's precise message is preserved as the `error` value.
+    assert!(
+        msg.contains("file_name"),
+        "400 body should preserve serde's message naming the missing field: {msg}"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_missing_query_param_yields_400_json() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // The octet-stream `/comment` endpoint requires the `file_name` query
+    // param. Omitting it makes the `Query<WebCommentInfo>` extractor fail.
+    let req = test::TestRequest::post()
+        .uri("/v1/comment")
+        .insert_header(ContentType::octet_stream())
+        .set_payload("int x;")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    let msg = assert_extractor_json_error(resp, StatusCode::BAD_REQUEST, "").await;
+    assert!(
+        msg.contains("file_name"),
+        "400 body should preserve serde's message naming the missing query param: {msg}"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_json_payload_too_large_yields_413_json() {
+    // A small JSON limit with the production error handler attached, so the
+    // 413 path is exercised without allocating megabytes.
+    const TINY_LIMIT: usize = 64;
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .app_data(
+                web::JsonConfig::default()
+                    .limit(TINY_LIMIT)
+                    .error_handler(json_error_handler),
+            )
+            .service(
+                web::resource("/ast")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(ast_parser)),
+            ),
+    )
+    .await;
+    let oversized = "a".repeat(TINY_LIMIT * 4);
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .insert_header(("content-type", "application/json"))
+        .set_payload(format!(
+            r#"{{"id":"x","file_name":"foo.c","code":"{oversized}","comment":false,"span":true}}"#
+        ))
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_extractor_json_error(resp, StatusCode::PAYLOAD_TOO_LARGE, "").await;
+}
+
+#[actix_rt::test]
+async fn test_web_octet_payload_too_large_yields_413_json() {
+    // The octet-stream 413 (enforced in `get_code`) must share the JSON
+    // body shape with the JSON 413 above (#639 unifies the two formerly
+    // divergent 413 bodies).
+    const OCTET_LIMIT: usize = 16;
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config_with_body_limit(OCTET_LIMIT))
+            .service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
+    )
+    .await;
+    let oversized = "a".repeat(OCTET_LIMIT + 1);
+    let req = test::TestRequest::post()
+        .uri("/comment?file_name=foo.c")
+        .insert_header(ContentType::octet_stream())
+        .set_payload(oversized)
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    let msg = assert_extractor_json_error(resp, StatusCode::PAYLOAD_TOO_LARGE, "").await;
+    assert_eq!(msg, PAYLOAD_TOO_LARGE);
 }

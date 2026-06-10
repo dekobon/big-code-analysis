@@ -5,6 +5,8 @@
 // complexity. The per-endpoint handlers plus the content-type guard helpers
 // (#515) push the file's method count past the per-file nom cap.
 
+use std::borrow::Cow;
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -103,6 +105,13 @@ const PARSE_TIMEOUT: &str = "Parse timed out";
 const PARSE_POOL_SATURATED: &str = "parse pool saturated";
 const PAYLOAD_TOO_LARGE: &str = "Request body exceeds the maximum allowed size";
 
+/// Client-facing message for a parse task that panicked or was cancelled.
+///
+/// Deliberately generic: the underlying detail (panic message, join
+/// error) is logged server-side but never leaked to the client (#639,
+/// pinned by `test_run_parse_error_*_does_not_leak_internals`).
+const INTERNAL_SERVER_ERROR: &str = "Internal server error";
+
 /// Error body emitted when AST construction yields no root node.
 ///
 /// Defensive: `build` only returns `None` in a degenerate case the
@@ -128,37 +137,49 @@ const VCS_FAILED: &str = "Failed to walk change history for the supplied reposit
 /// Default parse timeout used by [`run`].
 pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
 
+/// Maximum accepted request-body size, in bytes (4 MiB).
+///
+/// Applied uniformly to the JSON extractor (via `JsonConfig::limit`) and
+/// the streaming octet-stream handlers (via [`get_code`]) so both
+/// content types reject oversized bodies at the same threshold and with
+/// the same `413` JSON body (#639).
+const MAX_BODY_SIZE: usize = 1_024 * 1_024 * 4;
+
 /// Runs `f` on the blocking pool under the timeout / orphan-pool policy.
 ///
 /// `payload_id` is the client-supplied request id from the JSON payload
 /// (empty for the octet-stream endpoints, which carry none). It is logged
 /// on the failure path under a distinct field name so it does not collide
 /// with `tracing-actix-web`'s own span-level `request_id` (a per-request
-/// UUID).
+/// UUID), and it is echoed back in the `{error, id}` body of the typed
+/// [`ParseError`] returned on every failure (#639).
 async fn run_parse<T: Send + 'static>(
     config: &web::Data<ParseConfig>,
     payload_id: &str,
     f: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, actix_web::Error> {
+) -> Result<T, ParseError> {
     // Reject when the orphaned-task pool has saturated. `Acquire` pairs with
     // the `AcqRel` RMW ops on the timeout path so newly admitted requests
     // observe orphan counts published by any prior orphaning task.
     let pool_saturated =
         || config.orphaned_tasks.load(Ordering::Acquire) >= config.max_orphaned_tasks;
-    let saturated_err = || actix_web::error::ErrorServiceUnavailable(PARSE_POOL_SATURATED);
 
     // Fast-path admission check: cheap rejection before acquiring a semaphore
     // permit. A burst of concurrent requests may still pass this check while
     // the counter is briefly low, so the post-admission re-check below is the
     // hard gate.
     if pool_saturated() {
-        return Err(saturated_err());
+        return Err(ParseError::Saturated {
+            id: payload_id.to_owned(),
+        });
     }
 
     let permit = Arc::clone(&config.semaphore)
         .acquire_owned()
         .await
-        .map_err(|_| actix_web::error::ErrorServiceUnavailable("parse pool shut down"))?;
+        .map_err(|_| ParseError::Saturated {
+            id: payload_id.to_owned(),
+        })?;
 
     // Re-check after semaphore admission. A queued burst can all pass the
     // pre-admission check while the orphan count is still low, then drain the
@@ -167,7 +188,9 @@ async fn run_parse<T: Send + 'static>(
     // `permit` is dropped by RAII on early return, returning its slot to the
     // semaphore.
     if pool_saturated() {
-        return Err(saturated_err());
+        return Err(ParseError::Saturated {
+            id: payload_id.to_owned(),
+        });
     }
 
     let mut handle = tokio::task::spawn_blocking(f);
@@ -179,9 +202,9 @@ async fn run_parse<T: Send + 'static>(
                 // Log the full error server-side for ops diagnostics; the
                 // client only sees the generic "Internal server error" string.
                 tracing::error!(payload_id = %payload_id, error = %e, "Parse task failed");
-                Err(actix_web::error::ErrorInternalServerError(
-                    "Internal server error",
-                ))
+                Err(ParseError::Internal {
+                    id: payload_id.to_owned(),
+                })
             }
             Err(_) => {
                 // A timeout orphans the blocking task until it finishes on
@@ -204,17 +227,82 @@ async fn run_parse<T: Send + 'static>(
                     // observe the latest count.
                     counter.fetch_sub(1, Ordering::AcqRel);
                 });
-                Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT))
+                Err(ParseError::Timeout {
+                    id: payload_id.to_owned(),
+                })
             }
         }
     } else {
         handle.await.map_err(|e| {
             tracing::error!(payload_id = %payload_id, error = %e, "Parse task failed");
-            actix_web::error::ErrorInternalServerError("Internal server error")
+            ParseError::Internal {
+                id: payload_id.to_owned(),
+            }
         })
     };
     drop(permit);
     result
+}
+
+/// Typed failure of [`run_parse`], rendered as the uniform `{error, id}`
+/// JSON body (#639).
+///
+/// Before #639 these paths returned actix's `ErrorServiceUnavailable` /
+/// `ErrorGatewayTimeout` / `ErrorInternalServerError` helpers, which emit
+/// a bare `text/plain` body and so bypassed the published `{error, id}`
+/// contract. Carrying the correlation id on each variant lets the
+/// `ResponseError` impl echo it back exactly as the success paths do.
+#[derive(Debug)]
+enum ParseError {
+    /// The orphaned-task pool is saturated (or the semaphore was closed):
+    /// `503 Service Unavailable`.
+    Saturated { id: String },
+    /// The parse exceeded the configured deadline: `504 Gateway Timeout`.
+    Timeout { id: String },
+    /// The blocking task panicked or was cancelled: `500 Internal Server
+    /// Error`. The underlying detail is logged server-side and never
+    /// leaked to the client.
+    Internal { id: String },
+}
+
+impl ParseError {
+    fn id(&self) -> &str {
+        match self {
+            ParseError::Saturated { id }
+            | ParseError::Timeout { id }
+            | ParseError::Internal { id } => id,
+        }
+    }
+
+    /// Client-facing message; mirrors the pre-#639 `text/plain` bodies so
+    /// the only change is the wire shape, not the wording.
+    fn message(&self) -> &'static str {
+        match self {
+            ParseError::Saturated { .. } => PARSE_POOL_SATURATED,
+            ParseError::Timeout { .. } => PARSE_TIMEOUT,
+            ParseError::Internal { .. } => INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl actix_web::ResponseError for ParseError {
+    fn status_code(&self) -> http::StatusCode {
+        match self {
+            ParseError::Saturated { .. } => http::StatusCode::SERVICE_UNAVAILABLE,
+            ParseError::Timeout { .. } => http::StatusCode::GATEWAY_TIMEOUT,
+            ParseError::Internal { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    fn error_response(&self) -> HttpResponse {
+        json_error(self.status_code(), self.message(), self.id().to_owned())
+    }
 }
 
 /// Uniform machine-readable error body for *every* endpoint, regardless
@@ -226,9 +314,14 @@ async fn run_parse<T: Send + 'static>(
 /// content-type / method fallbacks have not parsed a body). Always
 /// emitting the key keeps the shape predictable for clients that
 /// destructure it.
+///
+/// `error` is a `Cow` so the static endpoint tokens (e.g.
+/// [`UNSUPPORTED_LANGUAGE`]) and the dynamic per-request messages from
+/// the actix extractor error handlers (serde's precise "missing field
+/// …" / "expected … at line …" text) share the same wire shape (#639).
 #[derive(Debug, Deserialize, Serialize)]
 struct Error {
-    error: &'static str,
+    error: Cow<'static, str>,
     id: String,
 }
 
@@ -239,8 +332,15 @@ struct Error {
 /// parse one error shape no matter which endpoint or success
 /// content-type they hit. `status` is the HTTP status; `id` is the
 /// echoed correlation id (empty when the request carried none).
-fn json_error(status: http::StatusCode, error: &'static str, id: String) -> HttpResponse {
-    HttpResponse::build(status).json(Error { error, id })
+fn json_error(
+    status: http::StatusCode,
+    error: impl Into<Cow<'static, str>>,
+    id: String,
+) -> HttpResponse {
+    HttpResponse::build(status).json(Error {
+        error: error.into(),
+        id,
+    })
 }
 
 /// Builds the uniform error response for a request whose `file_name`
@@ -264,18 +364,69 @@ fn unsupported_language(id: String) -> HttpResponse {
 /// `max_size` *before* each chunk is appended, so an oversized body is
 /// rejected with 413 as soon as it would exceed the limit rather than being
 /// fully buffered first. A body whose total length equals `max_size` is
-/// accepted; one byte over is rejected.
-async fn get_code(mut body: web::Payload, max_size: usize) -> Result<Vec<u8>, actix_web::Error> {
+/// accepted; one byte over is rejected. Both the oversize and the
+/// transport-read failure are returned as a typed [`BodyError`] so the
+/// octet-stream endpoints answer the uniform `{error, id}` JSON body
+/// instead of actix's default plaintext (#639).
+async fn get_code(mut body: web::Payload, max_size: usize) -> Result<Vec<u8>, BodyError> {
     let mut code = BytesMut::new();
     while let Some(item) = body.next().await {
-        let chunk = item?;
+        // A transport-level read failure is a client/connection fault, not a
+        // server fault: render it as the uniform 400 JSON body rather than
+        // actix's default plaintext (#639).
+        let chunk = item.map_err(|_| BodyError::Read)?;
         if code.len() + chunk.len() > max_size {
-            return Err(actix_web::error::ErrorPayloadTooLarge(PAYLOAD_TOO_LARGE));
+            return Err(BodyError::TooLarge);
         }
         code.extend_from_slice(&chunk);
     }
 
     Ok(code.to_vec())
+}
+
+/// Failure draining an `application/octet-stream` request body (#639).
+///
+/// The octet-stream endpoints carry no correlation id, so the rendered
+/// `{error, id}` body always has an empty `id`. Replaces the former
+/// `actix_web::error::ErrorPayloadTooLarge` / propagated `PayloadError`
+/// returns, which emitted a bare `text/plain` body and so produced a
+/// *second* 413 shape diverging from the JSON-endpoint 413 (#639 unifies
+/// the two).
+#[derive(Debug)]
+enum BodyError {
+    /// Body exceeded the configured size cap: `413 Payload Too Large`.
+    TooLarge,
+    /// Transport-level read error while draining the stream: `400 Bad
+    /// Request`.
+    Read,
+}
+
+impl BodyError {
+    fn message(&self) -> &'static str {
+        match self {
+            BodyError::TooLarge => PAYLOAD_TOO_LARGE,
+            BodyError::Read => "Failed to read the request body",
+        }
+    }
+}
+
+impl fmt::Display for BodyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl actix_web::ResponseError for BodyError {
+    fn status_code(&self) -> http::StatusCode {
+        match self {
+            BodyError::TooLarge => http::StatusCode::PAYLOAD_TOO_LARGE,
+            BodyError::Read => http::StatusCode::BAD_REQUEST,
+        }
+    }
+
+    fn error_response(&self) -> HttpResponse {
+        json_error(self.status_code(), self.message(), String::new())
+    }
 }
 
 async fn ast_parser(
@@ -801,6 +952,53 @@ const DEPRECATION_HEADER_VALUE: &str = "true";
 /// not the calendar — and is bumped if the 2.0 cut slips.
 const SUNSET_HEADER_VALUE: &str = "Wed, 01 Jul 2026 00:00:00 GMT";
 
+fn json_config() -> web::JsonConfig {
+    web::JsonConfig::default()
+        .limit(MAX_BODY_SIZE)
+        .error_handler(json_error_handler)
+}
+
+/// Renders a `JsonConfig` extractor failure as the uniform `{error, id}`
+/// JSON body (#639).
+///
+/// An oversized body answers `413`; every other failure (malformed JSON,
+/// missing field, wrong content type) answers `400`. serde's precise
+/// message is preserved as the `error` value rather than collapsed to a
+/// token. Factored out of [`json_config`] so the integration tests can
+/// attach it to a small-limit `JsonConfig` and exercise the `413` body
+/// without allocating megabytes.
+fn json_error_handler(
+    err: actix_web::error::JsonPayloadError,
+    _req: &actix_web::HttpRequest,
+) -> actix_web::Error {
+    let status = match err {
+        actix_web::error::JsonPayloadError::Overflow { .. }
+        | actix_web::error::JsonPayloadError::OverflowKnownLength { .. } => {
+            http::StatusCode::PAYLOAD_TOO_LARGE
+        }
+        _ => http::StatusCode::BAD_REQUEST,
+    };
+    let response = json_error(status, err.to_string(), String::new());
+    actix_web::error::InternalError::from_response(err, response).into()
+}
+
+/// Builds the `QueryConfig` shared by the query-string endpoints.
+///
+/// Mirrors [`json_config`]: a malformed or missing query parameter
+/// answers `400` with the uniform `{error, id}` body carrying serde's
+/// message, instead of actix's default plaintext (#639). Query endpoints
+/// carry no correlation id, so `id` is always empty.
+fn query_config() -> web::QueryConfig {
+    web::QueryConfig::default().error_handler(|err, _req| {
+        let response = json_error(
+            http::StatusCode::BAD_REQUEST,
+            err.to_string(),
+            String::new(),
+        );
+        actix_web::error::InternalError::from_response(err, response).into()
+    })
+}
+
 /// Registers the versioned (`/v1/...`) routes plus, for one deprecation
 /// cycle, the original unprefixed paths as aliases (issue #517).
 ///
@@ -815,6 +1013,14 @@ const SUNSET_HEADER_VALUE: &str = "Wed, 01 Jul 2026 00:00:00 GMT";
 /// `/v1` twin. The `/v1` routes are left header-free. The aliases
 /// themselves are removed at the 2.0 release cut (#517 / #637).
 fn configure_routes(cfg: &mut web::ServiceConfig) {
+    // Install the extractor configs as app-wide data so every JSON / query
+    // endpoint renders extractor failures through the uniform `{error, id}`
+    // body instead of actix's default plaintext (#639). Set here rather than
+    // in `run_with_timeout` so the integration tests (which build the app via
+    // this function) exercise the same error handlers production does.
+    cfg.app_data(json_config());
+    cfg.app_data(query_config());
+
     // Deprecated unprefixed aliases, kept until the 2.0 release cut.
     // An empty-prefix scope matches the bare paths (`/metrics`, …) but
     // not their `/v1/...` twins, so the deprecation headers land only on
@@ -912,7 +1118,6 @@ pub async fn run_with_timeout(
     n_threads: usize,
     parse_timeout_secs: u64,
 ) -> std::io::Result<()> {
-    let max_size = 1_024 * 1_024 * 4;
     let default_max_orphaned = n_threads.saturating_mul(2).max(4);
     let max_orphaned_tasks = std::env::var("BCA_MAX_ORPHANED_TASKS")
         .ok()
@@ -928,14 +1133,16 @@ pub async fn run_with_timeout(
         semaphore: Arc::new(Semaphore::new(n_threads)),
         orphaned_tasks: Arc::new(AtomicUsize::new(0)),
         max_orphaned_tasks,
-        max_body_size: max_size,
+        max_body_size: MAX_BODY_SIZE,
     });
 
     HttpServer::new(move || {
         App::new()
             .wrap(tracing_actix_web::TracingLogger::default())
             .app_data(config.clone())
-            .app_data(web::JsonConfig::default().limit(max_size))
+            // `JsonConfig` / `QueryConfig` (with the `{error, id}` error
+            // handlers) are installed inside `configure_routes` so the
+            // integration tests share them (#639).
             .configure(configure_routes)
     })
     .workers(n_threads)
