@@ -367,7 +367,13 @@ fn unknown_subcommand_exits_one() {
     let (dir, mut cmd) = common::cli_hermetic();
     let _ = &dir;
 
-    cmd.arg("bogus-subcommand").assert().code(1);
+    // Assert the clap usage message too, so the exit 1 is provably the
+    // usage-error remap and not a coincidental tool-error exit from some
+    // unrelated path.
+    cmd.arg("bogus-subcommand")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unrecognized subcommand"));
 }
 
 #[test]
@@ -378,10 +384,16 @@ fn malformed_threshold_value_exits_one_not_gate() {
     let dir = TempDir::new().unwrap();
     let src = write_branchy(&dir, 5);
 
+    // Assert the clap value-parse message too: exit 1 here must come from
+    // the rejected `--threshold` value, not from a gate violation that
+    // happens to share the tool-error code. `write_branchy(5)` is well
+    // under any default limit, so a silently-ignored bad value would exit
+    // 0 — pinning the stderr makes the wrong-reason path observable.
     cli(dir.path())
         .args(["--paths", &src, "check", "--threshold", "cyclomatic=abc"])
         .assert()
-        .code(1);
+        .code(1)
+        .stderr(predicate::str::contains("invalid value 'cyclomatic=abc'"));
 }
 
 #[test]
@@ -400,7 +412,13 @@ fn version_exits_zero() {
     let (dir, mut cmd) = common::cli_hermetic();
     let _ = &dir;
 
-    cmd.arg("--version").assert().success();
+    // Assert the version banner on stdout so the exit 0 is provably the
+    // `--version` short-circuit (clap prints `bca <version>`), not a bare
+    // success from some other path.
+    cmd.arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bca "));
 }
 
 // -- Manifest opt-in ------------------------------------------------------
