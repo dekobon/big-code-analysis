@@ -34,6 +34,7 @@ use big_code_analysis::{
 
 use crate::OutputFormat;
 use crate::baseline::DiffEntry;
+use crate::check_format::escape_gfm_cell;
 use crate::format_util::{MetricScalar, strip_path_prefix};
 
 /// Per-file marker batch streamed from the walk worker pool to the
@@ -161,14 +162,21 @@ impl ExemptionsReport {
                 for row in rows {
                     let m = &row.marker;
                     let path = strip_path_prefix(&row.path, strip_prefix);
+                    // Cells go through `escape_gfm_cell` for the same reason
+                    // the crate's other two GFM emitters do (check_format /
+                    // markdown_report, unified in #439): a path or symbol
+                    // containing `|` or a newline would otherwise inject a
+                    // spurious column break and corrupt the table. The
+                    // marker label is a fixed ASCII literal, so it is safe
+                    // un-escaped inside the code span.
                     let _ = writeln!(
                         out,
                         "| {} | {} | `{}` | {} | {} |",
-                        path,
+                        escape_gfm_cell(path),
                         m.line,
                         marker_label(m.target, m.dialect),
-                        scope_metrics(&m.scope),
-                        function_cell(m),
+                        escape_gfm_cell(&scope_metrics(&m.scope)),
+                        escape_gfm_cell(&function_cell(m)),
                     );
                 }
             }
@@ -195,10 +203,10 @@ impl ExemptionsReport {
                     let _ = writeln!(
                         out,
                         "| {} | {} | {} | {} | {} |",
-                        path,
+                        escape_gfm_cell(path),
                         e.start_line,
-                        e.qualified,
-                        e.metric,
+                        escape_gfm_cell(&e.qualified),
+                        escape_gfm_cell(&e.metric),
                         MetricScalar(e.value),
                     );
                 }
@@ -280,10 +288,18 @@ fn render_marker_rows_tty(out: &mut String, rows: &[MarkerRow], strip_prefix: &s
             )
         })
         .collect();
-    let loc_w = locs.iter().map(String::len).max().unwrap_or(0);
+    // Measure widths in `char`s, not bytes: `{:width$}` pads to a
+    // char count, so a byte-length budget over-pads a multi-byte path.
+    // Matches the crate's alignment convention (markdown_report,
+    // metric_diff).
+    let loc_w = locs.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let label_w = rows
         .iter()
-        .map(|r| marker_label(r.marker.target, r.marker.dialect).len())
+        .map(|r| {
+            marker_label(r.marker.target, r.marker.dialect)
+                .chars()
+                .count()
+        })
         .max()
         .unwrap_or(0);
     for (loc, row) in locs.iter().zip(rows) {
