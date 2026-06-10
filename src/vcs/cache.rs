@@ -218,7 +218,10 @@ impl HistoryCache {
 /// [`head_sha`]: HistoryCache::head_sha
 ///
 /// `DefaultHasher` is created with fixed keys, so the digest is stable
-/// across processes; [`CACHE_SCHEMA_VERSION`] guards the *meaning* of the
+/// across processes built with the same toolchain (its `SipHasher13`
+/// algorithm is not guaranteed stable across Rust releases — a bump
+/// shifts every fingerprint, which costs a benign cold walk, never a
+/// wrong hit). [`CACHE_SCHEMA_VERSION`] guards the *meaning* of the
 /// inputs, so the fingerprint need only be self-consistent within one
 /// format version.
 #[must_use]
