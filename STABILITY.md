@@ -244,9 +244,12 @@ stable within `1.x` and versioned by `jit_schema_version`; the composite
 `score` is **ordinal, not cardinal** and formula-versioned by
 `jit_score_version` (separate from the file-level `risk_score_version`),
 so the same "magnitudes are not byte-stable across bumps" caveat applies.
-The JIT serialized types intentionally derive `Serialize` directly (they
-are pure output DTOs) rather than mirroring through a `wire::*` type the
-way the per-file `Stats` does.
+Both shapes carry a `source` discriminator (`"commit"` / `"diff"`, the
+`JitSource` enum) so a serialized report self-identifies; commit-mode
+reports gained the field in `jit_schema_version` 2 (#642). The JIT
+serialized types intentionally derive `Serialize` directly (they are
+pure output DTOs) rather than mirroring through a `wire::*` type the way
+the per-file `Stats` does.
 
 Directory- / repo-level **bus factor** (#332) adds the last opt-in slice:
 `big_code_analysis::vcs::{BusFactor, GroupBusFactor, DirectoryBusFactor,

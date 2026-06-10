@@ -269,16 +269,18 @@ fn report_carries_stable_version_stamps() {
 // --- Arbitrary-diff scoring (issue #580) ---------------------------------
 
 #[test]
-fn commit_mode_serialized_shape_is_unchanged_by_diff_feature() {
-    // The diff feature is purely additive: a commit report's serialized
-    // top-level key set must NOT have gained or lost any field, so the
-    // existing `bca vcs jit <commit>` output stays byte-stable.
+fn commit_mode_serialized_shape_carries_source_discriminator() {
+    // A commit report's serialized top-level key set is exactly the
+    // commit-mode field set, including the `source` discriminator added in
+    // #642 so commit reports self-identify like diff reports already do.
     let repo = Repo::init();
     repo.write("a.rs", "x\ny\n");
     repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "init");
 
     let report = score(&repo, "HEAD");
+    assert_eq!(report.source, JitSource::Commit);
     let json = serde_json::to_value(&report).expect("serialize commit report");
+    assert_eq!(json["source"], "commit", "commit-mode source discriminator");
     let keys: std::collections::BTreeSet<&str> = json
         .as_object()
         .expect("object")
@@ -288,6 +290,7 @@ fn commit_mode_serialized_shape_is_unchanged_by_diff_feature() {
     let expected: std::collections::BTreeSet<&str> = [
         "jit_schema_version",
         "jit_score_version",
+        "source",
         "long_window_days",
         "recent_window_days",
         "score",
@@ -297,9 +300,8 @@ fn commit_mode_serialized_shape_is_unchanged_by_diff_feature() {
     ]
     .into_iter()
     .collect();
-    assert_eq!(keys, expected, "commit-mode key set must be unchanged");
-    // A commit report must NOT carry the diff-only markers.
-    assert!(!keys.contains("source"));
+    assert_eq!(keys, expected, "commit-mode key set");
+    // A commit report must NOT carry the diff-only partial score.
     assert!(!keys.contains("partial_score"));
 }
 

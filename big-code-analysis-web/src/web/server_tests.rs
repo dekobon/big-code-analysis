@@ -2325,7 +2325,10 @@ async fn test_web_vcs_jit_commit_happy_path() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["id"], "jit-1");
-    assert_eq!(body["jit_schema_version"], 1);
+    assert_eq!(body["jit_schema_version"], 2);
+    // Commit-mode reports carry the `source` discriminator (#642) the docs
+    // promise, so clients branch on it rather than on key-absence.
+    assert_eq!(body["source"], "commit");
     // A full commit report carries the score + every feature group.
     assert!(body["score"].is_number());
     assert!(body["commit"]["id"].is_string());

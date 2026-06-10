@@ -403,9 +403,10 @@ def vcs_jit(
     ``repo_path`` is any path inside the working tree; ``commit`` is any
     git revision spelling (default ``"HEAD"``), scored against its first
     parent. Returns a ``dict`` with ``jit_schema_version``,
-    ``jit_score_version``, the window lengths, the ordinal composite
-    ``score``, the ``commit`` block, the ``features`` (size / diffusion /
-    history / experience), and the per-group ``contributions``.
+    ``jit_score_version``, ``source == "commit"`` (the mode discriminator),
+    the window lengths, the ordinal composite ``score``, the ``commit``
+    block, the ``features`` (size / diffusion / history / experience), and
+    the per-group ``contributions``.
 
     Pass ``diff`` (a unified diff string) to score a bare diff instead of a
     commit. A bare diff carries no author / parent / history, so only the

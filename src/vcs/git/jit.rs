@@ -33,7 +33,7 @@ use crate::vcs::error::Error;
 use crate::vcs::identity::AuthorId;
 use crate::vcs::jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitDiffusion, JitExperience, JitFeatures,
-    JitHistory, JitPurpose, JitReport, JitSize, score,
+    JitHistory, JitPurpose, JitReport, JitSize, JitSource, score,
 };
 use crate::vcs::options::{Options, RiskFormula};
 
@@ -93,6 +93,7 @@ pub(crate) fn score_commit(root: &Path, spec: &str, options: &Options) -> Result
     Ok(JitReport {
         jit_schema_version: JIT_SCHEMA_VERSION,
         jit_score_version: JIT_SCORE_VERSION,
+        source: JitSource::Commit,
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
         score: total,

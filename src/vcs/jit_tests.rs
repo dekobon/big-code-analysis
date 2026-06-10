@@ -20,7 +20,8 @@ fn version_constants_pinned() {
     // A bump here is a deliberate formula / shape change; this pins the
     // current values so an accidental edit fails loudly.
     assert_eq!(JIT_SCORE_VERSION, 1);
-    assert_eq!(JIT_SCHEMA_VERSION, 1);
+    // Schema 2: commit-mode reports gained the `source` discriminator (#642).
+    assert_eq!(JIT_SCHEMA_VERSION, 2);
 }
 
 #[test]

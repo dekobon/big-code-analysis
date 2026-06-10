@@ -355,8 +355,10 @@ def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
     group, mirroring ``bca vcs jit``."""
     repo = _build_repo(tmp_path)
     report = bca.vcs_jit(repo, commit="HEAD")
-    assert report["jit_schema_version"] == 1
+    assert report["jit_schema_version"] == 2
     assert report["jit_score_version"] == 1
+    # Commit-mode reports self-identify via ``source`` (issue #642).
+    assert report["source"] == "commit"
     assert isinstance(report["score"], (int, float))
     assert isinstance(report["commit"]["id"], str)
     assert len(report["commit"]["id"]) == 40

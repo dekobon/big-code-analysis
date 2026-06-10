@@ -67,8 +67,9 @@ fn jit_emits_stable_json_shape() {
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
-    assert_eq!(json["jit_schema_version"], 1);
+    assert_eq!(json["jit_schema_version"], 2);
     assert_eq!(json["jit_score_version"], 1);
+    assert_eq!(json["source"], "commit", "commit-mode discriminator (#642)");
     assert!(json["score"].is_number());
     // Feature groups and contributions are present and structured.
     for group in ["size", "diffusion", "history", "experience"] {

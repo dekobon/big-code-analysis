@@ -321,8 +321,9 @@ Target?*](https://doi.org/10.1109/TSE.2017.2693980) (IEEE TSE 2018).
 ```console
 $ bca vcs jit HEAD --pretty
 {
-  "jit_schema_version": 1,
+  "jit_schema_version": 2,
   "jit_score_version": 1,
+  "source": "commit",
   "score": 4.40,
   "commit": { "id": "5176d3e…", "parent_count": 1, "is_merge": false,
               "purpose": { "is_fix": true, "is_security_fix": false,
@@ -407,7 +408,7 @@ a deliberately *partial* report — a distinct shape from a commit report:
 ```console
 $ git diff | bca vcs jit --diff - --pretty
 {
-  "jit_schema_version": 1,
+  "jit_schema_version": 2,
   "jit_score_version": 1,
   "source": "diff",
   "partial_score": 1.83,

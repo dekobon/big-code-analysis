@@ -86,7 +86,11 @@ pub const JIT_SCORE_VERSION: u32 = 1;
 
 /// Output-shape version for a [`JitReport`]. Bump on any change to the
 /// serialized field set.
-pub const JIT_SCHEMA_VERSION: u32 = 1;
+///
+/// `2`: added the `source` discriminator to [`JitReport`] (issue #642), so
+/// commit-mode reports now self-identify like [`JitDiffReport`] already
+/// did.
+pub const JIT_SCHEMA_VERSION: u32 = 2;
 
 /// Security fixes weigh twice a plain bug fix in the history term, matching
 /// the file-level formula's double weight on security-fix history.
@@ -225,6 +229,10 @@ pub struct JitReport {
     pub jit_schema_version: u32,
     /// Composite-formula version ([`JIT_SCORE_VERSION`]).
     pub jit_score_version: u32,
+    /// Permanent discriminator: always [`JitSource::Commit`]. Distinguishes
+    /// a full commit report from a partial [`JitDiffReport`] at a glance in
+    /// JSON / YAML, mirroring [`JitDiffReport::source`].
+    pub source: JitSource,
     /// Long observation window, in days (priors / experience).
     pub long_window_days: u32,
     /// Recent observation window, in days (recent experience).

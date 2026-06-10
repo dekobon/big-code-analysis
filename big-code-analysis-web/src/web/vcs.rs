@@ -227,8 +227,8 @@ pub struct WebVcsJitPayload {
 /// Response body for `POST /vcs/jit`. The echoed `id` plus the flattened
 /// report — either a commit [`JitReport`] or a partial diff
 /// [`JitDiffReport`]; the report's own `source` field (`"commit"` /
-/// `"diff"`) tells them apart. Untagged so the report fields sit at the top
-/// level without an extra wrapper key.
+/// `"diff"`) tells them apart, present on both variants. Untagged so the
+/// report fields sit at the top level without an extra wrapper key.
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum WebVcsJitReport {
