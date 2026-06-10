@@ -103,11 +103,9 @@ pub(super) fn emit_cc_note_md(
     policy: SuppressionPolicy,
 ) {
     let _ = writeln!(out);
-    let caption = if matches!(policy, SuppressionPolicy::Honor) {
-        format!(" ({})", super::hotspot::CC_NOTE_SUPPRESSED_CAPTION)
-    } else {
-        String::new()
-    };
+    let caption = super::hotspot::cc_note_caption(policy)
+        .map(|c| format!(" ({c})"))
+        .unwrap_or_default();
     let _ = writeln!(
         out,
         "Average CC: {:.1} | Max: {:.0} | CC > 10: {} functions | CC > 20: {} functions{caption}",

@@ -392,6 +392,14 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
 /// explanation (issue #616). Shared verbatim by both renderers.
 pub(crate) const CC_NOTE_SUPPRESSED_CAPTION: &str = "excluding suppressed functions";
 
+/// Caption text for the CC note under `policy`, or `None` when the note
+/// covers all functions (`--no-suppress`). Centralizes the policy decision
+/// so the two renderers cannot drift; each applies its own escaping and
+/// ` (...)` wrapping.
+pub(crate) fn cc_note_caption(policy: SuppressionPolicy) -> Option<&'static str> {
+    matches!(policy, SuppressionPolicy::Honor).then_some(CC_NOTE_SUPPRESSED_CAPTION)
+}
+
 /// Logical (unescaped) lead-in for the Actionable Summary, captioning it as a
 /// raw whole-codebase roll-up that — unlike the hotspot tables — counts
 /// functions regardless of suppression policy (issue #501, #616). `suppressed`

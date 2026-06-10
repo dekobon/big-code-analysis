@@ -841,11 +841,9 @@ fn emit_cc_note_html(
     stats: &hotspot::CyclomaticStats,
     policy: SuppressionPolicy,
 ) {
-    let caption = if matches!(policy, SuppressionPolicy::Honor) {
-        format!(" ({})", escape_html(hotspot::CC_NOTE_SUPPRESSED_CAPTION))
-    } else {
-        String::new()
-    };
+    let caption = hotspot::cc_note_caption(policy)
+        .map(|c| format!(" ({})", escape_html(c)))
+        .unwrap_or_default();
     let _ = writeln!(
         out,
         "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions{caption}</p>",
