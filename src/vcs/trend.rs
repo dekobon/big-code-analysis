@@ -77,7 +77,7 @@ pub fn timestamps(end: i64, span_secs: i64, points: usize) -> Vec<i64> {
     if points <= 1 {
         return vec![end];
     }
-    let start = end - span_secs;
+    let start = end.saturating_sub(span_secs);
     // `points` is small (validated `<= MAX_TREND_POINTS`); `try_from`
     // keeps the conversion total and lint-clean without an `as` wrap.
     let divisor = i64::try_from(points - 1).unwrap_or(i64::MAX);
