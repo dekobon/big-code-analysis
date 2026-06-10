@@ -26,9 +26,24 @@ bca-web --host 127.0.0.1 --port 9090
 
 All endpoints are mounted under a `/v1` prefix (for example
 `/v1/metrics`). The original unprefixed paths (`/metrics`, `/comment`,
-`/function`, `/ast`, `/ping`) remain available as **deprecated aliases**
-for one release cycle and resolve to the same handlers; new clients
-should use the `/v1` paths. The examples below use the versioned form.
+`/function`, `/ast`, `/ping`, and the introspection routes) remain
+available as **deprecated aliases** until the 2.0 release and resolve to
+the same handlers; new clients should use the `/v1` paths. The examples
+below use the versioned form.
+
+Every alias response is stamped with deprecation-signalling headers so
+clients and gateways can detect alias use before the routes are removed:
+
+- `Deprecation: true` — the resource is deprecated
+  ([Deprecation HTTP header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-deprecation-header/)).
+- `Sunset: <http-date>` — the planned-removal date
+  ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594)); advisory, the
+  authoritative removal trigger is the 2.0 release cut.
+- `Link: </v1/...>; rel="successor-version"` — the canonical `/v1` twin
+  to migrate to.
+
+The `/v1` routes carry none of these headers. The aliases themselves are
+removed at the 2.0 release.
 
 ## Error responses
 
@@ -295,4 +310,6 @@ GET http://127.0.0.1:8080/v1/languages
 ```
 
 Like `/ping`, both `/version` and `/languages` are also exposed as
-unprefixed aliases (`/version`, `/languages`) for one release cycle.
+unprefixed aliases (`/version`, `/languages`) until the 2.0 release;
+those alias responses carry the same deprecation headers described under
+[API Versioning](#api-versioning).

@@ -11,7 +11,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use actix_web::{
-    App, HttpResponse, HttpServer, guard,
+    App, HttpResponse, HttpServer,
+    dev::Service as _,
+    guard,
     guard::GuardContext,
     http,
     http::header::ContentType,
@@ -782,6 +784,23 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
     );
 }
 
+/// `Deprecation` header value flagging the unprefixed aliases (#637).
+///
+/// Per the Deprecation HTTP header draft (draft-ietf-httpapi-deprecation-header),
+/// the bare token `true` marks a response as served by a deprecated
+/// resource without committing to a deprecation date.
+const DEPRECATION_HEADER_VALUE: &str = "true";
+
+/// `Sunset` header value for the unprefixed aliases (#637).
+///
+/// RFC 8594 defines `Sunset` as an HTTP-date after which the resource is
+/// expected to be unresponsive. The aliases are removed at the 2.0 release
+/// cut (#517 / #637); this date is the planned-removal signal for clients
+/// and gateways, an HTTP-date (RFC 9110) marking the start of the 2.0 line.
+/// It is advisory — the authoritative removal trigger is the 2.0 release,
+/// not the calendar — and is bumped if the 2.0 cut slips.
+const SUNSET_HEADER_VALUE: &str = "Wed, 01 Jul 2026 00:00:00 GMT";
+
 /// Registers the versioned (`/v1/...`) routes plus, for one deprecation
 /// cycle, the original unprefixed paths as aliases (issue #517).
 ///
@@ -789,11 +808,47 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
 /// exercise the same routing, content-type guards, and per-resource
 /// fallbacks. The app-level default service answers `404` for any URL
 /// that matches no registered resource under either prefix.
+///
+/// The unprefixed aliases are wrapped in a deprecation middleware (#637)
+/// that stamps every alias response with `Deprecation: true`, a `Sunset`
+/// date, and a `Link rel="successor-version"` pointing at the canonical
+/// `/v1` twin. The `/v1` routes are left header-free. The aliases
+/// themselves are removed at the 2.0 release cut (#517 / #637).
 fn configure_routes(cfg: &mut web::ServiceConfig) {
-    // Deprecated unprefixed aliases, kept for one release cycle.
-    register_endpoints(cfg);
-    cfg.service(web::scope("/v1").configure(register_endpoints))
-        .default_service(web::route().to(not_found));
+    // Deprecated unprefixed aliases, kept until the 2.0 release cut.
+    // An empty-prefix scope matches the bare paths (`/metrics`, …) but
+    // not their `/v1/...` twins, so the deprecation headers land only on
+    // alias responses (#637).
+    cfg.service(web::scope("/v1").configure(register_endpoints));
+    cfg.service(
+        web::scope("")
+            .wrap_fn(|req, srv| {
+                // Derive the successor `/v1` path from the matched alias
+                // path so the `Link` header always names the canonical twin.
+                let successor = format!("/v1{}", req.path());
+                let fut = srv.call(req);
+                async move {
+                    let mut res = fut.await?;
+                    let headers = res.headers_mut();
+                    headers.insert(
+                        http::header::HeaderName::from_static("deprecation"),
+                        http::header::HeaderValue::from_static(DEPRECATION_HEADER_VALUE),
+                    );
+                    headers.insert(
+                        http::header::HeaderName::from_static("sunset"),
+                        http::header::HeaderValue::from_static(SUNSET_HEADER_VALUE),
+                    );
+                    if let Ok(link) = http::header::HeaderValue::from_str(&format!(
+                        "<{successor}>; rel=\"successor-version\""
+                    )) {
+                        headers.insert(http::header::LINK, link);
+                    }
+                    Ok(res)
+                }
+            })
+            .configure(register_endpoints),
+    );
+    cfg.default_service(web::route().to(not_found));
 }
 
 /// Resource-level fallback for the content-type-guarded `POST` endpoints.

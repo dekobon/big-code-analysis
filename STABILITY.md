@@ -907,6 +907,14 @@ contract points are:
   hardcoded), mirroring the Python `__version__` /
   `supported_languages()` / `language_extensions()` surface.
   Unprefixed aliases exist for the introspection routes.
+- **Deprecated unprefixed aliases.** The original unprefixed paths
+  (`/metrics`, `/comment`, `/function`, `/ast`, `/ping`, `/version`,
+  `/languages`, and the `/vcs*` routes) remain available as deprecated
+  aliases until the 2.0 release cut (#517 / #637). Every alias response
+  carries `Deprecation: true`, a `Sunset` HTTP-date, and a
+  `Link rel="successor-version"` naming the canonical `/v1` twin; the
+  `/v1` routes carry none of these headers. The aliases are removed at
+  2.0 — a deliberate, already-planned break.
 
 The `{id, language}` envelope on `/function` and `/comment`, the
 uniform `{error, id}` error body, and the stricter `unit` bool

@@ -1492,6 +1492,111 @@ async fn test_web_v1_ast_matches_unprefixed_alias() {
     assert_eq!(v1_body["root"]["type"], json!("translation_unit"));
 }
 
+// Deprecation signalling on the unprefixed aliases (#637). Every alias
+// response must carry `Deprecation: true`, a `Sunset` date, and a
+// `Link rel="successor-version"` naming the canonical `/v1` twin; the
+// `/v1` routes must stay header-free.
+#[actix_rt::test]
+async fn test_web_unprefixed_aliases_carry_deprecation_headers() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // (alias path, request builder) covering every registered alias —
+    // GET introspection routes and the content-type-guarded POST routes.
+    // VCS routes are exercised via their guarded-fallback responses
+    // (wrong method): the deprecation middleware wraps every response the
+    // alias scope produces, including the resource-level 405/415.
+    let json_post = |uri: &'static str, body: String| {
+        test::TestRequest::post()
+            .uri(uri)
+            .insert_header(ContentType::json())
+            .set_payload(body)
+            .to_request()
+    };
+
+    // The full alias surface mirrored from `register_endpoints`. Each entry
+    // produces a fresh request (requests are single-use).
+    let alias_paths = [
+        "/ast",
+        "/comment",
+        "/metrics",
+        "/vcs",
+        "/vcs/trend",
+        "/vcs/jit",
+        "/function",
+        "/ping",
+        "/version",
+        "/languages",
+    ];
+
+    for path in alias_paths {
+        // A GET reaches the POST endpoints' resource fallback (405) and the
+        // GET endpoints' handler (200); either way the response flows
+        // through the deprecation middleware, which is what we assert on.
+        let alias_resp =
+            test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
+        let headers = alias_resp.headers();
+        assert_eq!(
+            headers.get("deprecation").map(|v| v.to_str().unwrap()),
+            Some("true"),
+            "alias {path} must carry Deprecation: true",
+        );
+        assert!(
+            headers.contains_key("sunset"),
+            "alias {path} must carry a Sunset header",
+        );
+        let link = headers
+            .get("link")
+            .unwrap_or_else(|| panic!("alias {path} must carry a Link header"))
+            .to_str()
+            .unwrap();
+        assert!(
+            link.contains(&format!("</v1{path}>")) && link.contains("rel=\"successor-version\""),
+            "alias {path} Link must name the /v1 successor, got: {link}",
+        );
+    }
+
+    // The canonical `/v1` twins must stay header-free — the middleware is
+    // scoped to the unprefixed aliases only.
+    for path in alias_paths {
+        let v1_uri = format!("/v1{path}");
+        let resp =
+            test::call_service(&app, test::TestRequest::get().uri(&v1_uri).to_request()).await;
+        let headers = resp.headers();
+        assert!(
+            !headers.contains_key("deprecation"),
+            "{v1_uri} must not carry a Deprecation header",
+        );
+        assert!(
+            !headers.contains_key("sunset"),
+            "{v1_uri} must not carry a Sunset header",
+        );
+        assert!(
+            headers
+                .get("link")
+                .is_none_or(|v| { !v.to_str().unwrap().contains("successor-version") }),
+            "{v1_uri} must not carry a successor-version Link header",
+        );
+    }
+
+    // Behaviour parity: a successful alias response is byte-identical to
+    // its `/v1` twin once the deprecation headers are set aside (the
+    // headers are additive, the body is unchanged).
+    let body =
+        json!({"id": "dep", "file_name": "a.c", "code": "int x = 1;", "unit": false}).to_string();
+    let v1 = test::call_service(&app, json_post("/v1/metrics", body.clone())).await;
+    let alias = test::call_service(&app, json_post("/metrics", body)).await;
+    assert_eq!(v1.status(), StatusCode::OK);
+    assert_eq!(alias.status(), StatusCode::OK);
+    let v1_body: Value = serde_json::from_slice(&test::read_body(v1).await).unwrap();
+    let alias_body: Value = serde_json::from_slice(&test::read_body(alias).await).unwrap();
+    assert_eq!(v1_body, alias_body, "alias body must match the /v1 twin");
+}
+
 #[actix_rt::test]
 async fn test_web_v1_post_endpoints_return_200() {
     let app = test::init_service(
