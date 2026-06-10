@@ -192,8 +192,8 @@ pub fn apply_percentile(stats: &mut [Stats]) {
         |s| 1.0 - s.ownership_top_share,
         |s| f64::from(s.bug_fix_commits),
         |s| f64::from(s.security_fix_commits),
-        |s| s.change_entropy_recent,
-        |s| s.cochange_entropy_recent,
+        |s| s.change_entropy_recent.max(0.0),
+        |s| s.cochange_entropy_recent.max(0.0),
     ];
 
     let n = stats.len();
