@@ -226,9 +226,9 @@ def _coerce_baseline_value(
 def load_baseline() -> dict[str, dict[str, str]] | None:
     """Parse the baseline file.
 
-    Returns None when the baseline is missing (caller renders the
-    "run --update to create it" hint — but `--update` itself
-    refuses this case; see `write_baseline`). Exits with code 2
+    Returns None when the baseline is missing (caller renders a
+    "restore it from git history" hint; `--update` refuses to
+    create a missing baseline — see `write_baseline`). Exits with code 2
     on malformed TOML. Non-string scalars trip a warning and are
     coerced so the drift message remains informative; non-scalar
     values (lists, tables) trip a warning and are treated as
