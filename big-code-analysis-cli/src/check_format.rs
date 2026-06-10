@@ -462,8 +462,10 @@ fn orphan_splice_end(existing: &str, begin: usize) -> usize {
     }
     existing.len()
 }
-/// (by ratio), worst value, worst limit. Sorted by count desc, then
-/// path asc.
+
+/// "Per-file rollup" GFM table: one row per file with its violation
+/// count, worst metric (by ratio), worst value, worst limit. Sorted by
+/// count desc, then path asc.
 fn write_per_file_rollup(out: &mut String, pairs: &[(Violation, Option<Coverage>)]) {
     use std::fmt::Write as _;
     out.push_str("### Per-file rollup\n\n");
