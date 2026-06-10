@@ -113,6 +113,19 @@ pub(crate) fn parse_language_name(name: &str) -> Option<LANG> {
     public_languages().find(|lang| lang.name() == needle)
 }
 
+/// Builds the user-facing message for an unknown language name.
+///
+/// Mirrors the `metrics=` validation style (`unknown metric: …;
+/// valid: …`) so a bad language argument names both the offending
+/// input and the full set of accepted values, drawn from the same
+/// [`supported_languages`] table the public listing uses.
+pub(crate) fn unknown_language_message(input: &str) -> String {
+    format!(
+        "unknown language '{input}'; supported: {supported}",
+        supported = supported_languages().join(", "),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

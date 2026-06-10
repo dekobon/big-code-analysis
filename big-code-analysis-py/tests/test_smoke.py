@@ -488,13 +488,25 @@ def test_analyze_raises_unsupported_language_for_unknown_extension(
 
 
 def test_analyze_source_raises_unsupported_language_for_unknown_name() -> None:
-    with pytest.raises(bca.UnsupportedLanguageError, match=r"^klingon$"):
+    # #617 — the message names the bad token AND lists the supported
+    # set, matching the `metrics=` validation style instead of echoing
+    # the raw input as the whole message.
+    with pytest.raises(bca.UnsupportedLanguageError) as excinfo:
         bca.analyze_source("noise", "klingon")
+    message = str(excinfo.value)
+    assert "unknown language 'klingon'" in message
+    assert "supported:" in message
+    assert "rust" in message
 
 
 def test_language_extensions_raises_unsupported_language_for_unknown_name() -> None:
-    with pytest.raises(bca.UnsupportedLanguageError, match=r"^klingon$"):
+    # #617 — same message contract as `analyze_source` above.
+    with pytest.raises(bca.UnsupportedLanguageError) as excinfo:
         bca.language_extensions("klingon")
+    message = str(excinfo.value)
+    assert "unknown language 'klingon'" in message
+    assert "supported:" in message
+    assert "rust" in message
 
 
 def test_analyze_raises_filenotfounderror_with_errno_and_filename(
@@ -516,6 +528,11 @@ def test_analyze_raises_filenotfounderror_with_errno_and_filename(
     err = exc_info.value
     assert err.errno == _errno.ENOENT
     assert err.filename == str(missing)
+    # #617 — CPython renders `[Errno N]` from the errno argument, so the
+    # strerror must not also carry Rust's ` (os error N)` suffix; the
+    # errno fact appears exactly once in the rendered message.
+    assert "os error" not in str(err)
+    assert "[Errno" in str(err)
 
 
 @pytest.mark.skipif(

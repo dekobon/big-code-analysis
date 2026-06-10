@@ -35,7 +35,7 @@ use big_code_analysis::{
     LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
 };
 
-use crate::language::parse_language_name;
+use crate::language::{parse_language_name, unknown_language_message};
 
 /// Reasons [`parse_metric_names`] can reject a `metrics=` value.
 ///
@@ -366,7 +366,7 @@ pub(crate) fn analyze_source(
     opts: AnalyzeOptions,
 ) -> Result<String, AnalysisError> {
     let lang = parse_language_name(language)
-        .ok_or_else(|| AnalysisError::UnsupportedLanguage(language.to_owned()))?;
+        .ok_or_else(|| AnalysisError::UnsupportedLanguage(unknown_language_message(language)))?;
     analyze_bytes(lang, code, name, opts)
 }
 
@@ -464,7 +464,19 @@ mod tests {
     #[test]
     fn analyze_source_rejects_unknown_language() {
         let err = analyze_source("klingon", b"qaplah", None, AnalyzeOptions::default());
-        assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
+        let Err(AnalysisError::UnsupportedLanguage(message)) = err else {
+            panic!("expected UnsupportedLanguage, got {err:?}");
+        };
+        // #617 — the message names the bad token and lists the
+        // supported set rather than echoing the raw input alone.
+        assert!(
+            message.contains("unknown language 'klingon'"),
+            "message should name the offending token; got {message}",
+        );
+        assert!(
+            message.contains("supported:") && message.contains("rust"),
+            "message should list the supported set; got {message}",
+        );
     }
 
     #[test]

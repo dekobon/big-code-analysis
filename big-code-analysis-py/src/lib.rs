@@ -90,6 +90,26 @@ pub(crate) fn resolve_metric_set(metrics: Option<Vec<String>>) -> PyResult<Metri
     }
 }
 
+/// Strips Rust's trailing ` (os error N)` from an `io::Error` Display.
+///
+/// `io::Error`'s `Display` appends that suffix for OS-backed errors;
+/// `CPython`'s `OSError` constructor renders `[Errno N]` from the errno
+/// argument independently, so the suffix would duplicate the errno in
+/// the resulting traceback. Returns the input unchanged when no such
+/// suffix is present (e.g. non-OS `io::Error` kinds).
+fn strip_os_error_suffix(message: &str) -> &str {
+    // The suffix is always the trailing parenthesised run; matching on
+    // " (os error " and requiring a `)` terminator avoids clipping a
+    // legitimate parenthetical that happens to live mid-message.
+    const OS_ERROR_MARKER: &str = " (os error ";
+    if let Some(marker_start) = message.rfind(OS_ERROR_MARKER)
+        && message.ends_with(')')
+    {
+        return message[..marker_start].trim_end();
+    }
+    message
+}
+
 /// Convert an internal `AnalysisError` to a concrete Python exception.
 ///
 /// Kept as a free function (rather than a `From<AnalysisError>` impl
@@ -106,7 +126,14 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
         // I/O failure to bare `OSError` with `errno is None`.
         AnalysisError::Io { source, path } => {
             let errno = source.raw_os_error();
-            let msg = source.to_string();
+            // Rust's `io::Error` Display appends ` (os error N)` for
+            // OS-backed errors, but CPython's `OSError(errno, …)`
+            // constructor already renders `[Errno N]` from the errno
+            // argument — passing the full Display doubles the errno
+            // text in the traceback. Strip Rust's suffix so the
+            // strerror carries only the human message; CPython owns
+            // the errno rendering (#617).
+            let msg = strip_os_error_suffix(&source.to_string()).to_owned();
             // `analyze_path` resolves the `FuncSpace.name` *before*
             // `std::fs::read`, so in strict mode (`allow_lossy_path
             // = False`) any path reaching this arm is valid UTF-8
@@ -375,8 +402,9 @@ fn supported_languages() -> Vec<&'static str> {
 #[pyfunction]
 #[pyo3(signature = (language, /))]
 fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
-    language::language_extensions(language)
-        .ok_or_else(|| UnsupportedLanguageError::new_err(language.to_owned()))
+    language::language_extensions(language).ok_or_else(|| {
+        UnsupportedLanguageError::new_err(language::unknown_language_message(language))
+    })
 }
 
 /// Rank the files in a git repository by change-history (VCS) risk
@@ -599,4 +627,32 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(language_extensions, m)?)?;
     m.add_function(wrap_pyfunction!(to_sarif, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_os_error_suffix;
+
+    #[test]
+    fn strips_trailing_os_error_suffix() {
+        assert_eq!(
+            strip_os_error_suffix("No such file or directory (os error 2)"),
+            "No such file or directory"
+        );
+    }
+
+    #[test]
+    fn leaves_message_without_suffix_untouched() {
+        assert_eq!(strip_os_error_suffix("custom failure"), "custom failure");
+    }
+
+    #[test]
+    fn keeps_mid_message_parenthetical() {
+        // Only a trailing `(os error N)` is the duplicated-errno
+        // artifact; an interior parenthetical must survive verbatim.
+        assert_eq!(
+            strip_os_error_suffix("failed (transient) while reading"),
+            "failed (transient) while reading"
+        );
+    }
 }
