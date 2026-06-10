@@ -395,8 +395,11 @@ struct VcsArgs {
     /// Optional `vcs` subcommand. With none, `bca vcs` ranks files by
     /// change-history risk (the default). `jit` instead scores a single
     /// commit for just-in-time defect-induction risk (issue #331); it
-    /// reuses the window / bot / merge / rename / as-of flags below (it
-    /// names its commit positionally, so `--ref` does not apply).
+    /// reuses the window / bot / merge / rename / as-of flags below (which
+    /// are accepted in either position — `bca vcs --long-window 6mo jit`
+    /// or `bca vcs jit --long-window 6mo`). `jit` names its commit
+    /// positionally, so passing `--ref` with it is a usage error (issue
+    /// #598).
     #[command(subcommand)]
     command: Option<VcsSubcommand>,
     /// Output format. When omitted, a human-readable ranked table is
@@ -416,11 +419,12 @@ struct VcsArgs {
     #[clap(long)]
     pretty: bool,
     /// Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601
-    /// `P1Y`).
-    #[clap(long, default_value = "12mo")]
+    /// `P1Y`). Accepted in the parent or subcommand position (issue #598).
+    #[clap(long, default_value = "12mo", global = true)]
     long_window: String,
-    /// Recent observation window.
-    #[clap(long, default_value = "90d")]
+    /// Recent observation window. Accepted in the parent or subcommand
+    /// position (issue #598).
+    #[clap(long, default_value = "90d", global = true)]
     recent_window: String,
     /// Show only the top N files by risk score (`0` = all).
     #[clap(long, default_value_t = 50)]
@@ -434,30 +438,38 @@ struct VcsArgs {
     /// manifest value.
     #[clap(long, value_name = "SCOPE")]
     file_types: Option<String>,
-    /// Revision to analyze.
-    #[clap(long = "ref", default_value = "HEAD")]
-    reference: String,
+    /// Revision to analyze (defaults to `HEAD`). Accepted in the parent
+    /// or `trend` subcommand position, but rejected under `jit`, which
+    /// names its commit positionally (issue #598).
+    //
+    // Stored as an `Option` (rather than a `default_value = "HEAD"`
+    // `String`) so an explicit `--ref` is distinguishable from the
+    // default — the `jit` conflict check keys off `Some`, and
+    // `vcs_command::build_options` applies the `HEAD` default at the
+    // single point of use.
+    #[clap(long = "ref", global = true)]
+    reference: Option<String>,
     /// Walk the full commit DAG rather than first-parent only.
-    #[clap(long)]
+    #[clap(long, global = true)]
     full_history: bool,
     /// Include merge commits (skipped by default).
-    #[clap(long)]
+    #[clap(long, global = true)]
     include_merges: bool,
     /// Do not follow file renames across history.
-    #[clap(long)]
+    #[clap(long, global = true)]
     no_follow_renames: bool,
     /// Do not exclude bot author identities.
-    #[clap(long)]
+    #[clap(long, global = true)]
     no_exclude_bots: bool,
     /// Override the bot-author exclusion regex.
-    #[clap(long)]
+    #[clap(long, global = true)]
     bot_pattern: Option<String>,
     /// Reference "now" for reproducible runs (RFC 3339, `@unix`, or any
     /// git date spelling). Defaults to wall-clock time.
-    #[clap(long)]
+    #[clap(long, global = true)]
     as_of: Option<String>,
     /// Composite risk-score formula.
-    #[clap(long, value_enum, default_value_t = RiskFormulaArg::Weighted)]
+    #[clap(long, value_enum, default_value_t = RiskFormulaArg::Weighted, global = true)]
     risk_formula: RiskFormulaArg,
     /// Emit SHA-256-hashed canonical author identities.
     #[clap(long)]

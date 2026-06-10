@@ -36,6 +36,18 @@ use crate::{JitArgs, VcsArgs, die};
 /// ones. Dispatches to the commit path or — when `--diff` is given — the
 /// arbitrary-diff path.
 pub(crate) fn run(root: &Path, args: &VcsArgs, jit: &JitArgs) {
+    // `jit` names the commit positionally, so `--ref` (a worktree-state
+    // revision) has no meaning here; rejecting it loudly beats the prior
+    // silent ignore (issue #598). A bare `--ref` is distinguishable from
+    // the `HEAD` default because `reference` is an `Option`. The walk's
+    // window / bot / merge / rename tuning flags remain valid in either
+    // position via clap `global = true`.
+    if args.reference.is_some() {
+        die(format_args!(
+            "the argument '--ref' cannot be used with 'vcs jit': jit names its \
+             commit positionally (e.g. `bca vcs jit <COMMIT>`), not via --ref"
+        ));
+    }
     if let Some(diff_source) = &jit.diff {
         run_diff(diff_source, jit);
     } else {

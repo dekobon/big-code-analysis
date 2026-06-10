@@ -176,7 +176,10 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
     let mut options = Options::default();
     options.long_window_secs = long_window_secs;
     options.recent_window_secs = recent_window_secs;
-    options.reference.clone_from(&args.reference);
+    // `--ref` is optional so an explicit value is distinguishable from the
+    // default (the `jit` conflict check in `vcs_jit` relies on that); the
+    // `HEAD` default is applied here, the single point of use.
+    options.reference = args.reference.clone().unwrap_or_else(|| "HEAD".to_owned());
     options.full_history = args.full_history;
     options.include_merges = args.include_merges;
     options.follow_renames = !args.no_follow_renames;

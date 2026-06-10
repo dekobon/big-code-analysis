@@ -144,7 +144,9 @@ fn vcs_alone_uses_documented_defaults() {
     assert_eq!(args.long_window, "12mo");
     assert_eq!(args.recent_window, "90d");
     assert_eq!(args.top, 50);
-    assert_eq!(args.reference, "HEAD");
+    // `--ref` is now an `Option` (issue #598) so an explicit revision is
+    // distinguishable from the `HEAD` default that `build_options` applies.
+    assert_eq!(args.reference, None);
     assert_eq!(args.risk_formula, RiskFormulaArg::Weighted);
     assert!(!args.full_history);
     assert!(!args.include_merges);
@@ -200,7 +202,7 @@ fn vcs_flags_bind_to_their_fields() {
         "--include-deleted",
         "--emit-author-details",
     ]);
-    assert_eq!(args.reference, "release/1.x");
+    assert_eq!(args.reference.as_deref(), Some("release/1.x"));
     assert_eq!(args.risk_formula, RiskFormulaArg::Percentile);
     assert_eq!(args.top, 10);
     assert_eq!(args.long_window, "2y");

@@ -206,6 +206,66 @@ fn diff_and_commit_spec_are_mutually_exclusive() {
         .stderr(predicate::str::contains("cannot be used with"));
 }
 
+/// A history-tuning flag (`--long-window`) is accepted in the *subcommand*
+/// position (`vcs jit --long-window …`), the natural git/cargo/rg ordering,
+/// and genuinely tunes the walk — the echoed `long_window_days` reflects the
+/// supplied 6mo window, not the 12mo default (issue #598).
+#[test]
+fn jit_accepts_long_window_in_subcommand_position() {
+    let repo = one_commit_repo("initial import");
+    let output = bca(repo.path())
+        .args(["vcs", "jit", "--long-window", "6mo", "-O", "json"])
+        .output()
+        .expect("run bca vcs jit");
+    assert!(
+        output.status.success(),
+        "subcommand-position flag should parse"
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
+    // 6mo resolves to 183 days; the 12mo default would echo 365 (or 366).
+    assert_eq!(json["long_window_days"], 183);
+}
+
+/// The historical parent-position spelling (`vcs --long-window … jit`) keeps
+/// working and resolves to the same tuned window — `global = true` makes the
+/// flag valid in either position rather than moving it (issue #598).
+#[test]
+fn jit_accepts_long_window_in_parent_position() {
+    let repo = one_commit_repo("initial import");
+    let output = bca(repo.path())
+        .args(["vcs", "--long-window", "6mo", "jit", "-O", "json"])
+        .output()
+        .expect("run bca vcs jit");
+    assert!(
+        output.status.success(),
+        "parent-position flag should still parse"
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
+    assert_eq!(json["long_window_days"], 183);
+}
+
+/// `--ref` is meaningless under `jit` (the commit is positional), so it is a
+/// usage error (exit 1) rather than the prior silent ignore. The message
+/// names both the conflicting flag and the subcommand (issue #598). Pinned in
+/// both flag positions because `--ref` is `global = true`.
+#[test]
+fn ref_under_jit_is_a_usage_error() {
+    let repo = one_commit_repo("initial import");
+    for argv in [
+        ["vcs", "--ref", "v1.0", "jit"].as_slice(),
+        ["vcs", "jit", "--ref", "v1.0"].as_slice(),
+    ] {
+        bca(repo.path())
+            .args(argv)
+            .assert()
+            .failure()
+            .code(1)
+            .stderr(predicate::str::contains("--ref").and(predicate::str::contains("vcs jit")));
+    }
+}
+
 #[test]
 fn outside_a_repo_errors() {
     let dir = tempfile::tempdir().expect("tempdir");

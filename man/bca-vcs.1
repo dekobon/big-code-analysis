@@ -39,10 +39,10 @@ Output file. Unlike `metrics`/`ops` (which write a directory of per\-file emissi
 Pretty\-print JSON / TOML output
 .TP
 \fB\-\-long\-window\fR \fI<LONG_WINDOW>\fR [default: 12mo]
-Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`)
+Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). Accepted in the parent or subcommand position (issue #598)
 .TP
 \fB\-\-recent\-window\fR \fI<RECENT_WINDOW>\fR [default: 90d]
-Recent observation window
+Recent observation window. Accepted in the parent or subcommand position (issue #598)
 .TP
 \fB\-\-top\fR \fI<TOP>\fR [default: 50]
 Show only the top N files by risk score (`0` = all)
@@ -50,8 +50,8 @@ Show only the top N files by risk score (`0` = all)
 \fB\-\-file\-types\fR \fI<SCOPE>\fR
 Which tracked files to rank (issue #576): `metrics` (only files bca has metrics for — the default), `all` (every tracked text file), or a comma\-separated extension allow\-list (`rs,py,toml`). Applied on top of `\-\-paths`/`\-\-include`/`\-\-exclude` (AND semantics). When omitted, the `bca.toml` `[vcs] file_types` key is used if present, else `metrics`. Setting it here replaces the manifest value
 .TP
-\fB\-\-ref\fR \fI<REFERENCE>\fR [default: HEAD]
-Revision to analyze
+\fB\-\-ref\fR \fI<REFERENCE>\fR
+Revision to analyze (defaults to `HEAD`). Accepted in the parent or `trend` subcommand position, but rejected under `jit`, which names its commit positionally (issue #598)
 .TP
 \fB\-\-full\-history\fR
 Walk the full commit DAG rather than first\-parent only

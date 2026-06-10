@@ -132,6 +132,35 @@ fn yaml_format_emits_valid_document() {
     assert!(doc["files"].is_mapping(), "files is a path-keyed mapping");
 }
 
+/// A history-tuning flag (`--as-of`) is accepted in the *subcommand*
+/// position (`vcs trend --as-of …`), the natural ordering, and genuinely
+/// anchors the walk: the newest sample point lands on the supplied instant,
+/// exactly as it does from the parent position (issue #598). `--ref` is also
+/// valid under `trend` (it analyses ref'd state, unlike `jit`), so unlike
+/// `jit` no conflict is raised here.
+#[test]
+fn trend_accepts_as_of_in_subcommand_position() {
+    let repo = staged_repo();
+    let as_of = format!("@{FIXED_NOW}");
+    let output = bca(repo.path())
+        .args([
+            "vcs", "trend", "--as-of", &as_of, "--points", "3", "--span", "300d", "-O", "json",
+        ])
+        .output()
+        .expect("run bca vcs trend");
+    assert!(
+        output.status.success(),
+        "subcommand-position --as-of should parse and anchor the walk"
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("trend output is valid JSON");
+    let points = json["as_of_points"].as_array().expect("as_of_points array");
+    assert_eq!(
+        points[2], FIXED_NOW,
+        "newest point honors subcommand-position --as-of"
+    );
+}
+
 #[test]
 fn too_few_points_is_rejected() {
     let repo = staged_repo();
