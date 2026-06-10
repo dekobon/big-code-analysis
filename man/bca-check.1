@@ -27,7 +27,7 @@ Ignore in\-source suppression markers (`bca: suppress`, `#lizard forgives`, etc.
 Surface suppressed debt in the offender document instead of dropping it. Offenders silenced by an in\-source `bca: suppress` marker or covered by the baseline are still kept out of the gate (exit code and human stream are unaffected), but are emitted into the `\-\-format sarif` document carrying a SARIF `suppressions` entry — GitHub Code Scanning renders them as suppressed (closed) alerts so the debt stays visible. Only the SARIF format represents suppression; other formats ignore the flag. Mutually exclusive with `\-\-no\-suppress` (which un\-silences markers) and `\-\-write\-baseline`
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<OUTPUT_FORMAT>\fR
-CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning lines, MSVC warning lines). When omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
+CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning lines, MSVC warning lines). When omitted *and* `\-\-output` is also omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected. When omitted but `\-\-output` is given, the format is inferred from the output extension (`.sarif` → sarif, `.xml` → checkstyle); an extension with no unique format is a usage error. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
 .br
 
 .br
@@ -46,7 +46,7 @@ sarif
 .RE
 .TP
 \fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
-File path for the aggregated offender document. Stdout if omitted. Only meaningful together with `\-\-format`. Parent directories are created on demand
+File path for the aggregated offender document. Stdout if omitted. When `\-\-format` is also omitted, the format is inferred from this path\*(Aqs extension (`.sarif` → sarif, `.xml` → checkstyle); a path with no format\-bearing extension is rejected rather than silently ignored. Parent directories are created on demand
 .TP
 \fB\-\-baseline\fR \fI<BASELINE>\fR
 Filter known offenders listed in this TOML baseline. A baselined function whose metric value has not worsened is suppressed; a worsened value (or any new offender) still fails. See the "Baselines" recipe in the book for the full adoption flow

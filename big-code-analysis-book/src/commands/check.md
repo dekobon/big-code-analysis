@@ -440,6 +440,14 @@ in 2.0. The
 exit-code contract is unaffected by these flags: 0 clean, 2 on any
 violation (unless `--no-fail`), 1 on tool error.
 
+When `--output` is given without `--format`, the format is **inferred
+from the output extension**: `.sarif` selects `sarif` and `.xml`
+selects `checkstyle`. An extension with no unique format (notably
+`.json`, which both `sarif` and `code-climate` produce) or no extension
+at all is a usage error (exit `1`) naming `--format` — an explicit
+`--output` is never silently ignored. An explicit `--format` always
+wins over the extension.
+
 | Format          | Audience                                                |
 | --------------- | ------------------------------------------------------- |
 | `checkstyle`    | Jenkins, SonarQube, GitLab, "warnings plugin" CI        |

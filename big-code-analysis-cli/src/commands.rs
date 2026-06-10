@@ -74,7 +74,7 @@ fn run_check(
         set,
         hard_limits,
         provenance,
-    } = validate_and_build_thresholds(&args, base_thresholds);
+    } = validate_and_build_thresholds(&mut args, base_thresholds);
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by
@@ -401,6 +401,58 @@ fn resolve_provenance(
     }
 }
 
+/// Resolve the effective `--format` for `check` and eagerly validate the
+/// `--output` path (#600).
+///
+/// When `--output` is given without `--format`, the format is inferred
+/// from the file extension ([`AggregatedFormat::infer_from_extension`]):
+/// `.sarif` → SARIF, `.xml` → Checkstyle. An extension with no unique
+/// writer (e.g. `.json`, shared by SARIF and Code Climate) or no
+/// extension at all is a usage error — the previous silent no-op (an
+/// explicit `--output` that wrote nothing on exit 0) was the worst CLI
+/// failure mode. When a format is in effect, an `--output` that names an
+/// existing directory is rejected before the walk rather than failing
+/// mid-write.
+///
+/// Invoking `bca check` with neither flag is left alone: the plain
+/// human stderr stream is the default contract and stays frictionless.
+///
+/// The `--output` path is only checked for being a directory; a missing
+/// parent is *not* rejected here, because the aggregated writer creates
+/// parent directories on demand (`write_to_path_or_stdout`), and that
+/// on-demand creation is a long-standing part of `check`'s contract.
+fn resolve_check_output_format(args: &mut CheckArgs) {
+    let Some(ref out) = args.output else {
+        // No `--output`: nothing to validate or infer. A bare `--format`
+        // still writes its document to stdout via the existing path.
+        return;
+    };
+
+    // The effective format: the explicit `--format`, or one inferred from
+    // the extension. An un-inferable extension is a usage error.
+    let fmt = args.output_format.unwrap_or_else(|| {
+        check_format::AggregatedFormat::infer_from_extension(out).unwrap_or_else(|| {
+            die(format_args!(
+                "--output {} has no format-bearing extension; pass --format \
+                 (checkstyle|clang-warning|code-climate|msvc-warning|sarif) \
+                 or use a recognized extension (.sarif, .xml)",
+                out.display()
+            ))
+        })
+    });
+
+    // A format is now in effect (explicit or inferred), so the path is a
+    // real sink: reject a directory up front rather than failing mid-write.
+    if out.exists() && out.is_dir() {
+        die(format_args!(
+            "--output must be a file path for `check --format {}`",
+            fmt.name()
+        ));
+    }
+
+    args.output_format = Some(fmt);
+}
+
 /// Validate `--output` / `--output-format` pairing, then resolve the
 /// effective threshold set per the documented resolution order
 /// (#373/#374/#375/#380): the manifest `[thresholds]` base, the
@@ -412,25 +464,12 @@ fn resolve_provenance(
 /// encroachment apart from a true hard breach. The set is wrapped in
 /// `Arc` so it can be cloned into each walker worker's `Config`.
 fn validate_and_build_thresholds(
-    args: &CheckArgs,
+    args: &mut CheckArgs,
     base_thresholds: ParsedThresholds,
 ) -> ResolvedThresholds {
-    // Validate --output / --output-format pairing before the walk so
-    // a misconfigured invocation fails fast instead of after a full
-    // parse. `--output` without `--output-format` is silently ignored
-    // — only the human stderr stream is emitted, which is the
-    // default contract — to keep the simplest invocation
-    // (`bca check --threshold ... --no-fail > /dev/null`) frictionless.
-    if let Some(fmt) = args.output_format
-        && let Some(ref out) = args.output
-        && out.exists()
-        && out.is_dir()
-    {
-        die(format_args!(
-            "--output must be a file path for `check --output-format {}`",
-            fmt.name()
-        ));
-    }
+    // Resolve the `--output` / `--format` pairing before the walk so a
+    // misconfigured invocation fails fast instead of after a full parse.
+    resolve_check_output_format(args);
 
     // Layer 1: the manifest `[thresholds]` table (empty when no
     // `bca.toml` was discovered). Layer 2: `--config` merges on top,

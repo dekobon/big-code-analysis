@@ -760,16 +760,21 @@ struct CheckArgs {
     report_suppressed: bool,
     /// CI/IDE document format for offender records (Checkstyle 4.3 XML,
     /// SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning
-    /// lines, MSVC warning lines). When omitted, only the
-    /// human-readable stderr stream is emitted; the exit-code contract
-    /// is unaffected. `--output-format` is accepted as a deprecated
+    /// lines, MSVC warning lines). When omitted *and* `--output` is also
+    /// omitted, only the human-readable stderr stream is emitted; the
+    /// exit-code contract is unaffected. When omitted but `--output` is
+    /// given, the format is inferred from the output extension (`.sarif`
+    /// → sarif, `.xml` → checkstyle); an extension with no unique format
+    /// is a usage error. `--output-format` is accepted as a deprecated
     /// alias (issue #513); it is hidden from help and slated for removal
     /// in 2.0.
     #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     output_format: Option<AggregatedFormat>,
     /// File path for the aggregated offender document. Stdout if omitted.
-    /// Only meaningful together with `--format`. Parent
-    /// directories are created on demand.
+    /// When `--format` is also omitted, the format is inferred from this
+    /// path's extension (`.sarif` → sarif, `.xml` → checkstyle); a path
+    /// with no format-bearing extension is rejected rather than silently
+    /// ignored. Parent directories are created on demand.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
     /// Filter known offenders listed in this TOML baseline. A baselined

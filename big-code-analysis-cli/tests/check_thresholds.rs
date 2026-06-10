@@ -469,6 +469,154 @@ fn check_clean_run_emits_empty_sarif_document() {
 }
 
 #[test]
+fn check_output_sarif_extension_infers_format_without_flag() {
+    // Issue #600: `--output report.sarif` with no `--format` must infer
+    // SARIF from the extension and write a real document, not silently
+    // do nothing on exit 0 (the pre-2.0 bug).
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let out_path = dir.path().join("report.sarif");
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output",
+            out_path.to_str().unwrap(),
+            "--no-fail",
+        ])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&out_path).expect("inferred sarif file readable");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("sarif is valid JSON");
+    assert_eq!(doc["version"], "2.1.0", "inferred format should be SARIF");
+    let results = doc["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is array");
+    assert!(
+        !results.is_empty(),
+        "inferred SARIF should carry the offenders; doc was:\n{body}"
+    );
+}
+
+#[test]
+fn check_output_xml_extension_infers_checkstyle_without_flag() {
+    // Issue #600: `.xml` infers Checkstyle, the only XML writer.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let out_path = dir.path().join("report.xml");
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output",
+            out_path.to_str().unwrap(),
+            "--no-fail",
+        ])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&out_path).expect("inferred checkstyle file readable");
+    assert!(
+        body.contains("<checkstyle"),
+        "inferred format should be Checkstyle XML; body was:\n{body}"
+    );
+}
+
+#[test]
+fn check_output_unknown_extension_without_format_exits_one() {
+    // Issue #600: an extension with no unique writer (`.json` is shared
+    // by SARIF and Code Climate) must be a usage error naming --format,
+    // never a silent no-op.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let out_path = dir.path().join("report.json");
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output",
+            out_path.to_str().unwrap(),
+            "--no-fail",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--format"));
+    assert!(
+        !out_path.exists(),
+        "no document should be written when the format cannot be inferred"
+    );
+}
+
+#[test]
+fn check_output_no_extension_without_format_exits_one() {
+    // Issue #600: an extensionless `--output` path cannot be inferred
+    // and must error rather than silently write nothing.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let out_path = dir.path().join("report");
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output",
+            out_path.to_str().unwrap(),
+            "--no-fail",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--format"));
+    assert!(!out_path.exists(), "no document on un-inferable extension");
+}
+
+#[test]
+fn check_explicit_format_overrides_output_extension() {
+    // Issue #600: an explicit `--format` always wins; the extension is
+    // only consulted when `--format` is absent. Here `.xml` would infer
+    // Checkstyle, but `--format sarif` must produce a SARIF document.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let out_path = dir.path().join("report.xml");
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--format",
+            "sarif",
+            "--output",
+            out_path.to_str().unwrap(),
+            "--no-fail",
+        ])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&out_path).expect("output file readable");
+    let doc: serde_json::Value =
+        serde_json::from_str(&body).expect("explicit --format wins → SARIF");
+    assert_eq!(doc["version"], "2.1.0");
+}
+
+#[test]
 fn check_clang_warning_output_streams_one_line_per_offender() {
     // Clang warning lines stream to stdout when --output is omitted.
     let dir = TempDir::new().unwrap();

@@ -71,6 +71,24 @@ impl AggregatedFormat {
         }
     }
 
+    /// Infer the aggregated format from an `--output` file extension
+    /// when `--format` was not given explicitly (#600). Only
+    /// extensions that map to exactly one writer are inferred:
+    /// `.sarif` → SARIF, `.xml` → Checkstyle. Ambiguous extensions
+    /// (e.g. `.json`, shared by SARIF and Code Climate) and the
+    /// extensionless warning streams (`clang-warning`, `msvc-warning`)
+    /// have no unique mapping and return `None`, so the caller emits a
+    /// usage error rather than guessing.
+    pub(crate) fn infer_from_extension(path: &Path) -> Option<Self> {
+        // Lowercase the comparison so a `.SARIF` / `.XML` path infers the
+        // same format as its lowercase spelling.
+        match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+            "sarif" => Some(Self::Sarif),
+            "xml" => Some(Self::Checkstyle),
+            _ => None,
+        }
+    }
+
     /// Emit a well-formed (and stable) document for the given
     /// offender records to `output_path` (or stdout if `None`).
     pub(crate) fn dump(
