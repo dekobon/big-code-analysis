@@ -295,7 +295,7 @@ jobs:
       # gate and the CI gate share one canonical invocation; the
       # repo-root `bca.toml` manifest owns path selection,
       # `exclude_from`, the per-function thresholds, the cyclomatic `?`
-      # policy, and the baseline file, while `--num-jobs` defaults to
+      # policy, and the baseline file, while `--jobs` defaults to
       # `auto`. Drift between local and CI is now impossible by
       # construction.
       #

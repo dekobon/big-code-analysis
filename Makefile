@@ -404,7 +404,7 @@ enums-check:
 #   self-scan-write-baseline   refreshes .bca-baseline.toml in place.
 # ---------------------------------------------------------------------------
 SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
-# `--num-jobs` defaults to `auto` (effective CPU count, cgroup-/cpuset-
+# `--jobs` defaults to `auto` (effective CPU count, cgroup-/cpuset-
 # aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
 # needed for the self-scan recipes (issue #383).
 #
