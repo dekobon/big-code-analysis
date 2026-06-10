@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Any, Literal
 
 __version__: str
@@ -329,18 +330,18 @@ def vcs_metrics(
     top: int | None = None,
     reference: str | None = None,
     risk_formula: str | None = None,
-    file_types: str | None = None,
+    file_types: Sequence[str] | str | None = None,
     full_history: bool = False,
     include_merges: bool = False,
     follow_renames: bool = True,
     exclude_bots: bool = True,
     bot_pattern: str | None = None,
-    as_of: str | None = None,
+    as_of: datetime | str | None = None,
     emit_author_details: bool = False,
     include_deleted: bool = False,
     bus_factor_threshold: float | None = None,
     no_cache: bool = False,
-    cache_dir: str | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     """Rank the files in a git repository by change-history risk.
 
@@ -355,16 +356,18 @@ def vcs_metrics(
     (``P1Y``). ``risk_formula`` is ``"weighted"`` (default) or
     ``"percentile"``. ``file_types`` scopes which files are ranked:
     ``"metrics"`` (default — only files bca has metrics for), ``"all"``
-    (every tracked text file), or a comma-separated extension allow-list
-    (``"rs,py"``). ``bus_factor_threshold`` (default ``0.5``) sets the
+    (every tracked text file), a comma-separated extension allow-list
+    (``"rs,py"``), or a sequence of extensions (``["rs", "py"]``).
+    ``bus_factor_threshold`` (default ``0.5``) sets the
     coverage/abandonment fraction for the bus-factor flag. ``as_of``
-    (RFC 3339 / ``@unix`` / git date) pins the reference "now" for
-    reproducible snapshots.
+    pins the reference "now" for reproducible snapshots; it accepts a
+    ``datetime`` or a string (RFC 3339 / ``@unix`` / git date).
 
     The persistent change-history cache (issue #334) reuses prior work on
     an unchanged tree and walks only new commits when ``HEAD`` advances.
-    Pass ``no_cache=True`` to skip it, or ``cache_dir`` to override its
-    location (default: the platform cache directory).
+    Pass ``no_cache=True`` to skip it, or ``cache_dir`` (a ``str`` or
+    ``os.PathLike``) to override its location (default: the platform cache
+    directory).
 
     Raises
     ------
@@ -390,13 +393,13 @@ def vcs_trend(
     recent_window: str | None = None,
     reference: str | None = None,
     risk_formula: str | None = None,
-    file_types: str | None = None,
+    file_types: Sequence[str] | str | None = None,
     full_history: bool = False,
     include_merges: bool = False,
     follow_renames: bool = True,
     exclude_bots: bool = True,
     bot_pattern: str | None = None,
-    as_of: str | None = None,
+    as_of: datetime | str | None = None,
     emit_author_details: bool = False,
     include_deleted: bool = False,
     bus_factor_threshold: float | None = None,
@@ -443,7 +446,7 @@ def vcs_jit(
     full_history: bool = False,
     include_merges: bool = False,
     follow_renames: bool = True,
-    as_of: str | None = None,
+    as_of: datetime | str | None = None,
 ) -> dict[str, Any]:
     """Score a single commit (or an arbitrary diff) for just-in-time risk.
 

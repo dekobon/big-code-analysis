@@ -35,7 +35,9 @@ mod vcs;
 
 use std::path::PathBuf;
 
+use pyo3::Borrowed;
 use pyo3::Bound;
+use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::Python;
 use pyo3::create_exception;
@@ -452,6 +454,66 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
     })
 }
 
+/// File-type scope accepted by the VCS kwargs: either the CLI-shaped
+/// comma-separated string (`"rs,py"`, `"metrics"`, `"all"`) or a native
+/// Python sequence of extensions (`["rs", "py"]`) — issue #619.
+///
+/// A sequence is joined back into the comma-separated spelling the
+/// upstream [`big_code_analysis::vcs::FileTypeScope`] parser already
+/// accepts, so both forms converge on one validation path (and the same
+/// `VcsError` on a list that normalises to nothing). `str` is matched
+/// before the generic sequence extraction because a `str` is itself an
+/// iterable of one-character strings — extracting it as a sequence would
+/// silently treat `"rs,py"` as the extensions `['r', 's', ',', 'p', 'y']`.
+struct FileTypes(String);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for FileTypes {
+    type Error = PyErr;
+
+    fn extract(value: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(scope) = value.cast::<PyString>() {
+            return Ok(Self(scope.to_str()?.to_owned()));
+        }
+        let extensions: Vec<String> = value.extract().map_err(|_| {
+            PyValueError::new_err(
+                "file_types must be a str (\"metrics\" / \"all\" / \"rs,py\") \
+                 or a sequence of extension strings",
+            )
+        })?;
+        Ok(Self(extensions.join(",")))
+    }
+}
+
+impl FileTypes {
+    /// The comma-separated scope string for [`vcs::VcsParams::file_types`].
+    fn into_scope(self) -> String {
+        self.0
+    }
+}
+
+/// Resolve the `as_of` kwarg to the timestamp string the upstream
+/// [`big_code_analysis::vcs::parse_timestamp`] accepts (issue #619).
+///
+/// Accepts either a `str` (the existing RFC 3339 / `@unix` / git-date
+/// spelling) or a Python `datetime`, from which `.isoformat()` yields an
+/// RFC 3339 string `parse_timestamp` parses. A naive `datetime` produces
+/// an offset-less ISO string, interpreted as the backend's default zone —
+/// the same behaviour as passing that bare string today.
+fn extract_as_of(value: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(s) = value.cast::<PyString>() {
+        return Ok(s.to_str()?.to_owned());
+    }
+    // `datetime` (and any object exposing `isoformat()`) is rendered to a
+    // string here so the conversion stays at the Python boundary and the
+    // crate need not link a PyO3 chrono/jiff feature.
+    if let Ok(iso) = value.call_method0("isoformat") {
+        return Ok(iso.cast::<PyString>()?.to_str()?.to_owned());
+    }
+    Err(PyValueError::new_err(
+        "as_of must be a str (RFC 3339 / @unix / git date) or a datetime",
+    ))
+}
+
 /// Rank the files in a git repository by change-history (VCS) risk
 /// (issue #328).
 ///
@@ -474,34 +536,35 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
     clippy::too_many_arguments,
     clippy::fn_params_excessive_bools
 )]
-fn vcs_metrics(
-    py: Python<'_>,
+fn vcs_metrics<'py>(
+    py: Python<'py>,
     repo_path: PathBuf,
     long_window: Option<String>,
     recent_window: Option<String>,
     top: Option<usize>,
     reference: Option<String>,
     risk_formula: Option<String>,
-    file_types: Option<String>,
+    file_types: Option<FileTypes>,
     full_history: bool,
     include_merges: bool,
     follow_renames: bool,
     exclude_bots: bool,
     bot_pattern: Option<String>,
-    as_of: Option<String>,
+    as_of: Option<Bound<'py, PyAny>>,
     emit_author_details: bool,
     include_deleted: bool,
     bus_factor_threshold: Option<f64>,
     no_cache: bool,
-    cache_dir: Option<String>,
-) -> PyResult<Bound<'_, PyAny>> {
+    cache_dir: Option<PathBuf>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
     let params = vcs::VcsParams {
         long_window,
         recent_window,
         top,
         reference,
         risk_formula,
-        file_types,
+        file_types: file_types.map(FileTypes::into_scope),
         full_history,
         include_merges,
         follow_renames,
@@ -542,8 +605,8 @@ fn vcs_metrics(
     clippy::too_many_arguments,
     clippy::fn_params_excessive_bools
 )]
-fn vcs_trend(
-    py: Python<'_>,
+fn vcs_trend<'py>(
+    py: Python<'py>,
     repo_path: PathBuf,
     points: usize,
     span: Option<String>,
@@ -553,24 +616,25 @@ fn vcs_trend(
     recent_window: Option<String>,
     reference: Option<String>,
     risk_formula: Option<String>,
-    file_types: Option<String>,
+    file_types: Option<FileTypes>,
     full_history: bool,
     include_merges: bool,
     follow_renames: bool,
     exclude_bots: bool,
     bot_pattern: Option<String>,
-    as_of: Option<String>,
+    as_of: Option<Bound<'py, PyAny>>,
     emit_author_details: bool,
     include_deleted: bool,
     bus_factor_threshold: Option<f64>,
-) -> PyResult<Bound<'_, PyAny>> {
+) -> PyResult<Bound<'py, PyAny>> {
+    let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
     let params = vcs::VcsParams {
         long_window,
         recent_window,
         top,
         reference,
         risk_formula,
-        file_types,
+        file_types: file_types.map(FileTypes::into_scope),
         full_history,
         include_merges,
         follow_renames,
@@ -614,8 +678,8 @@ fn vcs_trend(
     clippy::too_many_arguments,
     clippy::fn_params_excessive_bools
 )]
-fn vcs_jit(
-    py: Python<'_>,
+fn vcs_jit<'py>(
+    py: Python<'py>,
     repo_path: Option<PathBuf>,
     commit: String,
     diff: Option<String>,
@@ -624,8 +688,9 @@ fn vcs_jit(
     full_history: bool,
     include_merges: bool,
     follow_renames: bool,
-    as_of: Option<String>,
-) -> PyResult<Bound<'_, PyAny>> {
+    as_of: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
     let params = vcs::JitParams {
         long_window,
         recent_window,

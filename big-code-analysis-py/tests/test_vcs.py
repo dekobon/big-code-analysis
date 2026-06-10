@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -449,3 +450,108 @@ def test_vcs_exception_hierarchy() -> None:
     ):
         assert issubclass(cls, bca.VcsError), cls
         assert issubclass(cls, ValueError), cls
+
+
+# --- Python-native kwarg widenings (issue #619) -----------------------------
+#
+# Each widened kwarg is asserted to produce output IDENTICAL to its
+# pre-existing string form (a parity test), so the native form is proven a
+# pure spelling alternative rather than a separate code path. The string
+# form is kept as regression cover that the CLI-ism still works.
+
+# A fixed epoch reused so the as-of parity tests are deterministic.
+_FIXED_EPOCH = 1_700_000_000
+
+
+def test_vcs_metrics_file_types_sequence_matches_comma_string(tmp_path: Path) -> None:
+    """``file_types=["rs", "py"]`` ranks the same files as ``"rs,py"``."""
+    repo = _build_repo(tmp_path)
+    (repo / "note.py").write_text("def a():\n    pass\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, env={**os.environ})
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "add py"],
+        cwd=repo,
+        check=True,
+        env={**os.environ},
+    )
+    from_seq = bca.vcs_metrics(repo, file_types=["rs", "py"])
+    from_str = bca.vcs_metrics(repo, file_types="rs,py")
+    assert from_seq == from_str
+    paths = {f["path"] for f in from_seq["files"]}
+    assert {"work.rs", "note.py"} <= paths
+
+
+def test_vcs_metrics_file_types_keyword_string_still_works(tmp_path: Path) -> None:
+    """The ``"metrics"`` / ``"all"`` literal strings keep their meaning."""
+    repo = _build_repo(tmp_path)
+    metrics_scope = bca.vcs_metrics(repo, file_types="metrics")
+    assert any(f["path"] == "work.rs" for f in metrics_scope["files"])
+
+
+def test_vcs_metrics_file_types_empty_sequence_raises(tmp_path: Path) -> None:
+    """A sequence that normalises to no usable extensions raises VcsError,
+    exactly as the equivalent empty comma-string does (#624 taxonomy)."""
+    repo = _build_repo(tmp_path)
+    with pytest.raises(bca.VcsError):
+        bca.vcs_metrics(repo, file_types=[])
+
+
+def test_vcs_metrics_file_types_invalid_type_raises(tmp_path: Path) -> None:
+    """A non-str / non-sequence value is rejected up front."""
+    repo = _build_repo(tmp_path)
+    with pytest.raises((TypeError, ValueError)):
+        bca.vcs_metrics(repo, file_types=42)  # type: ignore[arg-type]
+
+
+def test_vcs_metrics_as_of_datetime_matches_epoch_string(tmp_path: Path) -> None:
+    """An aware ``datetime`` pins the same "now" as its ``@unix`` string."""
+    repo = _build_repo(tmp_path)
+    aware = datetime.fromtimestamp(_FIXED_EPOCH, tz=UTC)
+    from_dt = bca.vcs_metrics(repo, as_of=aware)
+    from_str = bca.vcs_metrics(repo, as_of=f"@{_FIXED_EPOCH}")
+    assert from_dt == from_str
+
+
+def test_vcs_metrics_as_of_naive_datetime_accepted(tmp_path: Path) -> None:
+    """A naive ``datetime`` is accepted (rendered offset-less, the same as
+    passing that bare ISO string), and returns a normal report."""
+    repo = _build_repo(tmp_path)
+    naive = datetime(2023, 11, 14, 22, 13, 20)
+    report = bca.vcs_metrics(repo, as_of=naive)
+    assert report["long_window_days"] == 365
+
+
+def test_vcs_metrics_as_of_invalid_type_raises(tmp_path: Path) -> None:
+    repo = _build_repo(tmp_path)
+    with pytest.raises((TypeError, ValueError)):
+        bca.vcs_metrics(repo, as_of=object())  # type: ignore[arg-type]
+
+
+def test_vcs_metrics_cache_dir_path_matches_str(tmp_path: Path) -> None:
+    """``cache_dir=Path(...)`` writes the same cache a ``str`` does."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    repo = _build_repo(repo_dir)
+    path_cache = tmp_path / "by_path"
+    str_cache = tmp_path / "by_str"
+
+    via_path = bca.vcs_metrics(repo, as_of=f"@{_FIXED_EPOCH}", cache_dir=path_cache)
+    via_str = bca.vcs_metrics(repo, as_of=f"@{_FIXED_EPOCH}", cache_dir=str(str_cache))
+    assert via_path == via_str
+    assert any(path_cache.rglob("*.json"))
+
+
+def test_vcs_trend_as_of_datetime_matches_epoch_string(tmp_path: Path) -> None:
+    repo = _build_staged_repo(tmp_path)
+    aware = datetime.fromtimestamp(_FIXED_EPOCH, tz=UTC)
+    from_dt = bca.vcs_trend(repo, points=3, span="300d", as_of=aware)
+    from_str = bca.vcs_trend(repo, points=3, span="300d", as_of=f"@{_FIXED_EPOCH}")
+    assert from_dt == from_str
+
+
+def test_vcs_jit_as_of_datetime_matches_epoch_string(tmp_path: Path) -> None:
+    repo = _build_repo(tmp_path)
+    aware = datetime.fromtimestamp(_FIXED_EPOCH, tz=UTC)
+    from_dt = bca.vcs_jit(repo, commit="HEAD", as_of=aware)
+    from_str = bca.vcs_jit(repo, commit="HEAD", as_of=f"@{_FIXED_EPOCH}")
+    assert from_dt == from_str

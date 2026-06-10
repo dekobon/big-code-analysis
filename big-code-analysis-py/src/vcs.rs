@@ -53,7 +53,7 @@ pub(crate) struct VcsParams {
     /// #334). Default `false` (cache enabled).
     pub no_cache: bool,
     /// Override the cache directory; `None` uses the platform default.
-    pub cache_dir: Option<String>,
+    pub cache_dir: Option<std::path::PathBuf>,
 }
 
 impl VcsParams {
@@ -61,7 +61,7 @@ impl VcsParams {
     fn cache_config(&self) -> CacheConfig {
         let mut config = CacheConfig::default();
         config.enabled = !self.no_cache;
-        config.dir = self.cache_dir.as_ref().map(std::path::PathBuf::from);
+        config.dir.clone_from(&self.cache_dir);
         config
     }
 }
