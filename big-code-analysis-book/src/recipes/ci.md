@@ -841,11 +841,11 @@ Applies regardless of provider:
   thresholds) match the files your repo commits — see the
   [schema-compatibility note](#installing-bca-from-a-github-release-recommended)
   in the install section.
-- **`--num-jobs` defaults to the effective CPU count.** The flag
+- **`--jobs` defaults to the effective CPU count.** The flag
   honors `available_parallelism()` —
   cgroup-/cpuset-/quota-aware on Linux, OS CPU count on
   macOS/Windows — so CI runners no longer need to thread
-  `--num-jobs "$(nproc)"` through every recipe. `--num-jobs 1`
+  `--jobs "$(nproc)"` through every recipe. `--jobs 1`
   remains a debugging knob, not a default.
 - **Always pass `--strip-prefix "$PWD/"` to `bca report markdown`**
   so the path column is identical across runners with different

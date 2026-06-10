@@ -61,9 +61,12 @@ bca --paths /path/to/your/file/or/directory metrics \
     -O json -o /path/to/output/directory
 ```
 
-- `-O, --format`: per-file output format (`cbor`, `csv`, `json`,
-  `toml`, `yaml`). `--output-format` is accepted as a deprecated alias
-  and will be removed in 2.0.
+- `-O, --format`: output format. Defaults to `text` — a human-readable
+  colored metric tree printed to stdout; pass `--format text` to request
+  that default explicitly (for example to override a `bca.toml` that set
+  a structured format). The structured per-file serializers are `cbor`,
+  `csv`, `json`, `toml`, and `yaml`. `--output-format` is accepted as a
+  deprecated alias and will be removed in 2.0.
 - `-o, --output`: directory to save output files. Filenames mirror
   the input file plus the format extension. If omitted, results are
   printed to stdout. CBOR is binary and therefore requires `-o`.

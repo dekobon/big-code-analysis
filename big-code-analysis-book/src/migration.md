@@ -48,7 +48,7 @@ big-code-analysis-cli \
     --metrics \
     --paths "$PWD" \
     --output-format markdown \
-    --num-jobs $(nproc) \
+    --jobs $(nproc) \
     --top 20 \
     --strip-prefix "$PWD/"
 

@@ -137,7 +137,7 @@ to explicit per-metric limits.
 
 ## Zero-config: the `bca.toml` manifest
 
-Rather than thread `--paths`, `--exclude-from`, `--num-jobs`,
+Rather than thread `--paths`, `--exclude-from`, `--jobs`,
 `--config`, `--baseline`, and `--headroom` through every recipe,
 drop a `bca.toml` at the repo root and let `bca check` discover it:
 
@@ -196,7 +196,7 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   manifest's own directory, so a `bca.toml` above the current
   directory still points at the right files.
 - **Scalars and positive scope keys: CLI wins.** Any explicit
-  `--baseline`, `--headroom`, `--num-jobs`, etc. overrides the
+  `--baseline`, `--headroom`, `--jobs`, etc. overrides the
   corresponding manifest key, and the *positive scope* list keys
   (`paths`, `include`) are **replaced** by any explicit CLI value
   (`bca check one.rs` with manifest `paths = ["src"]` checks just
@@ -296,9 +296,9 @@ BCA_BASELINE      := .bca-baseline.toml
 BCA_HEADROOM      ?= 0.95
 
 # Common args, factored out so the four recipes stay in lockstep.
-# `--num-jobs` defaults to the OS-reported effective CPU count
+# `--jobs` defaults to the OS-reported effective CPU count
 # (cgroup-/cpuset-aware on Linux), so no `$(nproc)` plumbing is
-# needed. Override with `--num-jobs N` (or `--num-jobs 1` to force
+# needed. Override with `--jobs N` (or `--jobs 1` to force
 # serial mode for debugging).
 BCA_BASE_ARGS := --paths $(BCA_PATHS) --exclude-from $(BCA_EXCLUDE_FROM)
 
@@ -461,9 +461,9 @@ thresholds  := "thresholds.toml"
 baseline    := ".bca-baseline.toml"
 headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
 
-# `--num-jobs` defaults to the effective CPU count, so the skeleton
+# `--jobs` defaults to the effective CPU count, so the skeleton
 # no longer threads `$(nproc)` through `just`. Override
-# inline if needed: `just self-scan --num-jobs 1`.
+# inline if needed: `just self-scan --jobs 1`.
 base_args   := "--paths " + paths + " --exclude-from " + exclude
 
 self-scan:
@@ -488,10 +488,10 @@ self-scan-write-baseline-headroom:
 ## Skeleton: `package.json` scripts
 
 For JavaScript projects pulling in `bca` via `npx` or a pinned
-binary. `--num-jobs` defaults to the effective CPU count
+binary. `--jobs` defaults to the effective CPU count
 (cgroup-/cpuset-aware on Linux), so the npm tier no longer needs a
 `BCA_NUM_JOBS` env var to produce byte-identical `bca check`
-invocations as Make / `just`. Pass `--num-jobs 1` explicitly only
+invocations as Make / `just`. Pass `--jobs 1` explicitly only
 when debugging:
 
 ```json

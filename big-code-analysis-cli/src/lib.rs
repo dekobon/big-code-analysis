@@ -204,12 +204,14 @@ struct GlobalOpts {
     ///
     /// Defaults to the effective CPU count as reported by the OS
     /// (cgroup-quota- and cpuset-aware on Linux). Pass an explicit
-    /// integer or `auto` to override. `--num-jobs 1` forces serial
-    /// mode for debugging.
+    /// integer or `auto` to override. `--jobs 1` forces serial mode for
+    /// debugging. `--num-jobs` is kept as a hidden alias for one release
+    /// cycle (issue #604) and is slated for removal in the next major.
     #[clap(
-        long,
+        long = "jobs",
         short = 'j',
         global = true,
+        alias = "num-jobs",
         default_value = "auto",
         value_name = "N|auto"
     )]
@@ -219,8 +221,10 @@ struct GlobalOpts {
     /// extension (`rs`, `py`, …). An unrecognized value is a hard error.
     #[clap(long, short = 'l', global = true, alias = "language-type")]
     language: Option<String>,
-    /// Print warnings (skipped files, unrecognized languages).
-    #[clap(long, short, global = true)]
+    /// Print warnings (skipped files, unrecognized languages). `--warning`
+    /// (singular) is kept as a hidden alias for one release cycle (issue
+    /// #604) and is slated for removal in the next major.
+    #[clap(long = "warnings", short = 'w', global = true, alias = "warning")]
     warning: bool,
     /// Disable auto-skip of files marked as generated (e.g. `@generated`,
     /// `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI
@@ -354,9 +358,13 @@ enum Command {
 /// semantics (directory of per-file emissions; stdout if omitted).
 #[derive(Args, Debug)]
 struct StructuredArgs {
-    /// Output format. `--output-format` is accepted as a deprecated
-    /// alias (issue #513); it is hidden from help and slated for removal
-    /// in 2.0.
+    /// Output format. When omitted, the default `text` format prints a
+    /// human-readable colored metric tree to stdout; pass `--format text`
+    /// to request that default explicitly (e.g. to override a `bca.toml`
+    /// that set a structured format). `json` / `yaml` / `toml` / `cbor` /
+    /// `csv` emit structured per-file data. `--output-format` is accepted
+    /// as a deprecated alias (issue #513); it is hidden from help and
+    /// slated for removal in 2.0.
     #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     output_format: Option<MetricsFormat>,
     /// Output directory. Filenames mirror input paths plus the format
@@ -366,6 +374,19 @@ struct StructuredArgs {
     /// Pretty-print JSON / TOML output.
     #[clap(long)]
     pretty: bool,
+}
+
+impl StructuredArgs {
+    /// Collapse an explicit `--format text` to `None`, the historical
+    /// no-`--format` default (issue #604). `text` is a surface alias for
+    /// the human-readable tree, so every downstream guard and the
+    /// dispatch see the same shape whether the flag was `text` or absent,
+    /// keeping the two output paths byte-identical.
+    fn normalize_text_format(&mut self) {
+        if matches!(self.output_format, Some(MetricsFormat::Text)) {
+            self.output_format = None;
+        }
+    }
 }
 
 /// Risk-score formula selection for `bca vcs` (issue #328).

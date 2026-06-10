@@ -76,11 +76,11 @@ Run `bca <COMMAND> --help` for command-specific options.
 - `-p, --paths <FILE>...` — input files or directories.
 - `-I, --include <GLOB>` — include files matching pattern (repeatable).
 - `-X, --exclude <GLOB>` — exclude files matching pattern (repeatable).
-- `-j, --num-jobs <N>` — worker threads.
+- `-j, --jobs <N>` — worker threads (`--num-jobs` is a deprecated alias).
 - `-l, --language <LANG>` — force a language instead of inferring. Accepts
   a language name (`rust`) or extension (`rs`); unknown values error out.
-- `-w, --warning` — print warnings (skipped files, unrecognized
-  languages).
+- `-w, --warnings` — print warnings (skipped files, unrecognized
+  languages). `--warning` is a deprecated alias.
 - `--no-skip-generated` — disable auto-skip of files marked as generated
   (see [Skipping generated code](#skipping-generated-code)).
 - `--report-skipped` — log a `skipped (generated): <path>` line to stderr
@@ -122,7 +122,7 @@ bca --paths ./src metrics -O json -o ./out/
 Aggregated markdown quality report:
 
 ```sh
-bca --paths "$PWD" --num-jobs $(nproc) \
+bca --paths "$PWD" --jobs $(nproc) \
     report markdown --top 20 --strip-prefix "$PWD/"
 ```
 

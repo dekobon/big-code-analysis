@@ -10,12 +10,14 @@ Compute per\-file metrics and emit them in a structured format
 .SH OPTIONS
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<OUTPUT_FORMAT>\fR
-Output format. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
+Output format. When omitted, the default `text` format prints a human\-readable colored metric tree to stdout; pass `\-\-format text` to request that default explicitly (e.g. to override a `bca.toml` that set a structured format). `json` / `yaml` / `toml` / `cbor` / `csv` emit structured per\-file data. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
+.IP \(bu 2
+text: Human\-readable colored metric tree printed to stdout — the default when `\-\-format` is omitted (issue #604). Selecting it explicitly produces byte\-identical output to omitting the flag, so it is the way to request the default in a script or to override a `bca.toml` that set a structured format. Unlike the structured serializers it ignores `\-\-output` (it only ever streams to stdout)
 .IP \(bu 2
 cbor
 .IP \(bu 2
@@ -41,4 +43,4 @@ Also compute change\-history (VCS) metrics and attach a `vcs` block — plus a `
 Additionally attach a `vcs` block to every nested function / method / class space, via `git blame` of each file\*(Aqs surviving lines (issue #329). Implies `\-\-vcs`. The per\-function numbers are a current\-blame snapshot — `churn` is surviving\-line count, not the file\-level added+deleted churn — so they rank functions within a file but are not directly comparable to the file block. Costs one blame per file; skipped (with a warning) outside a git working tree
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)

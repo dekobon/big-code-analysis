@@ -30,6 +30,14 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
 pub(crate) enum MetricsFormat {
+    /// Human-readable colored metric tree printed to stdout — the
+    /// default when `--format` is omitted (issue #604). Selecting it
+    /// explicitly produces byte-identical output to omitting the flag,
+    /// so it is the way to request the default in a script or to
+    /// override a `bca.toml` that set a structured format. Unlike the
+    /// structured serializers it ignores `--output` (it only ever
+    /// streams to stdout).
+    Text,
     Cbor,
     Csv,
     Json,
@@ -155,7 +163,12 @@ impl MetricsFormat {
     pub(crate) fn dispatch(self) -> MetricsDispatch {
         match self {
             Self::Cbor => MetricsDispatch::Generic(GenericFormat::Cbor),
-            Self::Json => MetricsDispatch::Generic(GenericFormat::Json),
+            // `Text` is collapsed to `None` (the human-readable tree) by
+            // `StructuredArgs::normalize_text_format` before any dispatch,
+            // so it never reaches the structured writers; it shares the
+            // `Json` arm only to keep this match exhaustive without a
+            // banned `panic!`/`unreachable!`. The path is dead in practice.
+            Self::Json | Self::Text => MetricsDispatch::Generic(GenericFormat::Json),
             Self::Toml => MetricsDispatch::Generic(GenericFormat::Toml),
             Self::Yaml => MetricsDispatch::Generic(GenericFormat::Yaml),
             Self::Csv => MetricsDispatch::Csv,

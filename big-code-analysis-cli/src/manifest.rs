@@ -6,7 +6,7 @@
 //! `bca.toml` manifest discovery and merge (issue #374).
 //!
 //! Consolidates the flags every local-gate recipe used to thread
-//! through each invocation (`--paths`, `--exclude-from`, `--num-jobs`,
+//! through each invocation (`--paths`, `--exclude-from`, `--jobs`,
 //! `--config`, `--baseline`, `--headroom`) into one discoverable file
 //! at the repo root.
 //!

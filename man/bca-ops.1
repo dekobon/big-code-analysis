@@ -10,12 +10,14 @@ Extract per\-file operands and operators
 .SH OPTIONS
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<OUTPUT_FORMAT>\fR
-Output format. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
+Output format. When omitted, the default `text` format prints a human\-readable colored metric tree to stdout; pass `\-\-format text` to request that default explicitly (e.g. to override a `bca.toml` that set a structured format). `json` / `yaml` / `toml` / `cbor` / `csv` emit structured per\-file data. `\-\-output\-format` is accepted as a deprecated alias (issue #513); it is hidden from help and slated for removal in 2.0
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
+.IP \(bu 2
+text: Human\-readable colored metric tree printed to stdout — the default when `\-\-format` is omitted (issue #604). Selecting it explicitly produces byte\-identical output to omitting the flag, so it is the way to request the default in a script or to override a `bca.toml` that set a structured format. Unlike the structured serializers it ignores `\-\-output` (it only ever streams to stdout)
 .IP \(bu 2
 cbor
 .IP \(bu 2
@@ -35,4 +37,4 @@ Output directory. Filenames mirror input paths plus the format extension. Stdout
 Pretty\-print JSON / TOML output
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)

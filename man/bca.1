@@ -4,7 +4,7 @@
 .SH NAME
 bca \- Analyze source code.
 .SH SYNOPSIS
-\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-no\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-no\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Analyze source code.
 .SH OPTIONS
@@ -18,16 +18,16 @@ Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(A
 \fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
 Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
 .TP
-\fB\-j\fR, \fB\-\-num\-jobs\fR \fI<N|auto>\fR [default: auto]
+\fB\-j\fR, \fB\-\-jobs\fR \fI<N|auto>\fR [default: auto]
 Number of jobs.
 
-Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-num\-jobs 1` forces serial mode for debugging.
+Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major.
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
 .TP
-\fB\-w\fR, \fB\-\-warning\fR
-Print warnings (skipped files, unrecognized languages)
+\fB\-w\fR, \fB\-\-warnings\fR
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major
 .TP
 \fB\-\-no\-skip\-generated\fR
 Disable auto\-skip of files marked as generated (e.g. `@generated`, `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI skips such files so generated bindings do not skew metrics

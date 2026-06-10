@@ -1601,7 +1601,13 @@ fn run_command_metrics(
     args: MetricsArgs,
     preproc: Option<Arc<PreprocResults>>,
 ) {
-    let structured = args.structured;
+    let mut structured = args.structured;
+    // `--format text` (issue #604) is a surface alias for the historical
+    // no-`--format` default — the human-readable tree. Collapse it to
+    // `None` here so every downstream guard and the dispatch see the
+    // exact same shape as an omitted flag; the two paths are then
+    // byte-identical by construction.
+    structured.normalize_text_format();
     if matches!(structured.output_format, Some(MetricsFormat::Cbor)) && structured.output.is_none()
     {
         die(CBOR_STDOUT_ERROR);
@@ -1663,6 +1669,10 @@ fn run_command_ops(
     args: StructuredArgs,
     preproc: Option<Arc<PreprocResults>>,
 ) {
+    let mut args = args;
+    // `--format text` collapses to the default human-readable tree, exactly
+    // as an omitted `--format` does (issue #604).
+    args.normalize_text_format();
     if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
         die(CBOR_STDOUT_ERROR);
     }

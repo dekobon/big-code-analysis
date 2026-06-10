@@ -94,6 +94,74 @@ fn metrics_accepts_deprecated_output_format_alias() {
     );
 }
 
+// Issue #604 named the default human-readable tree `text` and listed it
+// in the `--format` value enum so it can be requested explicitly. At the
+// clap boundary `--format text` parses to `Some(Text)`; the command
+// runners then collapse it to `None` via `normalize_text_format`, so the
+// downstream dispatch is byte-identical to an omitted flag.
+#[test]
+fn metrics_accepts_text_format_value() {
+    assert_eq!(
+        metrics_output_format(&["metrics", "--format", "text"]),
+        Some(MetricsFormat::Text)
+    );
+}
+
+#[test]
+fn metrics_default_format_is_none() {
+    assert_eq!(metrics_output_format(&["metrics"]), None);
+}
+
+#[test]
+fn normalize_text_format_collapses_text_to_none() {
+    // `--format text` must select the same code path as no `--format`:
+    // `normalize_text_format` is the single place that guarantees it, so
+    // a structured value passes through untouched while `Text` becomes
+    // `None`.
+    let mut explicit_text = StructuredArgs {
+        output_format: Some(MetricsFormat::Text),
+        output: None,
+        pretty: false,
+    };
+    explicit_text.normalize_text_format();
+    assert_eq!(explicit_text.output_format, None);
+
+    let mut json = StructuredArgs {
+        output_format: Some(MetricsFormat::Json),
+        output: None,
+        pretty: false,
+    };
+    json.normalize_text_format();
+    assert_eq!(json.output_format, Some(MetricsFormat::Json));
+}
+
+// Issue #604 renamed `--num-jobs` -> `--jobs` and `--warning` ->
+// `--warnings`, keeping the old spellings as hidden aliases for one
+// release cycle. Inspect the parsed global fields so a regression that
+// drops either the new canonical long or the deprecated alias is caught.
+fn parsed_globals(argv: &[&str]) -> GlobalOpts {
+    parse(argv).expect("invocation parses").globals
+}
+
+#[test]
+fn jobs_canonical_and_alias_parse_identically() {
+    let canonical = parsed_globals(&["--jobs", "1", "metrics"]).num_jobs;
+    let alias = parsed_globals(&["--num-jobs", "1", "metrics"]).num_jobs;
+    let short = parsed_globals(&["-j", "1", "metrics"]).num_jobs;
+    let expected = NumJobs::Explicit(NonZeroUsize::new(1).expect("1 is non-zero"));
+    assert_eq!(canonical, expected);
+    assert_eq!(alias, expected);
+    assert_eq!(short, expected);
+}
+
+#[test]
+fn warnings_canonical_and_alias_parse_identically() {
+    assert!(parsed_globals(&["--warnings", "metrics"]).warning);
+    assert!(parsed_globals(&["--warning", "metrics"]).warning);
+    assert!(parsed_globals(&["-w", "metrics"]).warning);
+    assert!(!parsed_globals(&["metrics"]).warning);
+}
+
 // `--vcs` / `--vcs-per-function` (issues #328 / #329) are independent
 // boolean opt-ins on `metrics`; `run_command_metrics` treats
 // `--vcs-per-function` as implying `--vcs`. Inspect the parsed fields so
