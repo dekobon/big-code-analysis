@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit, nom)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // Markdown report section builders; the offenders are string-formatting-volume
 // and many-fn aggregation artifacts, not per-function logic complexity.
 

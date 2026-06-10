@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // Rust `cfg(...)` mini-parser; the offenders are many-fn aggregation
 // artifacts, not per-function logic complexity (cognitive/cyclomatic enforced).
 

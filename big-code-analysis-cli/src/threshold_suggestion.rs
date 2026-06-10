@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // Edit-distance "did you mean?" suggester; halstead is arithmetic volume and
 // the rest are many-fn aggregation artifacts. No cognitive/cyclomatic offender
 // here — those stay enforced.

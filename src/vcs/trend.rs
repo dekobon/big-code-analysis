@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // File-level halstead/nargs/exit are many-fn aggregation artifacts (the
 // Trend accessors + delta projection + validation, each with its own
 // early returns / `?`), not per-function logic complexity

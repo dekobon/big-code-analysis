@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit, nom)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // File-level halstead/nargs/exit/nom are many-fn aggregation artifacts
 // (the gix `?`-heavy open/resolve plumbing, the blame→bucket→finalize
 // pipeline, and the many short iterator closures it counts as functions),

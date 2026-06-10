@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // File-level halstead/nargs/exit are many-fn aggregation artifacts (the
 // DoA term assembly, the flat output DTOs, and the early-return guards
 // summed across a dozen small helpers — per-function nexits peaks at 2),

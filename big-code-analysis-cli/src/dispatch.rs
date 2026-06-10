@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // Per-subcommand dispatch fns; the offenders are many-fn / early-return
 // aggregation artifacts, not per-function logic complexity
 // (cognitive/cyclomatic stay enforced).

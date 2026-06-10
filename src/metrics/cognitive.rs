@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom, wmc)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom, wmc)
 // Per-language `compute` impls are flat `match node.kind()` dispatch and
 // the `Stats` serde impls are mechanical writers; these offenders are
 // arm-count / many-fn aggregation artifacts, not per-function logic

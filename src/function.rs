@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // Per-language function-span dispatch; the offenders are arm-count and
 // many-fn aggregation artifacts, not per-function logic complexity.
 

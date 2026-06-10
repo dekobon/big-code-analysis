@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // CLI command orchestration: top-level subcommand dispatch plus many
 // config-passing / scaffolding fns. The offenders are many-fn / arg-passing /
 // aggregation artifacts. (`run`'s cyclomatic — flat subcommand dispatch — is

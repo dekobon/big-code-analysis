@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom, wmc, abc)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom, wmc, abc)
 // Per-language Checker impls are flat node-kind `match` / `matches!`
 // predicates; the offenders are arm-count and many-fn aggregation
 // artifacts, not per-function logic complexity (cognitive stays enforced).

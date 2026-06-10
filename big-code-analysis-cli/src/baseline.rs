@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // Baseline TOML parse/serialize + entry-matching; the offenders are
 // parse-table volume, many-fn, and impl-aggregate artifacts, not
 // per-function logic complexity (cognitive/cyclomatic stay enforced).

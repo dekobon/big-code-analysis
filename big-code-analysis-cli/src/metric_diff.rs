@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit, nom)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // Mechanical per-metric struct diff (`from_sets` builds it field by field);
 // the offenders are many-fn / impl-aggregate artifacts, not per-function
 // logic complexity (cognitive/cyclomatic stay enforced).

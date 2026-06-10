@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit, nom)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // C/C++ macro-handling helpers (predefined-macro and raw-string handling);
 // the offenders are many-fn aggregation artifacts, not per-function logic
 // complexity (cognitive/cyclomatic stay enforced).

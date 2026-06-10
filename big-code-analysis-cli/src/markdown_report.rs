@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, nom, exit)
+// bca: suppress-file(halstead, loc, nargs, nom, nexits)
 // Markdown report templating; thin per-language orchestrators delegating to
 // small write_* helpers. File-level halstead/loc and summed nargs/nom/exit
 // are string-formatting-volume / many-fn aggregation artifacts (the large

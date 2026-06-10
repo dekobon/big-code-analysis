@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // CLI library glue (seed-path expansion, legacy-flag hints, walk wiring); the
 // offenders are static-table volume and many-fn aggregation artifacts, not
 // per-function logic complexity (cognitive/cyclomatic stay enforced).

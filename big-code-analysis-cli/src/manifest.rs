@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // bca.toml manifest load/merge; the offenders are many-fn / impl-aggregate
 // artifacts. (`merge_check`'s cyclomatic — flat field-by-field config merge —
 // is suppressed per-function below; cognitive stays enforced.)

@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom, wmc)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom, wmc)
 // Per-language Getter impls (`get_op_type`, `get_func_space_name`) are
 // flat `match node.kind()` dispatch tables; the offenders are arm-count
 // and many-fn aggregation artifacts, not per-function logic complexity.

@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // FuncSpace construction helpers plus the `CodeMetrics` serde / `Display`
 // impls; the offenders are mechanical-writer and many-fn aggregation
 // artifacts, not per-function logic complexity (cognitive/cyclomatic enforced).

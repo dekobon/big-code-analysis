@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // The suppression scanner itself plus its extensive in-module tests; the
 // offenders are many-fn and test-volume aggregation artifacts, not
 // per-function logic complexity (cognitive/cyclomatic stay enforced).

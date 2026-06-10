@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // Terminal dump serializer; the offenders are mechanical-writer aggregation
 // artifacts, not per-function logic complexity.
 

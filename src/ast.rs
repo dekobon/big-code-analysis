@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // Per-language AST-builder dispatch plus the `AstNode` serde derive; the
 // offenders are arm-count / many-fn aggregation artifacts, not per-function
 // logic complexity.

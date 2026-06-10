@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit)
+// bca: suppress-file(halstead, nargs, nexits)
 // `bca diff` tree materialization + diffing; the offenders are many-fn /
 // early-return aggregation artifacts, not per-function logic complexity.
 

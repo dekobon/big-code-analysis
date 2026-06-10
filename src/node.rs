@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit, nom, wmc)
+// bca: suppress-file(halstead, nargs, nexits, nom, wmc)
 // AST `Node` wrapper plus per-language node-kind dispatch helpers; the
 // offenders are arm-count and many-fn aggregation artifacts, not
 // per-function logic complexity.

@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, exit)
+// bca: suppress-file(halstead, nexits)
 // Checkstyle XML serializer; file-level halstead and the serializer `nexits`
 // are mechanical-writer aggregation artifacts, not logic complexity.
 

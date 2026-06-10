@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // SARIF rendering for the Python bindings; file-level halstead/loc and summed
 // nargs/exit/nom are mechanical-writer / many-fn aggregation artifacts.
 // cognitive is deliberately NOT suppressed — `collect_offenders`'s nested

@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, exit, nom)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // File-level halstead/nargs/exit/nom are many-fn aggregation artifacts
 // (the options-builder + rank/emit/CSV plumbing), not per-function
 // logic complexity (cognitive/cyclomatic stay enforced).
