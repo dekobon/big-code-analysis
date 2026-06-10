@@ -343,8 +343,18 @@ diff --git a/docs/b.md b/docs/b.md
     let json = serde_json::to_value(&report).expect("serialize diff report");
     let obj = json.as_object().expect("object");
     assert_eq!(obj["source"], "diff");
-    // The whole point: the unavailable groups have no key at all.
-    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
+    // The whole point: the unavailable groups have no key at all. The
+    // pre-#591 `partial_score` name is listed too, so the rename to
+    // `partial_risk_score` is pinned (a serializer emitting the old key
+    // alongside the new one would fail here, not silently pass).
+    for absent in [
+        "history",
+        "experience",
+        "purpose",
+        "commit",
+        "risk_score",
+        "partial_score",
+    ] {
         assert!(
             !obj.contains_key(absent),
             "diff report must omit `{absent}` (would be misread as a real value)"

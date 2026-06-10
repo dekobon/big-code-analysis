@@ -471,7 +471,16 @@ diff --git a/docs/b.md b/docs/b.md
     let json = serde_json::to_value(&report).expect("serialize");
     let obj = json.as_object().expect("object");
     assert_eq!(obj["source"], "diff");
-    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
+    // `partial_score` is the pre-#591 name for `partial_risk_score`; listing
+    // it here pins the rename so a serializer emitting both keys fails.
+    for absent in [
+        "history",
+        "experience",
+        "purpose",
+        "commit",
+        "risk_score",
+        "partial_score",
+    ] {
         assert!(
             !obj.contains_key(absent),
             "diff report must not carry `{absent}` (would be misread as a real value)"

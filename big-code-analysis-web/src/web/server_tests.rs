@@ -1990,6 +1990,20 @@ async fn test_web_v1_index_lists_every_registered_route() {
                 "advertised route {method} {} must be registered",
                 entry.path,
             );
+            // The index also promises which methods a route honors. Every
+            // registered resource carries a 405 fallback for methods it does
+            // NOT accept (`guarded_post_fallback` / `get_only_method_not_allowed`),
+            // so an advertised method that the resource rejects answers 405.
+            // Asserting `!= 405` here makes a wrong `methods` entry in `ROUTES`
+            // fail (e.g. advertising GET for a POST-only route): without this
+            // the `!= 404` check alone passed for any method, since the
+            // fallback's 405/415 is also not a 404.
+            assert_ne!(
+                resp.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "advertised method {method} on {} must be honored, not 405",
+                entry.path,
+            );
         }
     }
 }
@@ -2823,7 +2837,16 @@ async fn test_web_vcs_jit_diff_mode_partial_report() {
     assert!(body["partial_risk_score"].is_number());
     assert_eq!(body["size"]["lines_added"], 2);
     let obj = body.as_object().expect("object");
-    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
+    // `partial_score` is the pre-#591 name for `partial_risk_score`; listing
+    // it pins the rename so a serializer emitting both keys fails here.
+    for absent in [
+        "history",
+        "experience",
+        "purpose",
+        "commit",
+        "risk_score",
+        "partial_score",
+    ] {
         assert!(
             !obj.contains_key(absent),
             "diff report must omit `{absent}`"
