@@ -197,7 +197,7 @@ fn default_aggregate_index(globals: &GlobalOpts) -> Option<vcs::HistoryIndex> {
     match build_history_index_cached(&resolve_root(globals), &options, &CacheConfig::default()) {
         Ok(index) => Some(index),
         Err(e) => {
-            eprintln!("warning: --vcs: {e}; change-history metrics omitted");
+            warn_vcs_unavailable(&e);
             None
         }
     }
@@ -580,10 +580,18 @@ pub(crate) fn default_index(globals: &GlobalOpts) -> Option<Arc<vcs::HistoryInde
     ) {
         Ok(index) => Some(Arc::new(index)),
         Err(e) => {
-            eprintln!("warning: --vcs: {e}; change-history metrics omitted");
+            warn_vcs_unavailable(&e);
             None
         }
     }
+}
+
+/// One-line stderr notice for the additive `--vcs` opt-in when the
+/// change-history index cannot be built; shared by both index builders
+/// so the wording cannot drift between `report --vcs` and
+/// `metrics --vcs`.
+fn warn_vcs_unavailable(e: &vcs::Error) {
+    eprintln!("warning: --vcs: {e}; change-history metrics omitted");
 }
 
 /// Resolve the repository-discovery seed to a directory: `gix::discover`

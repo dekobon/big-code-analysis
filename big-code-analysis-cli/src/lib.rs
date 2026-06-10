@@ -101,9 +101,21 @@ use big_code_analysis::{get_from_ext, read_file};
 pub(crate) const FEATURES_PINNED: &str =
     "CLI pins big-code-analysis features = [\"all-languages\"]";
 
+/// Process exit code for tool errors — bad flags/values, unreadable
+/// input, I/O failures. Distinct from [`EXIT_GATE_BREACH`] so CI can
+/// tell a broken invocation from a failed metric gate (#594); the full
+/// contract lives in the book's commands chapter.
+pub(crate) const EXIT_TOOL_ERROR: i32 = 1;
+
+/// Process exit code for a metric-gate breach: `check` threshold
+/// violations (the stable contract; the tiered 3-5 variants under
+/// `--strict-exit-codes` are derived in the check outcome) and
+/// `vcs jit --fail-over`.
+pub(crate) const EXIT_GATE_BREACH: i32 = 2;
+
 fn die(msg: impl Display) -> ! {
     eprintln!("Error: {msg}");
-    process::exit(1);
+    process::exit(EXIT_TOOL_ERROR);
 }
 
 /// Die with `failed to <verb> <path>: <err>`. Centralizes the most common

@@ -27,7 +27,7 @@ use crate::html_report::{
     Headings, RankedColumn, write_html_head, write_html_tail, write_legend_html,
     write_table_classed_with_tooltips as write_html_table_classed, write_table_with_tooltips,
 };
-use crate::markdown_report::hotspot::Cell;
+use crate::markdown_report::hotspot::{self, Cell};
 use crate::markdown_report::{
     Align, render_cell_md, thousands, write_legend as write_md_legend,
     write_table as write_md_table,
@@ -445,25 +445,12 @@ fn bus_factor_tooltips() -> [Option<&'static str>; 3] {
 /// Markdown legend draw from this so a column's definition renders
 /// identically in the `title=` tooltip and the legend (issue #611).
 fn legend_entries(specs: &[&VcsColumn]) -> Vec<(&'static str, &'static str)> {
-    let mut entries: Vec<(&'static str, &'static str)> = Vec::new();
-    for col in specs {
-        if let Some(tip) = col.tooltip
-            && !entries.iter().any(|(h, _)| *h == col.header)
-        {
-            entries.push((col.header, tip));
-        }
-    }
-    // Document the bus-factor columns too, since they render in the same
-    // page but live outside `VCS_SPECS`.
-    for (h, tip) in [
-        ("Bus factor", BUS_FACTOR_TOOLTIP),
-        ("Files", BUS_FACTOR_FILES_TOOLTIP),
-    ] {
-        if !entries.iter().any(|(eh, _)| *eh == h) {
-            entries.push((h, tip));
-        }
-    }
-    entries
+    // The bus-factor columns render in the same page but live outside
+    // `VCS_SPECS`, so chain them onto the spec-driven pairs.
+    hotspot::dedup_legend(specs.iter().map(|col| (col.header, col.tooltip)).chain([
+        ("Bus factor", Some(BUS_FACTOR_TOOLTIP)),
+        ("Files", Some(BUS_FACTOR_FILES_TOOLTIP)),
+    ]))
 }
 
 /// Tooltips for the ranked-file table, by column index (from the active
@@ -836,6 +823,29 @@ mod tests {
         // escaping), proving each format escapes for its own target.
         assert!(html.contains("docs/with|pipe.md"));
         insta::assert_snapshot!("vcs_report_html_rich", html);
+    }
+
+    /// `risk_column_index()` indexes the FULL `VCS_SPECS`, but the
+    /// renderers consume the `active_specs()` view, which may omit the
+    /// Hotspot column. That index math is sound only while Risk
+    /// precedes Hotspot — the omission then never shifts Risk's
+    /// position — so pin the ordering before anyone reorders the specs.
+    #[test]
+    fn risk_precedes_hotspot_so_omission_never_shifts_risk_index() {
+        let risk = VCS_SPECS
+            .iter()
+            .position(|c| c.header == RISK_COLUMN_HEADER)
+            .expect("Risk column in VCS_SPECS");
+        let hotspot = VCS_SPECS
+            .iter()
+            .position(|c| c.header == HOTSPOT_HEADER)
+            .expect("Hotspot column in VCS_SPECS");
+        assert!(
+            risk < hotspot,
+            "Risk (idx {risk}) must precede the omittable Hotspot column \
+             (idx {hotspot}); risk_column_index() is used against the \
+             active_specs() view and relies on it"
+        );
     }
 
     #[test]

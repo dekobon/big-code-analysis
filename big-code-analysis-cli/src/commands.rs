@@ -1537,12 +1537,11 @@ fn parse_cli_with_legacy_hint() -> (Cli, bool) {
 /// they must keep exiting 0. Those paths delegate to clap's own
 /// `Error::exit`.
 fn exit_clap_error(err: &clap::Error) -> ! {
-    // Tool-error exit code for argv/usage failures, kept in lockstep
-    // with `die`'s exit 1 so the contract reads "1 = tool error".
-    const USAGE_ERROR_EXIT_CODE: i32 = 1;
     if err.use_stderr() {
         let _ = err.print();
-        process::exit(USAGE_ERROR_EXIT_CODE);
+        // Argv/usage failures share `die`'s tool-error code so the
+        // contract reads "1 = tool error".
+        process::exit(crate::EXIT_TOOL_ERROR);
     }
     // Help / version: stdout, exit 0 — clap's default is already correct.
     err.exit();

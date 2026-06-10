@@ -527,14 +527,28 @@ pub(crate) const ACTIONABLE_SUMMARY_INDEX: usize = 6;
 /// renders identically in both the `title=` tooltip and the legend (issue
 /// #611).
 pub(crate) fn legend_entries() -> Vec<(&'static str, &'static str)> {
+    dedup_legend(
+        SPECS
+            .iter()
+            .flat_map(|spec| spec.columns.iter())
+            .map(|col| (col.header, col.tooltip)),
+    )
+}
+
+/// Collect `(header, tooltip)` legend entries from `pairs`, keeping the
+/// first tooltip seen per header and skipping tooltip-less (identity)
+/// columns. Shared by this module's [`legend_entries`] and the VCS
+/// report's legend so the dedup semantics cannot drift between the two
+/// page families.
+pub(crate) fn dedup_legend(
+    pairs: impl Iterator<Item = (&'static str, Option<&'static str>)>,
+) -> Vec<(&'static str, &'static str)> {
     let mut entries: Vec<(&'static str, &'static str)> = Vec::new();
-    for spec in SPECS {
-        for col in spec.columns {
-            if let Some(tip) = col.tooltip
-                && !entries.iter().any(|(h, _)| *h == col.header)
-            {
-                entries.push((col.header, tip));
-            }
+    for (header, tooltip) in pairs {
+        if let Some(tip) = tooltip
+            && !entries.iter().any(|(h, _)| *h == header)
+        {
+            entries.push((header, tip));
         }
     }
     entries

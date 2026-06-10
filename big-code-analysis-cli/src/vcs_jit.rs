@@ -74,7 +74,7 @@ fn run_commit(root: &Path, args: &VcsArgs, jit: &JitArgs) {
             "vcs jit: score {:.4} >= fail-over threshold {threshold:.4} for {}",
             report.risk_score, report.commit.id
         );
-        process::exit(2);
+        process::exit(crate::EXIT_GATE_BREACH);
     }
 }
 
@@ -96,7 +96,7 @@ fn run_diff(source: &Path, jit: &JitArgs) {
             "vcs jit: partial diff score {:.4} >= fail-over threshold {threshold:.4}",
             report.partial_risk_score
         );
-        process::exit(2);
+        process::exit(crate::EXIT_GATE_BREACH);
     }
 }
 
