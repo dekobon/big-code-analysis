@@ -6,6 +6,7 @@
   "reportMissingTypeStubs": "error",
   "reportMissingImports": "error",
   "useLibraryCodeForTypes": true,
+  "reportTypedDictNotRequiredAccess": "none",
   "venvPath": ".",
   "venv": ".venv"
 }

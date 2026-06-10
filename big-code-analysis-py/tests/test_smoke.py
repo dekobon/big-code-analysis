@@ -16,9 +16,8 @@ import os
 import subprocess
 import sys
 import tomllib
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import big_code_analysis as bca
 import pytest
@@ -224,19 +223,10 @@ def test_analyze_skip_generated_false_parses_generated_file() -> None:
     assert result is not None, "skip_generated=False must yield a dict"
     assert result["kind"] == "unit"
     # The fixture defines `pub fn generated()`; with the marker check
-    # bypassed, the parser sees it and emits a child FuncSpace.
-    spaces: list[Any] = result["spaces"]
-    # Match _flatten.py's defensive `isinstance(child, Mapping)` guard
-    # rather than a tighter `isinstance(s, dict)` — if a future PyO3
-    # change emits e.g. MappingProxyType instead of dict, the test
-    # should still observe the children rather than silently dropping
-    # them. The pyright ignore acknowledges that the PyO3-returned
-    # mapping's value type is genuinely Any.
-    inner_names: set[Any] = {
-        s.get("name")  # pyright: ignore[reportUnknownMemberType]
-        for s in spaces
-        if isinstance(s, Mapping)
-    }
+    # bypassed, the parser sees it and emits a child FuncSpace. The
+    # `spaces` / `name` access is now statically typed via FuncSpaceDict
+    # (#623) — no cast or `pyright: ignore` needed.
+    inner_names = {s["name"] for s in result["spaces"]}
     assert "generated" in inner_names, (
         f"expected `generated` fn in spaces, got names {inner_names!r}"
     )
@@ -587,7 +577,12 @@ def test_analyze_allow_lossy_path_mirrors_cli_substitution(
     bogus.write_bytes(b"fn main() {}\n")
     result = bca.analyze(bogus, allow_lossy_path=True)
     assert result is not None
-    assert "�" in result["name"], f"expected U+FFFD substitution in name, got {result['name']!r}"
+    # `name` is now typed `str | None` via FuncSpaceDict (#623); a
+    # path-derived name is always present, so pin that before the
+    # substring check rather than indexing into an Optional.
+    name = result["name"]
+    assert name is not None
+    assert "�" in name, f"expected U+FFFD substitution in name, got {name!r}"
     # Sanity: the file still analysed; lossy mode is a name-rendering
     # toggle, not a parser flag.
     assert result["kind"] == "unit"
@@ -627,11 +622,9 @@ def test_analyze_source_returns_dict_with_expected_keys() -> None:
         f"expected dict for metrics, got {type(result['metrics']).__name__}: {result['metrics']!r}"
     )
     assert result["metrics"], f"expected populated metric table, got {result['metrics']!r}"
-    # ``result["metrics"]`` is ``dict[str, Any]`` from the bindings;
-    # pyright sees it as ``dict[Unknown, Unknown]`` after the index
-    # access. The cast acknowledges the same erasure the previous
-    # block flagged.
-    metrics_dict = cast("dict[str, Any]", result["metrics"])
+    # ``result["metrics"]`` is now typed ``CodeMetricsDict`` (#623), so no
+    # cast is needed to inspect it.
+    metrics_dict = result["metrics"]
     metric_keys: list[str] = list(metrics_dict)
     # Spot-check one canonical metric that every language emits — guards
     # against a future regression where `metrics` carries unrelated keys.

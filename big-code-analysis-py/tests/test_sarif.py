@@ -22,10 +22,11 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import big_code_analysis as bca
 import pytest
+from big_code_analysis import FuncSpaceDict
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -158,7 +159,7 @@ def test_to_sarif_consumes_generator_exactly_once() -> None:
     still load-bearing one: the generator's elements are visited the
     expected number of times.
     """
-    consumed: list[dict[str, Any]] = []
+    consumed: list[FuncSpaceDict] = []
 
     def gen() -> Any:
         for code in ("def a(): pass\n", "def b(): pass\n"):
@@ -553,10 +554,16 @@ def _fake_function_dict(
     start_line: int = 1,
     end_line: int = 5,
     cyclomatic_sum: Any = 5.0,
-) -> dict[str, Any]:
+) -> FuncSpaceDict:
     """Hand-construct a FuncSpace-shaped dict for adversarial input
-    tests that cannot be reached through ``analyze_source``."""
-    return {
+    tests that cannot be reached through ``analyze_source``.
+
+    The deliberately-malformed metric values (e.g. ``bool`` / ``float``
+    where the wire shape is ``int``) are the point of these tests, so the
+    builder is ``cast`` to :class:`FuncSpaceDict` — the static shape
+    :func:`to_sarif` now expects (#623) — rather than re-deriving a
+    looser parameter type that would weaken every other call site."""
+    fake: dict[str, Any] = {
         "name": name,
         "kind": kind,
         "start_line": start_line,
@@ -572,6 +579,7 @@ def _fake_function_dict(
             },
         },
     }
+    return cast("FuncSpaceDict", fake)
 
 
 @pytest.mark.parametrize(
@@ -602,7 +610,10 @@ def test_to_sarif_rejects_bool_metric_value(metric_name: str, json_path: tuple[s
         cursor[key] = {}
         cursor = cursor[key]
     cursor[json_path[-1]] = True
-    fake["metrics"] = metrics
+    # `fake` is typed FuncSpaceDict (#623); the adversarial metrics block
+    # is deliberately the wrong shape, so write it through a plain-dict
+    # view rather than against the CodeMetricsDict key type.
+    cast("dict[str, Any]", fake)["metrics"] = metrics
 
     parsed = _parse(bca.to_sarif(fake, thresholds={metric_name: 0}))
     assert parsed["runs"][0]["results"] == [], (
@@ -821,7 +832,7 @@ def test_to_sarif_skip_at_unit_metric_not_emitted_at_unit_space() -> None:
             }
         ],
     }
-    parsed = _parse(bca.to_sarif(unit, thresholds={"cognitive": 10}))
+    parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", unit), thresholds={"cognitive": 10}))
     findings = parsed["runs"][0]["results"]
     fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
     assert fq_names == ["f"], (
@@ -861,7 +872,7 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
             }
         ],
     }
-    parsed = _parse(bca.to_sarif(unit, thresholds={"cyclomatic": 3}))
+    parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", unit), thresholds={"cyclomatic": 3}))
     findings = parsed["runs"][0]["results"]
     assert len(findings) == 1
     loc = findings[0]["locations"][0]

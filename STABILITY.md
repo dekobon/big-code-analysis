@@ -876,6 +876,24 @@ stub shape (function signatures, the `error_kind` `Literal`, the
 `Lang` / `MetricName` enums) is covered by the same shape contract
 as the library: additive in minor bumps, breaking only at a major.
 
+The analysis-result wire shape is also expressed as exported
+`TypedDict`s (#623): `analyze` / `analyze_source` return
+`FuncSpaceDict | None` / `FuncSpaceDict`, `analyze_batch` returns
+`list[FuncSpaceDict | AnalysisError]`, and the nested metric blocks
+(`CodeMetricsDict`, `LocDict`, `HalsteadDict`, `VcsDict`, …) are
+re-exported from the package. Like the enums, these are **generated**
+from the `big_code_analysis::wire` structs (`src/wire.rs`, the single
+source of the serialized shape) by a checked-in generator with a
+drift-gate test, so the Python types cannot diverge from the JSON the
+CLI emits. The change is stub-only — the runtime values are plain
+dicts, byte-identical to the CLI output — so it only narrows the
+static type. Every metric block is `NotRequired` because a `metrics=`
+selection can elide blocks; under the default full suite every block
+is present. The VCS *report* dicts (`vcs_metrics` / `vcs_trend` /
+`vcs_jit` returns) remain `dict[str, Any]`: their shapes are assembled
+outside `wire.rs` and are not single-sourced. The same additive /
+major-only shape contract applies.
+
 [strenum]: https://docs.python.org/3/library/enum.html#enum.StrEnum
 [pep561]: https://peps.python.org/pep-0561/
 

@@ -12,19 +12,19 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 import big_code_analysis as bca
+from big_code_analysis import FuncSpaceDict
 
 
-async def analyze_async(path: Path) -> dict[str, Any] | None:
+async def analyze_async(path: Path) -> FuncSpaceDict | None:
     """Run ``bca.analyze(path)`` on the default thread executor."""
     return await asyncio.to_thread(bca.analyze, str(path))
 
 
 async def analyze_all(
     paths: Iterable[Path],
-) -> list[dict[str, Any] | BaseException | None]:
+) -> list[FuncSpaceDict | BaseException | None]:
     """Fan ``analyze_async`` out across ``paths`` with ``asyncio.gather``.
 
     ``return_exceptions=True`` matters here: ``bca.analyze`` runs

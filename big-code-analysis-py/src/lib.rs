@@ -31,6 +31,12 @@ mod codegen;
 mod conversion;
 mod language;
 mod sarif;
+// `types_codegen` renders and drift-checks the generated `_types.py`
+// (#623). Like `codegen`, it is exercised only from the test harness, so
+// gating it on `cfg(test)` keeps the shipped cdylib free of unused-code
+// warnings.
+#[cfg(test)]
+mod types_codegen;
 mod vcs;
 
 use std::path::PathBuf;

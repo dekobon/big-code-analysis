@@ -28,6 +28,7 @@ from typing import Any, cast
 
 import big_code_analysis as bca
 import pytest
+from big_code_analysis import FuncSpaceDict
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -181,7 +182,7 @@ def test_async_patterns(monkeypatch: pytest.MonkeyPatch) -> None:
     seen_threads: set[int] = set()
     original_analyze = bca.analyze
 
-    def _recording(*args: Any, **kwargs: Any) -> dict[str, Any] | None:
+    def _recording(*args: Any, **kwargs: Any) -> FuncSpaceDict | None:
         seen_threads.add(threading.get_ident())
         return original_analyze(*args, **kwargs)
 
@@ -373,13 +374,9 @@ def test_cli_parity_byte_only_divergence_raises(
         # is rebuilt), but byte-divergent vs the CLI's serde-fixed-
         # order output. One nested level is enough to fire the
         # byte-match guard — no recursion required.
-        metrics_value = truth.get("metrics")
-        if not isinstance(metrics_value, dict):
-            pytest.fail(
-                "fixture's metrics value is not a dict; the test "
-                "needs a different byte-divergence injection point"
-            )
-        metrics = cast("dict[str, Any]", metrics_value)
+        # `truth["metrics"]` is a CodeMetricsDict (#623) — always a dict,
+        # so no isinstance guard is needed.
+        metrics = cast("dict[str, Any]", truth["metrics"])
         reversed_metrics: dict[str, Any] = dict(reversed(list(metrics.items())))
         return {**truth, "metrics": reversed_metrics}
 

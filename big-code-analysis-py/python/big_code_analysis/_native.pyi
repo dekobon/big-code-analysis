@@ -16,6 +16,8 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any, Literal
 
+from ._types import FuncSpaceDict
+
 __version__: str
 
 #: Canonical metric names accepted by the ``metrics=`` kwarg on
@@ -174,7 +176,7 @@ def analyze(
     metrics: Sequence[str] | None = None,
     vcs: bool = False,
     vcs_per_function: bool = False,
-) -> dict[str, Any] | None:
+) -> FuncSpaceDict | None:
     """Compute metrics for the file at ``path``.
 
     Returns a ``dict`` matching the JSON emitted by ``bca metrics
@@ -488,7 +490,7 @@ def analyze_source(
     *,
     exclude_tests: bool = False,
     metrics: Sequence[str] | None = None,
-) -> dict[str, Any]:
+) -> FuncSpaceDict:
     """Compute metrics for an in-memory source buffer.
 
     ``language`` is a name returned by :func:`supported_languages`
@@ -526,7 +528,7 @@ def analyze_batch(
     allow_lossy_path: bool = False,
     skip_generated: bool = True,
     metrics: Sequence[str] | None = None,
-) -> list[dict[str, Any] | AnalysisError]:
+) -> list[FuncSpaceDict | AnalysisError]:
     """Compute metrics for every path in ``paths``.
 
     Returns a list whose elements preserve the input order, so
@@ -641,7 +643,9 @@ def language_extensions(language: str, /) -> list[str]:
     """
 
 def to_sarif(
-    result: dict[str, Any] | None | Iterable[dict[str, Any] | AnalysisError | None],
+    result: FuncSpaceDict
+    | None
+    | Iterable[FuncSpaceDict | AnalysisError | None],
     /,
     *,
     thresholds: dict[str, float] | None = None,

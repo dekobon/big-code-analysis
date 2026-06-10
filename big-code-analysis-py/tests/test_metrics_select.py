@@ -30,11 +30,12 @@ from typing import Any
 
 import big_code_analysis as bca
 import pytest
+from big_code_analysis import FuncSpaceDict
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _metrics_keys(result: dict[str, Any]) -> set[str]:
+def _metrics_keys(result: FuncSpaceDict) -> set[str]:
     """Return the set of metric-family keys on the top-level FuncSpace."""
     return set(result["metrics"].keys())
 

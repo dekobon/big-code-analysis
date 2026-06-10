@@ -10,9 +10,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
 
 import big_code_analysis as bca
+from big_code_analysis import FuncSpaceDict
 
 
 def run(paths: Iterable[Path]) -> dict[str, int]:
@@ -38,7 +38,7 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
     return {"ok": ok, "errors": errors, "total": len(materialised)}
 
 
-def run_parallel(paths: Iterable[Path], *, workers: int = 4) -> list[dict[str, Any] | None]:
+def run_parallel(paths: Iterable[Path], *, workers: int = 4) -> list[FuncSpaceDict | None]:
     """Fan ``analyze`` out across a thread pool.
 
     PyO3 releases the GIL across each file's read + parse, so a
@@ -46,7 +46,7 @@ def run_parallel(paths: Iterable[Path], *, workers: int = 4) -> list[dict[str, A
     you need per-file exceptions instead of ``AnalysisError`` slots.
     """
 
-    def _analyze(p: Path) -> dict[str, Any] | None:
+    def _analyze(p: Path) -> FuncSpaceDict | None:
         return bca.analyze(str(p))
 
     with ThreadPoolExecutor(max_workers=workers) as pool:

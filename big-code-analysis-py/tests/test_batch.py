@@ -567,11 +567,10 @@ def test_exclude_tests_kwarg_is_effective(tmp_path: Path) -> None:
     assert isinstance(with_tests, dict)
     assert isinstance(without_tests, dict)
 
-    # `with_tests["spaces"]` is `Any` (the analyze dict shape), so name
-    # the inner sequences explicitly to keep pyright's strict mode from
-    # flagging an unknown `len` argument.
-    with_spaces: list[object] = with_tests["spaces"]
-    without_spaces: list[object] = without_tests["spaces"]
+    # `with_tests["spaces"]` is `list[FuncSpaceDict]` (#623); the
+    # isinstance guards above narrow the batch entries off AnalysisError.
+    with_spaces = with_tests["spaces"]
+    without_spaces = without_tests["spaces"]
     assert len(without_spaces) < len(with_spaces), (
         "exclude_tests=True must drop the #[test] function space"
     )

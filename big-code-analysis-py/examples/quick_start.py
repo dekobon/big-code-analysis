@@ -10,12 +10,12 @@ into sync.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import big_code_analysis as bca
+from big_code_analysis import FuncSpaceDict
 
 
-def run(path: Path) -> dict[str, Any]:
+def run(path: Path) -> FuncSpaceDict:
     """Analyse ``path`` and return its metric dict."""
     result = bca.analyze(path)
     if result is None:

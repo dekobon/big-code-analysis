@@ -9,12 +9,12 @@ canonical names, the auto-pulled dependencies for derived metrics
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import big_code_analysis as bca
+from big_code_analysis import FuncSpaceDict
 
 
-def run(path: Path) -> dict[str, Any]:
+def run(path: Path) -> FuncSpaceDict:
     """Compute only LoC + cyclomatic for ``path`` and return the result.
 
     ``bca.METRIC_NAMES`` is a ``tuple[str, ...]`` of every canonical
@@ -35,7 +35,7 @@ def run(path: Path) -> dict[str, Any]:
     return selected
 
 
-def run_derived(path: Path) -> dict[str, Any]:
+def run_derived(path: Path) -> FuncSpaceDict:
     """Selecting ``mi`` auto-pulls in its three dependencies."""
     selected = bca.analyze(path, metrics=["mi"])
     if selected is None:

@@ -12,10 +12,11 @@ import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import big_code_analysis as bca
 import pytest
+from big_code_analysis import FuncSpaceDict
 
 
 def _build_repo(root: Path) -> Path:
@@ -81,7 +82,11 @@ def test_analyze_vcs_true_attaches_block(tmp_path: Path) -> None:
     vcs = result["metrics"]["vcs"]
     assert vcs["commits_long"] == 1
     # hotspot = cyclomatic_sum x churn_recent; both positive here.
-    assert vcs["hotspot_score"] > 0.0
+    # `hotspot_score` is NotRequired float | None (#623): present and
+    # finite when cyclomatic was computed alongside, as it is here.
+    hotspot = vcs["hotspot_score"]
+    assert hotspot is not None
+    assert hotspot > 0.0
 
 
 def test_analyze_without_vcs_has_no_block(tmp_path: Path) -> None:
@@ -158,10 +163,10 @@ def _build_multifn_repo(root: Path) -> Path:
     return root
 
 
-def _func_spaces(result: dict[str, Any]) -> list[dict[str, Any]]:
+def _func_spaces(result: FuncSpaceDict) -> list[FuncSpaceDict]:
     """Flatten every nested function space (the root file space excluded)."""
-    out: list[dict[str, Any]] = []
-    stack = list(result.get("spaces", []))
+    out: list[FuncSpaceDict] = []
+    stack: list[FuncSpaceDict] = list(result.get("spaces", []))
     while stack:
         space = stack.pop()
         out.append(space)
@@ -244,13 +249,17 @@ def test_analyze_vcs_per_function_matches_file_level_block(tmp_path: Path) -> No
 
     spaces = _func_spaces(per_fn)
     assert len(spaces) == 2
+    # The field-name comparison below indexes by a loop variable, which a
+    # TypedDict rejects (literal-required keys). Cast to plain mappings for
+    # the dynamic-key reads — the VcsDict shape is asserted elsewhere.
+    file_block_map = cast("dict[str, Any]", file_block)
     for space in spaces:
-        block = space["metrics"]["vcs"]
+        block = cast("dict[str, Any]", space["metrics"]["vcs"])
         # Every required key the file-level block carries is present.
-        assert set(file_block).issubset(block.keys()), set(file_block) - block.keys()
+        assert set(file_block_map).issubset(block.keys()), set(file_block_map) - block.keys()
         # Value-level agreement on the fields that must match.
         for field in _SHARED_VCS_FIELDS:
-            assert block[field] == file_block[field], field
+            assert block[field] == file_block_map[field], field
 
 
 def test_analyze_without_vcs_per_function_has_no_nested_block(
