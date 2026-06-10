@@ -2802,10 +2802,13 @@ async fn test_web_vcs_jit_wrong_content_type_yields_415() {
 // --- Extractor / body-limit error paths must also return `{error, id}` ---
 //
 // Regression coverage for #639: actix extractor failures (malformed JSON,
-// missing field, missing query param), body-size rejections (413 on both
-// the JSON and octet-stream paths), and a transport read error previously
-// bypassed the published `{error, id}` JSON contract by emitting actix's
-// default `text/plain` / HTML bodies. Each test below builds the app via
+// missing field, missing query param) and body-size rejections (413 on
+// both the JSON and octet-stream paths) previously bypassed the published
+// `{error, id}` JSON contract by emitting actix's default `text/plain` /
+// HTML bodies. (The transport-read-error arm of `BodyError` shares the
+// same `{error, id}` plumbing but has no in-harness reproduction — the
+// test client can't sever a stream mid-body.) Each test below builds the
+// app via
 // the production `configure_routes`, so it exercises the real
 // `JsonConfig` / `QueryConfig` error handlers, and asserts the response is
 // `application/json` carrying a parseable `{error, id}` shape.
