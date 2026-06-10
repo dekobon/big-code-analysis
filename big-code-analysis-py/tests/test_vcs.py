@@ -91,14 +91,23 @@ def test_analyze_without_vcs_has_no_block(tmp_path: Path) -> None:
 
 
 def test_vcs_metrics_outside_repo_raises(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="version-control"):
+    # The typed not-a-repo exception (#624) is the variant a caller
+    # branches on; it stays catchable as a plain ValueError.
+    with pytest.raises(bca.NotARepositoryError, match="version-control") as exc:
         bca.vcs_metrics(tmp_path)
+    assert isinstance(exc.value, bca.VcsError)
+    assert isinstance(exc.value, ValueError)
 
 
 def test_vcs_metrics_bad_window_raises(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
-    with pytest.raises(ValueError, match="time window"):
+    # A bad option is a client-input error but not one of the named
+    # subclasses, so it surfaces as the VcsError base (#624) — still a
+    # ValueError, and NOT a NotARepositoryError.
+    with pytest.raises(bca.VcsError, match="time window") as exc:
         bca.vcs_metrics(repo, long_window="nonsense")
+    assert isinstance(exc.value, ValueError)
+    assert not isinstance(exc.value, bca.NotARepositoryError)
 
 
 def _build_multifn_repo(root: Path) -> Path:
@@ -322,8 +331,9 @@ def test_vcs_trend_too_few_points_raises(tmp_path: Path) -> None:
 
 
 def test_vcs_trend_outside_repo_raises(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="version-control"):
+    with pytest.raises(bca.NotARepositoryError, match="version-control") as exc:
         bca.vcs_trend(tmp_path, points=3, span="300d")
+    assert isinstance(exc.value, ValueError)
 
 
 def test_vcs_metrics_cache_dir_replays_identically(tmp_path: Path) -> None:
@@ -402,10 +412,40 @@ def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
 
 
 def test_vcs_jit_malformed_diff_raises() -> None:
-    with pytest.raises(ValueError, match="diff"):
+    with pytest.raises(bca.InvalidDiffError, match="diff") as exc:
         bca.vcs_jit(diff="diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n")
+    assert isinstance(exc.value, bca.VcsError)
+    assert isinstance(exc.value, ValueError)
 
 
 def test_vcs_jit_outside_repo_raises(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="version-control"):
+    with pytest.raises(bca.NotARepositoryError, match="version-control") as exc:
         bca.vcs_jit(tmp_path, commit="HEAD")
+    assert isinstance(exc.value, ValueError)
+
+
+def test_vcs_jit_unresolvable_commit_raises(tmp_path: Path) -> None:
+    """An unresolvable revision surfaces as InvalidRevisionError (#624),
+    catchable as VcsError / ValueError, distinct from the not-a-repo and
+    diff cases."""
+    repo = _build_repo(tmp_path)
+    with pytest.raises(bca.InvalidRevisionError, match="resolve") as exc:
+        bca.vcs_jit(repo, commit="no-such-rev-xyzzy")
+    assert isinstance(exc.value, bca.VcsError)
+    assert isinstance(exc.value, ValueError)
+    assert not isinstance(exc.value, bca.NotARepositoryError)
+
+
+def test_vcs_exception_hierarchy() -> None:
+    """The VCS exception taxonomy is additive over ValueError (#624):
+    every typed class is a VcsError, and VcsError is a ValueError, so a
+    single ``except ValueError`` covers all of them."""
+    assert issubclass(bca.VcsError, ValueError)
+    for cls in (
+        bca.NotARepositoryError,
+        bca.InvalidRevisionError,
+        bca.InvalidDiffError,
+        bca.VcsEnvironmentError,
+    ):
+        assert issubclass(cls, bca.VcsError), cls
+        assert issubclass(cls, ValueError), cls

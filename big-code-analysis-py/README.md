@@ -426,6 +426,28 @@ Exception types raised by `bca.analyze` / `bca.analyze_source`:
   `PermissionError`, `IsADirectoryError`, …) based on `errno`,
   with `err.errno` and `err.filename` populated.
 
+Exception types raised by the change-history surface
+(`bca.vcs_metrics` / `bca.vcs_trend` / `bca.vcs_jit`, and
+`bca.analyze(..., vcs=True)` for its option parsing) — all subclass
+`bca.VcsError`, itself a `ValueError`, so existing `except ValueError`
+handlers keep working (#624):
+
+- `bca.NotARepositoryError` — the path is not inside a supported VCS
+  working tree. The variant to branch on for "not a repo → skip this
+  directory". (`analyze(..., vcs=True)` never raises it — a
+  non-repository file just yields no `vcs` block.)
+- `bca.InvalidRevisionError` — a `reference` / `commit` could not be
+  resolved (`vcs_jit`).
+- `bca.InvalidDiffError` — the `diff` passed to `vcs_jit` is malformed.
+- `bca.VcsEnvironmentError` — an environment / backend failure
+  (opening the repository, walking history, diffing, `.mailmap`,
+  blame, or cache I/O). Mirrors the `500` (rather than `400`)
+  responses the web crate returns for the same errors.
+- `bca.VcsError` — the base; raised directly for client-input option
+  failures (a malformed window / timestamp / formula / file-type scope
+  / bus-factor threshold / bot pattern / trend point count), where the
+  message names the offending value.
+
 Returned by `bca.analyze_batch` inside the result list:
 
 - `bca.AnalysisError` — frozen value type with `path: str`,

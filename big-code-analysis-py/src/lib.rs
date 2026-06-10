@@ -68,6 +68,51 @@ create_exception!(
     "Raised when the tree-sitter parser fails on the supplied source."
 );
 
+// VCS (change-history) exception taxonomy (#624). All subclass
+// `VcsError`, which subclasses `ValueError`, so the catch-all
+// `except ValueError` handlers that predate this change keep working
+// — the new classes are additive (STABILITY.md error-mapping
+// contract). `VcsError` itself is the bucket for client-input option
+// failures (bad window / timestamp / formula / scope / threshold /
+// trend / bot pattern) the caller most plausibly fixes by editing a
+// keyword argument; the three named subclasses below carve out the
+// triggers a caller is most likely to branch on. Environment /
+// backend failures (opening the repo, walking history, diffing,
+// `.mailmap`, blame, cache I/O) map to `VcsEnvironmentError`. This
+// split mirrors `vcs::Error::is_client_input` (#641), which the web
+// crate uses to choose `400` vs `500`.
+create_exception!(
+    big_code_analysis._native,
+    VcsError,
+    PyValueError,
+    "Base class for change-history (VCS) surface errors. Subclasses ValueError."
+);
+create_exception!(
+    big_code_analysis._native,
+    NotARepositoryError,
+    VcsError,
+    "Raised when a path is not inside a supported version-control working tree."
+);
+create_exception!(
+    big_code_analysis._native,
+    InvalidRevisionError,
+    VcsError,
+    "Raised when a revision / commit reference cannot be resolved."
+);
+create_exception!(
+    big_code_analysis._native,
+    InvalidDiffError,
+    VcsError,
+    "Raised when a supplied unified diff cannot be parsed."
+);
+create_exception!(
+    big_code_analysis._native,
+    VcsEnvironmentError,
+    VcsError,
+    "Raised when a VCS operation fails for an environment / backend reason \
+     (opening the repository, walking history, diffing, .mailmap, blame, cache I/O)."
+);
+
 /// Convert a Python-side `metrics=` value into a [`MetricSet`].
 ///
 /// Shared between the three `PyO3` entry points (`analyze`,
@@ -615,6 +660,20 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<UnsupportedLanguageError>(),
     )?;
     m.add("ParseError", m.py().get_type::<ParseError>())?;
+    m.add("VcsError", m.py().get_type::<VcsError>())?;
+    m.add(
+        "NotARepositoryError",
+        m.py().get_type::<NotARepositoryError>(),
+    )?;
+    m.add(
+        "InvalidRevisionError",
+        m.py().get_type::<InvalidRevisionError>(),
+    )?;
+    m.add("InvalidDiffError", m.py().get_type::<InvalidDiffError>())?;
+    m.add(
+        "VcsEnvironmentError",
+        m.py().get_type::<VcsEnvironmentError>(),
+    )?;
     m.add_class::<PyAnalysisError>()?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(vcs_metrics, m)?)?;

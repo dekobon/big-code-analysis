@@ -826,7 +826,10 @@ The bound surface tracks the library: `analyze`, `analyze_source`,
 `analyze_batch`, `language_for_file`, `language_extensions`,
 `supported_languages`, `to_sarif`, `flatten_spaces`, the
 `AnalysisError` / `ParseError` / `UnsupportedLanguageError`
-exception types, `__version__`, and the `METRIC_NAMES` constant.
+exception types, the change-history exception taxonomy (`VcsError`
+and its `NotARepositoryError` / `InvalidRevisionError` /
+`InvalidDiffError` / `VcsEnvironmentError` subclasses),
+`__version__`, and the `METRIC_NAMES` constant.
 
 ### Language and metric string enums
 
@@ -854,7 +857,14 @@ as `AnalysisError` values (not `Exception` subclasses). The
 part of the contract: callers may branch on it. The raising entry
 points (`analyze`, `analyze_source`) map upstream failures to
 `UnsupportedLanguageError` (a `ValueError` subclass), `ParseError`,
-or the appropriate `OSError` subclass.
+or the appropriate `OSError` subclass. The change-history surface
+(`vcs_metrics` / `vcs_trend` / `vcs_jit`) maps `vcs::Error` variants
+to `VcsError` (a `ValueError` subclass) and its named subclasses —
+`NotARepositoryError`, `InvalidRevisionError`, `InvalidDiffError`,
+`VcsEnvironmentError`. The subclasses are pinned additively: a caller
+may catch the specific class or the `VcsError` / `ValueError` base.
+The client-input vs environment split mirrors the web crate's
+`400`/`500` mapping (`vcs::Error::is_client_input`).
 
 ### Typing
 

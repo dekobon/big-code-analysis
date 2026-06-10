@@ -36,6 +36,45 @@ class UnsupportedLanguageError(ValueError):
 class ParseError(ValueError):
     """Raised when the tree-sitter parser fails on the supplied source."""
 
+class VcsError(ValueError):
+    """Base class for the change-history (VCS) surface errors (#624).
+
+    Subclasses :class:`ValueError`, so a single ``except ValueError``
+    (or ``except VcsError``) catches every VCS failure raised by
+    :func:`vcs_metrics`, :func:`vcs_trend`, :func:`vcs_jit`, and
+    ``analyze(..., vcs=True)``. The three named subclasses below carve
+    out the triggers a caller most plausibly branches on; the bare
+    ``VcsError`` is itself raised for client-input option failures (a
+    malformed window / timestamp / formula / file-type scope /
+    bus-factor threshold / bot pattern / trend point count), where the
+    message names the offending value.
+    """
+
+class NotARepositoryError(VcsError):
+    """Raised when a path is not inside a supported VCS working tree.
+
+    The variant a caller most plausibly branches on: "not a repo →
+    skip this directory" rather than crash. ``analyze(..., vcs=True)``
+    never raises this — a non-repository file silently yields no
+    ``vcs`` block.
+    """
+
+class InvalidRevisionError(VcsError):
+    """Raised when a ``reference`` / ``commit`` cannot be resolved."""
+
+class InvalidDiffError(VcsError):
+    """Raised when the ``diff`` passed to :func:`vcs_jit` is malformed."""
+
+class VcsEnvironmentError(VcsError):
+    """Raised when a VCS operation fails for an environment reason.
+
+    Opening / discovering the repository (other than "not a repo"),
+    walking history, diffing, applying ``.mailmap``, blaming, or
+    persistent-cache I/O. These mirror the ``500`` (rather than
+    ``400``) responses the web crate returns for the same
+    ``vcs::Error`` variants (``is_client_input == false``, #641).
+    """
+
 class AnalysisError:
     """Structured per-file failure returned by :func:`analyze_batch`.
 
@@ -329,9 +368,14 @@ def vcs_metrics(
 
     Raises
     ------
-    ValueError
-        For a malformed window / timestamp / formula, or when
-        ``repo_path`` is not inside a git working tree.
+    NotARepositoryError
+        When ``repo_path`` is not inside a git working tree.
+    VcsError
+        For a malformed window / timestamp / formula / file-type scope /
+        bus-factor threshold (the option-validation base; all VCS
+        exceptions subclass :class:`VcsError`, itself a ``ValueError``).
+    VcsEnvironmentError
+        When walking history, diffing, or cache I/O fails.
     """
 
 def vcs_trend(
@@ -378,10 +422,14 @@ def vcs_trend(
 
     Raises
     ------
-    ValueError
-        For a malformed option, a point count below 2 or above the
-        supported maximum, or when ``repo_path`` is not inside a git
-        working tree.
+    NotARepositoryError
+        When ``repo_path`` is not inside a git working tree.
+    VcsError
+        For a malformed option, or a point count below 2 or above the
+        supported maximum (the option-validation base; subclass of
+        ``ValueError``).
+    VcsEnvironmentError
+        When walking history, diffing, or cache I/O fails.
     """
 
 def vcs_jit(
@@ -419,9 +467,15 @@ def vcs_jit(
 
     Raises
     ------
-    ValueError
-        For a malformed window / timestamp, an unresolvable commit, a
-        malformed diff, or when ``repo_path`` is not a git working tree.
+    NotARepositoryError
+        When ``repo_path`` is not a git working tree (commit mode).
+    InvalidRevisionError
+        When ``commit`` cannot be resolved to a revision.
+    InvalidDiffError
+        When the supplied ``diff`` is malformed (diff mode).
+    VcsError
+        For a malformed window / timestamp (the option-validation base;
+        subclass of ``ValueError``).
     """
 
 def analyze_source(

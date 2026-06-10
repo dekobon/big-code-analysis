@@ -448,10 +448,56 @@ fn attach_vcs_block(space: &mut Value, stat: &vcs::Stats) -> Result<(), PyErr> {
     attach_vcs_to_space(space, &mut wire_vcs)
 }
 
-/// Map a [`vcs::Error`] to a Python `ValueError` carrying its message.
+/// Map a [`vcs::Error`] to the matching Python exception (#624).
+///
+/// Every variant maps to a subclass of `VcsError`, which subclasses
+/// `ValueError`, so a pre-existing `except ValueError` (or
+/// `except VcsError`) handler still catches all of them. The three
+/// named subclasses (`NotARepositoryError`, `InvalidRevisionError`,
+/// `InvalidDiffError`) carve out the triggers a caller most plausibly
+/// branches on; the remaining client-input option failures collapse to
+/// the `VcsError` base, and environment / backend failures map to
+/// `VcsEnvironmentError`. The client-input vs environment split is the
+/// same one the web crate uses for `400` vs `500`
+/// ([`vcs::Error::is_client_input`], #641); the exhaustive match here
+/// stays in lockstep with it — adding a `vcs::Error` variant forces a
+/// classification decision in both places.
 // Taken by value so it composes directly with `Result::map_err`
 // (`.map_err(vcs_error_to_py)`); `to_string` only borrows it.
-#[allow(clippy::needless_pass_by_value)]
+//
+// `match_same_arms` is allowed deliberately: the explicit client-input
+// arm returns the same `VcsError` base as the `#[non_exhaustive]`
+// wildcard, but spelling out the variants documents the
+// `is_client_input == true` set at the mapping site (mirroring
+// `vcs::Error::is_client_input`, #641) instead of hiding it behind a
+// catch-all. Collapsing them would lose that signal.
+#[allow(clippy::needless_pass_by_value, clippy::match_same_arms)]
 fn vcs_error_to_py(error: vcs::Error) -> PyErr {
-    PyValueError::new_err(error.to_string())
+    let message = error.to_string();
+    match error {
+        vcs::Error::NotARepository(_) => crate::NotARepositoryError::new_err(message),
+        vcs::Error::ResolveRef { .. } => crate::InvalidRevisionError::new_err(message),
+        vcs::Error::InvalidDiff(_) => crate::InvalidDiffError::new_err(message),
+        // Remaining client-input option failures share the `VcsError`
+        // base — a caller that wants to distinguish them reads the
+        // message, exactly as before this change.
+        vcs::Error::InvalidBotPattern(_)
+        | vcs::Error::InvalidWindow(_)
+        | vcs::Error::InvalidTimestamp(_)
+        | vcs::Error::InvalidFormula(_)
+        | vcs::Error::InvalidFileTypeScope(_)
+        | vcs::Error::InvalidBusFactorThreshold(_)
+        | vcs::Error::InvalidTrend(_) => crate::VcsError::new_err(message),
+        // Environment / backend failures (the `is_client_input == false`
+        // set): opening the repo, walking, diffing, mailmap, blame, cache.
+        vcs::Error::OpenRepository(_)
+        | vcs::Error::Walk(_)
+        | vcs::Error::Diff(_)
+        | vcs::Error::Mailmap(_)
+        | vcs::Error::Blame(_)
+        | vcs::Error::Cache(_) => crate::VcsEnvironmentError::new_err(message),
+        // `vcs::Error` is `#[non_exhaustive]`; a future variant lands on
+        // the `VcsError` client-input base until classified explicitly.
+        _ => crate::VcsError::new_err(message),
+    }
 }
