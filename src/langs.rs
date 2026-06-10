@@ -50,7 +50,7 @@ mk_langs!(
     // `cpp` (and `mozcpp`) pull in. `Tsx` rides `typescript` because
     // both variants resolve to the `tree-sitter-typescript` crate
     // (TSX vs TypeScript is a per-grammar `LANGUAGE_*` constant
-    // inside that one crate, see `get_language!` in `src/macros.rs`).
+    // inside that one crate, see `get_language!` in `src/macros/mod.rs`).
     (
         "javascript",
         Javascript,
