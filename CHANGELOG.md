@@ -23,6 +23,40 @@ for historical reference.
 
 ### Added
 
+- Metric legend in reports: Markdown gains a `### Legend` footnote and
+  HTML a visible collapsible legend, with per-column definitions hoisted
+  onto the shared column specs so the HTML tooltips and both legends
+  draw from one source; also fixes the bus-factor "Files" / "Bus
+  factor" HTML tooltips (#611, refs #610).
+- HTML report navigation: slug-based heading anchors, a
+  table-of-contents `<nav>`, and `aria-sort` initial-sort indication on
+  each pre-ranked table column (#622).
+- `--color auto|always|never` global CLI flag with tty detection and
+  `NO_COLOR` support; piped text dumps (`metrics`/`ops` default tree,
+  `dump`, `find`, `functions`) no longer emit ANSI escapes. Library
+  gains the additive `ColorMode` enum and `dump_*_with_color` /
+  `dump_function_spans_with_color` variants (#605).
+- `vcs::Error::is_client_input()`: exhaustive client-input vs
+  environment classification shared by the web 400/500 mapping and the
+  Python exception taxonomy (additive) (#641).
+- `GET /v1` route index endpoint generated from a single route table
+  (the unprefixed `/` alias serves it with deprecation headers), and
+  the REST book chapter now documents the full `/vcs` family (#643).
+- Deprecation/Sunset/`Link: rel="successor-version"` headers on the
+  unprefixed legacy web route aliases; removal of the aliases remains
+  scheduled for the 2.0 cut (#637, refs #517).
+- Python: typed VCS exception taxonomy — `VcsError(ValueError)` with
+  `NotARepositoryError`, `InvalidRevisionError`, `InvalidDiffError`,
+  and `VcsEnvironmentError`; existing `except ValueError` handlers
+  keep working (#624).
+- Python: generated `TypedDict` stubs for the analysis result shapes
+  (`FuncSpaceDict` and nested metric dicts), rendered from the Rust
+  wire shapes with a byte-compare drift gate; `analyze` /
+  `analyze_source` / batch returns are now statically typed (#623).
+- Python: VCS kwargs accept native types — `cache_dir` takes
+  `os.PathLike`, `as_of` takes `datetime`, `file_types` takes a
+  sequence of extensions — alongside the existing string forms (#619).
+
 - Change-history (VCS) metrics: a new, language-agnostic metric family
   derived from git history rather than the AST (#328). A single history
   walk produces per-file signals over two windows (default 12mo / 90d) —
@@ -815,6 +849,73 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** CLI: argv/usage/value-parse errors now exit 1 instead
+  of clap's 2, reserving exit codes 2–5 for the `check` and
+  `vcs jit --fail-above`-style metric gates; `--help` / `--version`
+  still exit 0 (#594).
+- **(breaking)** CLI: renamed `--language-type` to `--language`
+  (hidden alias kept one cycle). The flag accepts a language name
+  (`rust`) or extension (`rs`); an unknown value is now a hard error
+  listing valid languages instead of silently disabling analysis
+  (#595).
+- **(breaking)** CLI: walk commands default `--paths` to `.` when no
+  CLI/manifest seed is given; a nonexistent explicit path now fails
+  with exit 1 instead of warning and exiting 0; a zero-file walk
+  prints a stderr notice (#596).
+- **(breaking)** CLI: `-I/--include` and `-X/--exclude` take exactly
+  one glob per occurrence and are repeatable; the greedy
+  space-separated multi-value spelling no longer parses (#601).
+- **(breaking)** CLI: `--top` unified on `usize` with `0` meaning
+  "all rows" across `vcs`, `report`, and `vcs trend`
+  (`report --top 0` was previously a usage error) (#602).
+- **(breaking)** CLI: renamed `--num-jobs` to `--jobs` and `--warning`
+  to `--warnings` (hidden aliases kept one cycle), and the default
+  tree output is now selectable explicitly as `--format text` on
+  `metrics`/`ops` (#604).
+- **(breaking)** Manifest: the check-only keys `baseline`,
+  `baseline_line_tolerance`, `baseline_fuzzy_match`, and `headroom`
+  moved under `[check]` in `bca.toml`; the top-level spelling warns
+  for one release cycle and goes away at 2.0 (#599).
+- **(breaking)** Wire: version stamps are now uniformly
+  domain-prefixed — bus factor emits `bus_factor_schema_version`
+  (schema 2, was bare `schema_version`) and JIT reports emit
+  `risk_score` / `partial_risk_score` (schema 3, was bare
+  `score` / `partial_score`) (#591).
+- **(breaking)** Web: `/vcs/jit` rejects a payload combining `diff`
+  with any commit-mode field (400 naming the conflict) instead of
+  silently ignoring `repo_path`/`commit` (#632).
+- **(breaking)** Web: an unsupported language now answers
+  `422 Unprocessable Entity` with the machine token
+  `unsupported_language` instead of 404; 404 is reserved for unknown
+  routes (#634).
+- **(breaking)** Web: the `/comment` JSON response returns the
+  stripped source as a string instead of an array of byte numbers
+  (#629).
+- `bca vcs jit` / `vcs trend` accept the history-tuning flags
+  (`--long-window`, `--as-of`, …) in the subcommand position;
+  `--ref` combined with `vcs jit` is now a usage error instead of
+  being silently ignored (#598).
+- Report headings and the Languages line show human-readable language
+  names (C++, C#, TSX, …); slugs are unchanged in structured output
+  and CSS classes (#613).
+- The report's three differently-filtered cyclomatic statistics are
+  captioned (CC note excludes suppressed functions; the Actionable
+  Summary names its raw basis and suppressed count; a fully-suppressed
+  hotspot table leaves a "table omitted" note) (#616).
+- Halstead Effort and Functions-With-Many-Parameters hotspot tables
+  gained the Line column in both report formats (#628).
+- Rendered VCS report polish: plain-English bus-factor wording,
+  thousands separators on count cells, gap-free heading levels, and a
+  provenance line with the ordinal-only Risk caveat (#618).
+- Python: `language_for_file` returns `Lang | None` (a `StrEnum`, so
+  string comparisons keep working) and `language_extensions` accepts
+  `str | Lang` (#625).
+- Python: pyproject metadata polish before first publish — Beta
+  status, `Typing :: Typed`, Python 3.14 classifier, Documentation
+  and Changelog URLs (#626).
+- The repository's own `suppress-file` markers migrated from the
+  legacy `exit` spelling to the canonical `nexits` (the parser alias
+  for `exit` is unchanged) (#593).
 - **(breaking, deferred to 2.0)** Retired the `action` / `Callback`
   dispatch and the path-positional analysis surface, leaving
   [`Ast`] (with `analyze` for the one-shot case) as the single public
@@ -1686,6 +1787,42 @@ for historical reference.
 
 ### Fixed
 
+- **(breaking)** `bca check --output <path>` without `--format` infers
+  the format from the file extension (`.sarif` → SARIF, `.xml` →
+  Checkstyle) or exits 1 with a usage error, instead of silently
+  writing nothing (#600).
+- In-memory sources are EOL-normalized like CLI file reads: the web
+  `/metrics` and `/function` endpoints and Python's `analyze_source` /
+  `analyze` now produce identical metrics for CRLF / lone-CR /
+  unterminated input; `/ast` and `/comment` stay byte-faithful by
+  design. New additive library helper `normalize_eol` (#640).
+- Web error responses honor the documented `{error, id}` JSON body on
+  every path: extractor failures, body-size 413s (both JSON and
+  octet-stream), pool-saturation 503, timeout 504, and internal 500
+  no longer emit actix's plaintext bodies (#639).
+- HEAD requests to the GET endpoints (`/ping`, `/version`,
+  `/languages`, the route index) answer like GET instead of 405
+  (#644).
+- Commit-mode `bca vcs jit` / `/vcs/jit` reports carry the
+  `source: "commit"` discriminator the docs promised (diff mode
+  already had `source: "diff"`); JIT schema bumped accordingly
+  (#642).
+- `bca report --vcs` fills the change-history Hotspot column
+  (complexity × recent churn) from the AST metrics computed in the
+  same run, and both renderers omit the column when no row has a
+  score (plain `bca vcs`) (#615).
+- `bca vcs` window-parse errors name the failing flag and echo the
+  offending input with a format hint instead of quoting an empty
+  string (#607).
+- HTML report SLOC tooltip described PLOC; it now states SLOC counts
+  total physical lines including blanks and comments, and the Tokens
+  tooltip no longer says "in the unit" (refs #610).
+- `exemptions --check-exclude` help now describes the actual union
+  (merge) semantics instead of claiming the CLI value replaces the
+  manifest list (#606).
+- Python error-message polish: unknown-language errors name the bad
+  input and list the supported languages, and `OSError`s no longer
+  duplicate the errno text (#617).
 - The unified-diff parser behind `bca vcs jit --diff` (#580) now decodes
   git's C-style path quoting, so a diff touching a file with a non-ASCII
   name (`"a/na\303\257ve.txt"` under the default `core.quotePath=true`)
