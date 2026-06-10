@@ -390,10 +390,11 @@ impl Wmc for ElixirCode {
 }
 
 // Default no-op `Wmc` impls. Audited in #188. See the rationale block
-// on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Wmc
-// classification mirrors Npa one-for-one (Wmc = sum-of-cyclomatic-
-// per-method, so it requires the same per-language class / method
-// detection plumbing).
+// on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs`. Wmc needs
+// the same per-language class / method detection plumbing (Wmc =
+// sum-of-cyclomatic-per-method), and mirrors Npa's set EXCEPT Go: Npa/Npm
+// implement Go but Wmc no-ops it because Go's flat space model cannot
+// attribute methods to a receiver class (see the Go rationale block above).
 implement_metric_trait!(
     Wmc,
     PreprocCode,
