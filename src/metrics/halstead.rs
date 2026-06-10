@@ -135,6 +135,14 @@ impl fmt::Display for Stats {
 }
 
 impl Stats {
+    // Intentionally a no-op. Halstead distinct-counts (`u_operators` /
+    // `u_operands`) cannot be summed across sibling spaces without
+    // double-counting operators/operands they share. Cross-space
+    // aggregation is instead done by unioning the occurrence maps
+    // (`HalsteadMaps::merge`) and re-running `finalize` on the parent
+    // (see `spaces.rs`). Summing the finalized fields here — mirroring
+    // the sibling metrics' `merge` — would silently inflate every parent
+    // space's n1/n2/N1/N2.
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
     /// Returns `η1`, the number of distinct operators
