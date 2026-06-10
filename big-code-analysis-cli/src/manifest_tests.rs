@@ -361,6 +361,122 @@ fn merge_vcs_empty_manifest_leaves_cli_unset() {
     );
 }
 
+/// Build a `CheckArgs` with everything unset, so a merge test observes
+/// only what the manifest fills in. Routing through clap keeps the
+/// struct in lockstep with the real CLI surface.
+fn empty_check_args() -> CheckArgs {
+    use clap::Parser;
+    match crate::Cli::try_parse_from(["bca", "check"])
+        .expect("check parses")
+        .command
+    {
+        crate::Command::Check(args) => *args,
+        other => panic!("expected Command::Check, got {other:?}"),
+    }
+}
+
+/// The canonical `[check]` spelling of the four moved keys (#599) is
+/// honoured by `merge_check`.
+#[test]
+fn merge_check_honours_check_table_baseline_keys() {
+    let m = manifest(
+        toml::from_str(
+            "[check]\n\
+             baseline = \"bl.toml\"\n\
+             baseline_line_tolerance = 3\n\
+             baseline_fuzzy_match = true\n\
+             headroom = 0.9\n",
+        )
+        .expect("parse"),
+    );
+    let mut args = empty_check_args();
+    m.merge_check(&mut args);
+    assert_eq!(args.baseline, Some(PathBuf::from("/repo/bl.toml")));
+    assert_eq!(args.baseline_line_tolerance, Some(3));
+    assert!(args.baseline_fuzzy_match);
+    assert_eq!(args.headroom, Some(0.9));
+}
+
+/// The deprecated top-level spelling (#599) is still honoured for one
+/// release cycle, so existing manifests keep working.
+#[test]
+fn merge_check_honours_legacy_top_level_baseline_keys() {
+    let m = manifest(
+        toml::from_str(
+            "baseline = \"bl.toml\"\n\
+             baseline_line_tolerance = 3\n\
+             baseline_fuzzy_match = true\n\
+             headroom = 0.9\n",
+        )
+        .expect("parse"),
+    );
+    let mut args = empty_check_args();
+    m.merge_check(&mut args);
+    assert_eq!(args.baseline, Some(PathBuf::from("/repo/bl.toml")));
+    assert_eq!(args.baseline_line_tolerance, Some(3));
+    assert!(args.baseline_fuzzy_match);
+    assert_eq!(args.headroom, Some(0.9));
+}
+
+/// When a key is set in BOTH the deprecated top level and the
+/// canonical `[check]` table, `[check]` wins (#599).
+#[test]
+fn merge_check_prefers_check_table_over_legacy_top_level() {
+    let m = manifest(
+        toml::from_str(
+            "baseline = \"old.toml\"\n\
+             baseline_line_tolerance = 1\n\
+             headroom = 0.5\n\
+             [check]\n\
+             baseline = \"new.toml\"\n\
+             baseline_line_tolerance = 9\n\
+             headroom = 0.95\n",
+        )
+        .expect("parse"),
+    );
+    let mut args = empty_check_args();
+    m.merge_check(&mut args);
+    assert_eq!(args.baseline, Some(PathBuf::from("/repo/new.toml")));
+    assert_eq!(args.baseline_line_tolerance, Some(9));
+    assert_eq!(args.headroom, Some(0.95));
+}
+
+/// `merge_exemptions` reads the baseline from `[check]` too (#599), so
+/// the audit reflects exactly what `bca check` would skip.
+#[test]
+fn merge_exemptions_honours_check_table_baseline() {
+    use clap::Parser;
+    let m = manifest(toml::from_str("[check]\nbaseline = \"bl.toml\"\n").expect("parse"));
+    let mut args = match crate::Cli::try_parse_from(["bca", "exemptions"])
+        .expect("exemptions parses")
+        .command
+    {
+        crate::Command::Exemptions(args) => args,
+        other => panic!("expected Command::Exemptions, got {other:?}"),
+    };
+    assert!(args.baseline.is_none(), "no CLI flag → unset");
+    m.merge_exemptions(&mut args);
+    assert_eq!(args.baseline, Some(PathBuf::from("/repo/bl.toml")));
+}
+
+/// The deprecated top-level keys must stay on `KNOWN_KEYS` so they draw
+/// only the move-deprecation warning, never the misleading "ignoring
+/// unrecognized key" notice (#599; same regression class as #409).
+#[test]
+fn legacy_top_level_baseline_keys_are_known() {
+    for text in [
+        "baseline = \"x\"\n",
+        "baseline_line_tolerance = 3\n",
+        "baseline_fuzzy_match = true\n",
+        "headroom = 0.9\n",
+    ] {
+        assert!(
+            unknown_top_level_keys(text).is_empty(),
+            "legacy key flagged as unknown: {text:?}"
+        );
+    }
+}
+
 #[test]
 fn vcs_is_a_known_manifest_key() {
     // A `[vcs]` table must not draw the "ignoring unrecognized key"

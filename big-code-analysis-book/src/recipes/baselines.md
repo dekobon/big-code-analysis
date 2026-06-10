@@ -281,8 +281,9 @@ containers plus the function name (`MyStruct::do_thing`,
    to indentation, blank lines, and CRLF). The hash is written into the
    baseline only when `--baseline-fuzzy-match` is set, so seed it with
    one fuzzy `--write-baseline` to enable fuzzy reads. Configure both
-   keys in `bca.toml` as `baseline_line_tolerance` and
-   `baseline_fuzzy_match`.
+   keys under `[check]` in `bca.toml` as `baseline_line_tolerance` and
+   `baseline_fuzzy_match` (the bare top-level spelling is deprecated and
+   warns; see #599).
 
 **Anonymous functions** (closures, lambdas) have no stable name, so
 their qualified symbol bakes in the line (`outer::<anon@L42>`). They

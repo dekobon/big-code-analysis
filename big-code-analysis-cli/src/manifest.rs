@@ -24,8 +24,9 @@
 //! CLI value, while negative filter keys (`exclude`, `[check] exclude`)
 //! UNION CLI values with the manifest list (so a CLI exclude never
 //! silently un-skips a directory the project deliberately excluded).
-//! Scalar / path options (`exclude_from`, `num_jobs`, `baseline`,
-//! `headroom`) fill from the manifest only when the CLI left them unset.
+//! Scalar / path options (`exclude_from`, `num_jobs`, `[check]
+//! baseline`, `[check] headroom`) fill from the manifest only when the
+//! CLI left them unset.
 //! `--no-config` bypasses discovery entirely, leaving CLI values alone.
 //!
 //! Relative paths in the manifest are resolved against the manifest's
@@ -52,9 +53,15 @@ const MANIFEST_FILE: &str = "bca.toml";
 /// pre-adopted without breaking older `bca` builds. The
 /// `[thresholds.soft]` sub-table (#375) is *not* a top-level key — it
 /// lives under the known `thresholds` key and is split out by
-/// [`split_thresholds_table`]. The `[check]` table (#378/#385) carries
-/// gate-only options (`exclude`, `exclude_from`, `exit_codes`) and is
-/// consumed as the typed [`RawCheck`].
+/// [`split_thresholds_table`]. The `[check]` table (#378/#385/#599)
+/// carries gate-only options (`exclude`, `exclude_from`, `exit_codes`,
+/// `baseline`, `baseline_line_tolerance`, `baseline_fuzzy_match`,
+/// `headroom`) and is consumed as the typed [`RawCheck`]. The bare
+/// top-level `baseline*` / `headroom` keys remain on this allowlist as
+/// deprecated aliases (#599): they are honored for one release cycle
+/// with a [`warn_deprecated_top_level_check_keys`] notice, so listing
+/// them here keeps that the *only* warning they draw (not the
+/// misleading "unrecognized key" notice).
 const KNOWN_KEYS: &[&str] = &[
     "paths",
     "exclude_from",
@@ -95,8 +102,15 @@ struct RawManifest {
     num_jobs: Option<toml::Value>,
     include: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
+    /// Deprecated top-level spelling of `[check] baseline` (#599). Read
+    /// only as a fallback when the `[check]` value is absent, with a
+    /// one-time deprecation warning; removed in the next major bump.
     baseline: Option<PathBuf>,
+    /// Deprecated top-level spelling of `[check] baseline_line_tolerance`
+    /// (#599). See [`RawManifest::baseline`].
     baseline_line_tolerance: Option<usize>,
+    /// Deprecated top-level spelling of `[check] baseline_fuzzy_match`
+    /// (#599). See [`RawManifest::baseline`].
     baseline_fuzzy_match: Option<bool>,
     /// When `false`, Rust's `?` operator does not contribute to
     /// cyclomatic complexity (#409). Defaults to counting (the key
@@ -104,6 +118,8 @@ struct RawManifest {
     /// flag ORs on top: it can force opt-out but cannot force counting
     /// back on, mirroring `--strict-exit-codes`.
     cyclomatic_count_try: Option<bool>,
+    /// Deprecated top-level spelling of `[check] headroom` (#599). See
+    /// [`RawManifest::baseline`].
     headroom: Option<f64>,
     /// Scalar values are hard limits; the nested `soft` sub-table
     /// (`[thresholds.soft]`, #375) carries the soft-tier overrides.
@@ -149,9 +165,8 @@ struct RawReport {
     no_suppress: Option<bool>,
 }
 
-/// Typed view of the `[check]` table (#378). Both keys mirror a CLI
-/// flag (`--check-exclude`, `--check-exclude-from`); the CLI value wins
-/// when both are present.
+/// Typed view of the `[check]` table (#378). Every key mirrors a CLI
+/// flag; the CLI value wins when both are present.
 #[derive(Debug, Default, Deserialize)]
 struct RawCheck {
     /// Glob patterns whose matching files are exempt from the threshold
@@ -164,6 +179,20 @@ struct RawCheck {
     /// `--strict-exit-codes`, which ORs on top (the CLI flag can only
     /// enable, never disable).
     exit_codes: Option<String>,
+    /// Baseline file `bca check` reads (and a bare `--write-baseline`
+    /// writes). Mirrors `--baseline`; the CLI value wins. Canonical
+    /// location since #599 (the top-level spelling is deprecated).
+    baseline: Option<PathBuf>,
+    /// Per-function line tolerance for fuzzy baseline matching (#599).
+    /// Mirrors `--baseline-line-tolerance`.
+    baseline_line_tolerance: Option<usize>,
+    /// When `true`, baseline entries match on metric shape rather than
+    /// exact line span (#599). Mirrors `--baseline-fuzzy-match`, which
+    /// ORs on top (a bare flag can only enable).
+    baseline_fuzzy_match: Option<bool>,
+    /// Soft-tier scale ratio in `(0, 1]` (#599). Mirrors `--headroom`;
+    /// the CLI value wins. Validated by [`Manifest::headroom`].
+    headroom: Option<f64>,
 }
 
 /// Append `extra` onto `dst`, skipping any value already present so the
@@ -195,7 +224,33 @@ pub(crate) fn discover_and_load() -> Option<Manifest> {
     // The typed parse above silently drops unknown keys; a second parse
     // into a generic table lets us enumerate and warn about them.
     warn_unknown_keys(&text);
+    warn_deprecated_top_level_check_keys(&raw);
     Some(Manifest { dir, path, raw })
+}
+
+/// Keys that moved under `[check]` in #599 but are still honored at the
+/// top level for one release cycle. Each tuple is (legacy top-level
+/// key, the [`RawManifest`] field's presence) — used only for the
+/// deprecation warning; the merge accessors read the values directly.
+fn warn_deprecated_top_level_check_keys(raw: &RawManifest) {
+    let legacy = [
+        ("baseline", raw.baseline.is_some()),
+        (
+            "baseline_line_tolerance",
+            raw.baseline_line_tolerance.is_some(),
+        ),
+        ("baseline_fuzzy_match", raw.baseline_fuzzy_match.is_some()),
+        ("headroom", raw.headroom.is_some()),
+    ];
+    for (key, present) in legacy {
+        if present {
+            eprintln!(
+                "warning: bca.toml: top-level `{key}` is deprecated and has \
+                 moved under `[check]`; the top-level spelling will be removed \
+                 in the next major release"
+            );
+        }
+    }
 }
 
 /// Emit one stderr warning per unrecognized top-level key. Parses the
@@ -322,7 +377,7 @@ impl Manifest {
         // mutually exclusive, and clap's check ran before this merge.
         if args.baseline.is_none()
             && args.write_baseline.is_none()
-            && let Some(baseline) = &self.raw.baseline
+            && let Some(baseline) = self.baseline()
         {
             args.baseline = Some(self.resolve(baseline));
         }
@@ -333,18 +388,18 @@ impl Manifest {
         // write run. With no manifest `baseline`, it stays `Some(None)`
         // and `run_check` reports the missing-path error.
         if matches!(args.write_baseline, Some(None))
-            && let Some(baseline) = &self.raw.baseline
+            && let Some(baseline) = self.baseline()
         {
             args.write_baseline = Some(Some(self.resolve(baseline)));
         }
         if args.baseline_line_tolerance.is_none() {
-            args.baseline_line_tolerance = self.raw.baseline_line_tolerance;
+            args.baseline_line_tolerance = self.baseline_line_tolerance();
         }
         // A bare `--baseline-fuzzy-match` flag (clap `bool`) cannot
         // represent "unset", so the manifest only *enables* fuzzy
         // matching; it can never override an explicit CLI opt-out
         // (there is no opt-out flag). OR the two sources together.
-        if self.raw.baseline_fuzzy_match == Some(true) {
+        if self.baseline_fuzzy_match() == Some(true) {
             args.baseline_fuzzy_match = true;
         }
         if args.headroom.is_none() {
@@ -390,7 +445,7 @@ impl Manifest {
     /// here.
     pub(crate) fn merge_exemptions(&self, args: &mut ExemptionsArgs) {
         if args.baseline.is_none()
-            && let Some(baseline) = &self.raw.baseline
+            && let Some(baseline) = self.baseline()
         {
             args.baseline = Some(self.resolve(baseline));
         }
@@ -439,13 +494,42 @@ impl Manifest {
     /// half-open `(0, 1]` interval matches `--headroom`; NaN, which
     /// fails both comparisons, is rejected too.)
     fn headroom(&self) -> Option<f64> {
-        let ratio = self.raw.headroom?;
+        let ratio = self.raw.check.headroom.or(self.raw.headroom)?;
         if !crate::thresholds::is_valid_scale_ratio(ratio) {
             die(format_args!(
                 "bca.toml: headroom must be in (0, 1]; got {ratio}"
             ));
         }
         Some(ratio)
+    }
+
+    /// The baseline path, preferring the canonical `[check] baseline`
+    /// over the deprecated top-level spelling (#599). Returned
+    /// unresolved; callers apply [`Self::resolve`].
+    fn baseline(&self) -> Option<&Path> {
+        self.raw
+            .check
+            .baseline
+            .as_deref()
+            .or(self.raw.baseline.as_deref())
+    }
+
+    /// The baseline line tolerance, preferring `[check]` over the
+    /// deprecated top-level spelling (#599).
+    fn baseline_line_tolerance(&self) -> Option<usize> {
+        self.raw
+            .check
+            .baseline_line_tolerance
+            .or(self.raw.baseline_line_tolerance)
+    }
+
+    /// The fuzzy-match flag, preferring `[check]` over the deprecated
+    /// top-level spelling (#599).
+    fn baseline_fuzzy_match(&self) -> Option<bool> {
+        self.raw
+            .check
+            .baseline_fuzzy_match
+            .or(self.raw.baseline_fuzzy_match)
     }
 
     /// The `[thresholds]` table split into its hard scalar limits and

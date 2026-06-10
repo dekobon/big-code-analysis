@@ -165,7 +165,8 @@ fn config_file_merges_over_manifest_thresholds() {
 /// `--tier=soft` is required for it to take effect.
 #[test]
 fn manifest_headroom_scales_thresholds_at_soft_tier() {
-    let dir = fixture("paths = [\".\"]\nheadroom = 0.01\n\n[thresholds]\ncyclomatic = 100\n");
+    let dir =
+        fixture("paths = [\".\"]\n\n[check]\nheadroom = 0.01\n\n[thresholds]\ncyclomatic = 100\n");
 
     cli()
         .current_dir(dir.path())
@@ -184,7 +185,7 @@ fn manifest_headroom_scales_thresholds_at_soft_tier() {
 #[test]
 fn manifest_baseline_is_honored() {
     let dir = fixture(
-        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\n\n[thresholds]\ncyclomatic = 1\n",
+        "paths = [\".\"]\n\n[check]\nbaseline = \".bca-baseline.toml\"\n\n[thresholds]\ncyclomatic = 1\n",
     );
 
     // Write the baseline at the same thresholds, then confirm the next
@@ -207,6 +208,41 @@ fn manifest_baseline_is_honored() {
         .stderr(predicate::str::contains("filtered"));
 }
 
+/// The legacy top-level `baseline` / `headroom` spelling is still
+/// honored for one release cycle (#599) but prints a deprecation
+/// warning naming both the offending key and its `[check]` home. This
+/// drives the binary so it also covers `discover_and_load`'s warning
+/// path, not just the merge accessors.
+#[test]
+fn legacy_top_level_baseline_key_warns_but_is_honored() {
+    let dir = fixture(
+        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\n\n[thresholds]\ncyclomatic = 1\n",
+    );
+
+    // The legacy `baseline` is honored: the write-baseline run resolves
+    // it to the same file `bca check` later reads, then a bare run is
+    // suppressed by it — proving the top-level key still reaches merge.
+    cli()
+        .current_dir(dir.path())
+        .args(["check", "--write-baseline", ".bca-baseline.toml"])
+        .assert()
+        .success();
+    cli()
+        .current_dir(dir.path())
+        .arg("check")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filtered"))
+        .stderr(predicate::str::contains(
+            "top-level `baseline` is deprecated",
+        ))
+        .stderr(predicate::str::contains("[check]"))
+        // The move-deprecation notice, not the misleading
+        // "unrecognized key" warning (the legacy key stays on
+        // KNOWN_KEYS).
+        .stderr(predicate::str::contains("unrecognized key").not());
+}
+
 /// The manifest `baseline_fuzzy_match` key enables the body-hash
 /// fallback (issue #377): after renaming `classify` to `categorize`
 /// with the body unchanged, the manifest's fuzzy flag keeps the entry
@@ -214,7 +250,7 @@ fn manifest_baseline_is_honored() {
 #[test]
 fn manifest_baseline_fuzzy_match_is_honored() {
     let dir = fixture(
-        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\nbaseline_fuzzy_match = true\n\n[thresholds]\ncyclomatic = 1\n",
+        "paths = [\".\"]\n\n[check]\nbaseline = \".bca-baseline.toml\"\nbaseline_fuzzy_match = true\n\n[thresholds]\ncyclomatic = 1\n",
     );
 
     // Seed a fuzzy baseline (body_hash populated) for `classify`.
@@ -267,7 +303,7 @@ int f(double x) {
     fs::create_dir(dir.path().join(".git")).unwrap();
     fs::write(
         dir.path().join("bca.toml"),
-        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\nbaseline_line_tolerance = 0\n\n[thresholds]\ncyclomatic = 1\n",
+        "paths = [\".\"]\n\n[check]\nbaseline = \".bca-baseline.toml\"\nbaseline_line_tolerance = 0\n\n[thresholds]\ncyclomatic = 1\n",
     )
     .unwrap();
     let src = dir.path().join("overloads.cpp");

@@ -146,6 +146,8 @@ drop a `bca.toml` at the repo root and let `bca check` discover it:
 paths        = ["."]
 exclude_from = ".bcaignore"
 num_jobs     = "auto"          # or an integer
+
+[check]
 baseline     = ".bca-baseline.toml"
 
 [thresholds]
@@ -232,7 +234,18 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `--check-exclude` / `--check-exclude-from` flags). `exit_codes =
   "tiered"` opts into the finer-grained exit codes (mirrors
   `--strict-exit-codes`; see [Exit codes](#exit-codes)); `"default"`
-  (the implicit value) keeps the stable `0`/`1`/`2` contract.
+  (the implicit value) keeps the stable `0`/`1`/`2` contract. The
+  baseline and headroom keys are gate-only too, so they live here:
+  `baseline` (the file `bca check` reads and a bare `--write-baseline`
+  writes), `baseline_line_tolerance`, `baseline_fuzzy_match`, and
+  `headroom` (the soft-tier scale dial; mirrors `--headroom`). The CLI
+  flag wins over the table value for each.
+- These four keys used to sit at the top level; that spelling is
+  **deprecated** (#599) and prints a one-time warning. It is honoured
+  for one release cycle, then removed in the next major version. Move
+  `baseline`, `baseline_line_tolerance`, `baseline_fuzzy_match`, and
+  `headroom` under `[check]`. When a key is set in both places, the
+  `[check]` value wins.
 - A `[vcs]` table sets change-history ranking options for `bca vcs`. Its
   `file_types` key (`"metrics"` — the default — / `"all"` / a
   `"rs,py"`-style extension list) scopes which files are ranked; as a

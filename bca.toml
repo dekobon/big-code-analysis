@@ -17,17 +17,19 @@
 paths = ["."]
 exclude_from = ".bcaignore"
 
-# Pair with `.bca-baseline.toml` so existing offenders are absorbed;
-# only regressions and new offenders fail the gate. See the Baselines
-# recipe in the book for the bootstrap/refresh/retire flow.
-baseline = ".bca-baseline.toml"
-
 # Treat Rust's `?` (the `try_expression` node) as linear error
 # propagation rather than a branch: it does not contribute to
 # cyclomatic complexity (standard or modified). Equivalent to passing
 # `--no-cyclomatic-try` on every invocation (#409). Rust-only — no
 # other grammar emits the node, so the key is inert elsewhere.
 cyclomatic_count_try = false
+
+# Gate-only options consumed by `bca check` (#599). The baseline pairs
+# with `.bca-baseline.toml` so existing offenders are absorbed; only
+# regressions and new offenders fail the gate. See the Baselines recipe
+# in the book for the bootstrap/refresh/retire flow.
+[check]
+baseline = ".bca-baseline.toml"
 
 # bca per-function threshold configuration.
 #

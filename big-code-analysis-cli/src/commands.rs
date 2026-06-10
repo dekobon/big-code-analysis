@@ -1846,17 +1846,19 @@ const INIT_MANIFEST_TEMPLATE: &str = "\
 paths = [\".\"]
 exclude_from = \".bcaignore\"
 
-# Pair with `.bca-baseline.toml` so existing offenders are absorbed;
-# only regressions and new offenders fail the gate. See the Baselines
-# recipe in the book for the bootstrap/refresh/retire flow.
-baseline = \".bca-baseline.toml\"
-
 # Rust-only policy: treat `?` (the `try_expression` node) as linear
 # error propagation rather than a branch, so it does not contribute to
 # cyclomatic complexity. Equivalent to `--no-cyclomatic-try` on every
 # invocation (#409). Inert for non-Rust grammars (no other grammar
 # emits the node). Uncomment to opt in if your project is Rust.
 # cyclomatic_count_try = false
+
+# Gate-only options consumed by `bca check` (#599). The baseline pairs
+# with `.bca-baseline.toml` so existing offenders are absorbed; only
+# regressions and new offenders fail the gate. See the Baselines recipe
+# in the book for the bootstrap/refresh/retire flow.
+[check]
+baseline = \".bca-baseline.toml\"
 
 # bca per-function threshold configuration.
 #
