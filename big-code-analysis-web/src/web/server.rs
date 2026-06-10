@@ -835,6 +835,125 @@ async fn languages() -> HttpResponse {
     HttpResponse::Ok().json(LanguagesResponse { languages })
 }
 
+/// One entry in the `GET /v1` route index: a registered path, the HTTP
+/// methods it accepts, and a one-line description (#643).
+#[derive(Debug, Serialize)]
+struct RouteEntry {
+    /// Path relative to the API root, including the `/v1` prefix.
+    path: &'static str,
+    /// HTTP methods this resource accepts.
+    methods: &'static [&'static str],
+    /// One-line summary of what the route does.
+    description: &'static str,
+}
+
+/// The machine-readable route index served by `GET /v1` (#643).
+///
+/// This table is the single source of truth for the index body. Every
+/// resource registered in [`register_endpoints`] has exactly one entry
+/// here, and `test_web_v1_index_lists_every_registered_route` cross-checks
+/// the two so the index cannot silently drift from the routing table when a
+/// new endpoint is added. `POST` is listed before the `415`/`405` fallback
+/// methods because the analysis endpoints are `POST`-only; the
+/// introspection routes (`/v1`, `/v1/ping`, `/v1/version`, `/v1/languages`)
+/// accept `GET`/`HEAD` (#644).
+const ROUTES: &[RouteEntry] = &[
+    RouteEntry {
+        path: "/v1",
+        methods: &["GET", "HEAD"],
+        description: "This route index.",
+    },
+    RouteEntry {
+        path: "/v1/ping",
+        methods: &["GET", "HEAD"],
+        description: "Liveness check; empty 200 body.",
+    },
+    RouteEntry {
+        path: "/v1/version",
+        methods: &["GET", "HEAD"],
+        description: "Server and library versions.",
+    },
+    RouteEntry {
+        path: "/v1/languages",
+        methods: &["GET", "HEAD"],
+        description: "Supported languages and their file extensions.",
+    },
+    RouteEntry {
+        path: "/v1/ast",
+        methods: &["POST"],
+        description: "Parse source into an abstract syntax tree.",
+    },
+    RouteEntry {
+        path: "/v1/comment",
+        methods: &["POST"],
+        description: "Remove comments from source code.",
+    },
+    RouteEntry {
+        path: "/v1/function",
+        methods: &["POST"],
+        description: "Report function spans for the source.",
+    },
+    RouteEntry {
+        path: "/v1/metrics",
+        methods: &["POST"],
+        description: "Compute maintainability metrics for the source.",
+    },
+    RouteEntry {
+        path: "/v1/vcs",
+        methods: &["POST"],
+        description: "Rank files by change-history risk over a server-side git repository.",
+    },
+    RouteEntry {
+        path: "/v1/vcs/trend",
+        methods: &["POST"],
+        description: "Sample change-history metrics across time as a series.",
+    },
+    RouteEntry {
+        path: "/v1/vcs/jit",
+        methods: &["POST"],
+        description: "Score the just-in-time risk of one commit or an arbitrary diff.",
+    },
+];
+
+/// Body of the `GET /v1` route index (#643).
+#[derive(Debug, Serialize)]
+struct RouteIndex {
+    /// The server crate (`bca-web`).
+    service: &'static str,
+    /// The server crate version, matching `GET /v1/version`'s `server`.
+    version: &'static str,
+    /// Every registered route, sourced from [`ROUTES`].
+    routes: &'static [RouteEntry],
+}
+
+/// `GET /v1`: machine-readable discovery index of every registered route
+/// (#643).
+///
+/// Returns the [`ROUTES`] table verbatim so clients can enumerate the API
+/// surface — path, accepted methods, and a one-line description per route —
+/// without scraping the book. Like the other introspection routes it also
+/// answers `HEAD` (#644) and is exposed as an unprefixed `/` alias carrying
+/// the deprecation headers (#637).
+async fn index() -> HttpResponse {
+    HttpResponse::Ok().json(RouteIndex {
+        service: "bca-web",
+        version: env!("CARGO_PKG_VERSION"),
+        routes: ROUTES,
+    })
+}
+
+/// Builds the route-index resource at the scope-root `path` (#643).
+///
+/// `path` is `""` for the `/v1` scope (which matches `/v1`) and `"/"` for
+/// the empty alias scope (which matches the bare `/`) — actix resolves a
+/// scope root only with the scope-appropriate rooted path. GET/HEAD only,
+/// with the same `405` fallback as the other introspection resources.
+fn index_resource(path: &str) -> actix_web::Resource {
+    web::resource(path)
+        .route(web::route().guard(get_or_head_guard()).to(index))
+        .default_service(web::route().to(get_only_method_not_allowed))
+}
+
 /// Runs an HTTP server with the default parse timeout (30 s).
 ///
 /// Convenience wrapper around [`run_with_timeout`]. Each service corresponds
@@ -1077,7 +1196,18 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
     // An empty-prefix scope matches the bare paths (`/metrics`, …) but
     // not their `/v1/...` twins, so the deprecation headers land only on
     // alias responses (#637).
-    cfg.service(web::scope("/v1").configure(register_endpoints));
+    // The route index sits at each scope's root. actix matches a scope
+    // root only with an explicitly-rooted resource path that differs per
+    // scope: `resource("")` matches `/v1` under the versioned scope, while
+    // the empty alias scope needs `resource("/")` to match the bare `/`.
+    // It is registered here rather than in the shared `register_endpoints`
+    // so each scope can supply its own root path (#643). GET/HEAD only,
+    // mirroring the other introspection routes (#644).
+    cfg.service(
+        web::scope("/v1")
+            .service(index_resource(""))
+            .configure(register_endpoints),
+    );
     cfg.service(
         web::scope("")
             .wrap_fn(|req, srv| {
@@ -1104,6 +1234,7 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
                     Ok(res)
                 }
             })
+            .service(index_resource("/"))
             .configure(register_endpoints),
     );
     cfg.default_service(web::route().to(not_found));

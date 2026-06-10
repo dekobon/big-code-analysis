@@ -1915,6 +1915,154 @@ async fn test_web_v1_unknown_url_still_404() {
 }
 
 #[actix_rt::test]
+async fn test_web_v1_index_shape() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // `GET /v1` returns the machine-readable route index (#643): the issue's
+    // pre-fix bug was that both `/v1` and `/` answered the app-level 404.
+    let resp = test::call_service(&app, test::TestRequest::get().uri("/v1").to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+
+    assert_eq!(body["service"], json!("bca-web"));
+    assert_eq!(body["version"], json!(env!("CARGO_PKG_VERSION")));
+    let routes = body["routes"].as_array().expect("routes must be an array");
+    // The index lists itself plus every other registered route.
+    assert_eq!(
+        routes.len(),
+        ROUTES.len(),
+        "index must serialize every ROUTES entry",
+    );
+    // Spot-check one entry's full shape so a silent field rename is caught.
+    let self_entry = routes
+        .iter()
+        .find(|r| r["path"] == json!("/v1"))
+        .expect("index must list itself");
+    assert_eq!(self_entry["methods"], json!(["GET", "HEAD"]));
+    assert!(
+        self_entry["description"].is_string(),
+        "each route needs a description",
+    );
+    // The vcs family — the documentation gap that motivated #643 — must be
+    // discoverable from the index.
+    for vcs_path in ["/v1/vcs", "/v1/vcs/trend", "/v1/vcs/jit"] {
+        assert!(
+            routes.iter().any(|r| r["path"] == json!(vcs_path)),
+            "index must list {vcs_path}",
+        );
+    }
+}
+
+/// The route index must stay in lockstep with the actual routing table: a
+/// new endpoint added to `register_endpoints` without a `ROUTES` entry (or
+/// vice versa) would let the index silently drift from reality (#643). This
+/// drives every advertised path through the live app and asserts it is
+/// reachable (not the app-level 404), and that every method the index
+/// advertises is honored.
+#[actix_rt::test]
+async fn test_web_v1_index_lists_every_registered_route() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    for entry in ROUTES {
+        for method in entry.methods {
+            let method = http::Method::from_bytes(method.as_bytes()).unwrap();
+            let req = test::TestRequest::default()
+                .method(method.clone())
+                .uri(entry.path)
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            // A registered route never produces the app-level 404; the POST
+            // analysis routes answer 415 here (no Content-Type), but that is
+            // the *resource's* fallback, proving the path is registered.
+            assert_ne!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "advertised route {method} {} must be registered",
+                entry.path,
+            );
+        }
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_v1_index_head_matches_get() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // HEAD must work on the index like every other GET route (#644).
+    let get = test::call_service(&app, test::TestRequest::get().uri("/v1").to_request()).await;
+    assert_eq!(get.status(), StatusCode::OK);
+    let get_body = test::read_body(get).await;
+
+    let head = test::call_service(
+        &app,
+        test::TestRequest::default()
+            .method(http::Method::HEAD)
+            .uri("/v1")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(
+        test::read_body(head).await,
+        get_body,
+        "HEAD /v1 must reach the GET handler",
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_index_unprefixed_alias_carries_deprecation_headers() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // `GET /` serves the same index as `GET /v1` (the issue's other 404),
+    // but as a deprecated alias it carries the #637 signalling headers and
+    // the `/v1` twin stays header-free.
+    let alias = test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
+    assert_eq!(alias.status(), StatusCode::OK);
+    let headers = alias.headers();
+    assert_eq!(
+        headers.get("deprecation").map(|v| v.to_str().unwrap()),
+        Some("true"),
+        "alias / must carry Deprecation: true",
+    );
+    assert!(
+        headers.contains_key("sunset"),
+        "alias / must carry a Sunset header",
+    );
+    assert!(
+        headers
+            .get("link")
+            .is_some_and(|v| v.to_str().unwrap().contains("</v1/>")),
+        "alias / Link must name the /v1 successor",
+    );
+
+    // Body parity: the alias index is byte-identical to the /v1 index.
+    let alias_body: Value = serde_json::from_slice(&test::read_body(alias).await).unwrap();
+    let v1 = test::call_service(&app, test::TestRequest::get().uri("/v1").to_request()).await;
+    let v1_body: Value = serde_json::from_slice(&test::read_body(v1).await).unwrap();
+    assert_eq!(alias_body, v1_body, "alias index body must match /v1");
+}
+
+#[actix_rt::test]
 async fn test_web_v1_wrong_content_type_yields_415() {
     let app = test::init_service(
         App::new()
