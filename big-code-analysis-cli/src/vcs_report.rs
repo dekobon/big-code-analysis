@@ -208,11 +208,9 @@ const VCS_SPECS: &[VcsColumn] = &[
     VcsColumn {
         header: HOTSPOT_HEADER,
         align: Align::Right,
-        // Rendered only when some row carries a score (see `active_specs`).
-        // In a mixed report — the normal `report --vcs` join, where some
-        // files have AST-derived scores and others do not — the column
-        // survives on the scored rows and `unwrap_or_default` emits a blank
-        // cell for each unscored (`None`) row.
+        // Rendered only when some row carries a score (see `active_specs`); in a
+        // mixed report (the normal `report --vcs` join) the column survives on the
+        // scored rows and `unwrap_or_default` blanks each unscored (`None`) row.
         cell: |_, e| {
             Cell::Num(
                 e.vcs
