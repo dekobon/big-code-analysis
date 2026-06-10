@@ -271,7 +271,7 @@ pub fn score(features: &JitFeatures, purpose: JitPurpose) -> (f64, JitContributi
     let h = &features.history;
     let e = &features.experience;
 
-    let churn = ln1p((s.lines_added + s.lines_deleted) as f64);
+    let churn = ln1p(s.lines_added.saturating_add(s.lines_deleted) as f64);
     let size =
         0.30 * churn + 0.15 * ln1p(f64::from(s.files_touched)) + 0.05 * ln1p(f64::from(s.hunks));
 
