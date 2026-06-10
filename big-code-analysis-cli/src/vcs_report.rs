@@ -29,7 +29,8 @@ use crate::html_report::{
 };
 use crate::markdown_report::hotspot::Cell;
 use crate::markdown_report::{
-    Align, render_cell_md, write_legend as write_md_legend, write_table as write_md_table,
+    Align, render_cell_md, thousands, write_legend as write_md_legend,
+    write_table as write_md_table,
 };
 use crate::vcs_command::{FileEntry, Report};
 
@@ -51,7 +52,7 @@ struct VcsColumn {
 // and shared by the recent/total aliased pairs so the HTML tooltip and the
 // legend cannot drift. Moved here from `html_report::VCS_HEADER_TOOLTIPS`
 // (issue #611) to make `VCS_SPECS` the single source of truth.
-const RISK_TOOLTIP: &str = "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness.";
+const RISK_TOOLTIP: &str = "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness. Ordinal: only relative ranks carry meaning, not the absolute value.";
 const COMMITS_TOOLTIP: &str = "Distinct commits that touched this file within the analysis window.";
 const CHURN_TOOLTIP: &str = "Lines added + deleted to this file within the analysis window.";
 const AUTHORS_TOOLTIP: &str = "Distinct authors who touched this file within the analysis window.";
@@ -69,6 +70,16 @@ const CHANGE_ENTROPY_TOOLTIP: &str = "Change entropy (bits): how scattered the c
 const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.";
 const HOTSPOT_TOOLTIP: &str = "Complexity \u{D7} recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.";
 
+/// Format an integer count as a `Cell::Num` with comma thousands
+/// separators, so the VCS table renders `15,973` like the AST tables
+/// rather than the bare `15973` it used to (issue #618). Counts are
+/// `u32` / `u64`; the conversion to the `thousands` helper's `usize`
+/// saturates rather than wrapping on a (practically unreachable) overflow,
+/// keeping a sane render instead of a wrong one.
+fn num_cell(n: u64) -> Cell {
+    Cell::Num(thousands(usize::try_from(n).unwrap_or(usize::MAX)))
+}
+
 /// The change-history columns, defined once and rendered identically by
 /// both formats. Order and content mirror the structured CSV record (so
 /// the rendered page is the complete, sortable view of the same data),
@@ -77,7 +88,7 @@ const VCS_SPECS: &[VcsColumn] = &[
     VcsColumn {
         header: "Rank",
         align: Align::Right,
-        cell: |rank, _| Cell::Num(rank.to_string()),
+        cell: |rank, _| num_cell(rank as u64),
         tooltip: None,
     },
     VcsColumn {
@@ -95,37 +106,37 @@ const VCS_SPECS: &[VcsColumn] = &[
     VcsColumn {
         header: "Commits (recent)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.commits_recent.to_string()),
+        cell: |_, e| num_cell(e.vcs.commits_recent.into()),
         tooltip: Some(COMMITS_TOOLTIP),
     },
     VcsColumn {
         header: "Commits (total)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.commits_long.to_string()),
+        cell: |_, e| num_cell(e.vcs.commits_long.into()),
         tooltip: Some(COMMITS_TOOLTIP),
     },
     VcsColumn {
         header: "Churn (recent)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.churn_recent.to_string()),
+        cell: |_, e| num_cell(e.vcs.churn_recent),
         tooltip: Some(CHURN_TOOLTIP),
     },
     VcsColumn {
         header: "Churn (total)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.churn_long.to_string()),
+        cell: |_, e| num_cell(e.vcs.churn_long),
         tooltip: Some(CHURN_TOOLTIP),
     },
     VcsColumn {
         header: "Authors (recent)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.authors_recent.to_string()),
+        cell: |_, e| num_cell(e.vcs.authors_recent.into()),
         tooltip: Some(AUTHORS_TOOLTIP),
     },
     VcsColumn {
         header: "Authors (total)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.authors_long.to_string()),
+        cell: |_, e| num_cell(e.vcs.authors_long.into()),
         tooltip: Some(AUTHORS_TOOLTIP),
     },
     VcsColumn {
@@ -143,31 +154,31 @@ const VCS_SPECS: &[VcsColumn] = &[
     VcsColumn {
         header: "Bug fixes",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.bug_fix_commits.to_string()),
+        cell: |_, e| num_cell(e.vcs.bug_fix_commits.into()),
         tooltip: Some(BUG_FIXES_TOOLTIP),
     },
     VcsColumn {
         header: "Sec fixes",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.security_fix_commits.to_string()),
+        cell: |_, e| num_cell(e.vcs.security_fix_commits.into()),
         tooltip: Some(SEC_FIXES_TOOLTIP),
     },
     VcsColumn {
         header: "Reverts",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.revert_commits.to_string()),
+        cell: |_, e| num_cell(e.vcs.revert_commits.into()),
         tooltip: Some(REVERTS_TOOLTIP),
     },
     VcsColumn {
         header: "Age (d)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.age_days.to_string()),
+        cell: |_, e| num_cell(e.vcs.age_days.into()),
         tooltip: Some(AGE_TOOLTIP),
     },
     VcsColumn {
         header: "Last mod (d)",
         align: Align::Right,
-        cell: |_, e| Cell::Num(e.vcs.last_modified_days.to_string()),
+        cell: |_, e| num_cell(e.vcs.last_modified_days.into()),
         tooltip: Some(LAST_MOD_TOOLTIP),
     },
     VcsColumn {
@@ -288,6 +299,16 @@ fn risk_heat_class(row: usize, n_rows: usize) -> Option<&'static str> {
 /// The shared page/section heading.
 const HEADING: &str = "Change-history risk";
 
+/// Heading level for subsections (Bus factor, Legend) on the *standalone*
+/// page, whose title is an `#`/`<h1>`: subsections start one level deeper
+/// at `##`/`<h2>` so the outline has no MD001 gap (issue #618).
+const STANDALONE_SUBSECTION_LEVEL: usize = 2;
+
+/// Heading level for subsections when the report is *embedded* in
+/// `bca report --vcs`, whose section header is `##`/`<h2>`: subsections
+/// start at `###`/`<h3>`.
+const EMBEDDED_SUBSECTION_LEVEL: usize = 3;
+
 /// Shown in both formats when no tracked file matched the walk filters.
 const EMPTY_MESSAGE: &str = "No tracked files matched.";
 
@@ -319,14 +340,18 @@ fn cell_text(cell: Cell) -> String {
 }
 
 /// One-line provenance shared by both formats: window lengths and the
-/// formula / schema version stamps.
+/// risk-formula version, plus the ordinal-only caveat. The
+/// `vcs_schema_version` is wire jargon (it stamps the structured CSV/JSON
+/// record, not anything a human reader can act on) and is deliberately
+/// omitted from the rendered formats — it stays in the structured output.
+/// The Risk column is *ordinal*: only relative ranks carry meaning, never
+/// the absolute magnitude (see `src/vcs/score.rs`), so the page says so
+/// rather than presenting `Risk | 11.9` as if its value had a scale.
 fn provenance(report: &Report) -> String {
     format!(
-        "Long window {}d, recent window {}d, risk formula v{}, schema v{}.",
-        report.long_window_days,
-        report.recent_window_days,
-        report.risk_score_version,
-        report.vcs_schema_version,
+        "Long window {}d, recent window {}d, risk formula v{}. \
+         Risk is ordinal: only relative ranks carry meaning, not the absolute value.",
+        report.long_window_days, report.recent_window_days, report.risk_score_version,
     )
 }
 
@@ -340,7 +365,10 @@ const SHALLOW_NOTE: &str =
 pub(crate) fn render_markdown(report: &Report) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# {HEADING}\n");
-    write_markdown_body(&mut out, report);
+    // The page title is `#` (h1), so its subsections start at `##` (h2):
+    // a level-1 title with level-3 subsections skips h2 and trips MD001
+    // (the very lint this tool runs over its own Markdown) — issue #618.
+    write_markdown_body(&mut out, report, STANDALONE_SUBSECTION_LEVEL);
     out
 }
 
@@ -351,12 +379,16 @@ pub(crate) fn render_markdown(report: &Report) -> String {
 /// not rewrite them, since they are not filesystem walk paths.
 pub(crate) fn push_markdown_section(out: &mut String, report: &Report) {
     let _ = writeln!(out, "\n## {HEADING}\n");
-    write_markdown_body(out, report);
+    // Embedded section header is `##` (h2), so its subsections start at
+    // `###` (h3), keeping the document outline gap-free either way.
+    write_markdown_body(out, report, EMBEDDED_SUBSECTION_LEVEL);
 }
 
 /// Provenance line + ranked table (or the empty-set message). No
-/// heading — the caller supplies the right level.
-fn write_markdown_body(out: &mut String, report: &Report) {
+/// heading — the caller supplies the right level. `subsection_level` is
+/// the heading depth for the Bus factor and Legend subsections, one level
+/// below whatever heading the caller emitted for this section.
+fn write_markdown_body(out: &mut String, report: &Report, subsection_level: usize) {
     let _ = writeln!(out, "_{}_", provenance(report));
     if report.truncated_shallow_clone {
         let _ = writeln!(out, "\n> **Note:** {SHALLOW_NOTE}");
@@ -373,12 +405,12 @@ fn write_markdown_body(out: &mut String, report: &Report) {
         write_md_table(out, &headers(&specs), &aligns(&specs), &rows);
     }
     if let Some(aggregate) = &report.vcs_aggregate {
-        write_markdown_bus_factor(out, &aggregate.bus_factor);
+        write_markdown_bus_factor(out, &aggregate.bus_factor, subsection_level);
     }
     // Footer legend defining every rendered change-history column (issue
     // #611); an omitted Hotspot column (issue #615) drops its legend entry.
     if !report.files.is_empty() {
-        write_md_legend(out, &legend_entries(&specs));
+        write_md_legend(out, subsection_level, &legend_entries(&specs));
     }
 }
 
@@ -393,7 +425,7 @@ fn bus_factor_aligns() -> [Align; 3] {
     [Align::Left, Align::Right, Align::Right]
 }
 
-const BUS_FACTOR_TOOLTIP: &str = "Avelino Degree-of-Authorship bus factor: minimum authors covering this directory's code ownership above the coverage threshold.";
+const BUS_FACTOR_TOOLTIP: &str = "Number of authors whose departure would orphan more than half the files (by Avelino Degree-of-Authorship); lower is riskier.";
 const BUS_FACTOR_FILES_TOOLTIP: &str = "Files in this directory contributing to its bus factor.";
 
 /// Per-header tooltips for the bus-factor table, by column index. The
@@ -455,19 +487,37 @@ fn bus_factor_rows(bf: &big_code_analysis::vcs::BusFactor) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// Append the bus-factor subsection: a sentence for the repo, then the
-/// per-directory breakdown via the shared Markdown table renderer (which
-/// escapes cells).
-fn write_markdown_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFactor) {
+/// Plain-English explanation of the bus-factor number, shared by both
+/// formats: what it counts and which direction is the risk. Replaces the
+/// bare "Avelino Degree-of-Authorship, coverage threshold 0.50." debug
+/// stamp that named a method without saying what the number meant (#618).
+const BUS_FACTOR_EXPLANATION: &str = "Bus factor: the number of authors whose departure would orphan more than half the files; lower is riskier.";
+
+/// `"file"` or `"files"` for `n`, so the rendered count reads naturally
+/// instead of the placeholder-ese `file(s)` (issue #618).
+fn files_plural(n: u32) -> &'static str {
+    if n == 1 { "file" } else { "files" }
+}
+
+/// Append the bus-factor subsection: a plain-English sentence, the repo
+/// number, then the per-directory breakdown via the shared Markdown table
+/// renderer (which escapes cells). `level` is the heading depth supplied
+/// by the caller so the document outline stays gap-free (issue #618).
+fn write_markdown_bus_factor(
+    out: &mut String,
+    bf: &big_code_analysis::vcs::BusFactor,
+    level: usize,
+) {
+    let hashes = "#".repeat(level);
+    let _ = writeln!(out, "\n{hashes} Bus factor\n");
+    let _ = writeln!(out, "_{BUS_FACTOR_EXPLANATION}_\n");
     let _ = writeln!(
         out,
-        "\n### Bus factor\n\n_Avelino Degree-of-Authorship, coverage threshold {:.2}._\n",
+        "**Repository:** {} (over {} {}, coverage threshold {:.2}).\n",
+        bf.repo.bus_factor,
+        thousands(bf.repo.files as usize),
+        files_plural(bf.repo.files),
         bf.coverage_threshold,
-    );
-    let _ = writeln!(
-        out,
-        "**Repository:** {} (over {} file(s)).\n",
-        bf.repo.bus_factor, bf.repo.files,
     );
     if !bf.by_directory.is_empty() {
         write_md_table(
@@ -489,7 +539,8 @@ pub(crate) fn render_html(report: &Report) -> String {
     let mut out = String::with_capacity(8 * 1024 + report.files.len() * 128);
     write_html_head(&mut out, HEADING, HEADING);
     let _ = out.write_str("<section>\n");
-    write_html_body(&mut out, report);
+    // Page title is `<h1>`, so subsections start at `<h2>` (issue #618).
+    write_html_body(&mut out, report, STANDALONE_SUBSECTION_LEVEL);
     let _ = out.write_str("</section>\n");
     write_html_tail(&mut out);
     out
@@ -501,13 +552,15 @@ pub(crate) fn render_html(report: &Report) -> String {
 pub(crate) fn push_html_section(out: &mut String, report: &Report) {
     let _ = out.write_str("<section>\n");
     let _ = writeln!(out, "<h2>{HEADING}</h2>");
-    write_html_body(out, report);
+    // Section header is `<h2>`, so subsections start at `<h3>`.
+    write_html_body(out, report, EMBEDDED_SUBSECTION_LEVEL);
     let _ = out.write_str("</section>\n");
 }
 
 /// Provenance summary + sortable table (or the empty-set message). No
 /// `<section>` wrapper or heading — the caller supplies those.
-fn write_html_body(out: &mut String, report: &Report) {
+/// `subsection_level` is the heading depth for the Bus factor subsection.
+fn write_html_body(out: &mut String, report: &Report, subsection_level: usize) {
     let _ = out.write_str("<div class=\"summary\">\n");
     let _ = writeln!(out, "<p>{}</p>", provenance(report));
     if report.truncated_shallow_clone {
@@ -545,7 +598,7 @@ fn write_html_body(out: &mut String, report: &Report) {
         );
     }
     if let Some(aggregate) = &report.vcs_aggregate {
-        write_html_bus_factor(out, &aggregate.bus_factor);
+        write_html_bus_factor(out, &aggregate.bus_factor, subsection_level);
     }
     // A visible legend so the column definitions survive print, mobile, and
     // screen readers (the `title=` tooltips are hover-only) — issue #611;
@@ -558,14 +611,18 @@ fn write_html_body(out: &mut String, report: &Report) {
 /// Append the bus-factor subsection (repo sentence + per-directory table)
 /// to the HTML body, delegating the table to the shared renderer (which
 /// escapes cells).
-fn write_html_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFactor) {
+fn write_html_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFactor, level: usize) {
     let _ = out.write_str("<section class=\"bus-factor\">\n");
-    let _ = writeln!(out, "<h3>Bus factor</h3>");
+    let _ = writeln!(out, "<h{level}>Bus factor</h{level}>");
+    let _ = writeln!(out, "<p class=\"summary\">{BUS_FACTOR_EXPLANATION}</p>");
     let _ = writeln!(
         out,
-        "<p class=\"summary\">Avelino Degree-of-Authorship, coverage threshold {:.2}. \
-         Repository: <strong>{}</strong> (over {} file(s)).</p>",
-        bf.coverage_threshold, bf.repo.bus_factor, bf.repo.files,
+        "<p class=\"summary\">Repository: <strong>{}</strong> \
+         (over {} {}, coverage threshold {:.2}).</p>",
+        bf.repo.bus_factor,
+        thousands(bf.repo.files as usize),
+        files_plural(bf.repo.files),
+        bf.coverage_threshold,
     );
     if !bf.by_directory.is_empty() {
         write_table_with_tooltips(
@@ -638,7 +695,7 @@ mod tests {
     }
 
     /// A small, fixed bus-factor aggregate so the rich-report snapshots
-    /// exercise the rendered `### Bus factor` / `<section>` blocks.
+    /// exercise the rendered `## Bus factor` / `<section>` blocks.
     fn sample_aggregate() -> big_code_analysis::vcs::VcsAggregate {
         use big_code_analysis::vcs::{
             BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor, VcsAggregate,
@@ -697,7 +754,7 @@ mod tests {
         // Scope to the ranked-files table, before the bus-factor
         // subsection (whose own pipe table would otherwise be parsed as
         // extra file rows).
-        let files_md = md.split("### Bus factor").next().unwrap_or(md);
+        let files_md = md.split("# Bus factor").next().unwrap_or(md);
         files_md
             .lines()
             .filter(|l| l.starts_with('|'))
@@ -720,7 +777,11 @@ mod tests {
         // expected: heading, provenance, and one data row per file in
         // ranked order; the `|`-bearing path is GFM-escaped.
         assert!(md.starts_with("# Change-history risk\n"));
-        assert!(md.contains("risk formula v1, schema v1."));
+        // Provenance keeps the formula version but drops the wire-only
+        // "schema vN" stamp and states the ordinal caveat (issue #618).
+        assert!(md.contains("risk formula v1."));
+        assert!(!md.contains("schema v"));
+        assert!(md.contains("Risk is ordinal"));
         assert_eq!(
             md_file_column(&md),
             ["src/hot.rs", "src/warm.rs", "docs/with|pipe.md"],
@@ -901,7 +962,9 @@ mod tests {
         let report = rich_report();
         let md = render_markdown(&report);
         let html = render_html(&report);
-        assert!(md.contains("### Legend"), "Markdown legend heading missing");
+        // Standalone page title is `#`/h1, so the legend lands at `##`/h2
+        // (issue #618 keeps the outline gap-free).
+        assert!(md.contains("## Legend"), "Markdown legend heading missing");
         assert!(
             html.contains("<summary>Legend</summary>"),
             "HTML legend missing"
@@ -950,6 +1013,124 @@ mod tests {
         };
         assert!(render_markdown(&report).contains(SHALLOW_NOTE));
         assert!(render_html(&report).contains(SHALLOW_NOTE));
+    }
+
+    #[test]
+    fn provenance_drops_schema_and_states_ordinal_caveat() {
+        // Issue #618 (d): the wire-only `schema vN` stamp must not reach
+        // either rendered format, and both must carry the ordinal caveat
+        // so a reader does not treat the Risk magnitude as a scale. The
+        // structured output keeps `vcs_schema_version` (tested elsewhere).
+        let report = rich_report();
+        let md = render_markdown(&report);
+        let html = render_html(&report);
+        for rendered in [&md, &html] {
+            assert!(
+                !rendered.contains("schema v"),
+                "rendered formats must not leak the wire schema stamp"
+            );
+            assert!(rendered.contains("risk formula v1."));
+            assert!(
+                rendered.contains("Risk is ordinal"),
+                "provenance must state the ordinal-only caveat"
+            );
+        }
+        // The Risk tooltip / legend also carries the caveat.
+        assert!(RISK_TOOLTIP.contains("Ordinal"));
+        assert!(html.contains("Ordinal: only relative ranks"));
+    }
+
+    #[test]
+    fn integer_cells_use_thousands_separators() {
+        // Issue #618 (b): churn/commit cells render with comma separators
+        // like the AST tables, not the bare `15973`. A row with churn in
+        // the thousands proves the separator is applied; the HTML sort JS
+        // strips commas before comparing, so this is display-only.
+        let report = Report {
+            vcs_aggregate: None,
+            // churn_recent = 250 * 40 = 10,000; commits_long = 260.
+            files: vec![entry("src/big.rs", 9.0, 250, None)],
+            ..rich_report()
+        };
+        let md = render_markdown(&report);
+        let html = render_html(&report);
+        for rendered in [&md, &html] {
+            assert!(
+                rendered.contains("10,000"),
+                "churn cell must render with a thousands separator"
+            );
+            assert!(
+                !rendered.contains("10000"),
+                "the unseparated form must not appear"
+            );
+        }
+    }
+
+    #[test]
+    fn standalone_subsections_keep_heading_outline_gap_free() {
+        // Issue #618 (c): the standalone page title is `#`/<h1>, so its
+        // Bus factor and Legend subsections must be `##`/<h2> — a jump
+        // straight to `###`/<h3> skips h2 and trips MD001 (the lint this
+        // tool runs over its own Markdown) and breaks screen-reader
+        // outlines.
+        let report = rich_report();
+        let md = render_markdown(&report);
+        assert!(
+            md.contains("\n## Bus factor\n"),
+            "standalone bus factor at h2"
+        );
+        assert!(md.contains("\n## Legend\n"), "standalone legend at h2");
+        assert!(
+            !md.contains("### Bus factor"),
+            "no h3 jump on standalone page"
+        );
+
+        let html = render_html(&report);
+        assert!(
+            html.contains("<h2>Bus factor</h2>"),
+            "standalone HTML bus factor at h2"
+        );
+        assert!(
+            !html.contains("<h3>Bus factor</h3>"),
+            "no h3 jump in standalone HTML"
+        );
+
+        // Embedded under a `##`/<h2> section header, subsections deepen to
+        // `###`/<h3> so the outline stays gap-free there too.
+        let mut embedded = String::from("# Report\n");
+        push_markdown_section(&mut embedded, &report);
+        assert!(
+            embedded.contains("\n### Bus factor\n"),
+            "embedded bus factor at h3"
+        );
+        assert!(embedded.contains("\n### Legend\n"), "embedded legend at h3");
+    }
+
+    #[test]
+    fn bus_factor_reads_as_plain_english_with_pluralization() {
+        // Issue #618 (a): the bus-factor block must explain what the number
+        // means and which direction is risky, and pluralize "file(s)".
+        let report = rich_report();
+        let md = render_markdown(&report);
+        let html = render_html(&report);
+        for rendered in [&md, &html] {
+            assert!(
+                rendered.contains("authors whose departure would orphan more than half"),
+                "bus factor must carry the plain-English explanation"
+            );
+            assert!(rendered.contains("lower is riskier"));
+            // `sample_aggregate` has repo.files = 3 -> plural "files", and
+            // no literal placeholder-ese "file(s)".
+            assert!(rendered.contains("(over 3 files,"), "plural files");
+            assert!(
+                !rendered.contains("file(s)"),
+                "no placeholder pluralization"
+            );
+        }
+        // Singular path: a one-file repo reads "1 file".
+        assert_eq!(files_plural(1), "file");
+        assert_eq!(files_plural(0), "files");
+        assert_eq!(files_plural(2), "files");
     }
 
     /// The `risk-heat-N` class on each ranked row's Risk `<td>`, in

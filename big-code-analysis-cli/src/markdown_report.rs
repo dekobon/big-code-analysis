@@ -205,7 +205,12 @@ fn escape_name(s: &str) -> String {
     format!("`{}`", escape_cell(&sanitized))
 }
 
-pub(super) fn thousands(n: usize) -> String {
+/// Format an integer with comma thousands separators (`15973` -> `15,973`).
+/// `pub(crate)` so the VCS report's churn / commit counts share this one
+/// formatter with the AST tables and cannot drift (issue #618). The HTML
+/// sort comparator strips the commas before comparing, so the separators
+/// are display-only.
+pub(crate) fn thousands(n: usize) -> String {
     let s = n.to_string();
     let len = s.len();
     if len <= 3 {
@@ -372,11 +377,16 @@ pub(crate) fn write_table(
 /// The header abbreviation is wrapped in backticks (it is a code-like
 /// token) and the definition is GFM-escaped. Renders nothing when
 /// `entries` is empty.
-pub(crate) fn write_legend(out: &mut String, entries: &[(&str, &str)]) {
+/// Append a "Legend" subsection at the given heading `level` (number of
+/// `#`). Threaded rather than hardcoded so an embedding page can keep its
+/// document outline gap-free — a standalone VCS page (`#` title) needs an
+/// `##` legend, an embedded one (`##` section) needs `###` (issue #618).
+pub(crate) fn write_legend(out: &mut String, level: usize, entries: &[(&str, &str)]) {
     if entries.is_empty() {
         return;
     }
-    let _ = writeln!(out, "\n### Legend\n");
+    let hashes = "#".repeat(level);
+    let _ = writeln!(out, "\n{hashes} Legend\n");
     for (header, definition) in entries {
         let _ = writeln!(out, "- **{header}** — {}", escape_cell(definition));
     }
@@ -622,7 +632,8 @@ pub(crate) fn generate_report_with_vcs(
         }
         // Footer legend: define every metric-column abbreviation the
         // hotspot tables used, from the shared specs (issue #611).
-        write_legend(&mut out, &hotspot::legend_entries());
+        // The AST sections render at `###`, so the legend matches at level 3.
+        write_legend(&mut out, 3, &hotspot::legend_entries());
     }
 
     if let Some(report) = vcs {

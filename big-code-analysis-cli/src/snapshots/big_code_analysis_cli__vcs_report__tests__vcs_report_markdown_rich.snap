@@ -4,28 +4,28 @@ expression: md
 ---
 # Change-history risk
 
-_Long window 365d, recent window 90d, risk formula v1, schema v1._
+_Long window 365d, recent window 90d, risk formula v1. Risk is ordinal: only relative ranks carry meaning, not the absolute value._
 
 | Rank | File               | Risk | Commits (recent) | Commits (total) | Churn (recent) | Churn (total) | Authors (recent) | Authors (total) | Ownership | Burst | Bug fixes | Sec fixes | Reverts | Age (d) | Last mod (d) | Change entropy (recent) | Change entropy (total) | Co-change entropy (recent) | Co-change entropy (total) | Hotspot |
 | ---: | ------------------ | ---: | ---------------: | --------------: | -------------: | ------------: | ---------------: | --------------: | --------: | ----: | --------: | --------: | ------: | ------: | -----------: | ----------------------: | ---------------------: | -------------------------: | ------------------------: | ------: |
-|    1 | src/hot.rs         |  9.4 |               50 |              60 |           2000 |          5000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |   123.0 |
-|    2 | src/warm.rs        |  6.1 |               20 |              30 |            800 |          2000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
+|    1 | src/hot.rs         |  9.4 |               50 |              60 |          2,000 |         5,000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |   123.0 |
+|    2 | src/warm.rs        |  6.1 |               20 |              30 |            800 |         2,000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
 |    3 | docs/with\|pipe.md |  2.0 |                1 |              11 |             40 |           100 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
 
-### Bus factor
+## Bus factor
 
-_Avelino Degree-of-Authorship, coverage threshold 0.50._
+_Bus factor: the number of authors whose departure would orphan more than half the files; lower is riskier._
 
-**Repository:** 2 (over 3 file(s)).
+**Repository:** 2 (over 3 files, coverage threshold 0.50).
 
 | Directory | Bus factor | Files |
 | --------- | ---------: | ----: |
 | docs      |          1 |     1 |
 | src       |          2 |     2 |
 
-### Legend
+## Legend
 
-- **Risk** — Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness.
+- **Risk** — Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness. Ordinal: only relative ranks carry meaning, not the absolute value.
 - **Commits (recent)** — Distinct commits that touched this file within the analysis window.
 - **Commits (total)** — Distinct commits that touched this file within the analysis window.
 - **Churn (recent)** — Lines added + deleted to this file within the analysis window.
@@ -44,5 +44,5 @@ _Avelino Degree-of-Authorship, coverage threshold 0.50._
 - **Co-change entropy (recent)** — Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.
 - **Co-change entropy (total)** — Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.
 - **Hotspot** — Complexity × recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.
-- **Bus factor** — Avelino Degree-of-Authorship bus factor: minimum authors covering this directory's code ownership above the coverage threshold.
+- **Bus factor** — Number of authors whose departure would orphan more than half the files (by Avelino Degree-of-Authorship); lower is riskier.
 - **Files** — Files in this directory contributing to its bus factor.
