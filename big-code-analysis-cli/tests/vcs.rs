@@ -585,3 +585,38 @@ fn report_vcs_outside_a_repo_warns_and_still_renders() {
                 .and(predicate::str::contains("Change-history risk").not()),
         );
 }
+
+#[test]
+fn bad_long_window_names_the_flag_and_echoes_the_input() {
+    // Regression for #607: the failure used to name neither the flag nor
+    // the offending input (it quoted the split-off empty magnitude as
+    // `""`). The CLI must now identify `--long-window` and echo `bogus`,
+    // plus the parser's accepted-format hint.
+    let repo = repo_two_commits();
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--long-window", "bogus"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("--long-window")
+                .and(predicate::str::contains("\"bogus\""))
+                .and(predicate::str::contains("expected")),
+        );
+}
+
+#[test]
+fn bad_recent_window_names_its_own_flag() {
+    // The sibling flag must surface its own name, so a CI invocation
+    // passing both windows points at the actual offender (#607).
+    let repo = repo_two_commits();
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--recent-window", "12parsec"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("--recent-window")
+                .and(predicate::str::contains("\"12parsec\"")),
+        );
+}

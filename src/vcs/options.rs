@@ -33,6 +33,12 @@ pub const DEFAULT_LONG_WINDOW: &str = "12mo";
 /// Default recent window (`90d`).
 pub const DEFAULT_RECENT_WINDOW: &str = "90d";
 
+/// Human-facing reminder of the accepted [`parse_window`] grammar,
+/// appended to every window-parse error so the message is actionable
+/// without consulting the docs (issue #607).
+const WINDOW_FORMAT_HINT: &str =
+    "expected <N>d|w|mo|y or an ISO 8601 duration, e.g. 12mo, 90d, or P1Y6M";
+
 /// Default bus-factor coverage (abandonment) threshold (`0.5`, per
 /// Avelino). Re-exported from the bus-factor module so the front ends
 /// share one source of truth for the default and the validation bound.
@@ -319,7 +325,7 @@ pub fn validate_bus_factor_threshold(threshold: f64) -> Result<f64, Error> {
 pub fn parse_window(spec: &str) -> Result<i64, Error> {
     let trimmed = spec.trim();
     if trimmed.is_empty() {
-        return Err(Error::InvalidWindow("window is empty".to_owned()));
+        return Err(window_error(spec, "is empty"));
     }
     if let Some(rest) = trimmed.strip_prefix(['P', 'p']) {
         return parse_iso8601(rest, spec);
@@ -328,15 +334,25 @@ pub fn parse_window(spec: &str) -> Result<i64, Error> {
     // numeric magnitude.
     let split = trimmed
         .find(|c: char| c.is_ascii_alphabetic())
-        .ok_or_else(|| Error::InvalidWindow(format!("{spec:?} has no unit")))?;
+        .ok_or_else(|| window_error(spec, "has no unit"))?;
     let (number, unit) = trimmed.split_at(split);
+    // Report the full original input rather than the split-off magnitude:
+    // for "bogus" the magnitude is empty, and quoting `""` told the user
+    // nothing about what they typed (issue #607).
     let magnitude: i64 = number
         .trim()
         .parse()
-        .map_err(|_| Error::InvalidWindow(format!("{number:?} is not a whole number")))?;
+        .map_err(|_| window_error(spec, "has a non-numeric magnitude"))?;
     let factor = unit_factor(unit)
-        .ok_or_else(|| Error::InvalidWindow(format!("unknown unit {unit:?} in {spec:?}")))?;
+        .ok_or_else(|| window_error(spec, &format!("has an unknown unit {unit:?}")))?;
     checked_window(magnitude, factor, spec)
+}
+
+/// Build an [`Error::InvalidWindow`] that quotes the full offending input
+/// and appends the accepted-format hint, so every window-parse failure
+/// names what the user typed and how to fix it (issue #607).
+fn window_error(spec: &str, problem: &str) -> Error {
+    Error::InvalidWindow(format!("{spec:?} {problem} ({WINDOW_FORMAT_HINT})"))
 }
 
 /// Seconds-per-unit for the suffix form. `mo` is months (the bare `m`
@@ -356,7 +372,7 @@ fn unit_factor(unit: &str) -> Option<i64> {
 /// rejected rather than silently ignored.
 fn parse_iso8601(body: &str, original: &str) -> Result<i64, Error> {
     if body.is_empty() {
-        return Err(Error::InvalidWindow(format!("{original:?} has no fields")));
+        return Err(window_error(original, "has no fields"));
     }
     let mut total: i64 = 0;
     let mut digits = String::new();
@@ -366,13 +382,14 @@ fn parse_iso8601(body: &str, original: &str) -> Result<i64, Error> {
             continue;
         }
         if digits.is_empty() {
-            return Err(Error::InvalidWindow(format!(
-                "{original:?} field {ch:?} has no magnitude"
-            )));
+            return Err(window_error(
+                original,
+                &format!("field {ch:?} has no magnitude"),
+            ));
         }
         let magnitude: i64 = digits
             .parse()
-            .map_err(|_| Error::InvalidWindow(format!("{digits:?} is not a whole number")))?;
+            .map_err(|_| window_error(original, "has a non-numeric magnitude"))?;
         digits.clear();
         // Date designators only: Y, M (months — date context), W, D.
         let factor = match ch {
@@ -381,23 +398,25 @@ fn parse_iso8601(body: &str, original: &str) -> Result<i64, Error> {
             'W' => SECONDS_PER_WEEK,
             'D' => SECONDS_PER_DAY,
             _ => {
-                return Err(Error::InvalidWindow(format!(
-                    "unsupported ISO 8601 designator {ch:?} in {original:?}"
-                )));
+                return Err(window_error(
+                    original,
+                    &format!("has an unsupported ISO 8601 designator {ch:?}"),
+                ));
             }
         };
         total = total
             .checked_add(
                 magnitude
                     .checked_mul(factor)
-                    .ok_or_else(|| Error::InvalidWindow(format!("{original:?} overflows")))?,
+                    .ok_or_else(|| window_error(original, "overflows"))?,
             )
-            .ok_or_else(|| Error::InvalidWindow(format!("{original:?} overflows")))?;
+            .ok_or_else(|| window_error(original, "overflows"))?;
     }
     if !digits.is_empty() {
-        return Err(Error::InvalidWindow(format!(
-            "{original:?} ends with a magnitude {digits:?} lacking a designator"
-        )));
+        return Err(window_error(
+            original,
+            &format!("ends with a magnitude {digits:?} lacking a designator"),
+        ));
     }
     reject_non_positive(total, original)
 }
@@ -406,11 +425,11 @@ fn parse_iso8601(body: &str, original: &str) -> Result<i64, Error> {
 /// overflow.
 fn checked_window(magnitude: i64, factor: i64, spec: &str) -> Result<i64, Error> {
     if magnitude < 0 {
-        return Err(Error::InvalidWindow(format!("{spec:?} is negative")));
+        return Err(window_error(spec, "is negative"));
     }
     let product = magnitude
         .checked_mul(factor)
-        .ok_or_else(|| Error::InvalidWindow(format!("{spec:?} overflows")))?;
+        .ok_or_else(|| window_error(spec, "overflows"))?;
     reject_non_positive(product, spec)
 }
 
@@ -419,9 +438,7 @@ fn checked_window(magnitude: i64, factor: i64, spec: &str) -> Result<i64, Error>
 /// producing an empty result.
 fn reject_non_positive(seconds: i64, spec: &str) -> Result<i64, Error> {
     if seconds <= 0 {
-        return Err(Error::InvalidWindow(format!(
-            "{spec:?} is not a positive duration"
-        )));
+        return Err(window_error(spec, "is not a positive duration"));
     }
     Ok(seconds)
 }

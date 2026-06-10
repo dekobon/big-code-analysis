@@ -48,6 +48,33 @@ fn bad_windows_are_rejected() {
 }
 
 #[test]
+fn window_errors_quote_full_input_and_hint() {
+    // Regression for #607: a garbage suffix-form input such as "bogus"
+    // used to quote the split-off (empty) magnitude as `""`. Every error
+    // must instead echo the full offending input and the format hint so
+    // the message is actionable.
+    for bad in ["bogus", "12parsec", "10x", ""] {
+        let Err(Error::InvalidWindow(msg)) = parse_window(bad) else {
+            panic!("expected {bad:?} to be rejected as InvalidWindow");
+        };
+        assert!(
+            msg.contains(&format!("{bad:?}")),
+            "error for {bad:?} should quote the full input, got: {msg}"
+        );
+        assert!(
+            msg.contains("expected") && msg.contains("ISO 8601"),
+            "error for {bad:?} should carry the format hint, got: {msg}"
+        );
+        // The empty-magnitude bug printed a bare `""`; ensure that
+        // misleading token is gone for non-empty input.
+        assert!(
+            bad.is_empty() || !msg.contains("\"\""),
+            "error for {bad:?} should not quote an empty magnitude, got: {msg}"
+        );
+    }
+}
+
+#[test]
 fn defaults_match_the_issue_sample() {
     let options = Options::default();
     assert_eq!(options.long_window_days(), 365);

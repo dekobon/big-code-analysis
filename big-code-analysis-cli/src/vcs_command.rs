@@ -152,10 +152,13 @@ fn default_aggregate_index(globals: &GlobalOpts) -> Option<vcs::HistoryIndex> {
 /// ([`crate::vcs_jit`]), which reuses the same window / bot / merge /
 /// rename flags.
 pub(crate) fn build_options(args: &VcsArgs) -> Options {
+    // Name the failing flag so a long CI invocation with several window
+    // flags points at the offender rather than just echoing the parser
+    // error (issue #607).
     let long_window_secs =
-        parse_window(&args.long_window).unwrap_or_else(|e| die(format_args!("{e}")));
-    let recent_window_secs =
-        parse_window(&args.recent_window).unwrap_or_else(|e| die(format_args!("{e}")));
+        parse_window(&args.long_window).unwrap_or_else(|e| die(format_args!("--long-window: {e}")));
+    let recent_window_secs = parse_window(&args.recent_window)
+        .unwrap_or_else(|e| die(format_args!("--recent-window: {e}")));
     let as_of = args
         .as_of
         .as_deref()
