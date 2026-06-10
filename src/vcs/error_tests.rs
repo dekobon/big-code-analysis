@@ -84,3 +84,44 @@ fn invalid_formula_lists_the_accepted_names() {
     assert!(rendered.contains("weighted"), "{rendered:?}");
     assert!(rendered.contains("percentile"), "{rendered:?}");
 }
+
+// Pin the client-input vs environment/backend classification of every
+// variant (issue #641). The web boundary maps `is_client_input()` to
+// `400`/`500`; a silent re-classification here would silently change the
+// HTTP contract, so each variant is asserted explicitly. Mirrors the
+// exhaustive match in `Error::is_client_input` — when a variant is added,
+// `is_client_input` fails to compile (forcing a decision) and this test
+// must gain a corresponding case.
+#[test]
+fn is_client_input_classifies_every_variant() {
+    let s = || "x".to_owned();
+    let client_input: Vec<Error> = vec![
+        Error::NotARepository(PathBuf::from("/tmp/x")),
+        Error::ResolveRef {
+            reference: s(),
+            reason: s(),
+        },
+        Error::InvalidBotPattern(s()),
+        Error::InvalidWindow(s()),
+        Error::InvalidTimestamp(s()),
+        Error::InvalidFormula(s()),
+        Error::InvalidFileTypeScope(s()),
+        Error::InvalidBusFactorThreshold(s()),
+        Error::InvalidTrend(s()),
+        Error::InvalidDiff(s()),
+    ];
+    let environment: Vec<Error> = vec![
+        Error::OpenRepository(s()),
+        Error::Walk(s()),
+        Error::Diff(s()),
+        Error::Mailmap(s()),
+        Error::Blame(s()),
+        Error::Cache(s()),
+    ];
+    for err in client_input {
+        assert!(err.is_client_input(), "{err:?} should be client input");
+    }
+    for err in environment {
+        assert!(!err.is_client_input(), "{err:?} should not be client input");
+    }
+}

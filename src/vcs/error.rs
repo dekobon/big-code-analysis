@@ -80,6 +80,46 @@ pub enum Error {
     Cache(String),
 }
 
+impl Error {
+    /// Whether this error was caused by client-supplied input (a bad
+    /// path, revision, window, timestamp, formula, pattern, threshold,
+    /// trend parameter, file-type scope, or diff) as opposed to an
+    /// environment or backend failure (opening the repository, walking
+    /// history, diffing, `.mailmap`, blame, or the persistent cache).
+    ///
+    /// Front ends use this to choose a status: a web boundary maps
+    /// client-input errors to `400 Bad Request` and the rest to
+    /// `500 Internal Server Error` (see `vcs_error_response` in the web
+    /// crate).
+    ///
+    /// The match is intentionally exhaustive (no wildcard arm): adding a
+    /// new [`Error`] variant is a compile error here until it is
+    /// classified, which prevents the silent fall-through that twice
+    /// mis-mapped client-input variants to `500` (`InvalidFileTypeScope`,
+    /// `InvalidDiff`; see issue #641).
+    #[must_use]
+    pub fn is_client_input(&self) -> bool {
+        match self {
+            Self::NotARepository(_)
+            | Self::ResolveRef { .. }
+            | Self::InvalidBotPattern(_)
+            | Self::InvalidWindow(_)
+            | Self::InvalidTimestamp(_)
+            | Self::InvalidFormula(_)
+            | Self::InvalidFileTypeScope(_)
+            | Self::InvalidBusFactorThreshold(_)
+            | Self::InvalidTrend(_)
+            | Self::InvalidDiff(_) => true,
+            Self::OpenRepository(_)
+            | Self::Walk(_)
+            | Self::Diff(_)
+            | Self::Mailmap(_)
+            | Self::Blame(_)
+            | Self::Cache(_) => false,
+        }
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

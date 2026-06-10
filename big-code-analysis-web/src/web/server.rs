@@ -458,22 +458,15 @@ async fn vcs_jit_json(
 /// (`400`); an actual walk failure is a `500`. The real error is logged
 /// server-side; the client sees the uniform body.
 fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
-    let (status, body) = match error {
-        VcsError::NotARepository(_)
-        | VcsError::InvalidWindow(_)
-        | VcsError::InvalidTimestamp(_)
-        | VcsError::InvalidFormula(_)
-        | VcsError::InvalidBotPattern(_)
-        | VcsError::InvalidBusFactorThreshold(_)
-        | VcsError::InvalidFileTypeScope(_)
-        | VcsError::InvalidTrend(_)
-        // A malformed unified diff supplied to `/vcs/jit` is a client
-        // mistake (issue #580), not a server fault — answer 400, not 500.
-        | VcsError::InvalidDiff(_)
-        // A bad client-supplied `ref` (or an unborn HEAD) is a client
-        // mistake, not a server fault — answer 400, not 500.
-        | VcsError::ResolveRef { .. } => (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST),
-        _ => (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED),
+    // The library owns the client-input vs environment/backend split
+    // (`vcs::Error::is_client_input`, issue #641) via an exhaustive match,
+    // so a new variant forces a classification decision at the library and
+    // is mapped here without re-enumerating variants — closing the silent
+    // fall-through that twice mis-mapped client errors to 500.
+    let (status, body) = if error.is_client_input() {
+        (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST)
+    } else {
+        (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED)
     };
     tracing::warn!(payload_id = %payload_id, error = %error, "vcs request failed");
     json_error(status, body, payload_id)

@@ -2089,6 +2089,48 @@ async fn test_web_vcs_bad_file_types_is_400() {
 }
 
 #[actix_rt::test]
+async fn test_web_vcs_bad_window_is_400() {
+    // An unparseable window is a client mistake, so `InvalidWindow` must
+    // map to 400, not 500 — the same regression class #641 makes
+    // structural via `vcs::Error::is_client_input`.
+    let repo = build_temp_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs").route(web::post().to(vcs_json))),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs")
+        .insert_header(ContentType::json())
+        .set_json(json!({
+            "id": "req-win",
+            "repo_path": repo.path().to_str().unwrap(),
+            "long_window": "not-a-window",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[actix_rt::test]
+async fn vcs_error_response_maps_classification_to_status() {
+    // The web boundary delegates to `vcs::Error::is_client_input` (#641):
+    // a client-input variant is a 400 with the client-facing body, and an
+    // environment/backend variant is a 500 with the generic failure body.
+    // Asserting both branches directly pins the HTTP contract without
+    // needing to provoke a backend failure through the endpoint.
+    let client = vcs_error_response(
+        &VcsError::InvalidWindow("bad".to_owned()),
+        "id-1".to_owned(),
+    );
+    assert_eq!(client.status(), StatusCode::BAD_REQUEST);
+
+    let internal = vcs_error_response(&VcsError::Walk("boom".to_owned()), "id-2".to_owned());
+    assert_eq!(internal.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[actix_rt::test]
 async fn test_web_vcs_outside_repo_is_400() {
     let dir = tempfile::tempdir().expect("tempdir");
     let app = test::init_service(
