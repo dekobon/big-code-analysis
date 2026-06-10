@@ -74,8 +74,8 @@ Run `bca <COMMAND> --help` for command-specific options.
 ## Global options
 
 - `-p, --paths <FILE>...` — input files or directories.
-- `-I, --include [<GLOB>...]` — include files matching pattern.
-- `-X, --exclude [<GLOB>...]` — exclude files matching pattern.
+- `-I, --include <GLOB>` — include files matching pattern (repeatable).
+- `-X, --exclude <GLOB>` — exclude files matching pattern (repeatable).
 - `-j, --num-jobs <N>` — worker threads.
 - `-l, --language <LANG>` — force a language instead of inferring. Accepts
   a language name (`rust`) or extension (`rs`); unknown values error out.

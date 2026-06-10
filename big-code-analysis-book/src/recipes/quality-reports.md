@@ -60,7 +60,7 @@ include/exclude globs do the filtering:
 
 ```bash
 bca \
-    --include "*.rs" "*.py" \
+    --include "*.rs" --include "*.py" \
     --paths "$PWD" \
     report markdown --output report.md
 ```
