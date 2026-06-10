@@ -43,7 +43,9 @@ use big_code_analysis::{SpaceKind, SuppressionPolicy};
 use crate::markdown_report::hotspot::{
     self, ACTIONABLE_SUMMARY_INDEX, Align, Cell, Column, HotspotSpec, SPECS, Source,
 };
-use crate::markdown_report::{FunctionSummary, is_class_like, mi_rating, thousands, title_case};
+use crate::markdown_report::{
+    FunctionSummary, is_class_like, language_display_name, mi_rating, thousands,
+};
 
 /// HTML-escape a string for safe interpolation into element text or
 /// double-quoted attribute values. Returns a borrowed `Cow` when the
@@ -558,7 +560,7 @@ pub(crate) fn write_html_head(out: &mut String, title: &str, heading: &str) {
 fn write_global_summary(out: &mut String, totals: &GlobalTotals, by_lang: &LangGroups<'_>) {
     let languages_list: String = by_lang
         .keys()
-        .map(|k| title_case(k))
+        .map(|k| language_display_name(k))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -626,7 +628,7 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
         (0.0, 0.0)
     };
     vec![
-        title_case(lang_name),
+        language_display_name(lang_name).into_owned(),
         thousands(unit_count),
         thousands(sloc),
         thousands(func_count),
@@ -781,7 +783,7 @@ impl LanguageTotals {
 }
 
 fn write_language_header(out: &mut String, lang_name: &str) {
-    let display_name = title_case(lang_name);
+    let display_name = language_display_name(lang_name);
     // `slug` is sourced from `LANGUAGE_PALETTE` (or the literal "other"
     // fallback) — always lowercase ASCII, so it is interpolated raw
     // into the class attribute without `escape_html`.
@@ -1052,6 +1054,38 @@ mod tests {
             LANG::Python,
         ));
         v
+    }
+
+    // The shipped snapshot fixtures only cover Rust and Python, whose
+    // display names equal their title-cased slug, so they cannot catch a
+    // regression in the slug→display mapping (#613). Render a language
+    // whose human name carries punctuation the slug strips (C++) and pin
+    // both surfaces: the heading must show the display name, while the
+    // CSS class must keep the machine slug.
+    #[test]
+    fn cpp_heading_uses_display_name_class_keeps_slug() {
+        let summaries = vec![
+            make_summary("lib.cpp", "src/lib.cpp", SpaceKind::Unit, LANG::Cpp),
+            make_summary("compute", "src/lib.cpp", SpaceKind::Function, LANG::Cpp),
+        ];
+        let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
+        assert!(
+            out.contains("<h2>C++</h2>"),
+            "heading should render the display name, got:\n{out}"
+        );
+        assert!(
+            out.contains("lang-cpp"),
+            "CSS class must keep the machine slug, got:\n{out}"
+        );
+        assert!(
+            out.contains("<strong>Languages:</strong> C++"),
+            "Languages line should use the display name, got:\n{out}"
+        );
+        // The raw title-cased slug must not leak into any heading.
+        assert!(
+            !out.contains("<h2>Cpp</h2>"),
+            "raw slug leaked into heading"
+        );
     }
 
     #[test]

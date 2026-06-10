@@ -32,6 +32,7 @@ pub(crate) use hotspot::Align;
 // identically.
 pub(crate) use sections::render_cell_md;
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
@@ -235,6 +236,51 @@ pub(super) fn title_case(s: &str) -> String {
         }
     }
     result
+}
+
+/// Maps a language's canonical lowercase slug (`LANG::name()`, e.g. `"cpp"`,
+/// `"csharp"`) to the human-readable name shown in report headings and the
+/// `**Languages:**` line (`"C++"`, `"C#"`).
+///
+/// Slugs stay machine-readable by design (#540 bans `/` and `#`), so they make
+/// poor headings — a reader unfamiliar with the convention can mistake
+/// `"Csharp"` for a distinct dialect. This is a *display-only* mapping: CSS
+/// `lang-{slug}` classes, anchors, and all structured/wire output keep the slug
+/// (see #613).
+///
+/// The match over [`LANG`] is exhaustive (no wildcard) so adding a new language
+/// is a compile error here until a display name is chosen. A slug that does not
+/// parse to a known `LANG` — only possible for a future variant not yet
+/// reflected in this build — degrades gracefully to [`title_case`].
+pub(super) fn language_display_name(slug: &str) -> Cow<'_, str> {
+    let Ok(lang) = slug.parse::<LANG>() else {
+        return Cow::Owned(title_case(slug));
+    };
+    let display = match lang {
+        LANG::Bash => "Bash",
+        LANG::Ccomment => "C Comment",
+        LANG::Cpp => "C++",
+        LANG::Csharp => "C#",
+        LANG::Elixir => "Elixir",
+        LANG::Go => "Go",
+        LANG::Groovy => "Groovy",
+        LANG::Irules => "iRules",
+        LANG::Java => "Java",
+        LANG::Javascript => "JavaScript",
+        LANG::Kotlin => "Kotlin",
+        LANG::Lua => "Lua",
+        LANG::Mozjs => "JavaScript (Mozilla)",
+        LANG::Perl => "Perl",
+        LANG::Php => "PHP",
+        LANG::Preproc => "C/C++ Preprocessor",
+        LANG::Python => "Python",
+        LANG::Ruby => "Ruby",
+        LANG::Rust => "Rust",
+        LANG::Tcl => "Tcl",
+        LANG::Tsx => "TSX",
+        LANG::Typescript => "TypeScript",
+    };
+    Cow::Borrowed(display)
 }
 
 /// Stable tie-break when the ranking metric is equal: file path, then start
@@ -627,7 +673,7 @@ fn write_global_header(
 ) {
     let languages_list: String = by_lang
         .keys()
-        .map(|k| title_case(k))
+        .map(|k| language_display_name(k))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -689,7 +735,7 @@ fn lang_overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Ve
     let (unit_count, lang_sloc, avg_mi) = unit_aggregates(lang_summaries);
     let (func_count, avg_cc, avg_cog) = function_aggregates(lang_summaries);
     vec![
-        title_case(lang_name),
+        language_display_name(lang_name).into_owned(),
         thousands(unit_count),
         thousands(lang_sloc),
         thousands(func_count),
@@ -742,7 +788,7 @@ fn write_language_section(
     top_n: usize,
     policy: SuppressionPolicy,
 ) {
-    let display_name = title_case(lang_name);
+    let display_name = language_display_name(lang_name);
     let _ = writeln!(out, "\n## {display_name}\n");
 
     let (units, funcs) = sections::split_units_and_functions(entries);
@@ -1435,8 +1481,10 @@ mod tests {
     fn title_case_basic() {
         assert_eq!(title_case("rust"), "Rust");
         assert_eq!(title_case("python"), "Python");
-        // Canonical slugs since #540 — the language headings the report
-        // actually renders.
+        // `title_case` is the generic fallback used by
+        // `language_display_name` for slugs that do not parse to a known
+        // `LANG`; the actual report headings now go through the display
+        // map (see `language_display_name_*` tests).
         assert_eq!(title_case("cpp"), "Cpp");
         assert_eq!(title_case("csharp"), "Csharp");
         assert_eq!(title_case("tsx"), "Tsx");
@@ -1444,6 +1492,48 @@ mod tests {
         // for arbitrary inputs (no current language slug uses them).
         assert_eq!(title_case("c/c++"), "C/C++");
         assert_eq!(title_case(""), "");
+    }
+
+    #[test]
+    fn language_display_name_known_slugs() {
+        // The punctuation-bearing names #540 deliberately stripped from
+        // the machine slug, restored for human headings (#613).
+        assert_eq!(language_display_name("cpp"), "C++");
+        assert_eq!(language_display_name("csharp"), "C#");
+        assert_eq!(language_display_name("javascript"), "JavaScript");
+        assert_eq!(language_display_name("typescript"), "TypeScript");
+        assert_eq!(language_display_name("tsx"), "TSX");
+        assert_eq!(language_display_name("php"), "PHP");
+        assert_eq!(language_display_name("irules"), "iRules");
+    }
+
+    #[test]
+    fn language_display_name_covers_every_lang() {
+        // Every `LANG` slug must resolve to a non-empty display name. The
+        // `match` in `language_display_name` is exhaustive, so a new
+        // language is a compile error there; this guards the runtime
+        // contract that no known slug ever falls through to the
+        // `title_case` fallback (which would re-expose the raw slug).
+        for lang in LANG::into_enum_iter() {
+            let slug = lang.name();
+            let display = language_display_name(slug);
+            assert!(!display.is_empty(), "{slug} produced an empty display name");
+            // A known slug must take the borrowed (mapped) arm, never the
+            // owned `title_case` fallback reserved for unknown future
+            // variants.
+            assert!(
+                matches!(display, Cow::Borrowed(_)),
+                "{slug} fell through to the title_case fallback"
+            );
+        }
+    }
+
+    #[test]
+    fn language_display_name_unknown_slug_falls_back() {
+        // A slug that does not parse to a `LANG` degrades to `title_case`
+        // rather than panicking — the graceful path for a future variant
+        // not yet reflected in this build.
+        assert_eq!(language_display_name("klingon"), "Klingon");
     }
 
     #[test]
