@@ -24,22 +24,50 @@
 use std::fmt::Write as _;
 
 use crate::html_report::{
-    write_html_head, write_html_tail, write_table as write_html_table,
-    write_table_classed as write_html_table_classed,
+    write_html_head, write_html_tail, write_legend_html,
+    write_table_classed_with_tooltips as write_html_table_classed, write_table_with_tooltips,
 };
 use crate::markdown_report::hotspot::Cell;
-use crate::markdown_report::{Align, render_cell_md, write_table as write_md_table};
+use crate::markdown_report::{
+    Align, render_cell_md, write_legend as write_md_legend, write_table as write_md_table,
+};
 use crate::vcs_command::{FileEntry, Report};
 
-/// One column of the change-history table: header, alignment, and a
-/// capture-free projector to a [`Cell`]. The `rank` argument (1-based)
-/// lets the Rank column be part of the shared spec rather than
-/// special-cased in each renderer, where it could drift.
+/// One column of the change-history table: header, alignment, a
+/// capture-free projector to a [`Cell`], and an optional plain-English
+/// `tooltip`. The `rank` argument (1-based) lets the Rank column be part
+/// of the shared spec rather than special-cased in each renderer, where it
+/// could drift. The `tooltip` is the single source of a column's
+/// definition — both the HTML `title=` attribute and the rendered legend
+/// draw from it (issue #611); identity columns (Rank, File) carry `None`.
 struct VcsColumn {
     header: &'static str,
     align: Align,
     cell: fn(rank: usize, &FileEntry) -> Cell,
+    tooltip: Option<&'static str>,
 }
+
+// Plain-English definitions for the change-history columns, defined once
+// and shared by the recent/total aliased pairs so the HTML tooltip and the
+// legend cannot drift. Moved here from `html_report::VCS_HEADER_TOOLTIPS`
+// (issue #611) to make `VCS_SPECS` the single source of truth.
+const RISK_TOOLTIP: &str = "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness.";
+const COMMITS_TOOLTIP: &str = "Distinct commits that touched this file within the analysis window.";
+const CHURN_TOOLTIP: &str = "Lines added + deleted to this file within the analysis window.";
+const AUTHORS_TOOLTIP: &str = "Distinct authors who touched this file within the analysis window.";
+const OWNERSHIP_TOOLTIP: &str = "Top-author edit share (0\u{2013}1): fraction of edits by the single most active author; lower means more diluted ownership.";
+const BURST_TOOLTIP: &str =
+    "Recency of change (0\u{2013}1): recent commits as a share of long-window commits.";
+const BUG_FIXES_TOOLTIP: &str =
+    "Commits classified as bug fixes (by message) within the long window.";
+const SEC_FIXES_TOOLTIP: &str = "Commits classified as security fixes (by message) within the long window; weighted more heavily than bug fixes.";
+const REVERTS_TOOLTIP: &str = "Revert commits touching this file within the long window.";
+const AGE_TOOLTIP: &str =
+    "Days since the first in-window commit touching this file (capped at the long window).";
+const LAST_MOD_TOOLTIP: &str = "Days since the most recent in-window commit touching this file.";
+const CHANGE_ENTROPY_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.";
+const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.";
+const HOTSPOT_TOOLTIP: &str = "Complexity \u{D7} recent churn: high-complexity files that also change often. Empty when AST metrics are not joined.";
 
 /// The change-history columns, defined once and rendered identically by
 /// both formats. Order and content mirror the structured CSV record (so
@@ -50,101 +78,121 @@ const VCS_SPECS: &[VcsColumn] = &[
         header: "Rank",
         align: Align::Right,
         cell: |rank, _| Cell::Num(rank.to_string()),
+        tooltip: None,
     },
     VcsColumn {
         header: "File",
         align: Align::Left,
         cell: |_, e| Cell::Path(e.path.clone()),
+        tooltip: None,
     },
     VcsColumn {
         header: "Risk",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.1}", e.vcs.risk_score)),
+        tooltip: Some(RISK_TOOLTIP),
     },
     VcsColumn {
         header: "Commits (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.commits_recent.to_string()),
+        tooltip: Some(COMMITS_TOOLTIP),
     },
     VcsColumn {
         header: "Commits (total)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.commits_long.to_string()),
+        tooltip: Some(COMMITS_TOOLTIP),
     },
     VcsColumn {
         header: "Churn (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.churn_recent.to_string()),
+        tooltip: Some(CHURN_TOOLTIP),
     },
     VcsColumn {
         header: "Churn (total)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.churn_long.to_string()),
+        tooltip: Some(CHURN_TOOLTIP),
     },
     VcsColumn {
         header: "Authors (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.authors_recent.to_string()),
+        tooltip: Some(AUTHORS_TOOLTIP),
     },
     VcsColumn {
         header: "Authors (total)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.authors_long.to_string()),
+        tooltip: Some(AUTHORS_TOOLTIP),
     },
     VcsColumn {
         header: "Ownership",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.ownership_top_share)),
+        tooltip: Some(OWNERSHIP_TOOLTIP),
     },
     VcsColumn {
         header: "Burst",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.burst)),
+        tooltip: Some(BURST_TOOLTIP),
     },
     VcsColumn {
         header: "Bug fixes",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.bug_fix_commits.to_string()),
+        tooltip: Some(BUG_FIXES_TOOLTIP),
     },
     VcsColumn {
         header: "Sec fixes",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.security_fix_commits.to_string()),
+        tooltip: Some(SEC_FIXES_TOOLTIP),
     },
     VcsColumn {
         header: "Reverts",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.revert_commits.to_string()),
+        tooltip: Some(REVERTS_TOOLTIP),
     },
     VcsColumn {
         header: "Age (d)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.age_days.to_string()),
+        tooltip: Some(AGE_TOOLTIP),
     },
     VcsColumn {
         header: "Last mod (d)",
         align: Align::Right,
         cell: |_, e| Cell::Num(e.vcs.last_modified_days.to_string()),
+        tooltip: Some(LAST_MOD_TOOLTIP),
     },
     VcsColumn {
         header: "Change entropy (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_recent)),
+        tooltip: Some(CHANGE_ENTROPY_TOOLTIP),
     },
     VcsColumn {
         header: "Change entropy (total)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_long)),
+        tooltip: Some(CHANGE_ENTROPY_TOOLTIP),
     },
     VcsColumn {
         header: "Co-change entropy (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_recent)),
+        tooltip: Some(COCHANGE_ENTROPY_TOOLTIP),
     },
     VcsColumn {
         header: "Co-change entropy (total)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_long)),
+        tooltip: Some(COCHANGE_ENTROPY_TOOLTIP),
     },
     VcsColumn {
         header: "Hotspot",
@@ -158,6 +206,7 @@ const VCS_SPECS: &[VcsColumn] = &[
                     .unwrap_or_default(),
             )
         },
+        tooltip: Some(HOTSPOT_TOOLTIP),
     },
 ];
 
@@ -304,6 +353,10 @@ fn write_markdown_body(out: &mut String, report: &Report) {
     if let Some(aggregate) = &report.vcs_aggregate {
         write_markdown_bus_factor(out, &aggregate.bus_factor);
     }
+    // Footer legend defining every change-history column (issue #611).
+    if !report.files.is_empty() {
+        write_md_legend(out, &legend_entries());
+    }
 }
 
 /// Column headers / alignments for the per-directory bus-factor table,
@@ -315,6 +368,52 @@ fn bus_factor_headers() -> [&'static str; 3] {
 /// Alignments matching [`bus_factor_headers`].
 fn bus_factor_aligns() -> [Align; 3] {
     [Align::Left, Align::Right, Align::Right]
+}
+
+const BUS_FACTOR_TOOLTIP: &str = "Avelino Degree-of-Authorship bus factor: minimum authors covering this directory's code ownership above the coverage threshold.";
+const BUS_FACTOR_FILES_TOOLTIP: &str = "Files in this directory contributing to its bus factor.";
+
+/// Per-header tooltips for the bus-factor table, by column index. The
+/// "Files" column means files-*in-this-directory* — distinct from the
+/// per-language overview's "source files analysed" — so it carries its own
+/// definition rather than inheriting a like-named one (issue #610).
+fn bus_factor_tooltips() -> [Option<&'static str>; 3] {
+    [
+        None,
+        Some(BUS_FACTOR_TOOLTIP),
+        Some(BUS_FACTOR_FILES_TOOLTIP),
+    ]
+}
+
+/// The deduplicated `(header, tooltip)` pairs for the change-history table,
+/// in column order, skipping identity columns. Both the HTML legend and the
+/// Markdown legend draw from this so a column's definition renders
+/// identically in the `title=` tooltip and the legend (issue #611).
+fn legend_entries() -> Vec<(&'static str, &'static str)> {
+    let mut entries: Vec<(&'static str, &'static str)> = Vec::new();
+    for col in VCS_SPECS {
+        if let Some(tip) = col.tooltip
+            && !entries.iter().any(|(h, _)| *h == col.header)
+        {
+            entries.push((col.header, tip));
+        }
+    }
+    // Document the bus-factor columns too, since they render in the same
+    // page but live outside `VCS_SPECS`.
+    for (h, tip) in [
+        ("Bus factor", BUS_FACTOR_TOOLTIP),
+        ("Files", BUS_FACTOR_FILES_TOOLTIP),
+    ] {
+        if !entries.iter().any(|(eh, _)| *eh == h) {
+            entries.push((h, tip));
+        }
+    }
+    entries
+}
+
+/// Tooltips for the ranked-file table, by column index (from `VCS_SPECS`).
+fn vcs_tooltips() -> Vec<Option<&'static str>> {
+    VCS_SPECS.iter().map(|c| c.tooltip).collect()
 }
 
 /// The per-directory rows (directory, bus factor, files) for the shared
@@ -403,16 +502,28 @@ fn write_html_body(out: &mut String, report: &Report) {
         // (which never calls this) stays plain text.
         let risk_col = risk_column_index();
         let n_rows = rows.len();
-        write_html_table_classed(out, &headers(), &aligns(), &rows, |r, c| {
-            if Some(c) == risk_col {
-                risk_heat_class(r, n_rows)
-            } else {
-                None
-            }
-        });
+        write_html_table_classed(
+            out,
+            &headers(),
+            &aligns(),
+            &vcs_tooltips(),
+            &rows,
+            |r, c| {
+                if Some(c) == risk_col {
+                    risk_heat_class(r, n_rows)
+                } else {
+                    None
+                }
+            },
+        );
     }
     if let Some(aggregate) = &report.vcs_aggregate {
         write_html_bus_factor(out, &aggregate.bus_factor);
+    }
+    // A visible legend so the column definitions survive print, mobile, and
+    // screen readers (the `title=` tooltips are hover-only) — issue #611.
+    if !report.files.is_empty() {
+        write_legend_html(out, &legend_entries());
     }
 }
 
@@ -429,10 +540,11 @@ fn write_html_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFacto
         bf.coverage_threshold, bf.repo.bus_factor, bf.repo.files,
     );
     if !bf.by_directory.is_empty() {
-        write_html_table(
+        write_table_with_tooltips(
             out,
             &bus_factor_headers(),
             &bus_factor_aligns(),
+            &bus_factor_tooltips(),
             &bus_factor_rows(bf),
         );
     }
@@ -668,23 +780,76 @@ mod tests {
 
     #[test]
     fn every_vcs_header_carries_a_tooltip() {
-        // Drive from the catalogue itself (mirrors the AST report's
+        // Drive from the shared specs (mirrors the AST report's
         // `metric_headers_carry_tooltips`): every change-history column
-        // tooltip must render as a `title="…"` attribute, so a new VCS
-        // column is required to document itself without anyone
-        // remembering to update this test.
-        use crate::html_report::VCS_HEADER_TOOLTIPS;
+        // tooltip — including the bus-factor table's own columns — must
+        // render as a `title="…"` attribute, so a new column is required
+        // to document itself without anyone remembering to update this
+        // test. `legend_entries` is the single source the HTML tooltips
+        // and both legends draw from.
+        use crate::html_report::escape_html;
         let html = render_html(&rich_report());
-        // No VCS tooltip string contains an HTML metacharacter, so the
-        // rendered attribute is the verbatim tip; embedding it ties the
-        // title to its own header (a divergence surfaces as a miss).
-        for &(header, tip) in VCS_HEADER_TOOLTIPS {
-            let needle = format!(" title=\"{tip}\">{header}</th>");
+        for (header, tip) in legend_entries() {
+            let needle = format!(
+                " title=\"{}\">{}</th>",
+                escape_html(tip),
+                escape_html(header)
+            );
             assert!(
                 html.contains(&needle),
                 "VCS header {header:?} should render with its tooltip; expected {needle:?}"
             );
         }
+    }
+
+    #[test]
+    fn legend_renders_in_both_formats() {
+        // Issue #611: the column definitions must reach a Markdown reader
+        // (PR comment, pasted issue) and survive HTML print/mobile/screen
+        // readers, drawn from the same `legend_entries` source so the two
+        // formats cannot drift.
+        let report = rich_report();
+        let md = render_markdown(&report);
+        let html = render_html(&report);
+        assert!(md.contains("### Legend"), "Markdown legend heading missing");
+        assert!(
+            html.contains("<summary>Legend</summary>"),
+            "HTML legend missing"
+        );
+        for (header, tip) in legend_entries() {
+            assert!(
+                md.contains(&format!("**{header}**")),
+                "Markdown legend missing header {header:?}"
+            );
+            // The definition text (minus any escaping) reaches both.
+            let snippet: String = tip.chars().take(20).collect();
+            assert!(
+                md.contains(&snippet),
+                "Markdown legend missing definition for {header:?}"
+            );
+            assert!(
+                html.contains(&snippet),
+                "HTML legend missing definition for {header:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bus_factor_files_tooltip_distinct_from_overview() {
+        // Issue #610 deferred item: the bus-factor "Files" column means
+        // files-per-directory, not "source files analysed". With tooltips
+        // sourced positionally from the spec, the bus-factor table now
+        // carries its own definition rather than inheriting the unrelated
+        // overview one.
+        let html = render_html(&rich_report());
+        assert!(
+            html.contains(&format!(" title=\"{BUS_FACTOR_FILES_TOOLTIP}\">Files</th>")),
+            "bus-factor Files column should carry its own tooltip"
+        );
+        assert!(
+            !html.contains("Number of source files analysed."),
+            "the overview Files tooltip must not leak onto the VCS page"
+        );
     }
 
     #[test]

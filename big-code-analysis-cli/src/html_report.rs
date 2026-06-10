@@ -51,7 +51,7 @@ use crate::markdown_report::{
 /// double-quoted attribute values. Returns a borrowed `Cow` when the
 /// input is already safe so the common case (most metric column names,
 /// well-formed paths) allocates nothing.
-fn escape_html(s: &str) -> Cow<'_, str> {
+pub(crate) fn escape_html(s: &str) -> Cow<'_, str> {
     let needs_escape = s
         .bytes()
         .any(|b| matches!(b, b'&' | b'<' | b'>' | b'"' | b'\''));
@@ -125,6 +125,11 @@ section.lang-other{background:rgba(200,200,200,0.10)}\
 .summary strong{color:#222}\
 .summary p{margin:0.2rem 0}\
 .note{font-size:0.85rem;color:#555;margin:0.4rem 0}\
+details.legend{font-size:0.85rem;color:#444;margin:0.8rem 0}\
+details.legend summary{cursor:pointer;font-weight:600;color:#222}\
+details.legend dl{margin:0.4rem 0 0 0}\
+details.legend dt{font-weight:600;margin-top:0.3rem}\
+details.legend dd{margin:0 0 0 1rem;color:#555}\
 ul{margin:0.4rem 0 0.4rem 1.2rem;padding:0}\
 li{margin:0.15rem 0;font-size:0.9rem}\
 table.hotspot{border-collapse:collapse;width:100%;font-size:0.85rem;\
@@ -237,135 +242,37 @@ rows.forEach(function(r){tbody.appendChild(r);});\
 })();\
 ";
 
-// Multi-pattern tooltip strings shared by aliased headers
-// ("MI"/"Avg MI", "CC"/"Avg CC", "Cognitive"/"Avg Cognitive").
-const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
-const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
-const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
-
-// Change-history (VCS) column tooltips, shared by the recent/total
-// aliased pairs ("Commits (recent)"/"Commits (total)", etc.) so the VCS
-// report explains each column identically.
-const COMMITS_TOOLTIP: &str = "Distinct commits that touched this file within the analysis window.";
-const CHURN_TOOLTIP: &str = "Lines added + deleted to this file within the analysis window.";
-const AUTHORS_TOOLTIP: &str = "Distinct authors who touched this file within the analysis window.";
-const CHANGE_ENTROPY_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.";
-const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.";
-
-/// Plain-English tooltip catalogue for every AST-report metric column
-/// header emitted by [`generate_html_report`]. Centralised so every
-/// section of the report explains its columns identically. The
-/// `metric_headers_carry_tooltips` test iterates this slice directly,
-/// so a new entry is automatically required to appear in real output.
-/// Change-history columns live in [`VCS_HEADER_TOOLTIPS`]; both are
-/// consulted by [`header_tooltip`].
-const AST_HEADER_TOOLTIPS: &[(&str, &str)] = &[
-    (
-        "SLOC",
-        "Source Lines Of Code: total physical lines, including blanks and comments.",
-    ),
-    ("MI", MI_TOOLTIP),
-    ("Avg MI", MI_TOOLTIP),
-    (
-        "Tokens",
-        "Total lexical tokens (AST leaves excluding comments) of the function or file.",
-    ),
-    ("CC", CC_TOOLTIP),
-    ("Avg CC", CC_TOOLTIP),
-    ("Cognitive", COGNITIVE_TOOLTIP),
-    ("Avg Cognitive", COGNITIVE_TOOLTIP),
-    (
-        "Effort",
-        "Halstead effort: estimated mental effort to (re)create the code.",
-    ),
-    (
-        "Volume",
-        "Halstead volume: program length weighted by vocabulary size.",
-    ),
-    (
-        "Est. Bugs",
-        "Halstead bugs: estimated defect count derived from program volume.",
-    ),
-    (
-        "Exits",
-        "Number of exit points (returns, throws, breaks out of the function).",
-    ),
-    (
-        "ABC",
-        "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions.",
-    ),
-    (
-        "WMC",
-        "Weighted Methods per Class: sum of cyclomatic complexity across the class's methods.",
-    ),
-    ("Methods", "Number of methods declared on the class."),
-    ("NPA", "Number of Public Attributes declared on the class."),
-    ("NPM", "Number of Public Methods declared on the class."),
-    ("Args", "Number of declared parameters of the function."),
+/// Tooltips for the Per-language overview table's columns, which are NOT
+/// part of the hotspot `SPECS` (they are per-language aggregates, not
+/// per-function rows). The averaged columns reuse the shared metric
+/// definitions from [`crate::markdown_report::hotspot`] so "Avg CC" and
+/// the hotspot "CC" column can never describe the same metric differently.
+/// "Files" here means *source files analysed*; the bus-factor table's
+/// like-named column means files-per-directory and supplies its own
+/// tooltip (issue #610), so this entry never leaks onto it.
+const AST_OVERVIEW_TOOLTIPS: &[(&str, &str)] = &[
+    ("SLOC", hotspot::SLOC_TOOLTIP),
+    ("Avg MI", hotspot::MI_TOOLTIP),
+    ("Avg CC", hotspot::CC_TOOLTIP),
+    ("Avg Cognitive", hotspot::COGNITIVE_TOOLTIP),
     ("Functions", "Number of functions and methods analysed."),
     ("Files", "Number of source files analysed."),
 ];
 
-/// Plain-English tooltip catalogue for the change-history (VCS) report
-/// columns rendered by [`crate::vcs_report`]. Split from
-/// [`AST_HEADER_TOOLTIPS`] because the two reports emit disjoint column
-/// sets; the `vcs_report` tests drive their coverage from this slice.
-pub(crate) const VCS_HEADER_TOOLTIPS: &[(&str, &str)] = &[
-    (
-        "Risk",
-        "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness.",
-    ),
-    ("Commits (recent)", COMMITS_TOOLTIP),
-    ("Commits (total)", COMMITS_TOOLTIP),
-    ("Churn (recent)", CHURN_TOOLTIP),
-    ("Churn (total)", CHURN_TOOLTIP),
-    ("Authors (recent)", AUTHORS_TOOLTIP),
-    ("Authors (total)", AUTHORS_TOOLTIP),
-    (
-        "Ownership",
-        "Top-author edit share (0\u{2013}1): fraction of edits by the single most active author; lower means more diluted ownership.",
-    ),
-    (
-        "Burst",
-        "Recency of change (0\u{2013}1): recent commits as a share of long-window commits.",
-    ),
-    (
-        "Bug fixes",
-        "Commits classified as bug fixes (by message) within the long window.",
-    ),
-    (
-        "Sec fixes",
-        "Commits classified as security fixes (by message) within the long window; weighted more heavily than bug fixes.",
-    ),
-    (
-        "Reverts",
-        "Revert commits touching this file within the long window.",
-    ),
-    (
-        "Age (d)",
-        "Days since the first in-window commit touching this file (capped at the long window).",
-    ),
-    (
-        "Last mod (d)",
-        "Days since the most recent in-window commit touching this file.",
-    ),
-    ("Change entropy (recent)", CHANGE_ENTROPY_TOOLTIP),
-    ("Change entropy (total)", CHANGE_ENTROPY_TOOLTIP),
-    ("Co-change entropy (recent)", COCHANGE_ENTROPY_TOOLTIP),
-    ("Co-change entropy (total)", COCHANGE_ENTROPY_TOOLTIP),
-    (
-        "Hotspot",
-        "Complexity \u{D7} recent churn: high-complexity files that also change often. Empty when AST metrics are not joined.",
-    ),
-];
-
 /// Plain-English tooltip for a metric column header, or `None` when the
 /// header names a non-metric dimension (file, function, class, line,
-/// language).
+/// language) or a column whose table supplies its own tooltips
+/// out-of-band (the hotspot and change-history tables, which pass their
+/// spec tooltips through [`write_table_with_tooltips`]).
+///
+/// This lookup serves only the tables that call the plain [`write_table`]
+/// (the Per-language overview), so it consults [`AST_OVERVIEW_TOOLTIPS`].
+/// The hotspot and VCS columns own their definitions on
+/// [`crate::markdown_report::hotspot::Column`] /
+/// [`crate::vcs_report::VcsColumn`] and never route through here.
 fn header_tooltip(header: &str) -> Option<&'static str> {
-    AST_HEADER_TOOLTIPS
+    AST_OVERVIEW_TOOLTIPS
         .iter()
-        .chain(VCS_HEADER_TOOLTIPS)
         .find_map(|&(name, tip)| (name == header).then_some(tip))
 }
 
@@ -399,16 +306,71 @@ pub(crate) fn write_table_classed(
     rows: &[Vec<String>],
     cell_class: impl Fn(usize, usize) -> Option<&'static str>,
 ) {
+    // Resolve each header's tooltip via the string-keyed overview
+    // catalogue (the only caller that takes this path is the Per-language
+    // overview).
+    write_table_core(out, headers, aligns, rows, cell_class, |_, h| {
+        header_tooltip(h)
+    });
+}
+
+/// Like [`write_table`], but each column's tooltip is supplied explicitly
+/// by index rather than resolved from a string-keyed catalogue. This is
+/// the path the hotspot and change-history tables take: their tooltip is
+/// already authoritative on the shared column spec
+/// ([`crate::markdown_report::hotspot::Column`] /
+/// [`crate::vcs_report::VcsColumn`]), and passing it positionally avoids
+/// the header-string ambiguity that made the bus-factor "Files" column
+/// inherit the unrelated "source files analysed" definition (issue #610).
+/// `tooltips[i]` is the `title=` text for column `i`; `None` leaves the
+/// header bare.
+pub(crate) fn write_table_with_tooltips(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    tooltips: &[Option<&str>],
+    rows: &[Vec<String>],
+) {
+    write_table_classed_with_tooltips(out, headers, aligns, tooltips, rows, |_, _| None);
+}
+
+/// [`write_table_with_tooltips`] plus a `cell_class` callback (the
+/// severity-heat tint the change-history table paints on its risk cell).
+pub(crate) fn write_table_classed_with_tooltips(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    tooltips: &[Option<&str>],
+    rows: &[Vec<String>],
+    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
+) {
+    debug_assert_eq!(headers.len(), tooltips.len());
+    write_table_core(out, headers, aligns, rows, cell_class, |i, _| {
+        tooltips.get(i).copied().flatten()
+    });
+}
+
+/// Shared table body for the HTML renderers: `cell_class` contributes an
+/// optional per-cell CSS class keyed by `(row, col)`, and `tooltip_for`
+/// resolves each header's `title=` text by `(col_index, header)`.
+fn write_table_core<'t>(
+    out: &mut String,
+    headers: &[&str],
+    aligns: &[Align],
+    rows: &[Vec<String>],
+    cell_class: impl Fn(usize, usize) -> Option<&'static str>,
+    tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
+) {
     debug_assert_eq!(headers.len(), aligns.len());
     let _ = out.write_str("<table class=\"hotspot\">\n<thead><tr>");
-    for (h, a) in headers.iter().zip(aligns) {
+    for (i, (h, a)) in headers.iter().zip(aligns).enumerate() {
         let numeric_attr = if a.is_numeric() {
             " data-numeric=\"1\""
         } else {
             ""
         };
         let _ = write!(out, "<th{numeric_attr}");
-        if let Some(tip) = header_tooltip(h) {
+        if let Some(tip) = tooltip_for(i, h) {
             let _ = write!(out, " title=\"{}\"", escape_html(tip));
         }
         let _ = write!(out, ">{}</th>", escape_html(h));
@@ -452,9 +414,11 @@ pub(crate) fn write_table_classed(
 fn write_hotspot_table(out: &mut String, columns: &[Column], entries: &[&FunctionSummary]) {
     let mut headers = Vec::with_capacity(columns.len());
     let mut aligns = Vec::with_capacity(columns.len());
+    let mut tooltips = Vec::with_capacity(columns.len());
     for col in columns {
         headers.push(col.header);
         aligns.push(col.align);
+        tooltips.push(col.tooltip);
     }
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(entries.len());
     for s in entries {
@@ -465,7 +429,9 @@ fn write_hotspot_table(out: &mut String, columns: &[Column], entries: &[&Functio
         }
         rows.push(row);
     }
-    write_table(out, &headers, &aligns, &rows);
+    // The column spec carries the authoritative tooltip; pass it
+    // positionally so each header's `title=` matches the legend exactly.
+    write_table_with_tooltips(out, &headers, &aligns, &tooltips, &rows);
 }
 
 /// Per-language grouping of summaries, keyed by `LANG::name()` and
@@ -714,12 +680,36 @@ pub(crate) fn generate_html_report_with_vcs(
         for (&lang_name, lang_summaries) in &by_lang {
             write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
         }
+        // A visible legend so the column definitions survive print, mobile,
+        // and screen readers — the `title=` tooltips are hover-only and
+        // invisible to all three (issue #611).
+        write_legend_html(&mut out, &hotspot::legend_entries());
     }
     if let Some(report) = vcs {
         crate::vcs_report::push_html_section(&mut out, report);
     }
     write_html_tail(&mut out);
     out
+}
+
+/// Emit a visible, `<details>`-collapsed legend listing each metric
+/// column's abbreviation and its one-line definition, drawn from the same
+/// `(header, tooltip)` pairs the hover tooltips use so the two cannot
+/// drift. Renders nothing when `entries` is empty.
+pub(crate) fn write_legend_html(out: &mut String, entries: &[(&str, &str)]) {
+    if entries.is_empty() {
+        return;
+    }
+    let _ = out.write_str("<details class=\"legend\">\n<summary>Legend</summary>\n<dl>\n");
+    for (header, tip) in entries {
+        let _ = writeln!(
+            out,
+            "<dt>{}</dt><dd>{}</dd>",
+            escape_html(header),
+            escape_html(tip),
+        );
+    }
+    let _ = out.write_str("</dl>\n</details>\n");
 }
 
 /// Split a per-language slice into its unit (file) and function buckets
@@ -1373,13 +1363,17 @@ mod tests {
         summaries[1].nargs = 5;
         let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
 
-        // Drive the loop from the catalogue itself so a new tooltip
-        // arm is required to appear in real output without anyone
-        // remembering to update the test. `needle` embeds the table
-        // value directly, so any divergence between `header_tooltip`
-        // and `HEADER_TOOLTIPS` would surface as a missing substring
-        // here rather than via a separate (tautological) assert_eq.
-        for &(header, tip) in AST_HEADER_TOOLTIPS {
+        // Drive the loop from the shared sources so a new tooltip is
+        // required to appear in real output without anyone remembering to
+        // update the test. The hotspot metric columns own their tooltip on
+        // the spec (`hotspot::legend_entries`); the Per-language overview's
+        // averaged / count columns supply theirs via `AST_OVERVIEW_TOOLTIPS`.
+        // `needle` embeds the rendered title directly, so a divergence
+        // between the spec tooltip and the `title=` attribute surfaces here.
+        for (header, tip) in hotspot::legend_entries()
+            .into_iter()
+            .chain(AST_OVERVIEW_TOOLTIPS.iter().copied())
+        {
             let needle = format!(" title=\"{}\">{header}</th>", escape_html(tip));
             assert!(
                 out.contains(&needle),
@@ -1399,6 +1393,34 @@ mod tests {
                 out.contains(&needle),
                 "expected bare <th>{plain}</th> in output"
             );
+        }
+    }
+
+    #[test]
+    fn html_report_renders_visible_legend() {
+        // Issue #611: the `title=` tooltips are hover-only (invisible in
+        // print, on mobile, and to screen readers), so the report also
+        // emits a visible `<details>` legend. It draws from the same
+        // `hotspot::legend_entries` the tooltips use, so the definition a
+        // reader sees on hover and the one in the legend cannot diverge.
+        let summaries = rust_fixture();
+        let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
+        assert!(
+            out.contains("<details class=\"legend\">"),
+            "visible legend block missing"
+        );
+        for (header, tip) in hotspot::legend_entries() {
+            // Only assert entries whose column the fixture actually renders;
+            // every metric column the rust fixture exercises must define
+            // itself in the legend.
+            let dt = format!(
+                "<dt>{}</dt><dd>{}</dd>",
+                escape_html(header),
+                escape_html(tip)
+            );
+            if out.contains(&format!(">{header}</th>")) {
+                assert!(out.contains(&dt), "legend missing entry for {header:?}");
+            }
         }
     }
 

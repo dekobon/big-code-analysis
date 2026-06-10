@@ -185,3 +185,21 @@ Raw counts across all functions, including 1 suppressed (re-run with --no-suppre
 | `validate_input`  | src/lib.rs |   40 | 18.0 |  120 |    700 |
 | `parse_config`    | src/lib.rs |   70 | 14.0 |   90 |    500 |
 | `handle_event`    | src/lib.rs |  100 | 10.0 |   70 |    400 |
+
+### Legend
+
+- **MI** — Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.
+- **SLOC** — Source Lines Of Code: total physical lines, including blanks and comments.
+- **Tokens** — Total lexical tokens (AST leaves excluding comments) of the function or file.
+- **CC** — Cyclomatic Complexity: number of linearly independent control-flow paths through the function.
+- **Cognitive** — Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.
+- **Effort** — Halstead effort: estimated mental effort to (re)create the code.
+- **Volume** — Halstead volume: program length weighted by vocabulary size.
+- **Est. Bugs** — Halstead bugs: estimated defect count derived from program volume.
+- **Args** — Number of declared parameters of the function.
+- **WMC** — Weighted Methods per Class: sum of cyclomatic complexity across the class's methods.
+- **Methods** — Number of methods declared on the class.
+- **NPA** — Number of Public Attributes declared on the class.
+- **NPM** — Number of Public Methods declared on the class.
+- **Exits** — Number of exit points (returns, throws, breaks out of the function).
+- **ABC** — ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.

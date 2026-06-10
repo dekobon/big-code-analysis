@@ -364,6 +364,24 @@ pub(crate) fn write_table(
     }
 }
 
+/// Append a `### Legend` section: a definition-list-style bullet per
+/// `(header, definition)` pair, so a Markdown reader (a PR comment, a
+/// pasted issue) can learn what each column abbreviation means — the
+/// same definitions the HTML report shows as hover tooltips, drawn from
+/// the shared column specs so the two formats cannot drift (issue #611).
+/// The header abbreviation is wrapped in backticks (it is a code-like
+/// token) and the definition is GFM-escaped. Renders nothing when
+/// `entries` is empty.
+pub(crate) fn write_legend(out: &mut String, entries: &[(&str, &str)]) {
+    if entries.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "\n### Legend\n");
+    for (header, definition) in entries {
+        let _ = writeln!(out, "- **{header}** — {}", escape_cell(definition));
+    }
+}
+
 fn column_widths(headers: &[&str], rows: &[Vec<String>]) -> Vec<usize> {
     headers
         .iter()
@@ -602,6 +620,9 @@ pub(crate) fn generate_report_with_vcs(
         for (&lang_name, lang_summaries) in &by_lang {
             write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
         }
+        // Footer legend: define every metric-column abbreviation the
+        // hotspot tables used, from the shared specs (issue #611).
+        write_legend(&mut out, &hotspot::legend_entries());
     }
 
     if let Some(report) = vcs {
@@ -922,6 +943,31 @@ mod tests {
     fn snapshot_rich_report() {
         let out = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
         insta::assert_snapshot!("markdown_report_rich", out);
+    }
+
+    /// Issue #611: the Markdown report ends with a `### Legend` footnote
+    /// that defines every metric column the hotspot tables used, drawn
+    /// from the shared `hotspot::legend_entries` so it cannot drift from
+    /// the HTML tooltips. Identity columns (Function/File/Line/Class) carry
+    /// no definition and must stay out of the legend.
+    #[test]
+    fn markdown_report_renders_metric_legend() {
+        let out = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        assert!(out.contains("### Legend"), "legend heading missing");
+        for (header, definition) in hotspot::legend_entries() {
+            assert!(
+                out.contains(&format!("- **{header}** — {}", escape_cell(definition))),
+                "legend missing entry for {header:?}"
+            );
+        }
+        // Identity columns describe the row, not a metric; they must not
+        // appear as legend bullets.
+        for identity in ["Function", "File", "Line", "Class"] {
+            assert!(
+                !out.contains(&format!("- **{identity}**")),
+                "identity column {identity:?} should not be in the legend"
+            );
+        }
     }
 
     /// First-column cell values of a Markdown report section, in row order

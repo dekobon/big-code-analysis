@@ -152,6 +152,13 @@ hotspot caption such as the cyclomatic Average / Max / CC > 10 note) is
 computed once and rendered by both, so a single run produces identical
 numbers whether you emit `--format markdown` or `--format html`.
 
+Both formats also close with a **Legend** that defines every metric
+column abbreviation (`CC`, `MI`, `ABC`, `WMC`, …) — a `### Legend`
+footnote in Markdown and a collapsible block in HTML — so a report
+pasted into a PR comment or issue is self-explanatory without the
+reader leaving the document. The definitions come from the same shared
+column specs the tooltips use, so the two formats cannot drift.
+
 Suppression is applied uniformly across **every** output, not just the
 reports. A function silenced for a metric — via an in-source marker or
 the baseline — is dropped from `bca check`'s offender formats
@@ -196,6 +203,13 @@ column header — `SLOC`, `MI`, `CC`, `ABC`, `WMC`, `NPA`, `NPM`,
 `Exits`, etc. — for a one-sentence plain-English explanation of the
 metric. The tooltip is delivered through the native HTML `title`
 attribute, so it works offline with no JavaScript.
+
+Because `title` tooltips are hover-only — invisible in print, on
+mobile, and to screen readers — the page also ends with a visible,
+collapsible **Legend** (`<details>`) listing every metric column's
+one-line definition. Both the tooltips and the legend draw from the
+same column specs, so a definition cannot say one thing on hover and
+another in the legend.
 
 Every interpolated string — function name, file path, language label —
 is HTML-escaped on the way out, so a crafted source path or symbol name

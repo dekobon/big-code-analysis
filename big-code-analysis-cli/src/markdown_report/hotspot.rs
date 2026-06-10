@@ -71,13 +71,52 @@ pub(crate) enum Cell {
     Num(String),
 }
 
-/// One column: header, alignment, and a capture-free projector to a [`Cell`].
+/// One column: header, alignment, a capture-free projector to a [`Cell`],
+/// and an optional plain-English `tooltip`. The tooltip is the single
+/// source of a metric column's definition: the HTML renderer attaches it
+/// as a `title="…"` attribute (passed positionally through
+/// `crate::html_report::write_table_with_tooltips`) and the Markdown /
+/// HTML legends list it (see [`legend_entries`]).
+/// Identity columns that describe the row rather than a metric (Function,
+/// File, Line, Class) carry `None` so neither format clutters them with a
+/// redundant definition.
 #[derive(Clone, Copy)]
 pub(crate) struct Column {
     pub(crate) header: &'static str,
     pub(crate) align: Align,
     pub(crate) cell: fn(&FunctionSummary) -> Cell,
+    pub(crate) tooltip: Option<&'static str>,
 }
+
+// Plain-English metric definitions, defined once and shared by every
+// column that renders the same metric (including aliased / repeated
+// headers across hotspot sections) so the HTML `title=` tooltip and the
+// rendered legend cannot drift. Moved here from
+// `html_report::AST_HEADER_TOOLTIPS` (issue #611) to make the column
+// specs the single source of truth.
+pub(crate) const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
+pub(crate) const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
+pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
+pub(crate) const SLOC_TOOLTIP: &str =
+    "Source Lines Of Code: total physical lines, including blanks and comments.";
+pub(crate) const TOKENS_TOOLTIP: &str =
+    "Total lexical tokens (AST leaves excluding comments) of the function or file.";
+pub(crate) const EFFORT_TOOLTIP: &str =
+    "Halstead effort: estimated mental effort to (re)create the code.";
+pub(crate) const VOLUME_TOOLTIP: &str =
+    "Halstead volume: program length weighted by vocabulary size.";
+pub(crate) const BUGS_TOOLTIP: &str =
+    "Halstead bugs: estimated defect count derived from program volume.";
+pub(crate) const EXITS_TOOLTIP: &str =
+    "Number of exit points (returns, throws, breaks out of the function).";
+pub(crate) const ABC_TOOLTIP: &str =
+    "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions.";
+pub(crate) const WMC_TOOLTIP: &str =
+    "Weighted Methods per Class: sum of cyclomatic complexity across the class's methods.";
+pub(crate) const METHODS_TOOLTIP: &str = "Number of methods declared on the class.";
+pub(crate) const NPA_TOOLTIP: &str = "Number of Public Attributes declared on the class.";
+pub(crate) const NPM_TOOLTIP: &str = "Number of Public Methods declared on the class.";
+pub(crate) const ARGS_TOOLTIP: &str = "Number of declared parameters of the function.";
 
 /// A section title. Static for every section except the MI table, whose
 /// title interpolates `top_n`.
@@ -124,36 +163,43 @@ const COL_FUNCTION: Column = Column {
     header: "Function",
     align: Align::Left,
     cell: |s| Cell::Name(s.name.clone()),
+    tooltip: None,
 };
 const COL_FILE: Column = Column {
     header: "File",
     align: Align::Left,
     cell: |s| Cell::Path(s.file.clone()),
+    tooltip: None,
 };
 const COL_LINE: Column = Column {
     header: "Line",
     align: Align::Right,
     cell: |s| Cell::Num(s.start_line.to_string()),
+    tooltip: None,
 };
 const COL_CC: Column = Column {
     header: "CC",
     align: Align::Right,
     cell: |s| Cell::Num(MetricScalar(s.cyclomatic).to_string()),
+    tooltip: Some(CC_TOOLTIP),
 };
 const COL_COGNITIVE: Column = Column {
     header: "Cognitive",
     align: Align::Right,
     cell: |s| Cell::Num(MetricScalar(s.cognitive).to_string()),
+    tooltip: Some(COGNITIVE_TOOLTIP),
 };
 const COL_SLOC: Column = Column {
     header: "SLOC",
     align: Align::Right,
     cell: |s| Cell::Num(thousands(s.sloc)),
+    tooltip: Some(SLOC_TOOLTIP),
 };
 const COL_TOKENS: Column = Column {
     header: "Tokens",
     align: Align::Right,
     cell: |s| Cell::Num(thousands(s.tokens)),
+    tooltip: Some(TOKENS_TOOLTIP),
 };
 
 /// The hotspot sections in canonical render order. Both renderers iterate
@@ -175,6 +221,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "MI",
                 align: Align::Right,
                 cell: |s| Cell::Num(format!("{:.1}", s.mi_visual_studio)),
+                tooltip: Some(MI_TOOLTIP),
             },
             COL_SLOC,
             COL_TOKENS,
@@ -235,16 +282,19 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "Effort",
                 align: Align::Right,
                 cell: |s| Cell::Num(MetricScalar(s.halstead_effort).to_string()),
+                tooltip: Some(EFFORT_TOOLTIP),
             },
             Column {
                 header: "Volume",
                 align: Align::Right,
                 cell: |s| Cell::Num(MetricScalar(s.halstead_volume).to_string()),
+                tooltip: Some(VOLUME_TOOLTIP),
             },
             Column {
                 header: "Est. Bugs",
                 align: Align::Right,
                 cell: |s| Cell::Num(format!("{:.2}", s.halstead_bugs)),
+                tooltip: Some(BUGS_TOOLTIP),
             },
             COL_SLOC,
             COL_TOKENS,
@@ -287,6 +337,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "Args",
                 align: Align::Right,
                 cell: |s| Cell::Num(s.nargs.to_string()),
+                tooltip: Some(ARGS_TOOLTIP),
             },
             COL_SLOC,
             COL_TOKENS,
@@ -308,6 +359,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "Class",
                 align: Align::Left,
                 cell: |s| Cell::Name(s.name.clone()),
+                tooltip: None,
             },
             COL_FILE,
             COL_LINE,
@@ -315,21 +367,25 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "WMC",
                 align: Align::Right,
                 cell: |s| Cell::Num(MetricScalar(s.wmc).to_string()),
+                tooltip: Some(WMC_TOOLTIP),
             },
             Column {
                 header: "Methods",
                 align: Align::Right,
                 cell: |s| Cell::Num(s.nom.to_string()),
+                tooltip: Some(METHODS_TOOLTIP),
             },
             Column {
                 header: "NPA",
                 align: Align::Right,
                 cell: |s| Cell::Num(MetricScalar(s.npa).to_string()),
+                tooltip: Some(NPA_TOOLTIP),
             },
             Column {
                 header: "NPM",
                 align: Align::Right,
                 cell: |s| Cell::Num(MetricScalar(s.npm).to_string()),
+                tooltip: Some(NPM_TOOLTIP),
             },
             COL_SLOC,
             COL_TOKENS,
@@ -354,6 +410,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "Exits",
                 align: Align::Right,
                 cell: |s| Cell::Num(s.nexits.to_string()),
+                tooltip: Some(EXITS_TOOLTIP),
             },
             COL_CC,
             COL_SLOC,
@@ -377,6 +434,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
                 header: "ABC",
                 align: Align::Right,
                 cell: |s| Cell::Num(format!("{:.1}", s.abc)),
+                tooltip: Some(ABC_TOOLTIP),
             },
             COL_SLOC,
             COL_TOKENS,
@@ -429,6 +487,27 @@ pub(crate) fn fully_suppressed_caption(metric_label: &str, count: usize) -> Stri
 /// (i.e. after Many-Parameters, before WMC), so both renderers interleave
 /// it identically.
 pub(crate) const ACTIONABLE_SUMMARY_INDEX: usize = 6;
+
+/// The deduplicated `(header, tooltip)` pairs for every metric column the
+/// hotspot tables render, in first-seen order across [`SPECS`]. Identity
+/// columns (`tooltip: None`) are skipped, and a header that recurs across
+/// sections (e.g. `CC`, `SLOC`, `Tokens`) appears once. This is the single
+/// source the Markdown and HTML legends draw from, so a column's definition
+/// renders identically in both the `title=` tooltip and the legend (issue
+/// #611).
+pub(crate) fn legend_entries() -> Vec<(&'static str, &'static str)> {
+    let mut entries: Vec<(&'static str, &'static str)> = Vec::new();
+    for spec in SPECS {
+        for col in spec.columns {
+            if let Some(tip) = col.tooltip
+                && !entries.iter().any(|(h, _)| *h == col.header)
+            {
+                entries.push((col.header, tip));
+            }
+        }
+    }
+    entries
+}
 
 /// Cyclomatic summary stats for the CC note, computed over the FULL
 /// suppression-filtered set (before top-N truncation), as both renderers did.
