@@ -86,6 +86,10 @@ def test_metric_field_types_are_concrete(tmp_path: Path) -> None:
     loc = result["metrics"].get("loc")
     assert loc is not None
     assert isinstance(loc["sloc"], int)
-    # ``sloc_average`` is float | None; for a populated file it is a float.
+    # ``sloc_average`` is float | None; this file is populated and finite,
+    # so it is concretely a float here (not None). Pinning the float
+    # positively — rather than the looser ``is None or isinstance`` — keeps
+    # the int/float distinction the test name promises load-bearing: a
+    # regression collapsing the average to None would otherwise slip past.
     avg = loc["sloc_average"]
-    assert avg is None or isinstance(avg, float)
+    assert isinstance(avg, float)
