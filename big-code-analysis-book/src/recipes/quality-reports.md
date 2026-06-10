@@ -70,16 +70,14 @@ To exclude vendored or generated trees, layer in `--exclude`:
 ```bash
 bca \
     --include "*.rs" \
-    --exclude "**/target/**" "**/vendor/**" \
+    --exclude "**/target/**" --exclude "**/vendor/**" \
     --paths "$PWD" \
     report markdown
 ```
 
-> **Flag ordering.** `--include` and `--exclude` accept multiple values
-> and stop only when the next flag begins. Put them **before**
-> `--paths` (or any single-value flag) so the subcommand name isn't
-> swallowed as a glob. Equivalent single-value forms with `=` also
-> work: `--include="*.rs" --exclude="**/target/**"`.
+> **Flag arity.** `--include` and `--exclude` take exactly one glob per
+> occurrence; repeat the flag for additional patterns. The `=` form
+> works the same way: `--include="*.rs" --exclude="**/target/**"`.
 
 For a stable repo-wide deny-set, keep the patterns in a file at the
 repo root (a `.bcaignore` by convention) and load it with
