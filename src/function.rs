@@ -16,8 +16,9 @@
 
 use std::path::Path;
 
-use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
+use termcolor::{Color, StandardStream, WriteColor};
 
+use crate::output::ColorMode;
 use crate::traits::{ParserTrait, Search};
 
 use crate::checker::Checker;
@@ -174,13 +175,32 @@ fn dump_spans(
 ///
 /// Propagates any [`std::io::Error`] from writing to stdout.
 pub fn dump_function_spans(spans: Vec<FunctionSpan>, path: &Path) -> std::io::Result<()> {
+    dump_function_spans_with_color(spans, path, ColorMode::Always)
+}
+
+/// Like [`dump_function_spans`], but the caller selects the
+/// [`ColorMode`].
+///
+/// `bca` resolves a `--color` flag, the `NO_COLOR` convention, and
+/// stdout tty detection into a mode and passes it here so piped output
+/// is escape-free by default. The bare [`dump_function_spans`] keeps the
+/// historical always-colored behavior for backward compatibility.
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] from writing to stdout.
+pub fn dump_function_spans_with_color(
+    spans: Vec<FunctionSpan>,
+    path: &Path,
+    color_mode: ColorMode,
+) -> std::io::Result<()> {
     // Skip the stdout lock entirely when there are no spans (the common
     // case for config / data files in a whole-repo run). `dump_spans`
     // self-guards too, so direct callers with an empty Vec are safe.
     if spans.is_empty() {
         return Ok(());
     }
-    let stdout = StandardStream::stdout(ColorChoice::Always);
+    let stdout = StandardStream::stdout(color_mode.to_color_choice());
     let mut stdout = stdout.lock();
     dump_spans(spans, path, &mut stdout)
 }

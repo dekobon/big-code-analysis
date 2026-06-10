@@ -289,6 +289,75 @@ struct GlobalOpts {
     /// manifest is discovered this flag is a no-op.
     #[clap(long = "no-config", global = true)]
     no_config: bool,
+    /// When to colorize the human-readable `text` dumps (`metrics` /
+    /// `ops` default tree, `dump`, `find`, `functions`): `auto`
+    /// (default — color only when stdout is a terminal and `NO_COLOR`
+    /// is unset), `always` (force escapes even when piped/redirected),
+    /// or `never` (plain text). Structured formats (`json` / `yaml` /
+    /// `toml` / `cbor` / `csv`) and file output are never colorized.
+    /// Honors the `NO_COLOR` convention (<https://no-color.org>) unless
+    /// `--color always` overrides it.
+    #[clap(long = "color", value_enum, default_value_t = ColorWhen::Auto, global = true, value_name = "WHEN")]
+    color: ColorWhen,
+}
+
+/// `--color` flag values: when to emit ANSI color escapes in the
+/// human-readable `text` dumps. Resolved into a library
+/// [`big_code_analysis::ColorMode`] by [`ColorWhen::resolve`], which
+/// folds in the `NO_COLOR` convention and stdout tty detection.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[clap(rename_all = "lower")]
+enum ColorWhen {
+    /// Color when stdout is a terminal and `NO_COLOR` is unset.
+    #[default]
+    Auto,
+    /// Always emit color, even when piped or redirected.
+    Always,
+    /// Never emit color.
+    Never,
+}
+
+impl ColorWhen {
+    /// Resolve the user's `--color` choice into the library color mode,
+    /// applying the precedence chain explicit flag > `NO_COLOR` > tty
+    /// detection.
+    ///
+    /// - `always` always colorizes — it intentionally overrides
+    ///   `NO_COLOR`, so a user who asks for color in a `NO_COLOR`
+    ///   environment still gets it (the explicit flag is the strongest
+    ///   signal).
+    /// - `never` never colorizes.
+    /// - `auto` (the default) colorizes only when stdout is a terminal
+    ///   *and* `NO_COLOR` is unset. A redirected or piped stdout, or any
+    ///   non-empty `NO_COLOR`, resolves to plain text.
+    ///
+    /// The `is_terminal` argument is injected (rather than read here)
+    /// so the precedence logic is unit-testable without an attached tty.
+    fn resolve_with(self, stdout_is_terminal: bool) -> big_code_analysis::ColorMode {
+        use big_code_analysis::ColorMode;
+        match self {
+            ColorWhen::Always => ColorMode::Always,
+            ColorWhen::Never => ColorMode::Never,
+            ColorWhen::Auto => {
+                // The `NO_COLOR` convention: any value (including empty)
+                // disables color (https://no-color.org/). We treat a set
+                // variable as a disable signal regardless of its content,
+                // matching cargo / ripgrep.
+                let no_color = std::env::var_os("NO_COLOR").is_some();
+                if stdout_is_terminal && !no_color {
+                    ColorMode::Auto
+                } else {
+                    ColorMode::Never
+                }
+            }
+        }
+    }
+
+    /// Resolve against the real process stdout's terminal status.
+    fn resolve(self) -> big_code_analysis::ColorMode {
+        use std::io::IsTerminal;
+        self.resolve_with(std::io::stdout().is_terminal())
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -1410,6 +1479,13 @@ struct Config {
     /// nested function space (in addition to the file-level block from
     /// `vcs_index`). `None` for every other flow. Issue #329.
     vcs_blame: Option<Arc<big_code_analysis::vcs::PerFunctionBlame>>,
+    /// Resolved color policy for the human-readable `text` dumps
+    /// (`dump`, `find`, `functions`, and the default `metrics` / `ops`
+    /// trees). Resolved once from `--color` + `NO_COLOR` + stdout tty
+    /// detection at command entry (issue #605) and threaded into the
+    /// library `*_with_color` dump entry points, so piped output is
+    /// escape-free by default. Inert for structured / file output.
+    color: big_code_analysis::ColorMode,
 }
 
 impl Config {
@@ -1452,6 +1528,10 @@ impl Config {
             // Set by `run_command_metrics` only when `--vcs-per-function`
             // is passed.
             vcs_blame: None,
+            // Resolve the color policy once at construction: explicit
+            // `--color` > `NO_COLOR` > stdout tty detection. Threaded
+            // into the library `*_with_color` dump entry points (#605).
+            color: globals.color.resolve(),
         }
     }
 

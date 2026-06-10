@@ -1275,3 +1275,44 @@ fn valid_languages_lists_known_names_sorted() {
     sorted.sort_unstable();
     assert_eq!(names, sorted, "languages must be listed sorted: {body}");
 }
+
+// Issue #605: `--color` resolution precedence. `Always` / `Never` are
+// unconditional (they short-circuit before any tty or env inspection),
+// so these axes are deterministic regardless of the test runner's
+// terminal or `NO_COLOR` state. The `NO_COLOR` interaction with `Auto`
+// is exercised end-to-end in `tests/color_output.rs`, where the env can
+// be set hermetically.
+#[test]
+fn color_always_resolves_to_always_regardless_of_terminal() {
+    assert_eq!(
+        ColorWhen::Always.resolve_with(false),
+        big_code_analysis::ColorMode::Always
+    );
+    assert_eq!(
+        ColorWhen::Always.resolve_with(true),
+        big_code_analysis::ColorMode::Always
+    );
+}
+
+#[test]
+fn color_never_resolves_to_never_regardless_of_terminal() {
+    assert_eq!(
+        ColorWhen::Never.resolve_with(false),
+        big_code_analysis::ColorMode::Never
+    );
+    assert_eq!(
+        ColorWhen::Never.resolve_with(true),
+        big_code_analysis::ColorMode::Never
+    );
+}
+
+#[test]
+fn color_auto_resolves_to_never_when_stdout_is_not_a_terminal() {
+    // A non-terminal stdout (a pipe / redirect) is the core fix: `auto`
+    // must yield `Never` so escapes never reach a file. Independent of
+    // `NO_COLOR` because a piped stream is suppressed either way.
+    assert_eq!(
+        ColorWhen::Auto.resolve_with(false),
+        big_code_analysis::ColorMode::Never
+    );
+}

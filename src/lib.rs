@@ -247,7 +247,8 @@ pub mod metric_catalog;
 /// re-exported at the crate root.
 pub mod output;
 pub use crate::output::{
-    CSV_EXTENSION, CSV_HEADER, OffenderRecord, Severity, TOOL_ID, dump_node, dump_ops, dump_root,
+    CSV_EXTENSION, CSV_HEADER, ColorMode, OffenderRecord, Severity, TOOL_ID, dump_node,
+    dump_node_with_color, dump_ops, dump_ops_with_color, dump_root, dump_root_with_color,
     write_checkstyle, write_clang_warning, write_code_climate, write_csv, write_msvc_warning,
     write_sarif, write_sarif_with_suppressed,
 };
@@ -281,7 +282,7 @@ pub use crate::count::{Count, CountCollector};
 mod find;
 
 mod function;
-pub use crate::function::{FunctionSpan, dump_function_spans};
+pub use crate::function::{FunctionSpan, dump_function_spans, dump_function_spans_with_color};
 
 // --- AST dump ---
 mod ast;

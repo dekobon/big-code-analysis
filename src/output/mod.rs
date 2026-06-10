@@ -1,3 +1,6 @@
+pub(crate) mod color;
+pub use color::ColorMode;
+
 pub(crate) mod dump;
 pub use dump::*;
 

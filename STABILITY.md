@@ -585,7 +585,12 @@ The shared types they consume — `OffenderRecord`, `Severity` (see
 tool name), `CSV_HEADER`, and `CSV_EXTENSION` (`".csv"`) — are part of
 the same surface. The AST dump entry points (`dump_node`, `dump_root`,
 `dump_ops`, and the `Dump` / `DumpCfg` config types) are likewise
-re-exported and shape-stable.
+re-exported and shape-stable. Each terminal dump entry point also has a
+`*_with_color` sibling (`dump_node_with_color`, `dump_root_with_color`,
+`dump_ops_with_color`, `dump_function_spans_with_color`) that takes a
+`ColorMode` (`Auto` / `Always` / `Never`); the bare forms retain their
+historical always-colored behavior. These were added in a minor bump
+(issue #605) and are part of the stable surface going forward.
 
 #### CSV columns
 

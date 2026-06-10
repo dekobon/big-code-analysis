@@ -27,8 +27,8 @@ use std::sync::atomic::Ordering;
 
 use big_code_analysis::{
     Ast, FuncSpace, LANG, MetricsError, MetricsOptions, PreprocResults, Source,
-    dump_function_spans, dump_node, dump_ops, dump_root, guess_language, is_generated, preprocess,
-    read_file_with_eol, write_file,
+    dump_function_spans_with_color, dump_node_with_color, dump_ops_with_color,
+    dump_root_with_color, guess_language, is_generated, preprocess, read_file_with_eol, write_file,
 };
 
 use crate::exemptions::FileMarkers;
@@ -87,7 +87,7 @@ pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::StripComments { in_place, output } => {
             dispatch_strip_comments(language, source, path, pr, *in_place, output.as_deref())
         }
-        Action::Functions => dispatch_functions(language, source, path, pr),
+        Action::Functions => dispatch_functions(language, source, path, pr, cfg),
         Action::Find(filters) => dispatch_find(language, source, path, pr, cfg, filters),
         Action::Count(filters) => dispatch_count(language, source, path, pr, cfg, filters),
         Action::Report => dispatch_report(language, source, path, pr, cfg),
@@ -156,12 +156,13 @@ fn dispatch_dump(
     // `LanguageDisabled` from `Ast::parse` is unreachable; the `expect`
     // documents that invariant.
     let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
-    dump_node(
+    dump_node_with_color(
         ast.source(),
         &ast.root_node(),
         -1,
         cfg.line_start,
         cfg.line_end,
+        cfg.color,
     )
 }
 
@@ -204,7 +205,7 @@ fn dispatch_metrics(
             .expect(FEATURES_PINNED)
             .metrics(cfg.metrics_options())
         {
-            Ok(space) => dump_root(&space),
+            Ok(space) => dump_root_with_color(&space, cfg.color),
             Err(_) => Ok(()),
         }
     }
@@ -240,7 +241,7 @@ fn dispatch_ops(
             .expect(FEATURES_PINNED)
             .ops()
         {
-            Ok(ops) => dump_ops(&ops),
+            Ok(ops) => dump_ops_with_color(&ops, cfg.color),
             Err(_) => Ok(()),
         }
     }
@@ -281,9 +282,10 @@ fn dispatch_functions(
     source: Vec<u8>,
     path: PathBuf,
     pr: Option<Arc<PreprocResults>>,
+    cfg: &Config,
 ) -> std::io::Result<()> {
     let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
-    dump_function_spans(ast.functions(), &path)
+    dump_function_spans_with_color(ast.functions(), &path, cfg.color)
 }
 
 fn dispatch_find(
@@ -299,7 +301,14 @@ fn dispatch_find(
     if !found.is_empty() {
         println!("In file {}", path.display());
         for node in &found {
-            dump_node(ast.source(), node, 1, cfg.line_start, cfg.line_end)?;
+            dump_node_with_color(
+                ast.source(),
+                node,
+                1,
+                cfg.line_start,
+                cfg.line_end,
+                cfg.color,
+            )?;
         }
         println!();
     }
@@ -570,6 +579,7 @@ mod tests {
             fuzzy_baseline: false,
             vcs_index: None,
             vcs_blame: None,
+            color: big_code_analysis::ColorMode::Never,
         }
     }
 

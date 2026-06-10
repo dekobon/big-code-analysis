@@ -10,9 +10,10 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::enum_glob_use, clippy::ref_option, clippy::wildcard_imports)]
 
-use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
+use termcolor::{Color, StandardStream, WriteColor};
 
 use crate::node::Node;
+use crate::output::ColorMode;
 use crate::tools::{color, intense_color};
 
 /// Dumps the `AST` of a code.
@@ -46,7 +47,29 @@ pub fn dump_node(
     line_start: Option<usize>,
     line_end: Option<usize>,
 ) -> std::io::Result<()> {
-    let stdout = StandardStream::stdout(ColorChoice::Always);
+    dump_node_with_color(code, node, depth, line_start, line_end, ColorMode::Always)
+}
+
+/// Like [`dump_node`], but the caller selects the [`ColorMode`].
+///
+/// `bca` resolves a `--color` flag, the `NO_COLOR` convention, and
+/// stdout tty detection into a mode and passes it here so piped output
+/// is escape-free by default. The bare [`dump_node`] keeps the
+/// historical always-colored behavior for backward compatibility.
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] produced by the color-aware
+/// writer that backs `stdout` (broken pipe, write failure, …).
+pub fn dump_node_with_color(
+    code: &[u8],
+    node: &Node,
+    depth: i32,
+    line_start: Option<usize>,
+    line_end: Option<usize>,
+    color_mode: ColorMode,
+) -> std::io::Result<()> {
+    let stdout = StandardStream::stdout(color_mode.to_color_choice());
     let mut stdout = stdout.lock();
     let mut state = DumpState {
         code,

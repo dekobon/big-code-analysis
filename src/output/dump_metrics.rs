@@ -6,7 +6,7 @@
 // `as f64` at the call sites (#530). Each cast is bounded by its count.
 #![allow(clippy::cast_precision_loss)]
 
-use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
+use termcolor::{Color, StandardStream, WriteColor};
 
 use crate::abc;
 use crate::cognitive;
@@ -22,6 +22,7 @@ use crate::npm;
 use crate::tokens;
 use crate::wmc;
 
+use crate::output::ColorMode;
 use crate::spaces::{CodeMetrics, FuncSpace};
 
 use crate::tools::{color, intense_color};
@@ -53,7 +54,22 @@ use crate::tools::{color, intense_color};
 ///
 /// [`Result`]: #variant.Result
 pub fn dump_root(space: &FuncSpace) -> std::io::Result<()> {
-    let stdout = StandardStream::stdout(ColorChoice::Always);
+    dump_root_with_color(space, ColorMode::Always)
+}
+
+/// Like [`dump_root`], but the caller selects the [`ColorMode`].
+///
+/// `bca` resolves a `--color` flag, the `NO_COLOR` convention, and
+/// stdout tty detection into a mode and passes it here so piped output
+/// is escape-free by default. The bare [`dump_root`] keeps the
+/// historical always-colored behavior for backward compatibility.
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] produced by the color-aware
+/// writer that backs `stdout` (broken pipe, write failure, …).
+pub fn dump_root_with_color(space: &FuncSpace, color_mode: ColorMode) -> std::io::Result<()> {
+    let stdout = StandardStream::stdout(color_mode.to_color_choice());
     let mut stdout = stdout.lock();
     dump_space(space, "", true, &mut stdout)?;
     color(&mut stdout, Color::White)?;

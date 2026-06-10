@@ -3,9 +3,10 @@
 // aggregation artifacts, not per-function logic complexity.
 
 use std::io::Write;
-use termcolor::{Color, ColorChoice, StandardStream, StandardStreamLock};
+use termcolor::{Color, StandardStream, StandardStreamLock};
 
 use crate::ops::Ops;
+use crate::output::ColorMode;
 
 use crate::tools::{color, intense_color};
 
@@ -40,7 +41,22 @@ use crate::tools::{color, intense_color};
 ///
 /// [`Result`]: #variant.Result
 pub fn dump_ops(ops: &Ops) -> std::io::Result<()> {
-    let stdout = StandardStream::stdout(ColorChoice::Always);
+    dump_ops_with_color(ops, ColorMode::Always)
+}
+
+/// Like [`dump_ops`], but the caller selects the [`ColorMode`].
+///
+/// `bca` resolves a `--color` flag, the `NO_COLOR` convention, and
+/// stdout tty detection into a mode and passes it here so piped output
+/// is escape-free by default. The bare [`dump_ops`] keeps the
+/// historical always-colored behavior for backward compatibility.
+///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] produced by the color-aware
+/// writer that backs `stdout` (broken pipe, write failure, …).
+pub fn dump_ops_with_color(ops: &Ops, color_mode: ColorMode) -> std::io::Result<()> {
+    let stdout = StandardStream::stdout(color_mode.to_color_choice());
     let mut stdout = stdout.lock();
     dump_space(ops, "", true, &mut stdout)?;
     color(&mut stdout, Color::White)?;

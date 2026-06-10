@@ -4,7 +4,7 @@
 .SH NAME
 bca \- Analyze source code.
 .SH SYNOPSIS
-\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-no\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-w\fR|\fB\-\-warnings\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-no\-config\fR] [\fB\-\-color\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Analyze source code.
 .SH OPTIONS
@@ -55,6 +55,21 @@ Stop Rust\*(Aqs `?` operator (the `try_expression` node) from contributing to cy
 .TP
 \fB\-\-no\-config\fR
 Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the working directory to the repo root looking for `bca.toml` and merges its keys *under* any explicit CLI flags. Pass this for raw, fully\-explicit invocations that must not pick up repo\-level config (e.g. a reproducible CI one\-liner). When no manifest is discovered this flag is a no\-op
+.TP
+\fB\-\-color\fR \fI<WHEN>\fR [default: auto]
+When to colorize the human\-readable `text` dumps (`metrics` / `ops` default tree, `dump`, `find`, `functions`): `auto` (default — color only when stdout is a terminal and `NO_COLOR` is unset), `always` (force escapes even when piped/redirected), or `never` (plain text). Structured formats (`json` / `yaml` / `toml` / `cbor` / `csv`) and file output are never colorized. Honors the `NO_COLOR` convention (<https://no\-color.org>) unless `\-\-color always` overrides it
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+auto: Color when stdout is a terminal and `NO_COLOR` is unset
+.IP \(bu 2
+always: Always emit color, even when piped or redirected
+.IP \(bu 2
+never: Never emit color
+.RE
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
