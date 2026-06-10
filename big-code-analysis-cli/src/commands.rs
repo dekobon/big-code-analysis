@@ -1175,8 +1175,8 @@ fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
     let mut cmd = String::from("bca");
     let paths: Vec<&Path> = if globals.paths.is_empty() {
         // Default-when-absent — mirror the walker's `expand_seed_paths`
-        // fallback so the printed command behaves identically to a
-        // pathless invocation.
+        // `.` fallback (#596) so the printed refresh command behaves
+        // identically to the pathless invocation that produced it.
         vec![Path::new(".")]
     } else {
         globals.paths.iter().map(PathBuf::as_path).collect()

@@ -343,3 +343,108 @@ fn paths_from_strips_utf8_bom_on_first_line() {
         "BOM must be stripped so the first path is recognized as a real file"
     );
 }
+
+/// #596: a walk command with no `--paths` (and no manifest seeds)
+/// defaults to `.`, analyzing the directory the user is standing in
+/// rather than silently producing nothing with exit 0.
+#[test]
+fn no_paths_defaults_to_current_directory() {
+    let dir = TempDir::new().unwrap();
+    let (keep, _skip) = make_tree(dir.path());
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+
+    cli(dir.path())
+        .current_dir(dir.path())
+        .args(["metrics", "-O", "json", "-o", out.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let names = json_files(&out);
+    assert!(
+        names.iter().any(|n| n == "keep.py.json"),
+        "bare `bca metrics` must walk the cwd and analyze keep.py, got {names:?} (keep={})",
+        keep.display(),
+    );
+}
+
+/// #596: an explicitly-supplied `--paths` entry that does not exist is a
+/// tool error (exit 1) naming the offending path, not a skipped warning
+/// with exit 0. Guards against a typo silently analyzing nothing.
+#[test]
+fn nonexistent_explicit_path_fails() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("no-such-dir");
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            missing.to_str().unwrap(),
+            "metrics",
+            "-O",
+            "json",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(
+            predicate::str::contains("does not exist").and(predicate::str::contains("no-such-dir")),
+        );
+}
+
+/// #596: a nonexistent path sourced from `--paths-from` is explicitly
+/// supplied too, so it must fail the same way as a bad `--paths` entry.
+#[test]
+fn nonexistent_paths_from_entry_fails() {
+    let dir = TempDir::new().unwrap();
+    let listfile = dir.path().join("paths.txt");
+    let missing = dir.path().join("ghost.py");
+    std::fs::write(&listfile, format!("{}\n", missing.display())).unwrap();
+
+    cli(dir.path())
+        .args([
+            "--paths-from",
+            listfile.to_str().unwrap(),
+            "metrics",
+            "-O",
+            "json",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(
+            predicate::str::contains("does not exist").and(predicate::str::contains("ghost.py")),
+        );
+}
+
+/// #596: a walk that resolves zero files (here, an `--include` that
+/// matches nothing) prints a stderr notice instead of being a silent
+/// no-op. Non-gate commands still exit 0.
+#[test]
+fn empty_match_emits_stderr_notice() {
+    let dir = TempDir::new().unwrap();
+    let _ = make_tree(dir.path());
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "--include",
+            "**/*.nonesuch",
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("0 files matched"));
+
+    assert!(
+        json_files(&out).is_empty(),
+        "no files should be emitted when nothing matched",
+    );
+}

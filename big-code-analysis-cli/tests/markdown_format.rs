@@ -166,12 +166,21 @@ fn report_collects_nonzero_summaries() {
 }
 
 #[test]
-fn report_with_no_paths_produces_empty_summary() {
-    // `--no-config` keeps the test hermetic: the runner's cwd is inside
-    // the repo, whose root `bca.toml` declares `paths = ["."]` that
-    // would otherwise make this no-paths run walk the whole repo.
+fn report_with_no_matching_files_produces_empty_summary() {
+    // Point at an empty directory so the walk resolves zero files. Since
+    // #596 a pathless `report` defaults to `.` and would walk the
+    // runner's cwd, so the empty-input case is now an explicit empty
+    // `--paths` target. `--no-config` keeps it hermetic from the repo's
+    // root `bca.toml`.
+    let empty = TempDir::new().expect("tempdir");
     cli()
-        .args(["--no-config", "report", "markdown"])
+        .args([
+            "--no-config",
+            "--paths",
+            empty.path().to_str().expect("utf-8"),
+            "report",
+            "markdown",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("**Files analyzed:** 0"));

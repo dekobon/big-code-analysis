@@ -179,7 +179,9 @@ pub struct Cli {
 
 #[derive(Args, Debug, Default, Clone)]
 struct GlobalOpts {
-    /// Input files or directories to analyze.
+    /// Input files or directories to analyze. Defaults to the current
+    /// directory (`.`) when omitted and no manifest `paths` is set; an
+    /// explicitly-given path that does not exist is an error (exit 1).
     #[clap(long, short, value_parser, global = true)]
     paths: Vec<PathBuf>,
     /// Glob to include files. Repeat the flag to add multiple globs
@@ -1668,12 +1670,28 @@ fn expand_seed_paths(
     if let Some(src) = paths_from {
         paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
     }
+    // Default the walk root to the current directory when the user
+    // supplied no seeds — neither via `--paths`/`--paths-from` nor via
+    // a manifest `paths` key (the manifest merge already populated
+    // `paths` before we reach here, so an empty `paths` here means
+    // "nothing was configured anywhere"). This mirrors `bca vcs`
+    // (`vcs_command::run`) so a bare `bca metrics` ranks the tree the
+    // user is standing in instead of analyzing nothing (#596). The
+    // injected `.` always exists, so it never trips the
+    // nonexistent-seed guard below.
+    if paths.is_empty() {
+        paths.push(PathBuf::from("."));
+    }
     let mut out: Vec<PathBuf> = Vec::new();
     for seed in paths.into_iter().map(walk_seed::reanchor_seed) {
         if !seed.exists() {
-            // Match today's `explore()` behavior: warn, do not die.
-            eprintln!("Warning: File doesn't exist: {}", seed.display());
-            continue;
+            // An explicitly-supplied seed that does not exist is a tool
+            // error (exit 1), not a skipped warning (#596): a typo in
+            // `--paths` / `--paths-from` / manifest `paths` must fail
+            // loudly rather than silently analyze nothing. Only the
+            // auto-injected `.` default reaches the walk without being
+            // explicitly supplied, and it always exists.
+            die(format_args!("path does not exist: {}", seed.display()));
         }
         if seed.is_file() {
             // A single explicit file seed keeps the form the caller
@@ -1708,6 +1726,15 @@ fn expand_seed_paths(
                 }
             }
         }
+    }
+    // A walk that resolved zero files is almost always a mistake — an
+    // over-narrow `--include`, an `--exclude` that swept everything, or
+    // a directory with no supported sources. Surface it on stderr so a
+    // bare `bca metrics` in an empty tree is not silently a no-op (#596).
+    // Non-gate commands still exit 0; `check` layers its own hard error
+    // (`no input files matched`) on top for CI safety.
+    if out.is_empty() {
+        eprintln!("bca: warning: 0 files matched");
     }
     out
 }

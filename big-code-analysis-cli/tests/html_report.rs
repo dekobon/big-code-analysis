@@ -100,13 +100,23 @@ fn report_html_top_zero_shows_all() {
 }
 
 #[test]
-fn report_html_with_no_paths_is_well_formed() {
-    // `--no-config` keeps the test hermetic: the runner's cwd is inside
-    // the repo, whose root `bca.toml` declares `paths = ["."]` that
-    // would otherwise make this no-paths run walk the whole repo and
-    // emit hotspot tables.
+fn report_html_with_no_matching_files_is_well_formed() {
+    // Point at an empty directory so the walk resolves zero files: the
+    // report must still render a well-formed shell with no hotspot
+    // tables. `--no-config` keeps it hermetic from the repo's root
+    // `bca.toml`. Since #596 a bare (pathless) `report` defaults to `.`
+    // and would analyze the runner's cwd, so the empty-input case is now
+    // expressed by an explicit empty `--paths` target rather than the
+    // absence of one.
+    let empty = TempDir::new().expect("tempdir");
     let output = cli()
-        .args(["--no-config", "report", "html"])
+        .args([
+            "--no-config",
+            "--paths",
+            empty.path().to_str().expect("utf-8"),
+            "report",
+            "html",
+        ])
         .output()
         .expect("invocation succeeds");
     assert!(output.status.success());
