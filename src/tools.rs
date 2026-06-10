@@ -530,6 +530,9 @@ pub(crate) fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 
     for component in components {
         match component {
+            // A `Prefix` (Windows drive / UNC) component only ever
+            // appears first; the leading peek+next above already
+            // consumed it, so it cannot recur in this loop.
             Component::Prefix(..) => unreachable!(),
             Component::RootDir => {
                 ret.push(component.as_os_str());
