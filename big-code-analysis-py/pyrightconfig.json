@@ -6,6 +6,12 @@
   "reportMissingTypeStubs": "error",
   "reportMissingImports": "error",
   "useLibraryCodeForTypes": true,
+  // Disabled deliberately (#623): every metric block in the generated
+  // result TypedDicts is NotRequired because `metrics=` selection can
+  // elide blocks, yet the overwhelmingly common full-suite call always
+  // has them — forcing .get() everywhere would punish the default path.
+  // mypy --strict does not flag subscript access, so the two checkers
+  // stay in agreement.
   "reportTypedDictNotRequiredAccess": "none",
   "venvPath": ".",
   "venv": ".venv"
