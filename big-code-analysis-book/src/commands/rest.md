@@ -141,22 +141,24 @@ POST http://127.0.0.1:8080/v1/comment
 {
   "id": "unique-id",
   "language": "cpp",
-  "code": [10, 112, 114, 105, 110, 116]
+  "code": "print"
 }
 ```
 
 The response envelope reports `id`, the detected `language` (the
 canonical lowercase slug — see *Compute Metrics* below), and the
-`code` result key. The `code` field is a **byte array** of the
-stripped source, not a string. Decode it with `jq -r '.code |
-implode'` (ASCII/UTF-8) or the equivalent in your client. The
+`code` result key. The `code` field is a **string** holding the
+stripped source: the request `code` arrived as a JSON string, so the
+stripped output is guaranteed valid UTF-8 and is handed back as a
+string, matching the request and every other JSON endpoint. The
 `application/octet-stream` variant returns the stripped source as the
-raw response body (no envelope), which is simpler for shell pipelines;
-its *errors* still use the uniform JSON error body above.
+raw response body (no envelope), which is the correct home for
+binary-faithful round-trips and simpler for shell pipelines; its
+*errors* still use the uniform JSON error body above.
 
 When the source contains no removable comments, both variants signal
 the empty result with a `200` status and an empty payload: the JSON
-variant returns `"code": []` (an empty byte array) and the
+variant returns `"code": ""` (an empty string) and the
 octet-stream variant returns an empty body. The status code and
 envelope shape are therefore identical regardless of the requested
 `Content-Type`; the octet-stream variant returns an empty `200` body

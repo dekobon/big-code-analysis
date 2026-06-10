@@ -26,7 +26,9 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
-use super::comment::{WebCommentCfg, WebCommentInfo, WebCommentPayload, strip_comments};
+use super::comment::{
+    WebCommentCfg, WebCommentInfo, WebCommentJson, WebCommentPayload, strip_comments,
+};
 use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
 use super::metrics::{WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
 use super::vcs::{
@@ -491,7 +493,19 @@ async fn comment_removal_json(
             strip_comments(language, buf, cfg).expect(FEATURES_PINNED)
         })
         .await?;
-        Ok(HttpResponse::Ok().json(result))
+        // The JSON variant returns `code` as a string (#629). The request
+        // `code` arrived as a JSON string and comment removal only deletes
+        // byte ranges, so the stripped source stays valid UTF-8; a decode
+        // failure would be a logic error, surfaced as a uniform 500 rather
+        // than panicking or emitting a lossy payload.
+        match WebCommentJson::try_from(result) {
+            Ok(json) => Ok(HttpResponse::Ok().json(json)),
+            Err(_) => Ok(json_error(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                INTERNAL_SERVER_ERROR,
+                payload_id,
+            )),
+        }
     } else {
         Ok(unsupported_language(payload.id))
     }

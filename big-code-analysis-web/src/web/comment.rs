@@ -13,8 +13,15 @@ pub struct WebCommentPayload {
     pub code: String,
 }
 
-/// Server response containing the source code without comments.
-#[derive(Debug, Serialize)]
+/// Internal comment-removal result carrying the stripped source as raw
+/// bytes.
+///
+/// Both response variants are built from this: the octet-stream handler
+/// streams [`WebCommentResponse::code`] back verbatim, while the JSON
+/// handler converts it to a UTF-8 string via [`WebCommentJson`]
+/// (issue #629). It is not serialized directly — the wire shapes are the
+/// two response types below.
+#[derive(Debug)]
 pub struct WebCommentResponse {
     /// Server response identifier.
     pub id: String,
@@ -28,6 +35,47 @@ pub struct WebCommentResponse {
     /// non-empty result (`200` with an empty payload) across both the
     /// JSON and octet-stream variants — see issue #558.
     pub code: Vec<u8>,
+}
+
+/// JSON wire shape for the comment-removal response (issue #629).
+///
+/// The `/comment` JSON variant returns the stripped source as a JSON
+/// **string**, matching the request's `code` string and every other
+/// JSON endpoint. The octet-stream variant keeps raw bytes, which is the
+/// correct home for binary-faithful round-trips. Before #629 the JSON
+/// variant serialized `code` as `Vec<u8>`, which serde renders as an
+/// array of byte numbers — a serde artifact, never a chosen shape.
+#[derive(Debug, Serialize)]
+pub struct WebCommentJson {
+    /// Server response identifier.
+    pub id: String,
+    /// Source code programming language, as the canonical lowercase slug.
+    pub language: String,
+    /// Source code without comments, as a UTF-8 string. Empty when no
+    /// comments were found (#558).
+    pub code: String,
+}
+
+impl TryFrom<WebCommentResponse> for WebCommentJson {
+    type Error = std::string::FromUtf8Error;
+
+    /// Reinterpret the stripped bytes as a UTF-8 string for the JSON
+    /// wire shape.
+    ///
+    /// In the JSON handler the request `code` arrives as a JSON string,
+    /// hence valid UTF-8; comment removal only deletes byte ranges, so
+    /// the stripped output remains valid UTF-8 and this conversion does
+    /// not fail in practice. It is fallible rather than a lossy or
+    /// `expect`-based cast so a hypothetical decode failure surfaces as a
+    /// uniform `500` error body instead of corrupting the payload or
+    /// panicking (#629).
+    fn try_from(response: WebCommentResponse) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: response.id,
+            language: response.language,
+            code: String::from_utf8(response.code)?,
+        })
+    }
 }
 
 /// Source code information.

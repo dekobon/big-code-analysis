@@ -265,13 +265,19 @@ async fn test_web_comment_json() {
         .to_request();
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
+    // The JSON variant returns `code` as a string equal to the stripped
+    // source — not a serde byte array (#629). The comment is gone and the
+    // declaration survives, so assert both presence and absence.
     let expected = json!({
         "id": "1234",
         "language": "cpp",
-        "code": b"int x = 1; ",
+        "code": "int x = 1; ",
     });
 
     assert_eq!(res, expected);
+    let code = res["code"].as_str().expect("code is a JSON string");
+    assert!(code.contains("int x = 1;"), "declaration survives");
+    assert!(!code.contains("hello"), "comment removed");
 }
 
 #[actix_rt::test]
@@ -327,12 +333,13 @@ async fn test_web_comment_json_no_comment() {
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
 
-    // No comment in the code, so `code` is the empty byte array — the
-    // success envelope stays uniform with a non-empty result (#558).
+    // No comment in the code, so `code` is the empty string — the success
+    // envelope stays uniform with a non-empty result (#558) and the JSON
+    // variant reports it as a string, not a byte array (#629).
     let expected = json!({
         "id": "1234",
         "language": "cpp",
-        "code": [],
+        "code": "",
     });
 
     assert_eq!(res, expected);
@@ -423,7 +430,7 @@ async fn test_web_comment_plain_no_comment() {
 
 /// Empty-result parity (#558): an input with no removable comments must
 /// return the *same* status code across both content-type variants, with
-/// a uniform empty payload (JSON `{code: []}`, octet-stream empty body).
+/// a uniform empty payload (JSON `{code: ""}`, octet-stream empty body).
 #[actix_rt::test]
 async fn test_web_comment_empty_result_parity() {
     let json_app = test::init_service(
@@ -470,10 +477,10 @@ async fn test_web_comment_empty_result_parity() {
     assert_eq!(json_status, plain_status);
 
     // Both variants agree on what "empty" looks like: the JSON `code`
-    // key is the empty byte array; the octet-stream body is empty bytes.
+    // key is the empty string (#629); the octet-stream body is empty bytes.
     assert_eq!(
         json_body,
-        json!({ "id": "1234", "language": "cpp", "code": [] })
+        json!({ "id": "1234", "language": "cpp", "code": "" })
     );
     assert_eq!(plain_body, Bytes::from_static(b""));
 }

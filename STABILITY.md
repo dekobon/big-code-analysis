@@ -886,10 +886,17 @@ contract points are:
   used by the CLI JSON output and the Python bindings — the comment
   endpoint reports the *guessed* language, not its internal
   `ccomment` grammar swap.
+- **`/comment` result shape.** The JSON variant returns `code` as a
+  **string** holding the stripped source; the request `code` arrived
+  as a JSON string, so the output is valid UTF-8 and is handed back as
+  a string matching the request and every other JSON endpoint. The
+  octet-stream variant returns the raw stripped bytes as the response
+  body. The former JSON `code: number[]` (a serde `Vec<u8>` artifact)
+  was changed to `string` as a `2.0`-line break (#629).
 - **Empty `/comment` result.** When the source has no removable
   comments, both content-type variants signal it as `200` with an
-  empty payload — the JSON variant returns `{… "code": []}` (empty
-  byte array) and the octet-stream variant returns an empty body. The
+  empty payload — the JSON variant returns `{… "code": ""}` (empty
+  string) and the octet-stream variant returns an empty body. The
   former `204 No Content` on the octet-stream variant was removed as a
   `2.0`-line break (#558) so the empty outcome shares one status code
   and one envelope shape across `Accept` types.
