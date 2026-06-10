@@ -248,9 +248,10 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
     options.risk_formula = args.risk_formula.into();
     options.emit_author_details = args.emit_author_details;
     options.include_deleted = args.include_deleted;
-    // The shared builder leaves the aggregate off (the `jit` subcommand never
-    // wants it); the ranking flow turns it on below. `Default` already sets it
-    // `false`, so no explicit assignment is needed here.
+    // `build_options` is the shared builder, so it leaves `compute_bus_factor`
+    // at its `Default` (`false`) — the `jit` subcommand never wants the
+    // aggregate. The ranking callers (`run`, `default_aggregate_index`) set it
+    // `true` explicitly, so no assignment is needed here.
     options.bus_factor_threshold =
         vcs::options::validate_bus_factor_threshold(args.bus_factor_threshold)
             .unwrap_or_else(|e| die(format_args!("--bus-factor-threshold: {e}")));
