@@ -1476,6 +1476,129 @@ async fn test_web_wrong_method_on_known_endpoint_yields_405() {
     );
 }
 
+#[actix_rt::test]
+async fn test_web_head_on_get_endpoints_matches_get() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // RFC 9110 §9.3.2: HEAD must be answered wherever GET is supported,
+    // returning the same status and headers as GET but no body (#644).
+    // Uptime monitors and load balancers default to HEAD probes against
+    // `/ping`, so this is the endpoint's primary use case.
+    for path in ["/v1/ping", "/v1/version", "/v1/languages"] {
+        let get_resp =
+            test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
+        let get_status = get_resp.status();
+        let get_content_type = get_resp
+            .headers()
+            .get("content-type")
+            .map(|v| v.to_str().unwrap().to_owned());
+        assert_eq!(get_status, StatusCode::OK, "GET {path} should be 200");
+        let get_body = test::read_body(get_resp).await;
+
+        let head_resp = test::call_service(
+            &app,
+            test::TestRequest::default()
+                .method(http::Method::HEAD)
+                .uri(path)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            head_resp.status(),
+            get_status,
+            "HEAD {path} status must match GET",
+        );
+        assert_eq!(
+            head_resp
+                .headers()
+                .get("content-type")
+                .map(|v| v.to_str().unwrap().to_owned()),
+            get_content_type,
+            "HEAD {path} Content-Type must match GET",
+        );
+        // The GET handler is reached for HEAD, so the in-memory test
+        // service returns the same body. On the wire actix's HTTP codec
+        // drops the body for HEAD requests; `test::call_service` bypasses
+        // that codec, so body-stripping is not observable here. Asserting
+        // the body matches GET pins that HEAD shares the GET code path
+        // (the regression was a 405 fallback, not a body mismatch).
+        let head_body = test::read_body(head_resp).await;
+        assert_eq!(
+            head_body, get_body,
+            "HEAD {path} must reach the GET handler and produce its body",
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_head_on_post_endpoint_still_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // HEAD is only delegated to GET handlers; a POST-only endpoint must
+    // still answer 405 naming the accepted method, so the GET-or-HEAD
+    // guard does not accidentally widen the POST resources (#644).
+    let req = test::TestRequest::default()
+        .method(http::Method::HEAD)
+        .uri("/v1/metrics")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("POST"),
+        "405 body should name the accepted method",
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_head_on_get_alias_carries_deprecation_headers() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // A HEAD probe against a deprecated unprefixed GET alias must still
+    // flow through the deprecation middleware (#637), so monitors hitting
+    // the alias see the Sunset/Link signalling just as a GET would (#644).
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::default()
+            .method(http::Method::HEAD)
+            .uri("/ping")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let headers = resp.headers();
+    assert_eq!(
+        headers.get("deprecation").map(|v| v.to_str().unwrap()),
+        Some("true"),
+        "HEAD alias must carry Deprecation: true",
+    );
+    assert!(
+        headers.contains_key("sunset"),
+        "HEAD alias must carry a Sunset header",
+    );
+    assert!(
+        headers
+            .get("link")
+            .is_some_and(|v| v.to_str().unwrap().contains("</v1/ping>")),
+        "HEAD alias Link must name the /v1 successor",
+    );
+}
+
 // --- /v1 versioned routes + deprecated unprefixed aliases (issue #517) ---
 //
 // Built via the production `configure_routes`, so both the `/v1` scope and

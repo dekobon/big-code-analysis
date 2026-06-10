@@ -854,6 +854,20 @@ fn octet_guard() -> impl guard::Guard {
     guard::fn_guard(|ctx| content_type_essence_matches(ctx, &mime::APPLICATION_OCTET_STREAM))
 }
 
+/// Guard matching both `GET` and `HEAD`.
+///
+/// actix-web does not auto-register `HEAD` on a `GET` route, so a bare
+/// `web::get()` resource lets `HEAD` fall through to the resource's
+/// `default_service` and answer `405` (#644). RFC 9110 §9.3.2 requires
+/// `HEAD` wherever `GET` is supported — load balancers and uptime monitors
+/// commonly probe with `HEAD`. Routing both methods to the `GET` handler
+/// lets actix strip the body for `HEAD` while preserving identical status
+/// and headers, and reserves the `405` fallback for genuinely unsupported
+/// methods (`POST`, `PUT`, …).
+fn get_or_head_guard() -> impl guard::Guard {
+    guard::Any(guard::Get()).or(guard::Head())
+}
+
 /// Registers every `bca-web` endpoint into `cfg`.
 ///
 /// Each content-type-guarded `POST` resource and the `GET`-only
@@ -920,17 +934,17 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
     )
     .service(
         web::resource("/ping")
-            .route(web::get().to(ping))
+            .route(web::route().guard(get_or_head_guard()).to(ping))
             .default_service(web::route().to(get_only_method_not_allowed)),
     )
     .service(
         web::resource("/version")
-            .route(web::get().to(version))
+            .route(web::route().guard(get_or_head_guard()).to(version))
             .default_service(web::route().to(get_only_method_not_allowed)),
     )
     .service(
         web::resource("/languages")
-            .route(web::get().to(languages))
+            .route(web::route().guard(get_or_head_guard()).to(languages))
             .default_service(web::route().to(get_only_method_not_allowed)),
     );
 }
