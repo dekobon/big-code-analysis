@@ -833,7 +833,8 @@ and its `NotARepositoryError` / `InvalidRevisionError` /
 
 ### Language and metric string enums
 
-`supported_languages()` returns `list[Lang]` and `METRIC_NAMES` is a
+`supported_languages()` returns `list[Lang]`, `language_for_file()`
+returns `Lang | None`, and `METRIC_NAMES` is a
 `tuple[MetricName, ...]`. `Lang` and `MetricName` are
 [`enum.StrEnum`][strenum]s (the floor is Python 3.12), so each member
 **is** a `str`: `Lang.CPP == "cpp"`, `MetricName.HALSTEAD ==

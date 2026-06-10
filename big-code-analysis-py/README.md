@@ -133,13 +133,16 @@ assert bca.language_for_file("path/to/real/foo.py") == "python"
 assert "python" in bca.supported_languages()
 assert "py" in bca.language_extensions("python")
 
-# `supported_languages()` returns `list[Lang]`. `Lang` is a
+# `supported_languages()` returns `list[Lang]` and
+# `language_for_file()` returns `Lang | None`. `Lang` is a
 # `StrEnum`, so the members *are* strings: `Lang.PYTHON == "python"`
 # is True and `bca.Lang.PYTHON in bca.supported_languages()` holds.
+# `language_extensions()` accepts a `Lang` member or a plain slug.
 from big_code_analysis import Lang
 
 assert bca.Lang.PYTHON in bca.supported_languages()
-assert bca.language_for_file("path/to/real/foo.py") == Lang.PYTHON
+assert bca.language_for_file("path/to/real/foo.py") is Lang.PYTHON
+assert "py" in bca.language_extensions(Lang.PYTHON)
 ```
 
 ## Selecting metrics

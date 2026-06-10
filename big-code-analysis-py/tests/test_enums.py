@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
+from typing import assert_type
 
 import big_code_analysis as bca
 import pytest
@@ -54,6 +55,33 @@ def test_lang_values_exactly_match_supported_languages() -> None:
     # equals the enum's full membership (no public slug is missing
     # from Lang and no Lang member is unsupported at runtime).
     assert set(members) == set(Lang)
+
+
+def test_language_for_file_returns_lang_member(tmp_path: Path) -> None:
+    # The facade lifts the native slug into the Lang enum (#625), so a
+    # recognised file yields a Lang member that still equals its slug.
+    src = tmp_path / "main.rs"
+    src.write_bytes(b"fn main() {}\n")
+    resolved = bca.language_for_file(src)
+    # Static guarantee that the facade is typed as the enum, not str
+    # (#625); mypy/pyright fail here if the annotation regresses.
+    assert_type(resolved, "Lang | None")
+    assert isinstance(resolved, Lang)
+    assert resolved is Lang.RUST
+    assert _eq(resolved, "rust")
+
+
+def test_language_for_file_returns_none_for_unknown(tmp_path: Path) -> None:
+    # Unknown extensions still resolve to None, not a Lang member.
+    bogus = tmp_path / "foo.unknownext"
+    bogus.write_text("noise")
+    assert bca.language_for_file(bogus) is None
+
+
+def test_language_extensions_accepts_lang_member() -> None:
+    # The facade widens the parameter to ``str | Lang`` (#625); passing
+    # a Lang member must match the plain-slug lookup exactly.
+    assert bca.language_extensions(Lang.RUST) == bca.language_extensions("rust")
 
 
 def test_lang_round_trips_through_constructor() -> None:
