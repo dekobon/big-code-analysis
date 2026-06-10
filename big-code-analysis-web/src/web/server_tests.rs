@@ -1748,6 +1748,45 @@ async fn test_web_unprefixed_aliases_carry_deprecation_headers() {
     assert_eq!(v1_body, alias_body, "alias body must match the /v1 twin");
 }
 
+/// An extractor failure on an alias route must produce BOTH halves of the
+/// contract: the `{error, id}` JSON body (#639) and the deprecation
+/// headers (#637). actix renders extractor errors as `Ok(ServiceResponse)`,
+/// so the alias scope's `wrap_fn` still sees and stamps them — this pins
+/// that interaction against an actix upgrade changing error propagation.
+#[actix_rt::test]
+async fn test_web_alias_extractor_error_keeps_deprecation_headers() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .insert_header(ContentType::json())
+        .set_payload("{")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        resp.headers()
+            .get("deprecation")
+            .map(|v| v.to_str().unwrap()),
+        Some("true"),
+        "alias error responses must keep the Deprecation header",
+    );
+    assert!(
+        resp.headers().contains_key("sunset"),
+        "alias error responses must keep the Sunset header",
+    );
+    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert!(
+        body.get("error").is_some_and(Value::is_string),
+        "alias extractor error must carry the {{error, id}} JSON body, got: {body}",
+    );
+}
+
 #[actix_rt::test]
 async fn test_web_v1_post_endpoints_return_200() {
     let app = test::init_service(
