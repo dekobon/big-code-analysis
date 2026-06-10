@@ -14,14 +14,16 @@ authors = [
 ]
 keywords = ["metrics", "tree-sitter", "static-analysis"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Rust",
   "Topic :: Software Development :: Libraries",
   "Topic :: Software Development :: Quality Assurance",
+  "Typing :: Typed",
 ]
 # Version is read from the Rust workspace's Cargo.toml at build time
 # by maturin (see [tool.maturin].version below).
@@ -29,6 +31,8 @@ dynamic = ["version"]
 
 [project.urls]
 Repository = "https://github.com/dekobon/big-code-analysis"
+Documentation = "https://dekobon.github.io/big-code-analysis/python/index.html"
+Changelog = "https://github.com/dekobon/big-code-analysis/blob/main/CHANGELOG.md"
 
 # Restrict uv's resolver to platforms the project actually ships on.
 # `requires-python = ">=3.12"` is unbounded above, and the bindings
