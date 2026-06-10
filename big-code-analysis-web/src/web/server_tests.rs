@@ -3001,3 +3001,93 @@ async fn test_web_octet_payload_too_large_yields_413_json() {
     let msg = assert_extractor_json_error(resp, StatusCode::PAYLOAD_TOO_LARGE, "").await;
     assert_eq!(msg, PAYLOAD_TOO_LARGE);
 }
+
+/// Posts `code` (Rust) to the JSON `/metrics` endpoint and returns the
+/// parsed response body. Shared by the issue #640 EOL-parity tests below.
+async fn metrics_for_rust_source(code: &str) -> Value {
+    let app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/metrics")
+                .guard(guard::Header("content-type", "application/json"))
+                .route(web::post().to(metrics_json)),
+        ),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/metrics")
+        .set_json(WebMetricsPayload {
+            id: "640".to_string(),
+            file_name: "test.rs".to_string(),
+            code: code.to_string(),
+            unit: false,
+        })
+        .to_request();
+    test::call_and_read_body_json(&app, req).await
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_unterminated_buffer_matches_cli() {
+    // Issue #640: an editor buffer lacking a final newline used to report
+    // `end_line: 0` and `sloc: 0` over the wire (the unit space ended before
+    // its own child function) while the CLI reported `end_line: 1, sloc: 1`
+    // on the same bytes via `read_file_with_eol`. The web handler now
+    // normalises the buffer, so both surfaces agree.
+    let res = metrics_for_rust_source("fn f(){}").await;
+    let unit = &res["spaces"];
+    assert_eq!(
+        unit["end_line"], 1,
+        "unit space must not end before its child"
+    );
+    assert_eq!(
+        unit["metrics"]["loc"]["sloc"], 1.0,
+        "sloc must be 1, not the pre-#640 0",
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_eol_variants_match_terminated_lf() {
+    // The canonical LF-terminated buffer is the reference; CRLF, lone-CR,
+    // and missing-trailing-newline variants of the same content must all
+    // normalise to the identical metric JSON (issue #640).
+    let reference = metrics_for_rust_source("fn f(){}\n").await;
+    for variant in ["fn f(){}", "fn f(){}\r\n", "fn f(){}\r"] {
+        let got = metrics_for_rust_source(variant).await;
+        assert_eq!(
+            got, reference,
+            "EOL variant {variant:?} must report the same metrics as the LF-terminated buffer",
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_comment_plain_preserves_crlf_unnormalised() {
+    // The comment endpoints are deliberately exempt from #640 normalisation:
+    // they return the comment-stripped source bytes to the caller, not a
+    // derived metric. Applying `normalize_eol` here would append a trailing
+    // `\n` the client never sent, mutating round-tripped content. This test
+    // pins that the stripped output is NOT trailing-newline-padded — if the
+    // comment path were folded into the normalisation, this assertion fails.
+    let app = test::init_service(
+        App::new().app_data(test_config()).service(
+            web::resource("/comment")
+                .guard(guard::Header("content-type", "application/octet-stream"))
+                .route(web::post().to(comment_removal_plain)),
+        ),
+    )
+    .await;
+    // A real comment forces non-empty stripped output (the "no comments"
+    // outcome is the empty body, #558); the surviving code carries no final
+    // newline, which `normalize_eol` would otherwise add.
+    let source = "int a = 1; // c\r\nint b = 2;";
+    let req = test::TestRequest::post()
+        .uri("/comment?file_name=foo.c")
+        .insert_header(ContentType::octet_stream())
+        .set_payload(source)
+        .to_request();
+    let body = test::call_and_read_body(&app, req).await;
+    let body = String::from_utf8(body.to_vec()).expect("stripped output is valid UTF-8");
+    assert!(
+        !body.ends_with('\n'),
+        "comment removal must not append a trailing newline, got {body:?}",
+    );
+}

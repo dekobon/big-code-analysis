@@ -130,6 +130,35 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(data))
 }
 
+/// Normalises an in-memory source buffer to match the [`read_file_with_eol`]
+/// on-disk path: all CR-only and CRLF line endings become LF, and the buffer is
+/// guaranteed to end with exactly one `\n`.
+///
+/// In-memory entry points (the web server's JSON/octet-stream payloads, the
+/// Python `analyze_source` bindings) feed caller-supplied bytes straight to the
+/// parser, whereas the CLI reads files through [`read_file_with_eol`]. Without
+/// this step, identical content yields different metrics across surfaces — an
+/// editor buffer with no trailing newline reports `sloc: 0` over the wire but
+/// `sloc: 1` from the CLI on the same bytes (issue #640). Run the buffer through
+/// this helper before parsing so every surface computes the canonical numbers.
+///
+/// Returns a fresh owned buffer; the input is consumed so the common case
+/// (already-owned request body) reuses its allocation.
+///
+/// # Examples
+///
+/// ```
+/// use big_code_analysis::normalize_eol;
+///
+/// // CRLF endings collapse to LF and a missing final newline is added.
+/// assert_eq!(normalize_eol(b"a\r\nb".to_vec()), b"a\nb\n");
+/// ```
+#[must_use]
+pub fn normalize_eol(mut data: Vec<u8>) -> Vec<u8> {
+    normalize_line_endings(&mut data);
+    data
+}
+
 /// Writes data to a file.
 ///
 /// # Errors

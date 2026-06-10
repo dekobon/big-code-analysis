@@ -37,7 +37,7 @@ use super::vcs::{
 };
 
 use big_code_analysis::vcs::Error as VcsError;
-use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language};
+use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language, normalize_eol};
 
 /// Machine-readable error token returned when the submitted `file_name`
 /// (and content sniffing) cannot be mapped to a supported language.
@@ -437,6 +437,12 @@ async fn ast_parser(
 ) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
+    // Deliberately NOT normalised (issue #640): the AST endpoint reports
+    // tree-sitter node coordinates (rows/columns) over the exact bytes the
+    // client submitted. Appending a trailing newline or rewriting EOLs would
+    // shift every node position relative to the input the client holds. The
+    // #640 fix targets the *metric* surfaces, whose derived numbers must match
+    // the CLI; AST coordinates are byte-faithful by contract.
     let buf = payload.code.into_bytes();
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
@@ -477,6 +483,12 @@ async fn comment_removal_json(
 ) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
+    // Deliberately NOT normalised (issue #640): comment removal round-trips
+    // the source bytes back to the caller, so normalising would silently
+    // append a trailing newline to content the client never asked us to
+    // touch. The parity fix targets the metric surfaces (metrics / function
+    // spans), which emit only derived numbers — not the byte-faithful AST and
+    // comment endpoints.
     let buf = payload.code.into_bytes();
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
@@ -516,6 +528,9 @@ async fn comment_removal_plain(
     info: Query<WebCommentInfo>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    // Deliberately NOT normalised (issue #640): the octet-stream comment
+    // endpoint returns the stripped source bytes verbatim, so EOL/trailing-
+    // newline rewriting would corrupt the client's content.
     let buf = get_code(body, config.max_body_size).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
@@ -551,7 +566,11 @@ async fn metrics_json(
 ) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
-    let buf = payload.code.into_bytes();
+    // Match the CLI's `read_file_with_eol` normalisation so the same bytes
+    // report identical metrics whether they arrive over the wire or from a
+    // file (issue #640). An unterminated buffer otherwise reports `sloc: 0`
+    // and an impossible `end_line: 0` for the unit space.
+    let buf = normalize_eol(payload.code.into_bytes());
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
         // `exclude_tests` defaults to `false` via `WebMetricsCfg::new`,
@@ -662,7 +681,9 @@ async fn metrics_plain(
     info: Query<WebMetricsInfo>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let buf = get_code(body, config.max_body_size).await?;
+    // Normalise EOL + trailing newline for CLI parity (issue #640); the
+    // octet-stream path shares the JSON variant's divergence.
+    let buf = normalize_eol(get_code(body, config.max_body_size).await?);
     // Validate the `unit` flag up front so a bad value is a clear `400`
     // regardless of whether the language resolves (#541).
     let unit = match parse_unit_flag(info.unit.as_deref()) {
@@ -705,7 +726,9 @@ async fn function_json(
 ) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
-    let buf = payload.code.into_bytes();
+    // Function spans are byte/line-position based, so they inherit the same
+    // CLI-parity gap as metrics on unterminated input (issue #640).
+    let buf = normalize_eol(payload.code.into_bytes());
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let payload_id = payload.id.clone();
@@ -728,7 +751,8 @@ async fn function_plain(
     info: Query<WebFunctionInfo>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let buf = get_code(body, config.max_body_size).await?;
+    // Normalise EOL + trailing newline for CLI parity (issue #640).
+    let buf = normalize_eol(get_code(body, config.max_body_size).await?);
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {

@@ -463,6 +463,25 @@ fn normalize_line_endings_empty_buffer() {
 }
 
 #[test]
+fn normalize_eol_adds_missing_trailing_newline() {
+    // The issue #640 reproducer: `fn f(){}` with no final newline must gain
+    // exactly one `\n` so in-memory callers match the CLI's `read_file_with_eol`.
+    assert_eq!(super::normalize_eol(b"fn f(){}".to_vec()), b"fn f(){}\n");
+}
+
+#[test]
+fn normalize_eol_collapses_crlf_and_terminates() {
+    // CRLF endings collapse to LF and a single trailing newline is guaranteed,
+    // matching the on-disk normalisation.
+    assert_eq!(super::normalize_eol(b"a\r\nb".to_vec()), b"a\nb\n");
+}
+
+#[test]
+fn normalize_eol_collapses_lone_cr() {
+    assert_eq!(super::normalize_eol(b"a\rb\r".to_vec()), b"a\nb\n");
+}
+
+#[test]
 fn is_generated_at_generated_top() {
     assert!(is_generated(b"// @generated\nfn x() {}\n"));
 }

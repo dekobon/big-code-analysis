@@ -33,6 +33,7 @@ use std::path::Path;
 
 use big_code_analysis::{
     LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
+    normalize_eol,
 };
 
 use crate::language::{parse_language_name, unknown_language_message};
@@ -356,6 +357,12 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
+    // `std::fs::read` above is a plain read, unlike the CLI's
+    // `read_file_with_eol`; normalise before parsing so `analyze_path`
+    // reports the same metrics the CLI does for the same file (issue #640).
+    // Runs after `is_generated` / `guess_language`, which match the CLI
+    // walker by inspecting the raw on-disk bytes.
+    let code = normalize_eol(code);
     analyze_bytes(lang, &code, Some(name), opts).map(Some)
 }
 
@@ -367,7 +374,12 @@ pub(crate) fn analyze_source(
 ) -> Result<String, AnalysisError> {
     let lang = parse_language_name(language)
         .ok_or_else(|| AnalysisError::UnsupportedLanguage(unknown_language_message(language)))?;
-    analyze_bytes(lang, code, name, opts)
+    // Mirror the CLI's `read_file_with_eol` normalisation: caller-supplied
+    // bytes (commonly an editor buffer) reach tree-sitter raw otherwise, so an
+    // unterminated or CRLF-bearing source reports different metrics than the
+    // same content analysed from a file (issue #640).
+    let code = normalize_eol(code.to_vec());
+    analyze_bytes(lang, &code, name, opts)
 }
 
 fn analyze_bytes(
@@ -458,6 +470,47 @@ mod tests {
              as the first two top-level fields — routing through \
              `serde_json::to_value` would re-sort the JSON object \
              alphabetically (starting with `\"end_line\"`); got: {s}",
+        );
+    }
+
+    #[test]
+    fn analyze_source_normalizes_eol_for_cli_parity() {
+        // Issue #640: `analyze_source` fed raw caller bytes to tree-sitter,
+        // so an editor buffer lacking a final newline (or carrying CRLF/CR
+        // endings) reported different metrics than the same content read
+        // from a file by the CLI. After normalisation, every EOL variant of
+        // the same source produces byte-identical JSON.
+        //
+        // Test-via-revert: drop the `normalize_eol` call in `analyze_source`
+        // and the unterminated / CRLF variants diverge from the reference,
+        // failing this assertion.
+        let reference = analyze_source(
+            "rust",
+            b"fn f(){}\n",
+            Some("test.rs".to_owned()),
+            AnalyzeOptions::default(),
+        )
+        .expect("rust snippet parses");
+        for variant in [b"fn f(){}".as_slice(), b"fn f(){}\r\n", b"fn f(){}\r"] {
+            let got = analyze_source(
+                "rust",
+                variant,
+                Some("test.rs".to_owned()),
+                AnalyzeOptions::default(),
+            )
+            .expect("rust snippet parses");
+            assert_eq!(
+                got, reference,
+                "EOL variant {variant:?} must match the LF-terminated source",
+            );
+        }
+        // Pin the canonical CLI value: the unit space spans line 1 (it used
+        // to collapse to end_line 0 / sloc 0 on the unterminated buffer).
+        let value = parse_json(&reference);
+        assert_eq!(
+            value.get("end_line").and_then(serde_json::Value::as_u64),
+            Some(1),
+            "unit space must span its child function, not end at line 0",
         );
     }
 

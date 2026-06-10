@@ -368,6 +368,27 @@ def test_analyze_source_str_bytes_bytearray_agree() -> None:
     assert json.dumps(from_str) == json.dumps(from_bytes) == json.dumps(from_bytearray)
 
 
+def test_analyze_source_normalizes_eol_to_match_cli() -> None:
+    """Issue #640: in-memory sources must report the same metrics the CLI does.
+
+    Before the fix, ``analyze_source`` fed caller bytes to tree-sitter raw,
+    so an editor buffer lacking a final newline (or carrying CRLF / lone-CR
+    endings) produced different metrics than the same content read from a
+    file. After normalisation, every EOL variant of the same source is
+    structurally identical to the canonical LF-terminated form, and the
+    top-level unit space spans line 1 (it used to collapse to ``end_line: 0``
+    / ``sloc: 0`` on the unterminated buffer).
+    """
+    reference = bca.analyze_source("fn f(){}\n", "rust")
+    for variant in ("fn f(){}", "fn f(){}\r\n", "fn f(){}\r"):
+        got = bca.analyze_source(variant, "rust")
+        assert json.dumps(got) == json.dumps(reference), (
+            f"EOL variant {variant!r} must match the LF-terminated source"
+        )
+    assert reference["end_line"] == 1
+    assert reference["metrics"]["loc"]["sloc"] == 1
+
+
 # ----- Language metadata --------------------------------------------------
 
 
