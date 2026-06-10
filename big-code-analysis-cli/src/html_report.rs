@@ -990,7 +990,13 @@ fn write_language_section(
         };
         if spec.cc_note {
             let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
-            if !rows.is_empty() {
+            if rows.is_empty() {
+                // Mirror the non-CC branch: a CC table emptied purely by
+                // suppression earns the same "table omitted" caption, or the
+                // Actionable Summary's raw CC bullets would dangle (#616).
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                emit_fully_suppressed_note_html(out, &spec.title.render(top_n), suppressed);
+            } else {
                 emit_html_section(out, spec, top_n, &rows);
                 emit_cc_note_html(out, &stats, policy);
             }
@@ -1656,6 +1662,30 @@ mod tests {
         assert!(
             !report.contains("<h3>Functions With Many Parameters"),
             "the all-suppressed many-parameters table must not render:\n{report}"
+        );
+    }
+
+    /// HTML twin of the Markdown `fully_suppressed_cc_table_is_captioned`
+    /// test: the CC hotspot table (cc_note branch) emptied solely by
+    /// suppression must emit the "table omitted" caption, not vanish (#616).
+    #[test]
+    fn fully_suppressed_cc_table_is_captioned_html() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut hot = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        hot.cyclomatic = 25.0;
+        hot.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
+
+        let report = generate_html_report(&[unit, hot], 20, SuppressionPolicy::Honor);
+        assert!(
+            !report.contains("<h3>Cyclomatic Complexity Hotspots"),
+            "the all-suppressed CC table must not render its rows:\n{report}"
+        );
+        assert!(
+            report.contains("table omitted: all 1 matching functions suppressed"),
+            "a fully-suppressed CC table must leave an explanatory caption:\n{report}"
         );
     }
 
