@@ -43,7 +43,7 @@ Report only the `.bca\-baseline.toml` entries section. The old `\-\-only\-baseli
 Baseline file to audit. Defaults to `bca.toml`\*(Aqs top\-level `baseline` key, then `.bca\-baseline.toml` in the working directory when present. A path given here must exist
 .TP
 \fB\-\-check\-exclude\fR \fI<GLOB>\fR
-Glob exempting files from the check gate, mirroring `bca check \-\-check\-exclude`. Repeatable. An explicit value *replaces* the `bca.toml` `[check] exclude` list (CLI\-wins)
+Glob exempting files from the check gate, mirroring `bca check \-\-check\-exclude`. Repeatable. As a negative filter key (#539), CLI values are *added to* (merged with), not a replacement for, the `bca.toml` `[check] exclude` list, so a CLI `\-\-check\-exclude` never silently re\-gates a path the project config deliberately exempted
 .TP
 \fB\-\-check\-exclude\-from\fR \fI<CHECK_EXCLUDE_FROM>\fR
 Read newline\-separated `\-\-check\-exclude` globs from a file (`.gitignore`\-style), mirroring `bca check \-\-check\-exclude\-from`. Use `\-` for stdin. Unioned with any `\-\-check\-exclude` values

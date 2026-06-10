@@ -1196,8 +1196,11 @@ struct ExemptionsArgs {
     #[clap(long = "baseline", value_parser)]
     baseline: Option<PathBuf>,
     /// Glob exempting files from the check gate, mirroring
-    /// `bca check --check-exclude`. Repeatable. An explicit value
-    /// *replaces* the `bca.toml` `[check] exclude` list (CLI-wins).
+    /// `bca check --check-exclude`. Repeatable. As a negative filter
+    /// key (#539), CLI values are *added to* (merged with), not a
+    /// replacement for, the `bca.toml` `[check] exclude` list, so a CLI
+    /// `--check-exclude` never silently re-gates a path the project
+    /// config deliberately exempted.
     #[clap(long = "check-exclude", value_name = "GLOB")]
     check_exclude: Vec<String>,
     /// Read newline-separated `--check-exclude` globs from a file
