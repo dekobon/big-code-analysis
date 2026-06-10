@@ -358,8 +358,8 @@ fn parse_lizard(trimmed: &str) -> Option<Suppression> {
     // `#lizard forgive global` — file-scoped, all metrics.
     //
     // Lizard's own scanner tolerates a single space after `#` and
-    // around the verb, but is otherwise exact. We mirror that:
-    // canonicalize whitespace inside the marker, then match literals.
+    // around the verb, but is otherwise exact. We mirror that by
+    // trimming the ends and matching the verb phrase verbatim.
     let s = trimmed.strip_prefix('#')?.trim_start();
     let s = s.strip_prefix("lizard")?;
     let rest = s.trim();
