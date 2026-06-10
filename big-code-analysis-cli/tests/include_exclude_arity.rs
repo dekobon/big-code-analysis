@@ -147,8 +147,9 @@ fn include_flag_repeats_accumulate() {
     );
 }
 
-/// A bare `--include` with no value is now a usage error (exit 2),
-/// where it used to parse as a silent no-op.
+/// A bare `--include` with no value is now a usage error (exit 1 —
+/// clap usage errors map to the tool-error code, not the metric-gate
+/// band; #594), where it used to parse as a silent no-op.
 #[test]
 fn bare_include_is_usage_error() {
     let (dir, _path) = fixture();
@@ -163,7 +164,7 @@ fn bare_include_is_usage_error() {
     let assert = cli(dir.path())
         .args(["metrics", "--include"])
         .assert()
-        .code(2);
+        .code(1);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     assert!(
         stderr.contains("a value is required for '--include"),

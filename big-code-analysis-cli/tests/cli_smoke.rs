@@ -215,7 +215,9 @@ fn strip_comments_output_flag_writes_to_file() {
 #[test]
 fn strip_comments_output_conflicts_with_in_place() {
     // The two output sinks are mutually exclusive (clap `conflicts_with`);
-    // requesting both is a usage error (exit 2), not a silent precedence.
+    // requesting both is a usage error (exit 1 — clap usage errors map to
+    // the tool-error code, not the metric-gate band; #594), not a silent
+    // precedence.
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("snippet.py");
     std::fs::write(&src, "# c\nx = 1\n").unwrap();
@@ -229,7 +231,7 @@ fn strip_comments_output_conflicts_with_in_place() {
             dir.path().join("out.py").to_str().unwrap(),
         ])
         .assert()
-        .code(2);
+        .code(1);
 }
 
 #[test]

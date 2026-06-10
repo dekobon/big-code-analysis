@@ -46,17 +46,18 @@ scripts can branch on the process status without inspecting output:
 | Code | Meaning |
 |------|---------|
 | `0`  | Success. |
-| `1`  | Tool error — a bad flag / threshold / glob spec, unreadable input, or a parse failure. **Never** a metric signal. |
-| `2`  | [`check`](check.md) gate: one or more thresholds were exceeded (default contract). |
+| `1`  | Tool error — a bad flag / threshold / glob spec, unreadable input, or a parse failure. This includes **usage errors** (unknown flag, bad subcommand, a malformed `--threshold` value rejected by clap). **Never** a metric signal. |
+| `2`  | Metric gate: [`check`](check.md) thresholds were exceeded, or [`vcs jit --fail-over`](vcs.md) was breached (default contract). |
 | `3`–`5` | [`check --strict-exit-codes`](check.md#tiered-exit-codes---strict-exit-codes) only: tiered violation severity (new-only / regression-only / mixed / hard-breach). |
 
-Only the [`check`](check.md) subcommand ever emits codes `2`–`5`; they
-report a metric-threshold result, not a failure of the tool. Every
-other subcommand — `metrics`, `ops`, `report`, `diff`,
-`diff-baseline`, `exemptions`, `init`, and the rest — exits `0` on
-success and `1` on error. Because `1` is reserved for tool errors, CI
-can always distinguish "the gate found a regression" (`2`–`5`) from
-"the tool itself crashed" (`1`).
+Codes `2`–`5` are gate signals, emitted only by [`check`](check.md) and
+[`vcs jit --fail-over`](vcs.md); they report a metric result, not a
+failure of the tool. Every other subcommand — `metrics`, `ops`,
+`report`, `diff`, `diff-baseline`, `exemptions`, `init`, and the rest —
+exits `0` on success and `1` on error. Because `1` is reserved for tool
+errors — usage errors included, so a typo'd flag never lands in the
+gate band — CI can always distinguish "the gate found a regression"
+(`2`–`5`) from "the tool itself crashed" (`1`).
 
 ## Metrics
 

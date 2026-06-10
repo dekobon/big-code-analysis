@@ -194,13 +194,15 @@ fn diff_and_commit_spec_are_mutually_exclusive() {
     let dir = tempfile::tempdir().expect("tempdir");
     let diff_path = dir.path().join("change.diff");
     std::fs::write(&diff_path, SAMPLE_DIFF).expect("write diff");
-    // Supplying both a positional commit and --diff is a clap usage error.
+    // Supplying both a positional commit and --diff is a clap usage
+    // error (exit 1 — usage errors map to the tool-error code, not the
+    // `--fail-over` gate band; #594).
     bca(dir.path())
         .args(["vcs", "jit", "HEAD", "--diff"])
         .arg(&diff_path)
         .assert()
         .failure()
-        .code(2)
+        .code(1)
         .stderr(predicate::str::contains("cannot be used with"));
 }
 

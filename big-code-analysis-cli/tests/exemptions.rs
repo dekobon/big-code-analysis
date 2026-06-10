@@ -284,7 +284,9 @@ fn only_baseline_alias_still_selects_baseline_section() {
     assert!(v["suppressions"]["baseline"].is_array());
 }
 
-/// The `--*-only` flags are mutually exclusive (clap usage error, exit 2).
+/// The `--*-only` flags are mutually exclusive (clap usage error, exit
+/// 1 — usage errors map to the tool-error code, not the metric-gate
+/// band; #594).
 #[test]
 fn section_only_flags_are_mutually_exclusive() {
     let dir = marker_fixture();
@@ -298,11 +300,12 @@ fn section_only_flags_are_mutually_exclusive() {
         ])
         .assert()
         .failure()
-        .code(2);
+        .code(1);
 }
 
 /// The new canonical and old alias spellings collide too: mixing
-/// `--markers-only` with the `--only-baseline` alias is still exit 2.
+/// `--markers-only` with the `--only-baseline` alias is still a usage
+/// error (exit 1; #594).
 #[test]
 fn canonical_and_alias_section_flags_conflict() {
     let dir = marker_fixture();
@@ -316,7 +319,7 @@ fn canonical_and_alias_section_flags_conflict() {
         ])
         .assert()
         .failure()
-        .code(2);
+        .code(1);
 }
 
 /// The old `--only-*` spellings must be hidden aliases: they parse, but

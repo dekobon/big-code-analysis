@@ -342,6 +342,67 @@ fn tool_error_exits_one_not_metric_signal() {
     .stderr(predicate::str::contains("invalid glob pattern"));
 }
 
+// -- clap usage / argv errors exit 1, not the gate band (#594) ------------
+//
+// clap's built-in `Error::exit` terminates usage errors with exit 2,
+// which collides with the metric-gate band (`check` thresholds / `vcs
+// jit --fail-over`). #594 remaps every argv/usage/value-parse failure to
+// exit 1 (tool error) while preserving exit 0 for `--help` / `--version`.
+// These tests pin both halves so the gate band stays free of typo'd
+// flags and malformed `--threshold` values.
+
+#[test]
+fn unknown_flag_exits_one_with_usage() {
+    let (dir, mut cmd) = common::cli_hermetic();
+    let _ = &dir;
+
+    cmd.arg("--bogus-flag")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("Usage"));
+}
+
+#[test]
+fn unknown_subcommand_exits_one() {
+    let (dir, mut cmd) = common::cli_hermetic();
+    let _ = &dir;
+
+    cmd.arg("bogus-subcommand").assert().code(1);
+}
+
+#[test]
+fn malformed_threshold_value_exits_one_not_gate() {
+    // A `value_parser`-rejected `--threshold` is the exact "bad
+    // threshold spec" the help text calls a tool error. It must exit 1,
+    // never the gate's 2.
+    let dir = TempDir::new().unwrap();
+    let src = write_branchy(&dir, 5);
+
+    cli(dir.path())
+        .args(["--paths", &src, "check", "--threshold", "cyclomatic=abc"])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn help_exits_zero() {
+    let (dir, mut cmd) = common::cli_hermetic();
+    let _ = &dir;
+
+    cmd.arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage"));
+}
+
+#[test]
+fn version_exits_zero() {
+    let (dir, mut cmd) = common::cli_hermetic();
+    let _ = &dir;
+
+    cmd.arg("--version").assert().success();
+}
+
 // -- Manifest opt-in ------------------------------------------------------
 
 /// Create a fixture repo with a `.git` marker so manifest discovery

@@ -168,7 +168,7 @@ fn write_output_or_stdout(output: Option<&Path>, verb: &str, bytes: &[u8]) {
     about = "Analyze source code.",
     subcommand_required = true,
     arg_required_else_help = true,
-    after_help = "Exit codes:\n  0  success\n  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)\n  2  `check` gate: thresholds exceeded (default contract)\n  3-5  `check --strict-exit-codes` only: tiered violation severity\n\nExit code 1 is always a tool error, never a metric signal; codes 2-5 are\nemitted by the `check` subcommand alone. Every other subcommand exits 0 on\nsuccess and 1 on error.\n\nMigrating from the flag-style CLI? See the migration guide:\n  big-code-analysis-book/src/migration.md"
+    after_help = "Exit codes:\n  0  success\n  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)\n  2  metric gate: `check` thresholds exceeded / `vcs jit --fail-over` breached (default contract)\n  3-5  `check --strict-exit-codes` only: tiered violation severity\n\nExit code 1 is always a tool error, never a metric signal — usage errors\n(unknown flag, bad subcommand, malformed `--threshold` value) exit 1, not 2.\nCodes 2-5 are gate signals emitted only by `check` and `vcs jit --fail-over`.\nEvery other subcommand exits 0 on success and 1 on error.\n\nMigrating from the flag-style CLI? See the migration guide:\n  https://dekobon.github.io/big-code-analysis/migration.html"
 )]
 pub struct Cli {
     #[clap(flatten)]

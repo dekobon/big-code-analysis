@@ -1404,9 +1404,10 @@ fn write_footer_row(
 /// This function **may terminate the calling process** rather than
 /// return. It is not a re-entrant library entry point:
 ///
-/// - clap argument-parsing failures bubble up through
-///   [`clap::Error::exit`] (exit 0 on `--help` / `--version`, exit 2
-///   on usage errors).
+/// - clap argument-parsing failures exit 0 on `--help` / `--version`
+///   and exit 1 on usage errors (unknown flag, bad subcommand,
+///   `value_parser` rejection). The exit-1 mapping (#594) keeps clap's
+///   usage errors out of the 2-5 metric-gate band.
 /// - User-input errors (invalid threshold spec, unreadable preproc
 ///   data, malformed `bca.toml`, missing `--output` parent directory,
 ///   walk errors, mutually exclusive output-format combinations,
@@ -1512,11 +1513,39 @@ fn parse_cli_with_legacy_hint() -> (Cli, bool) {
             {
                 eprintln!("{hint}");
             }
-            err.exit();
+            exit_clap_error(&err);
         }
     };
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_clap_error(&err));
     (cli, num_jobs_set_on_cli(&matches))
+}
+
+/// Print a clap argument-parsing error and terminate the process,
+/// mapping argv/usage/value-parse failures to exit code **1** instead
+/// of clap's built-in exit 2.
+///
+/// Exit code 2 is reserved by the workspace exit-code contract (#561,
+/// #594) for the `check` / `vcs jit --fail-over` metric gates. clap's
+/// default `Error::exit` collides with that band on every usage error
+/// (unknown flag, bad subcommand, `value_parser` rejection), so CI
+/// scripts branching on `$? -eq 2` would misread a typo'd flag as a
+/// threshold failure. This helper preserves clap's rendered output —
+/// colored, with usage and suggestions — and only overrides the code.
+///
+/// `--help` / `--version` (and any other "display" outcome) are not
+/// errors: clap routes them to stdout via `use_stderr() == false`, and
+/// they must keep exiting 0. Those paths delegate to clap's own
+/// `Error::exit`.
+fn exit_clap_error(err: &clap::Error) -> ! {
+    // Tool-error exit code for argv/usage failures, kept in lockstep
+    // with `die`'s exit 1 so the contract reads "1 = tool error".
+    const USAGE_ERROR_EXIT_CODE: i32 = 1;
+    if err.use_stderr() {
+        let _ = err.print();
+        process::exit(USAGE_ERROR_EXIT_CODE);
+    }
+    // Help / version: stdout, exit 0 — clap's default is already correct.
+    err.exit();
 }
 
 /// Whether `--num-jobs` was supplied on the command line (vs. left at
