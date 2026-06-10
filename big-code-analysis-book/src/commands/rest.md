@@ -55,8 +55,14 @@ Status codes:
 
 - `400 Bad Request` — a malformed query parameter (e.g. a `unit` flag
   that is not a recognised boolean — see *Compute Metrics* below).
-- `404 Not Found` — the `file_name` extension maps to no supported
-  language, or the URL matches no endpoint.
+- `422 Unprocessable Entity` — the `file_name` extension (and content
+  sniffing) maps to no supported language. The route matched and the
+  body parsed; only the submitted entity cannot be processed. The
+  response carries the stable machine token `"error":
+  "unsupported_language"`; query `GET /v1/languages` for the supported
+  set. (Before 2.0 this was a `404`, indistinguishable from an unknown
+  URL — see issue #634.)
+- `404 Not Found` — the URL matches no endpoint.
 - `415 Unsupported Media Type` — a known `POST` endpoint received a
   `Content-Type` that is neither `application/json` nor
   `application/octet-stream` (a `charset` parameter is allowed).

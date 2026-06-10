@@ -895,7 +895,12 @@ contract points are:
   and one envelope shape across `Accept` types.
 - **Uniform errors.** Every error path returns the JSON body
   `{error, id}` with an appropriate status; no endpoint emits a bare
-  `text/plain` error. The `id` is always present.
+  `text/plain` error. The `id` is always present. A `file_name` that
+  maps to no supported language is a `422 Unprocessable Entity`
+  carrying the stable machine token `"error": "unsupported_language"`
+  (the route matched and the body parsed); only an unknown URL is a
+  `404`. The former `404` for the unsupported-language case was a
+  `2.0`-line break (#634).
 - **Introspection.** `GET /v1/version` reports the server and
   library versions; `GET /v1/languages` reports the supported
   languages and their extensions, sourced from the `LANG` table (not

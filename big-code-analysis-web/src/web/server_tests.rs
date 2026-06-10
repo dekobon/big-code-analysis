@@ -286,10 +286,14 @@ async fn test_web_comment_json_invalid() {
         })
         .to_request();
 
-    let res: Value = test::call_and_read_body_json(&app, req).await;
+    // Unknown extension is an unprocessable entity, not a missing route:
+    // the route matched and the body parsed (issue #634).
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let res: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
     let expected = json!({
         "id": "1234",
-        "error": INVALID_LANGUAGE,
+        "error": UNSUPPORTED_LANGUAGE,
     });
 
     assert_eq!(res, expected);
@@ -369,13 +373,14 @@ async fn test_web_comment_plain_invalid() {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    // Unknown extension -> 422, not 404: the route matched (issue #634).
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
     // Errors on the octet-stream endpoint now use the uniform JSON
     // `{error, id}` body (#541), not a bare `text/plain` string.
     let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
     let expected = json!({
-        "error": INVALID_LANGUAGE,
+        "error": UNSUPPORTED_LANGUAGE,
         "id": "",
     });
 
@@ -1687,8 +1692,9 @@ async fn test_web_error_body_uniform_across_endpoints() {
     )
     .await;
 
-    // 1) JSON endpoint, invalid language -> 404 JSON `{error, id}` with
-    //    the echoed id.
+    // 1) JSON endpoint, invalid language -> 422 JSON `{error, id}` with
+    //    the echoed id (issue #634: the route matched, the entity is
+    //    unprocessable, so it is not a 404).
     let json_req = test::TestRequest::post()
         .uri("/v1/metrics")
         .insert_header(ContentType::json())
@@ -1698,10 +1704,10 @@ async fn test_web_error_body_uniform_across_endpoints() {
         )
         .to_request();
     let json_resp = test::call_service(&app, json_req).await;
-    assert_eq!(json_resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(json_resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert_uniform_error_body(&test::read_body(json_resp).await, "err-json");
 
-    // 2) Octet-stream endpoint, invalid language -> 404 JSON `{error,
+    // 2) Octet-stream endpoint, invalid language -> 422 JSON `{error,
     //    id}` (formerly a bare `text/plain` "error: ..." body). The
     //    octet-stream variants carry no id, so `id` is the empty string.
     let octet_req = test::TestRequest::post()
@@ -1710,7 +1716,7 @@ async fn test_web_error_body_uniform_across_endpoints() {
         .set_payload("int x = 1;")
         .to_request();
     let octet_resp = test::call_service(&app, octet_req).await;
-    assert_eq!(octet_resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(octet_resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert_uniform_error_body(&test::read_body(octet_resp).await, "");
 
     // 3) 415: a known endpoint with an unsupported content-type.

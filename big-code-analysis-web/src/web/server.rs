@@ -33,7 +33,15 @@ use super::vcs::{
 use big_code_analysis::vcs::Error as VcsError;
 use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language};
 
-const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
+/// Machine-readable error token returned when the submitted `file_name`
+/// (and content sniffing) cannot be mapped to a supported language.
+///
+/// The route was matched and the request entity is well-formed, so the
+/// failure is *unprocessable*, not *not found*: the endpoint answers
+/// `422 Unprocessable Entity` with this `snake_case` token rather than the
+/// pre-2.0 `404` (issue #634). Clients match on the stable token; the set
+/// of supported languages is available from `GET /v1/languages`.
+const UNSUPPORTED_LANGUAGE: &str = "unsupported_language";
 
 /// Error body emitted when the `unit` query flag is not a recognised
 /// boolean (#541).
@@ -233,6 +241,20 @@ fn json_error(status: http::StatusCode, error: &'static str, id: String) -> Http
     HttpResponse::build(status).json(Error { error, id })
 }
 
+/// Builds the uniform error response for a request whose `file_name`
+/// resolves to no supported language (issue #634).
+///
+/// Every analysis endpoint shares this exact `422` + [`UNSUPPORTED_LANGUAGE`]
+/// outcome, so the status and token live in one place rather than being
+/// repeated per handler.
+fn unsupported_language(id: String) -> HttpResponse {
+    json_error(
+        http::StatusCode::UNPROCESSABLE_ENTITY,
+        UNSUPPORTED_LANGUAGE,
+        id,
+    )
+}
+
 /// Drains a streaming request body into a byte buffer, enforcing `max_size`.
 ///
 /// The `web::Payload` extractor ignores `web::PayloadConfig`, so the size
@@ -290,11 +312,7 @@ async fn ast_parser(
             ))
         }
     } else {
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            payload.id,
-        ))
+        Ok(unsupported_language(payload.id))
     }
 }
 
@@ -322,11 +340,7 @@ async fn comment_removal_json(
         .await?;
         Ok(HttpResponse::Ok().json(result))
     } else {
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            payload.id,
-        ))
+        Ok(unsupported_language(payload.id))
     }
 }
 
@@ -360,11 +374,7 @@ async fn comment_removal_plain(
     } else {
         // Even on the octet-stream endpoint, errors use the uniform JSON
         // body so clients parse one error shape everywhere (#541).
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            String::new(),
-        ))
+        Ok(unsupported_language(String::new()))
     }
 }
 
@@ -398,11 +408,7 @@ async fn metrics_json(
             )),
         }
     } else {
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            payload.id,
-        ))
+        Ok(unsupported_language(payload.id))
     }
 }
 
@@ -522,11 +528,7 @@ async fn metrics_plain(
             )),
         }
     } else {
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            String::new(),
-        ))
+        Ok(unsupported_language(String::new()))
     }
 }
 
@@ -550,11 +552,7 @@ async fn function_json(
         .await?;
         Ok(HttpResponse::Ok().json(result))
     } else {
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            payload.id,
-        ))
+        Ok(unsupported_language(payload.id))
     }
 }
 
@@ -577,11 +575,7 @@ async fn function_plain(
         .await?;
         Ok(HttpResponse::Ok().json(result))
     } else {
-        Ok(json_error(
-            http::StatusCode::NOT_FOUND,
-            INVALID_LANGUAGE,
-            String::new(),
-        ))
+        Ok(unsupported_language(String::new()))
     }
 }
 
