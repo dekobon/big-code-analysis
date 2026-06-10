@@ -260,13 +260,13 @@ const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely cha
 const AST_HEADER_TOOLTIPS: &[(&str, &str)] = &[
     (
         "SLOC",
-        "Source Lines Of Code: non-blank, non-comment source lines.",
+        "Source Lines Of Code: total physical lines, including blanks and comments.",
     ),
     ("MI", MI_TOOLTIP),
     ("Avg MI", MI_TOOLTIP),
     (
         "Tokens",
-        "Total lexical tokens (AST leaves excluding comments) in the unit.",
+        "Total lexical tokens (AST leaves excluding comments) of the function or file.",
     ),
     ("CC", CC_TOOLTIP),
     ("Avg CC", CC_TOOLTIP),
