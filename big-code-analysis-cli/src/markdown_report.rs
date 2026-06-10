@@ -801,7 +801,7 @@ fn write_language_section(
     // full slice, MI from units, the rest from functions.
     for (i, spec) in hotspot::SPECS.iter().enumerate() {
         if i == hotspot::ACTIONABLE_SUMMARY_INDEX {
-            sections::write_actionable_summary(out, &funcs);
+            sections::write_actionable_summary(out, &funcs, policy);
         }
         let base: &[&FunctionSummary] = match spec.source {
             hotspot::Source::Units => &units,
@@ -812,11 +812,17 @@ fn write_language_section(
             let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
             if !rows.is_empty() {
                 sections::emit_section_md(out, spec, top_n, &rows);
-                sections::emit_cc_note_md(out, &stats);
+                sections::emit_cc_note_md(out, &stats, policy);
             }
         } else {
             let rows = hotspot::select(spec, base, top_n, policy);
-            if !rows.is_empty() {
+            if rows.is_empty() {
+                // An empty table here is either a genuinely-absent metric or a
+                // table whose every matching row was suppressed; only the
+                // latter earns a caption so a summary bullet never dangles.
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
+            } else {
                 sections::emit_section_md(out, spec, top_n, &rows);
             }
         }
@@ -1591,6 +1597,92 @@ mod tests {
         assert!(report.contains("functions with SLOC > 100"));
         assert!(report.contains("functions with more than 3 parameters"));
         assert!(report.contains("functions with estimated Halstead bugs > 1.0"));
+    }
+
+    /// Issue #616: the three differently-filtered CC statistics must each be
+    /// captioned. With one cyclomatic-suppressed function the CC note is
+    /// captioned "excluding suppressed functions" while the Actionable Summary
+    /// — a raw roll-up that still counts the suppressed function — is captioned
+    /// "including 1 suppressed", so a reader can reconcile the differing counts.
+    #[test]
+    fn cc_statistics_are_captioned_by_population() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut visible = make_summary("visible", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        visible.cyclomatic = 12.0;
+        let mut hidden = make_summary("hidden", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        hidden.cyclomatic = 30.0;
+        hidden.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
+
+        let summaries = [unit, visible, hidden];
+        let report = generate_report(&summaries, 20, SuppressionPolicy::Honor);
+
+        // CC note: captioned, and tallies only the visible function (max 12).
+        assert!(
+            report.contains(
+                "Average CC: 12.0 | Max: 12 | CC > 10: 1 functions | CC > 20: 0 functions \
+                 (excluding suppressed functions)"
+            ),
+            "CC note must be captioned and exclude the suppressed cc=30:\n{report}"
+        );
+        // Actionable Summary: raw, names the suppressed count so the reader can
+        // reconcile it against the filtered CC note (2 functions > 10 here).
+        assert!(
+            report.contains(
+                "Raw counts across all functions, including 1 suppressed \
+                 (re-run with --no-suppress to list them)."
+            ),
+            "Actionable Summary must caption its raw population:\n{report}"
+        );
+        assert!(
+            report.contains("**2** functions with CC > 10"),
+            "raw summary still counts the suppressed function:\n{report}"
+        );
+
+        // Under --no-suppress nothing is hidden: the CC note drops its
+        // suppression caption and the summary says markers were ignored.
+        let audit = generate_report(&summaries, 20, SuppressionPolicy::Ignore);
+        assert!(
+            !audit.contains("(excluding suppressed functions)"),
+            "no suppression caption when markers are ignored:\n{audit}"
+        );
+        assert!(
+            audit.contains("Raw counts across all functions, ignoring suppression markers."),
+            "--no-suppress summary caption omits the suppressed count:\n{audit}"
+        );
+    }
+
+    /// Issue #616: when suppression hides every row of a hotspot table whose
+    /// metric the Actionable Summary still reports, emit an explicit
+    /// "table omitted" caption rather than silently dropping the table and
+    /// leaving the summary bullet dangling.
+    #[test]
+    fn fully_suppressed_hotspot_table_is_captioned() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        // The lone many-parameters function is suppressed for nargs, so its
+        // detail table is dropped — but the raw summary bullet survives.
+        let mut wide = make_summary("wide", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        wide.nargs = 7;
+        wide.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::NArgs]));
+
+        let report = generate_report(&[unit, wide], 20, SuppressionPolicy::Honor);
+        assert!(
+            !report.contains("### Functions With Many Parameters"),
+            "the all-suppressed table must not render its rows:\n{report}"
+        );
+        assert!(
+            report.contains("table omitted: all 1 matching functions suppressed"),
+            "a fully-suppressed table must leave an explanatory caption:\n{report}"
+        );
+        assert!(
+            report.contains("**1** functions with more than 3 parameters"),
+            "the raw summary bullet still references the suppressed function:\n{report}"
+        );
     }
 
     #[test]

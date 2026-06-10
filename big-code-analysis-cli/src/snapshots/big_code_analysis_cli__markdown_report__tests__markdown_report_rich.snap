@@ -36,7 +36,7 @@ Average MI: 28.0 (GOOD)
 | `main`      | src/main.py |   10 |  10 |        12 |   60 |    300 |
 | `load_data` | src/main.py |   40 |   7 |         6 |   35 |    180 |
 
-Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions
+Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions (excluding suppressed functions)
 
 ### Cognitive Complexity Hotspots
 
@@ -66,6 +66,8 @@ Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions
 | `load_data` | src/main.py |    4 |   35 |    180 |
 
 ### Actionable Summary
+
+Raw counts across all functions, ignoring suppression markers.
 
 - **1** functions with more than 3 parameters
 
@@ -107,7 +109,7 @@ Average MI: 28.5 (GOOD)
 | `handle_event`    | src/lib.rs |  100 |  12 |        14 |   70 |    400 |
 | `compute_score`   | src/lib.rs |  130 |   8 |         9 |   40 |    200 |
 
-Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions
+Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (excluding suppressed functions)
 
 ### Cognitive Complexity Hotspots
 
@@ -149,6 +151,8 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions
 | `compute_score`   | src/lib.rs |    4 |   40 |    200 |
 
 ### Actionable Summary
+
+Raw counts across all functions, including 1 suppressed (re-run with --no-suppress to list them).
 
 - **5** functions with CC > 10
 - **4** functions with cognitive complexity > 15

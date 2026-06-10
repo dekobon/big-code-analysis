@@ -129,7 +129,13 @@ alongside `SLOC` so two complementary size proxies are visible per row.
      three parameters, sorted descending.
    - *Actionable Summary* — counts of functions exceeding common
      thresholds (CC > 10, cognitive > 15, SLOC > 100, args > 3,
-     Halstead bugs > 1).
+     Halstead bugs > 1). These are **raw** counts that ignore
+     suppression; the section is captioned to say so, naming how many
+     suppressed functions are folded in. When suppression empties a
+     hotspot table whose metric this summary still counts, the table is
+     replaced by a one-line "table omitted: all N matching functions
+     suppressed" note so a summary bullet never points at a missing
+     table.
    - *Class/Trait/Impl Hotspots (WMC)* — classes sorted descending by
      Weighted Methods per Class, with NOM, NPA, and NPM.
    - *Functions with the most exit points (NEXITS)* — sorted
@@ -160,7 +166,10 @@ whole-codebase health indicator that intentionally counts raw
 measurements regardless of suppression — silencing a function in one
 metric's hotspot table does not erase it from that aggregate concern
 count. Every other figure, including each hotspot table's caption,
-reflects the suppression-filtered set.
+reflects the suppression-filtered set. To stop a reader mistaking the
+two populations for a double-count, each is captioned: the cyclomatic
+note adds "(excluding suppressed functions)", and the Actionable
+Summary names the raw, suppression-ignoring basis of its counts.
 
 ## HTML format
 

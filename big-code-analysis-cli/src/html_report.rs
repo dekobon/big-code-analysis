@@ -833,11 +833,22 @@ fn emit_html_section(
 /// The cyclomatic summary note under the CC hotspot table. A caption over the
 /// same suppression-filtered set the table shows (see [`hotspot::select_cc`]),
 /// matching the Markdown report; the raw, suppression-independent CC count
-/// lives in the Actionable Summary instead.
-fn emit_cc_note_html(out: &mut String, stats: &hotspot::CyclomaticStats) {
+/// lives in the Actionable Summary instead. When `policy` honors suppression
+/// the line is captioned `(excluding suppressed functions)` so a reader can
+/// tell the two CC figures apart (issue #616).
+fn emit_cc_note_html(
+    out: &mut String,
+    stats: &hotspot::CyclomaticStats,
+    policy: SuppressionPolicy,
+) {
+    let caption = if matches!(policy, SuppressionPolicy::Honor) {
+        format!(" ({})", escape_html(hotspot::CC_NOTE_SUPPRESSED_CAPTION))
+    } else {
+        String::new()
+    };
     let _ = writeln!(
         out,
-        "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions</p>",
+        "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions{caption}</p>",
         stats.avg(),
         stats.max,
         stats.gt10,
@@ -882,9 +893,19 @@ impl ActionableCounts {
     }
 }
 
-fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSummary]) {
+fn write_actionable_summary(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    policy: SuppressionPolicy,
+) {
     let counts = ActionableCounts::from_funcs(funcs);
     let _ = out.write_str("<h3>Actionable Summary</h3>\n");
+    let suppressed = hotspot::suppressed_func_count(funcs, policy);
+    let _ = writeln!(
+        out,
+        "<p class=\"note\">{}</p>",
+        escape_html(&hotspot::actionable_summary_caption(suppressed))
+    );
     if counts.all_clear() {
         let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
         return;
@@ -928,6 +949,22 @@ fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSummary]) {
     let _ = out.write_str("</ul>\n");
 }
 
+/// Emit the "table omitted: all N matching functions suppressed" caption in
+/// place of a hotspot table that was rendered empty *solely because*
+/// suppression hid every matching row (`count > 0`). Mirrors the Markdown
+/// renderer's `emit_fully_suppressed_note_md` so a summary bullet never points
+/// at a table absent from the document (issue #616). A no-op when `count == 0`.
+fn emit_fully_suppressed_note_html(out: &mut String, title: &str, count: usize) {
+    if count == 0 {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "<p class=\"note\">{}</p>",
+        escape_html(&hotspot::fully_suppressed_caption(title, count))
+    );
+}
+
 fn write_language_section(
     out: &mut String,
     lang_name: &str,
@@ -946,7 +983,7 @@ fn write_language_section(
     // functions.
     for (i, spec) in SPECS.iter().enumerate() {
         if i == ACTIONABLE_SUMMARY_INDEX {
-            write_actionable_summary(out, &funcs);
+            write_actionable_summary(out, &funcs, policy);
         }
         let base: &[&FunctionSummary] = match spec.source {
             Source::Units => &units,
@@ -957,11 +994,17 @@ fn write_language_section(
             let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
             if !rows.is_empty() {
                 emit_html_section(out, spec, top_n, &rows);
-                emit_cc_note_html(out, &stats);
+                emit_cc_note_html(out, &stats, policy);
             }
         } else {
             let rows = hotspot::select(spec, base, top_n, policy);
-            if !rows.is_empty() {
+            if rows.is_empty() {
+                // An empty table here is either a genuinely-absent metric or a
+                // table whose every matching row was suppressed; only the
+                // latter earns a caption so a summary bullet never dangles.
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                emit_fully_suppressed_note_html(out, &spec.title.render(top_n), suppressed);
+            } else {
                 emit_html_section(out, spec, top_n, &rows);
             }
         }
@@ -1570,6 +1613,51 @@ mod tests {
         assert!(
             !cc.contains("Max: 25"),
             "note max must reflect only visible functions, not the suppressed 25:\n{cc}"
+        );
+    }
+
+    /// Issue #616 (HTML twin of the Markdown test): the CC note carries the
+    /// "excluding suppressed functions" caption, the Actionable Summary names
+    /// the suppressed count, and a hotspot table emptied solely by suppression
+    /// emits a "table omitted" caption instead of vanishing.
+    #[test]
+    fn cc_statistics_are_captioned_by_population() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut visible = make_summary("visible", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        visible.cyclomatic = 12.0;
+        // Suppressed for both cyclomatic (drops it from the CC note) and nargs
+        // (empties the lone many-parameters table).
+        let mut hidden = make_summary("hidden", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        hidden.cyclomatic = 30.0;
+        hidden.nargs = 7;
+        hidden.suppressed =
+            SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic, Metric::NArgs]));
+
+        let report = generate_html_report(&[unit, visible, hidden], 20, SuppressionPolicy::Honor);
+
+        assert!(
+            report.contains(
+                "CC &gt; 10: 1 functions | CC &gt; 20: 0 functions (excluding suppressed functions)"
+            ),
+            "HTML CC note must be captioned and exclude the suppressed cc=30:\n{report}"
+        );
+        assert!(
+            report.contains(
+                "Raw counts across all functions, including 1 suppressed \
+                 (re-run with --no-suppress to list them)."
+            ),
+            "HTML Actionable Summary must caption its raw population:\n{report}"
+        );
+        assert!(
+            report.contains("table omitted: all 1 matching functions suppressed"),
+            "a fully-suppressed HTML table must leave an explanatory caption:\n{report}"
+        );
+        assert!(
+            !report.contains("<h3>Functions With Many Parameters"),
+            "the all-suppressed many-parameters table must not render:\n{report}"
         );
     }
 

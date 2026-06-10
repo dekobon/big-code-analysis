@@ -13,7 +13,7 @@
 
 use std::fmt::Write as _;
 
-use big_code_analysis::SpaceKind;
+use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
 use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
 use super::{Align, FunctionSummary, escape_cell, escape_name, mi_rating, thousands, write_table};
@@ -93,13 +93,24 @@ pub(crate) fn render_cell_md(cell: Cell) -> String {
 
 /// The cyclomatic summary note under the CC hotspot table: a blank line then
 /// the caption over the same suppression-filtered set the table shows (see
-/// [`super::hotspot::select_cc`]). The raw, suppression-independent CC count
-/// lives in the Actionable Summary instead.
-pub(super) fn emit_cc_note_md(out: &mut String, stats: &CyclomaticStats) {
+/// [`super::hotspot::select_cc`]). When `policy` honors suppression the line
+/// is captioned `(excluding suppressed functions)` so a reader can tell it
+/// apart from the raw, suppression-independent CC count in the Actionable
+/// Summary (issue #616).
+pub(super) fn emit_cc_note_md(
+    out: &mut String,
+    stats: &CyclomaticStats,
+    policy: SuppressionPolicy,
+) {
     let _ = writeln!(out);
+    let caption = if matches!(policy, SuppressionPolicy::Honor) {
+        format!(" ({})", super::hotspot::CC_NOTE_SUPPRESSED_CAPTION)
+    } else {
+        String::new()
+    };
     let _ = writeln!(
         out,
-        "Average CC: {:.1} | Max: {:.0} | CC > 10: {} functions | CC > 20: {} functions",
+        "Average CC: {:.1} | Max: {:.0} | CC > 10: {} functions | CC > 20: {} functions{caption}",
         stats.avg(),
         stats.max,
         stats.gt10,
@@ -113,9 +124,15 @@ pub(super) fn emit_cc_note_md(out: &mut String, stats: &CyclomaticStats) {
 /// counts raw measurements regardless of suppression policy: it is a
 /// whole-codebase health indicator, not a gate, so a `bca: suppress`
 /// marker that silences a function in one metric's hotspot table does
-/// not erase it from the aggregate concern count (#501). It therefore
-/// takes no [`SuppressionPolicy`].
-pub(super) fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSummary]) {
+/// not erase it from the aggregate concern count (#501). The bullets are
+/// therefore policy-independent; `policy` only selects the suppressed-function
+/// figure named in the caption (issue #616), never which functions are
+/// counted in the bullets.
+pub(super) fn write_actionable_summary(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    policy: SuppressionPolicy,
+) {
     let (cc_gt10, cog_gt15, sloc_gt100, nargs_gt3, bugs_gt1) = funcs.iter().fold(
         (0usize, 0usize, 0usize, 0usize, 0usize),
         |(a, b, c, d, e), s| {
@@ -130,6 +147,12 @@ pub(super) fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSumma
     );
 
     let _ = writeln!(out, "\n### Actionable Summary\n");
+    let suppressed = super::hotspot::suppressed_func_count(funcs, policy);
+    let _ = writeln!(
+        out,
+        "{}\n",
+        super::hotspot::actionable_summary_caption(suppressed)
+    );
     if cc_gt10 == 0 && cog_gt15 == 0 && sloc_gt100 == 0 && nargs_gt3 == 0 && bugs_gt1 == 0 {
         let _ = writeln!(out, "No major quality concerns detected.");
         return;
@@ -158,6 +181,23 @@ pub(super) fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSumma
             "- **{bugs_gt1}** functions with estimated Halstead bugs > 1.0"
         );
     }
+}
+
+/// Emit the "table omitted: all N matching functions suppressed" caption in
+/// place of a hotspot table that was rendered empty *solely because*
+/// suppression hid every matching row (`count > 0`). Keeps an
+/// Actionable-Summary bullet from pointing at a table absent from the
+/// document (issue #616). A no-op when `count == 0` (the metric was genuinely
+/// absent, so silence is correct).
+pub(super) fn emit_fully_suppressed_note_md(out: &mut String, title: &str, count: usize) {
+    if count == 0 {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "\n_{}_",
+        super::hotspot::fully_suppressed_caption(title, count)
+    );
 }
 
 /// Partition `entries` by `SpaceKind` into (units, functions). The

@@ -383,6 +383,38 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
     },
 ];
 
+/// Caption appended to the cyclomatic summary note, naming the population it
+/// covers: the same suppression-filtered set the CC hotspot table shows. The
+/// raw, suppression-independent CC count lives in the Actionable Summary, so
+/// without this caption a reader sees two different "CC > 10" figures with no
+/// explanation (issue #616). Shared verbatim by both renderers.
+pub(crate) const CC_NOTE_SUPPRESSED_CAPTION: &str = "excluding suppressed functions";
+
+/// Logical (unescaped) lead-in for the Actionable Summary, captioning it as a
+/// raw whole-codebase roll-up that — unlike the hotspot tables — counts
+/// functions regardless of suppression policy (issue #501, #616). `suppressed`
+/// is the number of functions carrying a marker (see
+/// [`suppressed_func_count`]); when it is `0` the parenthetical is dropped.
+/// Both renderers feed the result through their own escaper.
+pub(crate) fn actionable_summary_caption(suppressed: usize) -> Cow<'static, str> {
+    if suppressed == 0 {
+        Cow::Borrowed("Raw counts across all functions, ignoring suppression markers.")
+    } else {
+        Cow::Owned(format!(
+            "Raw counts across all functions, including {suppressed} suppressed \
+             (re-run with --no-suppress to list them)."
+        ))
+    }
+}
+
+/// Logical (unescaped) caption emitted in place of a hotspot table that was
+/// dropped *because suppression hid every matching row* (see
+/// [`fully_suppressed_count`]). Keeps an Actionable-Summary bullet from
+/// dangling when its detail table is silently absent (issue #616).
+pub(crate) fn fully_suppressed_caption(metric_label: &str, count: usize) -> String {
+    format!("{metric_label} table omitted: all {count} matching functions suppressed.")
+}
+
 /// Index into [`SPECS`] before which the Actionable Summary is emitted
 /// (i.e. after Many-Parameters, before WMC), so both renderers interleave
 /// it identically.
@@ -519,6 +551,54 @@ pub(crate) fn select<'a>(
             v
         }
     }
+}
+
+/// Whether a section's table was rendered empty *because suppression hid
+/// every matching row*, as opposed to no row matching the section's own
+/// `keep` predicate. Distinguishes "table omitted: all N functions
+/// suppressed" (a caption the renderers emit so a summary bullet never
+/// dangles) from "metric genuinely absent" (stay silent).
+///
+/// Returns the count of rows that match `spec.keep` but are hidden by the
+/// metric's suppression under `policy`; `0` when nothing matched `keep` at
+/// all, or when no matching row is suppressed. Under
+/// [`SuppressionPolicy::Ignore`] (`--no-suppress`) nothing is hidden, so this
+/// is always `0`.
+pub(crate) fn fully_suppressed_count(
+    spec: &HotspotSpec,
+    base: &[&FunctionSummary],
+    policy: SuppressionPolicy,
+) -> usize {
+    let mut matched = 0usize;
+    let mut hidden = 0usize;
+    for s in base.iter().filter(|s| (spec.keep)(s)) {
+        matched += 1;
+        if s.is_hidden_for(spec.metric_kind, policy) {
+            hidden += 1;
+        }
+    }
+    // Only a *fully* suppressed table earns the caption: every keep-matching
+    // row was hidden, and at least one row matched in the first place.
+    if matched > 0 && hidden == matched {
+        hidden
+    } else {
+        0
+    }
+}
+
+/// Number of distinct functions in `funcs` carrying *any* suppression marker
+/// under `policy` — the "N suppressed" figure the raw Actionable Summary
+/// cites so a reader can reconcile its counts against the suppression-filtered
+/// hotspot tables. `0` under [`SuppressionPolicy::Ignore`], since
+/// `--no-suppress` honors no markers.
+pub(crate) fn suppressed_func_count(
+    funcs: &[&FunctionSummary],
+    policy: SuppressionPolicy,
+) -> usize {
+    if matches!(policy, SuppressionPolicy::Ignore) {
+        return 0;
+    }
+    funcs.iter().filter(|s| !s.suppressed.is_empty()).count()
 }
 
 /// Like [`select`] but also returns the cyclomatic stats over the FULL

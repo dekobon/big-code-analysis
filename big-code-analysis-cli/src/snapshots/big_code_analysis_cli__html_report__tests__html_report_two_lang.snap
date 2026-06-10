@@ -1,6 +1,5 @@
 ---
 source: big-code-analysis-cli/src/html_report.rs
-assertion_line: 1587
 expression: out
 ---
 <!doctype html>
@@ -44,7 +43,7 @@ expression: out
 <tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 </tbody>
 </table>
-<p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions</p>
+<p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions (excluding suppressed functions)</p>
 <h3>Cognitive Complexity Hotspots</h3>
 <table class="hotspot">
 <thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
@@ -67,6 +66,7 @@ expression: out
 </tbody>
 </table>
 <h3>Actionable Summary</h3>
+<p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <p class="note">No major quality concerns detected.</p>
 <h3>Functions with the most exit points (NEXITS)</h3>
 <table class="hotspot">
@@ -102,7 +102,7 @@ expression: out
 <tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 </tbody>
 </table>
-<p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions</p>
+<p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions (excluding suppressed functions)</p>
 <h3>Cognitive Complexity Hotspots</h3>
 <table class="hotspot">
 <thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
@@ -128,6 +128,7 @@ expression: out
 </tbody>
 </table>
 <h3>Actionable Summary</h3>
+<p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <p class="note">No major quality concerns detected.</p>
 <h3>Functions with the most exit points (NEXITS)</h3>
 <table class="hotspot">
