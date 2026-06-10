@@ -132,6 +132,63 @@ fn markdown_uses_tables_and_marker_syntax() {
 }
 
 #[test]
+fn markdown_escapes_pipe_in_path_symbol_and_function_cells() {
+    // A path (legal on Unix), function name, or symbol containing `|`
+    // must be escaped as `\|` so it cannot inject a spurious GFM column
+    // break and corrupt the rendered table. Mirrors the shared escaping
+    // policy the crate's other two GFM emitters follow (#439).
+    let report = ExemptionsReport {
+        markers: Some(vec![MarkerRow {
+            path: "src/a|b.rs".to_owned(),
+            marker: marker(
+                10,
+                SuppressionTarget::Function,
+                SuppressionDialect::Native,
+                SuppressionScope::All,
+                Some("weird|fn"),
+            ),
+        }]),
+        excludes: None,
+        baseline: Some(BaselineSection {
+            path: ".bca-baseline.toml".to_owned(),
+            entries: vec![BaselineRow {
+                path: "src/c|d.rs".to_owned(),
+                qualified: "Mod::sym|bol".to_owned(),
+                metric: "cognitive".to_owned(),
+                value: 12.0,
+                start_line: 7,
+            }],
+        }),
+    };
+    let out = report
+        .render(OutputFormat::Markdown, "")
+        .expect("markdown render");
+    // Pipes inside cells are escaped, not emitted raw.
+    assert!(
+        out.contains(r"src/a\|b.rs"),
+        "path pipe not escaped, got:\n{out}"
+    );
+    assert!(
+        out.contains(r"weird\|fn"),
+        "function pipe not escaped, got:\n{out}"
+    );
+    assert!(
+        out.contains(r"Mod::sym\|bol"),
+        "symbol pipe not escaped, got:\n{out}"
+    );
+    assert!(
+        out.contains(r"src/c\|d.rs"),
+        "baseline path pipe not escaped, got:\n{out}"
+    );
+    // The raw, unescaped `src/a|b.rs` must not survive (it would split
+    // the File column). This is the assertion that fails pre-fix.
+    assert!(
+        !out.contains("src/a|b.rs"),
+        "raw unescaped path present, got:\n{out}"
+    );
+}
+
+#[test]
 fn json_nests_three_sections_under_suppressions_envelope() {
     let out = sample_report()
         .render(OutputFormat::Json, "")
