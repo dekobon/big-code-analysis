@@ -28,8 +28,10 @@ fn file(path: &str, contributions: &[(&str, u32, bool)]) -> FileAuthorship {
 }
 
 #[test]
-fn schema_version_is_one() {
-    assert_eq!(BUS_FACTOR_SCHEMA_VERSION, 1);
+fn schema_version_is_pinned() {
+    // Schema 2: renamed the version-stamp key `schema_version` →
+    // `bus_factor_schema_version` (#591).
+    assert_eq!(BUS_FACTOR_SCHEMA_VERSION, 2);
 }
 
 #[test]

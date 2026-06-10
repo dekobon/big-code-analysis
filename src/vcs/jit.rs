@@ -69,7 +69,7 @@
 //! diff carries no author, parent, or file history, so only the size and
 //! diffusion groups are computable. That path produces a distinct
 //! [`JitDiffReport`] whose unavailable groups are **absent from the type**
-//! (not present as zero), and whose [`partial_score`](JitDiffReport::partial_score)
+//! (not present as zero), and whose [`partial_risk_score`](JitDiffReport::partial_risk_score)
 //! is **not comparable** to a commit score — see [`JitDiffReport`].
 //! ML-based JIT and server-side hook integration remain out of scope per
 //! issues #331 / #580.
@@ -90,7 +90,11 @@ pub const JIT_SCORE_VERSION: u32 = 1;
 /// `2`: added the `source` discriminator to [`JitReport`] (issue #642), so
 /// commit-mode reports now self-identify like [`JitDiffReport`] already
 /// did.
-pub const JIT_SCHEMA_VERSION: u32 = 2;
+///
+/// `3`: renamed the per-commit score key `score` → `risk_score` and the
+/// per-diff `partial_score` → `partial_risk_score` (issue #591), aligning
+/// the JIT vocabulary with the per-file `risk_score`.
+pub const JIT_SCHEMA_VERSION: u32 = 3;
 
 /// Security fixes weigh twice a plain bug fix in the history term, matching
 /// the file-level formula's double weight on security-fix history.
@@ -239,12 +243,12 @@ pub struct JitReport {
     pub recent_window_days: u32,
     /// Ordinal composite risk score (≥ 0). Rank commits by it; do not
     /// read it as an absolute probability.
-    pub score: f64,
+    pub risk_score: f64,
     /// The scored commit.
     pub commit: JitCommit,
     /// The numeric feature vector.
     pub features: JitFeatures,
-    /// Per-group contributions to [`score`](JitReport::score).
+    /// Per-group contributions to [`risk_score`](JitReport::risk_score).
     pub contributions: JitContributions,
 }
 
@@ -314,9 +318,9 @@ pub fn score(features: &JitFeatures, purpose: JitPurpose) -> (f64, JitContributi
 ///
 /// # Not comparable to a commit score
 ///
-/// [`partial_score`](JitDiffReport::partial_score) sums only the size and
-/// diffusion contributions, so it is **always lower** than the full
-/// [`JitReport::score`] for the same change would be (which also folds in
+/// [`partial_risk_score`](JitDiffReport::partial_risk_score) sums only the
+/// size and diffusion contributions, so it is **always lower** than the full
+/// [`JitReport::risk_score`] for the same change would be (which also folds in
 /// history, experience, and purpose). The two scores live on different
 /// scales: rank diffs against other *diffs*, never against commit scores.
 /// The `source` field is a permanent `"diff"` marker so a serialized
@@ -335,8 +339,8 @@ pub struct JitDiffReport {
     /// diff-only report from a commit report at a glance in JSON / YAML.
     pub source: JitSource,
     /// The partial (size + diffusion only) ordinal score. **Not comparable**
-    /// to [`JitReport::score`] — see the type docs.
-    pub partial_score: f64,
+    /// to [`JitReport::risk_score`] — see the type docs.
+    pub partial_risk_score: f64,
     /// Size of the change. Computable from a bare diff.
     pub size: JitSize,
     /// Spread of the change. Computable from a bare diff.

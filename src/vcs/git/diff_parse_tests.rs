@@ -460,22 +460,22 @@ diff --git a/docs/b.md b/docs/b.md
     // unavailable groups contribute nothing because they are absent).
     let expected = report.contributions.size + report.contributions.diffusion;
     assert!(
-        (report.partial_score - expected).abs() < 1e-12,
+        (report.partial_risk_score - expected).abs() < 1e-12,
         "partial score {} != size+diffusion {expected}",
-        report.partial_score
+        report.partial_risk_score
     );
-    assert!(report.partial_score > 0.0);
+    assert!(report.partial_risk_score > 0.0);
 
     // The serialized JSON must NOT carry history / experience / purpose
     // keys at all — proving "unavailable" is distinct from "zero".
     let json = serde_json::to_value(&report).expect("serialize");
     let obj = json.as_object().expect("object");
     assert_eq!(obj["source"], "diff");
-    for absent in ["history", "experience", "purpose", "commit", "score"] {
+    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
         assert!(
             !obj.contains_key(absent),
             "diff report must not carry `{absent}` (would be misread as a real value)"
         );
     }
-    assert!(obj.contains_key("partial_score"));
+    assert!(obj.contains_key("partial_risk_score"));
 }

@@ -321,10 +321,10 @@ Target?*](https://doi.org/10.1109/TSE.2017.2693980) (IEEE TSE 2018).
 ```console
 $ bca vcs jit HEAD --pretty
 {
-  "jit_schema_version": 2,
+  "jit_schema_version": 3,
   "jit_score_version": 1,
   "source": "commit",
-  "score": 4.40,
+  "risk_score": 4.40,
   "commit": { "id": "5176d3e…", "parent_count": 1, "is_merge": false,
               "purpose": { "is_fix": true, "is_security_fix": false,
                            "is_revert": false } },
@@ -356,8 +356,8 @@ The five feature groups, and how each moves the score:
 | **Purpose** | fix / security-fix / revert classification of the message | fixes add, reverts dampen |
 
 The `contributions` block reports each group's signed contribution to the
-ordinal `score`, so a consumer can see *why* a commit ranked where it did.
-Like the file-level `risk_score`, the score is **ordinal**: rank commits
+ordinal `risk_score`, so a consumer can see *why* a commit ranked where it
+did. Like the file-level `risk_score`, the score is **ordinal**: rank commits
 by it, or compare a commit against the repository's own distribution, but
 do not read the magnitude as a probability. Any formula change bumps
 `jit_score_version` (separate from the file-level `risk_score_version`).
@@ -408,10 +408,10 @@ a deliberately *partial* report — a distinct shape from a commit report:
 ```console
 $ git diff | bca vcs jit --diff - --pretty
 {
-  "jit_schema_version": 2,
+  "jit_schema_version": 3,
   "jit_score_version": 1,
   "source": "diff",
-  "partial_score": 1.83,
+  "partial_risk_score": 1.83,
   "size":      { "lines_added": 42, "lines_deleted": 8,
                  "files_touched": 3, "hunks": 6 },
   "diffusion": { "subsystems": 2, "directories": 3, "entropy": 1.46 },
@@ -424,8 +424,8 @@ experience / purpose groups are **absent from the report entirely** —
 *not* present as zero. Zero is a real value (a commit genuinely with no
 prior history scores those groups at zero); an absent group means
 "unavailable", so a consumer can never mistake an unscored group for
-"low risk". For the same reason the score field is named `partial_score`,
-not `score`.
+"low risk". For the same reason the score field is named
+`partial_risk_score`, not `risk_score`.
 
 > **A diff-only score is not comparable to a commit score.** The partial
 > score sums only size + diffusion, so it is always lower than the full
@@ -523,7 +523,7 @@ vcs` emits it as a top-level `vcs_aggregate` object alongside the ranked
 {
   "vcs_aggregate": {
     "bus_factor": {
-      "schema_version": 1,
+      "bus_factor_schema_version": 2,
       "coverage_threshold": 0.5,
       "doa_threshold": 0.75,
       "repo": { "bus_factor": 3, "files": 412, "authors": 11 },

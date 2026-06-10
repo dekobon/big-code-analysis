@@ -246,7 +246,7 @@ pub fn parse_timestamp(input: &str) -> Result<i64, Error> {
 /// first parent; the touched files' priors and the author's experience
 /// are measured from the history *before* it, windowed by `options`.
 /// Returns a [`JitReport`] with the feature breakdown, per-group
-/// contributions, and the ordinal composite [`JitReport::score`].
+/// contributions, and the ordinal composite [`JitReport::risk_score`].
 ///
 /// # Errors
 ///
@@ -267,7 +267,7 @@ pub fn score_commit(root: &Path, spec: &str, options: &Options) -> Result<jit::J
 /// computable. The result is a partial [`jit::JitDiffReport`] whose
 /// history / experience / purpose groups are **absent from the type**
 /// (not present as zero), and whose
-/// [`partial_score`](jit::JitDiffReport::partial_score) is **not
+/// [`partial_risk_score`](jit::JitDiffReport::partial_risk_score) is **not
 /// comparable** to a commit score — rank diffs against other diffs only.
 /// See [`jit::JitDiffReport`] for the full contract.
 ///

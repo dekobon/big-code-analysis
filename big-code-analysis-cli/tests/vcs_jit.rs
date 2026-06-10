@@ -67,10 +67,10 @@ fn jit_emits_stable_json_shape() {
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("jit output is valid JSON");
-    assert_eq!(json["jit_schema_version"], 2);
+    assert_eq!(json["jit_schema_version"], 3);
     assert_eq!(json["jit_score_version"], 1);
     assert_eq!(json["source"], "commit", "commit-mode discriminator (#642)");
-    assert!(json["score"].is_number());
+    assert!(json["risk_score"].is_number());
     // Feature groups and contributions are present and structured.
     for group in ["size", "diffusion", "history", "experience"] {
         assert!(
@@ -146,13 +146,13 @@ fn diff_mode_emits_partial_report_with_unavailable_groups() {
         json["source"], "diff",
         "report self-identifies as diff mode"
     );
-    assert!(json["partial_score"].is_number());
+    assert!(json["partial_risk_score"].is_number());
     assert_eq!(json["size"]["files_touched"], 2);
     assert_eq!(json["size"]["lines_added"], 3);
     assert_eq!(json["diffusion"]["subsystems"], 2, "src + docs");
     // The unavailable groups must be absent — distinct from a real zero.
     let obj = json.as_object().expect("object");
-    for absent in ["history", "experience", "purpose", "commit", "score"] {
+    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
         assert!(
             !obj.contains_key(absent),
             "diff report must omit `{absent}` so it is not misread as low risk"

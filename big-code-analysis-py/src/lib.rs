@@ -666,13 +666,13 @@ fn vcs_trend<'py>(
 /// `repo_path` is any path inside the working tree; `commit` is any git
 /// revision spelling (default `HEAD`), scored against its first parent.
 /// Returns a dict with the size / diffusion / history / experience features,
-/// their per-group contributions, the ordinal composite `score`, and the
+/// their per-group contributions, the ordinal composite `risk_score`, and the
 /// `commit` block; the programmatic analogue of `bca vcs jit`.
 ///
 /// Pass `diff` (a unified diff string) to score a bare diff instead. A
 /// bare diff has no author / parent / history, so only the size and
 /// diffusion groups are computable: the returned dict has `source ==
-/// "diff"`, a `partial_score` that is **not comparable** to a commit score,
+/// "diff"`, a `partial_risk_score` that is **not comparable** to a commit score,
 /// and no history / experience / purpose groups (they are absent, not
 /// zero). In diff mode `repo_path` / `commit` / the window knobs are
 /// ignored. Raises `ValueError` for a malformed option, an unresolvable

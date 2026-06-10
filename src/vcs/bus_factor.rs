@@ -84,7 +84,7 @@ use super::identity::AuthorId;
 
 /// Output-shape / algorithm version for the bus-factor aggregate. Bump on
 /// any change to the formula, thresholds, grouping, or serialized fields.
-pub const BUS_FACTOR_SCHEMA_VERSION: u32 = 1;
+pub const BUS_FACTOR_SCHEMA_VERSION: u32 = 2;
 
 /// Avelino DoA regression intercept.
 const DOA_INTERCEPT: f64 = 3.293;
@@ -165,7 +165,7 @@ pub struct DirectoryBusFactor {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct BusFactor {
     /// Schema / algorithm version ([`BUS_FACTOR_SCHEMA_VERSION`]).
-    pub schema_version: u32,
+    pub bus_factor_schema_version: u32,
     /// Coverage (abandonment) threshold actually applied, in `(0, 1)`.
     pub coverage_threshold: f64,
     /// Normalised-DoA authorship threshold ([`DOA_NORMALIZED_THRESHOLD`]).
@@ -229,7 +229,7 @@ pub fn compute(
     by_directory.sort_by(|a, b| a.directory.cmp(&b.directory));
 
     BusFactor {
-        schema_version: BUS_FACTOR_SCHEMA_VERSION,
+        bus_factor_schema_version: BUS_FACTOR_SCHEMA_VERSION,
         coverage_threshold: coverage,
         doa_threshold: DOA_NORMALIZED_THRESHOLD,
         repo,

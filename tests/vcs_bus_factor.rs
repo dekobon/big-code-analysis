@@ -61,8 +61,35 @@ fn single_author_repository_has_bus_factor_one() {
     assert_eq!(bf.repo.bus_factor, 1, "one owner abandons the whole repo");
     assert_eq!(bf.repo.files, 3);
     assert_eq!(bf.repo.authors, 1);
-    assert_eq!(bf.schema_version, vcs::BUS_FACTOR_SCHEMA_VERSION);
+    assert_eq!(bf.bus_factor_schema_version, vcs::BUS_FACTOR_SCHEMA_VERSION);
     assert!((bf.coverage_threshold - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn bus_factor_payload_has_exactly_one_prefixed_schema_version() {
+    // Issue #591: every versioned VCS payload must expose exactly one
+    // `<domain>_schema_version` stamp so a "find every *_schema_version"
+    // rule detects format drift uniformly. The bus-factor outlier
+    // (bare `schema_version`) was renamed to `bus_factor_schema_version`.
+    let repo = Repo::init();
+    repo.write("a.rs", "fn a() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "init");
+    let index = build_history_index(repo.path(), &opts()).expect("walk");
+    let bf = index.bus_factor().expect("aggregate computed");
+
+    let json = serde_json::to_value(bf).expect("serialize bus factor");
+    let stamps: Vec<&str> = json
+        .as_object()
+        .expect("object")
+        .keys()
+        .filter(|k| k.ends_with("schema_version"))
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        stamps,
+        ["bus_factor_schema_version"],
+        "exactly one domain-prefixed schema-version stamp"
+    );
 }
 
 #[test]

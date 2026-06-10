@@ -234,8 +234,8 @@ impl JitParams {
 /// string for [`crate::conversion::json_string_to_py`].
 ///
 /// In diff mode only the size and diffusion groups are computable, so the
-/// returned report's `source` is `"diff"` and its `partial_score` is **not
-/// comparable** to a commit score. `repo_path` / `commit` / the window
+/// returned report's `source` is `"diff"` and its `partial_risk_score` is
+/// **not comparable** to a commit score. `repo_path` / `commit` / the window
 /// knobs are ignored in diff mode.
 ///
 /// # Errors

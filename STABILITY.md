@@ -241,12 +241,15 @@ JitDiffusion, JitHistory, JitExperience, JitPurpose}` plus the
 jit <commit>` subcommand with its `--fail-over` CI-gate exit code (`2`,
 the `check` metric-gate convention). The `JitReport` JSON *shape* is
 stable within `1.x` and versioned by `jit_schema_version`; the composite
-`score` is **ordinal, not cardinal** and formula-versioned by
-`jit_score_version` (separate from the file-level `risk_score_version`),
-so the same "magnitudes are not byte-stable across bumps" caveat applies.
-Both shapes carry a `source` discriminator (`"commit"` / `"diff"`, the
-`JitSource` enum) so a serialized report self-identifies; commit-mode
-reports gained the field in `jit_schema_version` 2 (#642). The JIT
+`risk_score` (per-diff `partial_risk_score`) is **ordinal, not cardinal**
+and formula-versioned by `jit_score_version` (separate from the file-level
+`risk_score_version`), so the same "magnitudes are not byte-stable across
+bumps" caveat applies. Both shapes carry a `source` discriminator
+(`"commit"` / `"diff"`, the `JitSource` enum) so a serialized report
+self-identifies; commit-mode reports gained the field in
+`jit_schema_version` 2 (#642), and `jit_schema_version` 3 renamed the
+score keys `score` → `risk_score` / `partial_score` → `partial_risk_score`
+for cross-surface consistency (#591, 2.0). The JIT
 serialized types intentionally derive `Serialize` directly (they are
 pure output DTOs) rather than mirroring through a `wire::*` type the way
 the per-file `Stats` does.
@@ -264,6 +267,9 @@ front end opting in (`compute_bus_factor`), so it is purely additive — no
 existing field moved and `vcs_schema_version` is unchanged. Like the JIT
 report, the bus-factor types derive `Serialize` directly; their shape is
 stable within `1.x` and versioned by `BUS_FACTOR_SCHEMA_VERSION`. The
+public field and serialized key were renamed `schema_version` →
+`bus_factor_schema_version` (`BUS_FACTOR_SCHEMA_VERSION` bumped 1 → 2) for
+cross-surface consistency (#591, 2.0). The
 `bus_factor` count is a small integer with a direct reading (key
 departures that abandon a subsystem), but it inherits the Avelino
 heuristic's caveats (a single-author or very young repository skews it

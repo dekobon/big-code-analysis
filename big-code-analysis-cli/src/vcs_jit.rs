@@ -68,11 +68,11 @@ fn run_commit(root: &Path, args: &VcsArgs, jit: &JitArgs) {
     // "metric gate" convention; exit 1 stays reserved for tool errors).
     // Done after emitting so the breakdown is still available to the gate.
     if let Some(threshold) = jit.fail_over
-        && report.score >= threshold
+        && report.risk_score >= threshold
     {
         eprintln!(
             "vcs jit: score {:.4} >= fail-over threshold {threshold:.4} for {}",
-            report.score, report.commit.id
+            report.risk_score, report.commit.id
         );
         process::exit(2);
     }
@@ -90,11 +90,11 @@ fn run_diff(source: &Path, jit: &JitArgs) {
     emit(&report, jit).unwrap_or_else(|e| die(format_args!("writing jit output: {e}")));
 
     if let Some(threshold) = jit.fail_over
-        && report.partial_score >= threshold
+        && report.partial_risk_score >= threshold
     {
         eprintln!(
             "vcs jit: partial diff score {:.4} >= fail-over threshold {threshold:.4}",
-            report.partial_score
+            report.partial_risk_score
         );
         process::exit(2);
     }

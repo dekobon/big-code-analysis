@@ -457,15 +457,15 @@ def vcs_jit(
     git revision spelling (default ``"HEAD"``), scored against its first
     parent. Returns a ``dict`` with ``jit_schema_version``,
     ``jit_score_version``, ``source == "commit"`` (the mode discriminator),
-    the window lengths, the ordinal composite ``score``, the ``commit``
+    the window lengths, the ordinal composite ``risk_score``, the ``commit``
     block, the ``features`` (size / diffusion / history / experience), and
     the per-group ``contributions``.
 
     Pass ``diff`` (a unified diff string) to score a bare diff instead of a
     commit. A bare diff carries no author / parent / history, so only the
     size and diffusion groups are computable: the returned dict then has
-    ``source == "diff"``, a ``partial_score`` that is **not comparable** to
-    a commit ``score``, and **no** history / experience / purpose groups
+    ``source == "diff"``, a ``partial_risk_score`` that is **not comparable**
+    to a commit ``risk_score``, and **no** history / experience / purpose groups
     (they are absent, not zero, so an unavailable group can never be
     misread as "low risk"). In diff mode ``repo_path`` / ``commit`` and the
     window knobs are ignored.

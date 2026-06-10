@@ -44,7 +44,7 @@ fn root_commit_has_no_parent_and_all_new_files() {
     assert_eq!(report.features.history.prior_changes, 0);
     assert_eq!(report.features.experience.author_prior_commits, 0);
     // Size alone drives the score; it is positive and finite.
-    assert!(report.score > 0.0 && report.score.is_finite());
+    assert!(report.risk_score > 0.0 && report.risk_score.is_finite());
     assert!(report.contributions.size > 0.0);
     assert_eq!(report.contributions.experience, 0.0);
 }
@@ -293,7 +293,7 @@ fn commit_mode_serialized_shape_carries_source_discriminator() {
         "source",
         "long_window_days",
         "recent_window_days",
-        "score",
+        "risk_score",
         "commit",
         "features",
         "contributions",
@@ -302,7 +302,14 @@ fn commit_mode_serialized_shape_carries_source_discriminator() {
     .collect();
     assert_eq!(keys, expected, "commit-mode key set");
     // A commit report must NOT carry the diff-only partial score.
-    assert!(!keys.contains("partial_score"));
+    assert!(!keys.contains("partial_risk_score"));
+    // Issue #591: exactly one domain-prefixed `<domain>_schema_version` stamp.
+    let stamps: Vec<&str> = keys
+        .iter()
+        .filter(|k| k.ends_with("schema_version"))
+        .copied()
+        .collect();
+    assert_eq!(stamps, ["jit_schema_version"], "one prefixed schema stamp");
 }
 
 #[test]
@@ -331,19 +338,19 @@ diff --git a/docs/b.md b/docs/b.md
     assert_eq!(report.size.files_touched, 2);
     assert_eq!(report.size.lines_added, 3);
     assert_eq!(report.diffusion.subsystems, 2, "src + docs");
-    assert!(report.partial_score > 0.0);
+    assert!(report.partial_risk_score > 0.0);
 
     let json = serde_json::to_value(&report).expect("serialize diff report");
     let obj = json.as_object().expect("object");
     assert_eq!(obj["source"], "diff");
     // The whole point: the unavailable groups have no key at all.
-    for absent in ["history", "experience", "purpose", "commit", "score"] {
+    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
         assert!(
             !obj.contains_key(absent),
             "diff report must omit `{absent}` (would be misread as a real value)"
         );
     }
-    assert!(obj.contains_key("partial_score"));
+    assert!(obj.contains_key("partial_risk_score"));
 }
 
 #[test]
@@ -382,10 +389,10 @@ diff --git a/src/a.rs b/src/a.rs
     // The diff's size term matches the commit's size term (same churn), but
     // the commit's total adds the history + purpose terms on top.
     assert!(
-        commit.score > report.partial_score,
+        commit.risk_score > report.partial_risk_score,
         "commit score {} must exceed the partial diff score {}",
-        commit.score,
-        report.partial_score
+        commit.risk_score,
+        report.partial_risk_score
     );
 }
 

@@ -41,12 +41,12 @@ pub(crate) fn score_diff(diff: &str) -> Result<JitDiffReport, Error> {
     let touched = parse_unified_diff(diff)?;
     let size = size_features(&touched);
     let diffusion = diffusion_features(&touched);
-    let (partial_score, contributions) = score_diff_features(size, diffusion);
+    let (partial_risk_score, contributions) = score_diff_features(size, diffusion);
     Ok(JitDiffReport {
         jit_schema_version: JIT_SCHEMA_VERSION,
         jit_score_version: JIT_SCORE_VERSION,
         source: JitSource::Diff,
-        partial_score,
+        partial_risk_score,
         size,
         diffusion,
         contributions,

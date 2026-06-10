@@ -96,7 +96,7 @@ pub(crate) fn score_commit(root: &Path, spec: &str, options: &Options) -> Result
         source: JitSource::Commit,
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
-        score: total,
+        risk_score: total,
         commit: JitCommit {
             id: commit.id.to_hex().to_string(),
             parent_count,

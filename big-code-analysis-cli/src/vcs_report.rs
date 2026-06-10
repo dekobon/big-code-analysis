@@ -736,7 +736,7 @@ mod tests {
         };
         VcsAggregate {
             bus_factor: BusFactor {
-                schema_version: BUS_FACTOR_SCHEMA_VERSION,
+                bus_factor_schema_version: BUS_FACTOR_SCHEMA_VERSION,
                 coverage_threshold: 0.5,
                 doa_threshold: 0.75,
                 repo: group(2, 3, 4),

@@ -375,11 +375,11 @@ def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
     group, mirroring ``bca vcs jit``."""
     repo = _build_repo(tmp_path)
     report = bca.vcs_jit(repo, commit="HEAD")
-    assert report["jit_schema_version"] == 2
+    assert report["jit_schema_version"] == 3
     assert report["jit_score_version"] == 1
     # Commit-mode reports self-identify via ``source`` (issue #642).
     assert report["source"] == "commit"
-    assert isinstance(report["score"], (int, float))
+    assert isinstance(report["risk_score"], (int, float))
     assert isinstance(report["commit"]["id"], str)
     assert len(report["commit"]["id"]) == 40
     for group in ("size", "diffusion", "history", "experience"):
@@ -412,12 +412,12 @@ def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
     cannot read a missing group as "low risk"."""
     report = bca.vcs_jit(diff=_SAMPLE_DIFF)
     assert report["source"] == "diff"
-    assert isinstance(report["partial_score"], (int, float))
+    assert isinstance(report["partial_risk_score"], (int, float))
     assert report["size"]["files_touched"] == 2
     assert report["size"]["lines_added"] == 3
     assert report["diffusion"]["subsystems"] == 2  # src + docs
     # The whole point of #580: the unavailable groups have no key at all.
-    for absent in ("history", "experience", "purpose", "commit", "score"):
+    for absent in ("history", "experience", "purpose", "commit", "risk_score"):
         assert absent not in report, absent
 
 

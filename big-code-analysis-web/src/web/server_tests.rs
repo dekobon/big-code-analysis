@@ -2336,7 +2336,7 @@ async fn test_web_vcs_ranks_files() {
     let bus_factor = &res["vcs_aggregate"]["bus_factor"];
     assert_eq!(bus_factor["repo"]["bus_factor"], 1);
     assert_eq!(bus_factor["repo"]["files"], 1);
-    assert_eq!(bus_factor["schema_version"], 1);
+    assert_eq!(bus_factor["bus_factor_schema_version"], 2);
 }
 
 #[actix_rt::test]
@@ -2638,12 +2638,12 @@ async fn test_web_vcs_jit_commit_happy_path() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["id"], "jit-1");
-    assert_eq!(body["jit_schema_version"], 2);
+    assert_eq!(body["jit_schema_version"], 3);
     // Commit-mode reports carry the `source` discriminator (#642) the docs
     // promise, so clients branch on it rather than on key-absence.
     assert_eq!(body["source"], "commit");
     // A full commit report carries the score + every feature group.
-    assert!(body["score"].is_number());
+    assert!(body["risk_score"].is_number());
     assert!(body["commit"]["id"].is_string());
     for group in ["size", "diffusion", "history", "experience"] {
         assert!(body["features"][group].is_object(), "features.{group}");
@@ -2653,8 +2653,8 @@ async fn test_web_vcs_jit_commit_happy_path() {
 #[actix_rt::test]
 async fn test_web_vcs_jit_diff_mode_partial_report() {
     // A bare diff in the request body (issue #580): no repo needed. The
-    // response is the partial report — `source: "diff"`, a `partial_score`,
-    // and NO history / experience / purpose / score keys.
+    // response is the partial report — `source: "diff"`, a `partial_risk_score`,
+    // and NO history / experience / purpose / risk_score keys.
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -2672,10 +2672,10 @@ async fn test_web_vcs_jit_diff_mode_partial_report() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["id"], "jit-diff");
     assert_eq!(body["source"], "diff");
-    assert!(body["partial_score"].is_number());
+    assert!(body["partial_risk_score"].is_number());
     assert_eq!(body["size"]["lines_added"], 2);
     let obj = body.as_object().expect("object");
-    for absent in ["history", "experience", "purpose", "commit", "score"] {
+    for absent in ["history", "experience", "purpose", "commit", "risk_score"] {
         assert!(
             !obj.contains_key(absent),
             "diff report must omit `{absent}`"

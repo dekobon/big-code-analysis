@@ -197,12 +197,12 @@ curl -s http://127.0.0.1:8080/v1/vcs/jit \
     -H 'Content-Type: application/json' \
     -d '{ "id": "jit-1", "repo_path": "/srv/checkouts/my-project",
           "commit": "HEAD" }' \
-  | jq '{score, purpose: .commit.purpose}'
+  | jq '{risk_score, purpose: .commit.purpose}'
 ```
 
 To score an arbitrary diff instead, send a `diff` field carrying the
 unified diff (no `repo_path` needed). The response is then the *partial*
-report — `source: "diff"`, a `partial_score`, and **no** history /
+report — `source: "diff"`, a `partial_risk_score`, and **no** history /
 experience / purpose groups, which are absent rather than zero. The
 partial score is **not comparable** to a commit score.
 
@@ -210,7 +210,7 @@ partial score is **not comparable** to a commit score.
 git diff | jq -Rs '{id: "jit-diff", diff: .}' \
   | curl -s http://127.0.0.1:8080/v1/vcs/jit \
       -H 'Content-Type: application/json' -d @- \
-  | jq '{source, partial_score}'
+  | jq '{source, partial_risk_score}'
 ```
 
 A malformed diff (or an unresolvable `commit`, or a `repo_path` that is
