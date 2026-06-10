@@ -3661,3 +3661,126 @@ are the AST-side of the same hazard: a token that looks structural may be
 content.
 
 ---
+
+## 70. A string-keyed metadata lookup shared across tables resolves collisions to the wrong context
+
+When per-column (or per-item) metadata — tooltips, captions, formats — is
+resolved through a registry keyed by the *display string*, two tables that
+legitimately reuse the same label silently share one entry. The lookup
+returns *a* value for every key, so nothing fails: the second context
+inherits the first context's metadata, and a "every header carries a
+tooltip" coverage test passes throughout, because presence is not
+correctness. The structural fix is to attach the metadata to the spec that
+owns the column and pass it positionally, so two columns with the same
+label can carry different definitions and the spec is the single source.
+
+**The bus-factor "Files" column inherited the files-analysed tooltip**
+(#610, #611, `7a5a8947`, `391decdd`). The HTML report resolved header
+tooltips via `header_tooltip(header)`, keyed on the literal header string.
+The per-language overview's "Files" column (files analysed) and the
+bus-factor table's "Files" column (files per directory) collided on the
+key, so the bus-factor table displayed the overview's definition.
+The #610 text-only fix pass had to *defer* this item — the string-keyed
+catalogue could not represent two meanings for one label at all.
+Issue #611 resolved it structurally: a `tooltip` field on the shared `Column` /
+`VcsColumn` specs, passed positionally to the table writer
+(`write_table_with_tooltips`), which simultaneously fixed the ambiguity
+and gave the Markdown legend the same single source the HTML `title=`
+attributes use.
+
+**Lesson:** A string-keyed lookup is only safe while every consumer
+agrees on what the string means; the failure mode is silent inheritance,
+not an error. When the same label can mean different things in different
+tables, move the metadata onto each table's own spec and pass it
+positionally — and treat "the lookup returned something" as the weakest
+possible assertion in tests. Related to lesson #22 (text-keyed markers
+force signatures to carry source bytes): both are cases where keying on
+display text discards the context that gave the text its meaning.
+
+---
+
+## 71. Invalid input that collapses into the "not provided" branch fails as success
+
+A resolver that maps both *absent* and *unrecognized* input to the same
+`None` makes invalid input indistinguishable from no input. Downstream
+code takes the default path, produces plausible-looking (often empty)
+output, and exits 0 — the user's typo is rewarded with success. This is
+the input-boundary sibling of lesson #19 (a missing dispatch arm scores
+valid constructs as zero): there the arm is missing; here the error value
+is erased at the boundary before any arm is reached.
+
+**`--language-type klingon` was silently ignored — and the
+forced-language use case produced empty success** (#595, `ba14e9f9`).
+The CLI's `resolve_language` tried an extension-table lookup and
+returned `None` on a miss — the same `None` that meant "flag omitted,
+infer per file". An unrecognized value was therefore silently ignored:
+the walk fell back to per-extension inference as if the flag were never
+given, and in the flag's core use case — forcing a language onto files
+whose extension inference cannot resolve — those files hit the
+skip-unrecognized guard and vanished: no analysis, no error, exit 0.
+The fix resolves through the language enum's `FromStr` (names) with an
+extension fallback, and a value that matches neither is a hard `die`
+listing the valid languages — `None` is reserved for the
+genuinely-absent flag.
+
+**Lesson:** At an input boundary, a parse failure must be an error value,
+never the absent-value default. If a resolver returns `Option`, reserve
+`None` for "not provided" and propagate present-but-invalid as `Result`
+(or terminate with a message naming the bad input and the valid set).
+The smell to grep for: a `FromStr`/lookup whose `Err`/miss is mapped to
+`None`, `unwrap_or_default()`, or a filter that quietly matches nothing.
+
+---
+
+## 72. A breaking change must sweep the encodings of the old contract, not just its name
+
+When a contract changes — an exit code, a flag's arity, a markup shape, a
+default — the old contract survives in places that never *name* it: test
+assertions pinning incidental values, fixtures whose extensions or
+argument shapes assumed the old behavior, substring needles matching the
+old markup, and doc examples that copy-paste the old invocation. A
+rename-sweep (grep the flag or symbol) misses every one of them; the
+sweep has to target the old contract's *shape*. One batch produced four
+independent instances:
+
+**The exit-code remap left `.code(2)` pins in four test files** (#594,
+`c9f73d68`). Moving clap usage errors from exit 2 to exit 1 invalidated
+assertions in `cli_smoke.rs`, `exemptions.rs`, `include_exclude_arity.rs`,
+and `vcs_jit.rs` that had pinned clap's default 2 incidentally while
+testing something else. A library-only test run missed all of them; only
+the full workspace suite surfaced the set (cf. lesson #60).
+
+**Fixtures encoded the silent-ignore contract** (#600, `1f13df11`).
+Making `check --output` infer the format from the extension broke a SARIF
+test that wrote to a `.json` path (tolerated when the extension was
+ignored, rejected once it became meaningful), and would have regressed a
+"creates parent directories on demand" test had the fix routed through a
+stricter shared validator. Distinguishing "fixture encoded the old
+contract" from "fix regressed real behavior" was the actual work.
+
+**Bare-tag substring needles broke when headings gained attributes**
+(#622, `8f9b35b5`). Tests across the workspace matched `<h2>X</h2>`
+literally; adding `id=` attributes falsified every needle. The negative
+assertions were the treacherous ones: a "table omitted" caption embeds
+the same title after a `>`, so an over-broad replacement needle still
+matched — each had to become a text-plus-close (`>X</h2>`) match chosen
+per assertion.
+
+**A book recipe shipped hard-failing — and the first sweep under-swept**
+(#601, `c2b89e73`, `b8c060f8`). The `-I`/`-X` arity change turned the
+space-separated multi-value spelling into a usage error. The recipe page
+used that spelling twice *and* carried a prose note describing the old
+greedy behavior; the first review sweep fixed one code block and missed
+the second plus the prose, which survived until a later wave re-grepped
+for the invocation shape (`--include "a" "b"`) instead of the flag name.
+
+**Lesson:** Changing a contract obligates a workspace-wide sweep for
+everything that encodes the old one *incidentally*: grep for the old
+literal values (`.code(2)`), the old shapes (`<h2>` without attributes,
+multi-value flag spellings, old file-extension assumptions), and run the
+full workspace suite — downstream crates and doc pages pin contracts the
+narrow run never exercises. Expect the first sweep to miss instances:
+after each fix, re-grep with a pattern derived from what you just fixed,
+not from the original symbol name.
+
+---

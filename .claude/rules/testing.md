@@ -28,6 +28,27 @@ passing test alone — it proves the test exercises the changed line,
 not an unrelated path. Without this step, defensive refactors often
 ship with tests that would pass against the bug they claim to guard.
 
+**Revert safely — a file-level restore discards your fix too.** When
+the file you are perturbing also carries your *uncommitted* production
+fix, `git checkout HEAD~1 -- <file>` (or any `git checkout -- <file>`)
+restores the whole file and wipes the fix along with the perturbation.
+This destroyed in-progress work twice in one batch (during the #605
+and #615 fix sessions — commits `b8ceb8cf`, `e02ed585`; the incidents
+live in the session record, not the issues); in one case the follow-up
+build "passed" only because an orphaned-import warning masked the
+regression. Step 1 above is therefore load-bearing,
+not optional. Concretely, before perturbing a file with uncommitted
+work, do one of:
+
+- commit or `git stash push <file>` the real change first;
+- apply the perturbation as a precise edit and undo it with the exact
+  inverse edit — never a file-level restore;
+- when a partial revert would not build, patch the production line to
+  a no-op in place instead (the approach used in the #615 fix session).
+
+After restoring, `git status` / `git diff --stat` must show exactly
+the edits you intend — nothing extra, nothing missing.
+
 Applies in particular to:
 
 - `apply_suppression`-style "make implicit invariant explicit" fixes

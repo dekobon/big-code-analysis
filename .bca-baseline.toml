@@ -37,14 +37,14 @@ path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1029.0
+value = 1043.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 846.0
+value = 854.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
@@ -58,7 +58,7 @@ path = "big-code-analysis-cli/src/vcs_report.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1285.0
+value = 1295.0
 
 [[entry]]
 path = "big-code-analysis-py/src/codegen.rs"
