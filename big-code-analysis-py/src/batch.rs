@@ -318,9 +318,12 @@ const _: fn() = || {
 /// `paths` is any Python iterable of `str | os.PathLike[str]`;
 /// generators work because iteration is done lazily via `PyO3`'s
 /// `try_iter` (which calls Python's `iter()` builtin under the hood).
-/// The output list has the same length as the input iterable and
-/// preserves order one-to-one, so callers can `zip(inputs, results)`
-/// without losing the pairing.
+/// With `skip_generated=false` the output list has the same length as
+/// the input iterable and preserves order one-to-one, so callers can
+/// `zip(inputs, results)` without losing the pairing. Under the default
+/// `skip_generated=true` a skipped file yields no slot (see below), so
+/// the list can be shorter — `zip(inputs, results)` would then silently
+/// mis-pair every entry after the first skip.
 ///
 /// `metrics=` selects which metrics to compute (#268). `None` (the
 /// default) preserves the full suite; an empty list raises
