@@ -442,6 +442,18 @@ async fn vcs_jit_json(
 ) -> Result<HttpResponse, actix_web::Error> {
     let payload = item.into_inner();
     let payload_id = payload.id.clone();
+    // Reject a payload that mixes diff mode with commit-mode fields up front,
+    // before the mode branch silently honors `diff` and drops the rest — the
+    // two modes are not comparable, so the combination is a client mistake
+    // (issue #632). This is a payload-shape error in the web layer, so it
+    // 400s directly rather than routing through `vcs::Error`.
+    if let Err(message) = payload.validate() {
+        return Ok(json_error(
+            http::StatusCode::BAD_REQUEST,
+            message,
+            payload_id,
+        ));
+    }
     // Commit scoring is blocking I/O (a history walk); diff scoring is pure
     // CPU. Both run on the same timeout-guarded blocking pool as the other
     // endpoints for one uniform guard.

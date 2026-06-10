@@ -2429,6 +2429,56 @@ async fn test_web_vcs_jit_missing_repo_path_is_400() {
 }
 
 #[actix_rt::test]
+async fn test_web_vcs_jit_diff_with_commit_mode_field_is_400() {
+    // Issue #632: a payload that combines `diff` with any commit-mode field
+    // must be rejected with a 400 naming the conflict, not silently scored
+    // as a diff (which would answer a different, non-comparable question).
+    // Each case pairs `diff` with one conflicting field to prove every
+    // commit-mode field trips the guard.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,1 +1,3 @@\n keep\n+one\n+two\n";
+    let conflicting = [
+        json!({ "id": "c", "diff": diff, "repo_path": "/tmp/whatever" }),
+        json!({ "id": "c", "diff": diff, "commit": "HEAD" }),
+        json!({ "id": "c", "diff": diff, "repo_path": "/tmp/whatever", "commit": "HEAD" }),
+        json!({ "id": "c", "diff": diff, "long_window": "6mo" }),
+        json!({ "id": "c", "diff": diff, "recent_window": "30d" }),
+        json!({ "id": "c", "diff": diff, "full_history": true }),
+        json!({ "id": "c", "diff": diff, "include_merges": true }),
+        json!({ "id": "c", "diff": diff, "follow_renames": false }),
+        json!({ "id": "c", "diff": diff, "as_of": "2024-01-01T00:00:00Z" }),
+    ];
+    for payload in conflicting {
+        let req = test::TestRequest::post()
+            .uri("/vcs/jit")
+            .insert_header(ContentType::json())
+            .set_json(&payload)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "combining diff with a commit-mode field must be a 400: {payload}"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        // The {error, id} body shape must hold: id echoed, error pins the
+        // exact conflict message naming the fields (so the 400 is actionable
+        // and not some unrelated 400 that merely mentions "diff").
+        assert_eq!(body["id"], "c", "the correlation id must be echoed back");
+        assert_eq!(
+            body["error"].as_str(),
+            Some(crate::web::vcs::VCS_JIT_MODE_CONFLICT),
+            "the 400 body must pin the mode-conflict message: {payload}"
+        );
+    }
+}
+
+#[actix_rt::test]
 async fn test_web_vcs_jit_wrong_method_yields_405() {
     let app = test::init_service(
         App::new()

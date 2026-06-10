@@ -193,14 +193,18 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
 /// Request body for `POST /vcs/jit` (issues #331 / #580). Scores a single
 /// commit on a server-side repository, or — when `diff` is supplied — an
 /// arbitrary unified diff carried in the request body (no repository
-/// needed). The two are mutually exclusive.
+/// needed). The two modes are mutually exclusive and the combination is
+/// **rejected** with a `400` (issue #632): supplying `diff` together with
+/// any commit-mode field (`repo_path`, `commit`, or a window / history /
+/// rename / `as_of` knob) would silently score the diff and ignore the
+/// other fields, answering a different question than the one asked. See
+/// [`WebVcsJitPayload::validate`].
 #[derive(Debug, Deserialize)]
 pub struct WebVcsJitPayload {
     /// Request identifier echoed back in the response.
     pub id: String,
     /// Server-side path to (a directory inside) the git working tree.
-    /// Required for commit scoring; ignored (and may be omitted) in
-    /// diff-only mode.
+    /// Required for commit scoring; must be omitted in diff mode.
     pub repo_path: Option<String>,
     /// Commit / revision to score (default `HEAD`). Mutually exclusive with
     /// `diff`.
@@ -208,7 +212,7 @@ pub struct WebVcsJitPayload {
     /// An arbitrary unified diff to score instead of a commit (issue #580).
     /// Only the size and diffusion groups are computable, so the response
     /// is a partial report whose score is **not comparable** to a commit
-    /// score. Mutually exclusive with `repo_path` / `commit`.
+    /// score. Mutually exclusive with every commit-mode field.
     pub diff: Option<String>,
     /// Long window (default `12mo`). Commit mode only.
     pub long_window: Option<String>,
@@ -222,6 +226,50 @@ pub struct WebVcsJitPayload {
     pub follow_renames: Option<bool>,
     /// Reference "now" (RFC 3339 / `@unix` / git date). Commit mode only.
     pub as_of: Option<String>,
+}
+
+/// Error body when a `/vcs/jit` payload combines `diff` with any
+/// commit-mode field. The two modes score different, **not comparable**
+/// things (`src/vcs/jit.rs`), so rather than silently honor `diff` and
+/// drop the rest, the combination is a client mistake (`400`, issue #632).
+/// The message names the conflicting fields so the 400 is actionable.
+pub const VCS_JIT_MODE_CONFLICT: &str = "Invalid `/vcs/jit` request: `diff` is mutually exclusive with the commit-mode fields (`repo_path`, `commit`, `long_window`, `recent_window`, `full_history`, `include_merges`, `follow_renames`, `as_of`); supply either a `diff` or commit-mode fields, not both";
+
+impl WebVcsJitPayload {
+    /// Reject a payload that mixes the two mutually exclusive scoring modes.
+    ///
+    /// Diff mode (`diff` present) and commit mode (every other scoring
+    /// field) answer different, non-comparable questions. Honoring `diff`
+    /// while silently ignoring the commit-mode fields would score a
+    /// different thing than the client believes they asked for, which is
+    /// dangerous on a risk-gating endpoint (issue #632). When `diff` is
+    /// combined with any commit-mode field, this returns
+    /// [`VCS_JIT_MODE_CONFLICT`] for the handler to surface as a `400`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VCS_JIT_MODE_CONFLICT`] when `diff` is present together
+    /// with at least one commit-mode field.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.diff.is_some() && self.has_commit_mode_field() {
+            return Err(VCS_JIT_MODE_CONFLICT);
+        }
+        Ok(())
+    }
+
+    /// Whether the payload carries any commit-mode-only field. Used only to
+    /// detect the `diff` + commit-mode conflict; an all-empty commit-mode
+    /// payload (no `diff` either) stays valid and defaults to `HEAD`.
+    fn has_commit_mode_field(&self) -> bool {
+        self.repo_path.is_some()
+            || self.commit.is_some()
+            || self.long_window.is_some()
+            || self.recent_window.is_some()
+            || self.full_history.is_some()
+            || self.include_merges.is_some()
+            || self.follow_renames.is_some()
+            || self.as_of.is_some()
+    }
 }
 
 /// Response body for `POST /vcs/jit`. The echoed `id` plus the flattened
