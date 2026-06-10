@@ -53,7 +53,12 @@ fn report_html_to_stdout_is_well_formed() {
     let body = String::from_utf8(output.stdout).expect("output is UTF-8");
     assert!(body.contains("<!doctype html>"));
     assert!(body.contains("<h1>Code Quality Metrics Summary</h1>"));
-    assert!(body.contains("<h2>Python</h2>"));
+    // Headings now carry a slug `id=` (issue #622); match text+close.
+    assert!(body.contains(">Python</h2>"));
+    assert!(
+        body.contains("<nav class=\"toc\""),
+        "report should carry a table-of-contents nav"
+    );
     assert_html_well_formed(&body);
 }
 

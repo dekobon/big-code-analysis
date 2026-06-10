@@ -35,13 +35,13 @@
 //! table.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 
 use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
 use crate::markdown_report::hotspot::{
-    self, ACTIONABLE_SUMMARY_INDEX, Align, Cell, Column, HotspotSpec, SPECS, Source,
+    self, ACTIONABLE_SUMMARY_INDEX, Align, Cell, HotspotSpec, SPECS, Source,
 };
 use crate::markdown_report::{
     FunctionSummary, is_class_like, language_display_name, mi_rating, thousands,
@@ -70,6 +70,118 @@ pub(crate) fn escape_html(s: &str) -> Cow<'_, str> {
         }
     }
     Cow::Owned(out)
+}
+
+/// Slugify a heading basis into an HTML `id`/fragment-safe token:
+/// lowercase ASCII, every run of non-`[a-z0-9]` characters collapsed to a
+/// single `-`, with leading/trailing hyphens trimmed. Built from the raw
+/// language *slug* (`"cpp"`, `"csharp"`) or a section title, never from a
+/// display name carrying HTML-special punctuation — so `C++` deep-links to
+/// `#cpp`, not a broken `#c++` fragment (issue #622).
+///
+/// An empty or all-separator basis yields `"section"` so the id is never
+/// the empty string (which is not a valid fragment target).
+fn slugify(basis: &str) -> String {
+    let mut slug = String::with_capacity(basis.len());
+    let mut prev_dash = false;
+    for ch in basis.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash {
+            slug.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = slug.trim_matches('-');
+    if trimmed.is_empty() {
+        "section".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+/// Collects heading ids during body rendering: assigns a unique, slug-based
+/// `id` to every `h2`/`h3` (deduplicating collisions with a `-2`, `-3`, …
+/// suffix so two languages' "Summary" headings never share a fragment), and
+/// records the top-level (`h2`) headings for the table-of-contents `<nav>`.
+///
+/// The TOC lists only `h2` sections to stay compact (issue #622's "compact
+/// nav"); `h3` ids are still emitted so a reader can deep-link to an
+/// individual hotspot table, they just do not bloat the overview.
+#[derive(Default)]
+pub(crate) struct Headings {
+    /// Slug -> number of times already emitted, for `-N` de-duplication.
+    seen: HashMap<String, usize>,
+    /// `(display_text, id)` for each `h2`, in document order.
+    toc: Vec<(String, String)>,
+}
+
+impl Headings {
+    /// Reserve a unique id for `basis`, recording the collision count so a
+    /// repeated basis (e.g. each language's "Summary") gets `-2`, `-3`, ….
+    fn unique_id(&mut self, basis: &str) -> String {
+        let slug = slugify(basis);
+        let count = self.seen.entry(slug.clone()).or_insert(0);
+        *count += 1;
+        if *count == 1 {
+            slug
+        } else {
+            format!("{slug}-{count}")
+        }
+    }
+
+    /// Emit `<h2 id="…">text</h2>` and record the TOC entry. `id_basis` is
+    /// the slug source (the raw language slug or a section title);
+    /// `display_text` is the already-`escape_html`-ed visible text. Returns
+    /// nothing — the caller has already escaped `display_text`.
+    pub(crate) fn emit_h2(&mut self, out: &mut String, id_basis: &str, display_text: &str) {
+        let id = self.unique_id(id_basis);
+        let _ = write!(out, "<h2 id=\"{id}\">{display_text}</h2>");
+        self.toc.push((display_text.to_owned(), id));
+    }
+
+    /// Emit `<h3 id="…">text</h3>`. `id_basis` is the slug source;
+    /// `display_text` is already `escape_html`-ed.
+    pub(crate) fn emit_h3(&mut self, out: &mut String, id_basis: &str, display_text: &str) {
+        let id = self.unique_id(id_basis);
+        let _ = writeln!(out, "<h3 id=\"{id}\">{display_text}</h3>");
+    }
+
+    /// Emit `<hN id="…">text</hN>` at a caller-chosen `level` (used by the
+    /// VCS report, whose bus-factor subsection sits at `h2` on the
+    /// standalone page and `h3` when embedded). Only level-2 headings are
+    /// recorded in the TOC, matching `emit_h2`. `display_text` is already
+    /// `escape_html`-ed.
+    pub(crate) fn emit_heading(
+        &mut self,
+        out: &mut String,
+        level: usize,
+        id_basis: &str,
+        display_text: &str,
+    ) {
+        let id = self.unique_id(id_basis);
+        let _ = writeln!(out, "<h{level} id=\"{id}\">{display_text}</h{level}>");
+        if level == 2 {
+            self.toc.push((display_text.to_owned(), id));
+        }
+    }
+}
+
+/// Emit the table-of-contents `<nav>` linking each collected `h2` section.
+/// Renders nothing when there are no sections (the empty-walk report). The
+/// link text reuses the heading's escaped text and the href is the
+/// slug-based id, so every entry resolves to a real anchor on the page.
+fn write_toc(out: &mut String, toc: &[(String, String)]) {
+    if toc.is_empty() {
+        return;
+    }
+    let _ = out.write_str("<nav class=\"toc\" aria-label=\"Sections\">\n<ul>\n");
+    for (text, id) in toc {
+        // `text` is already `escape_html`-ed and `id` is slug-safe ASCII.
+        let _ = writeln!(out, "<li><a href=\"#{id}\">{text}</a></li>");
+    }
+    let _ = out.write_str("</ul>\n</nav>\n");
 }
 
 const INLINE_CSS: &str = "\
@@ -125,6 +237,13 @@ section.lang-other{background:rgba(200,200,200,0.10)}\
 .summary strong{color:#222}\
 .summary p{margin:0.2rem 0}\
 .note{font-size:0.85rem;color:#555;margin:0.4rem 0}\
+nav.toc{font-size:0.9rem;margin:0.8rem 0;padding:0.5rem 0.8rem;\
+background:#fff;border:1px solid #e5e5e5;border-radius:4px;\
+box-shadow:0 1px 2px rgba(0,0,0,0.06)}\
+nav.toc ul{margin:0.2rem 0 0.2rem 1.2rem}\
+nav.toc li{font-size:0.9rem}\
+p.sort-hint{font-size:0.85rem;color:#555;margin:0.4rem 0;font-style:italic}\
+@media (prefers-color-scheme:dark){nav.toc{background:#1e1e1e;border-color:#333}}\
 details.legend{font-size:0.85rem;color:#444;margin:0.8rem 0}\
 details.legend summary{cursor:pointer;font-weight:600;color:#222}\
 details.legend dl{margin:0.4rem 0 0 0}\
@@ -276,6 +395,17 @@ fn header_tooltip(header: &str) -> Option<&'static str> {
         .find_map(|&(name, tip)| (name == header).then_some(tip))
 }
 
+/// The column a table is pre-ranked by, and its sort direction's
+/// `aria-sort` value (`"ascending"` / `"descending"`). The HTML renderer
+/// emits `aria-sort` on that header's `<th>` so the initial sort order is
+/// visible (the existing CSS arrow shows on first render) and announced to
+/// screen readers, rather than appearing only after a click (issue #622).
+#[derive(Clone, Copy)]
+pub(crate) struct RankedColumn {
+    pub(crate) index: usize,
+    pub(crate) dir: &'static str,
+}
+
 /// Write a `<table class="hotspot">` with one `<thead>` and one
 /// `<tbody>`. `aligns` controls per-cell text alignment AND the
 /// `data-numeric="1"` attribute that the inline sort handler reads to
@@ -289,7 +419,8 @@ pub(crate) fn write_table(
     rows: &[Vec<String>],
 ) {
     // No extra per-cell classes: every cell carries only its
-    // alignment-derived `numeric` class.
+    // alignment-derived `numeric` class. The overview table is unranked,
+    // so no header announces an initial sort.
     write_table_classed(out, headers, aligns, rows, |_, _| None);
 }
 
@@ -309,7 +440,7 @@ pub(crate) fn write_table_classed(
     // Resolve each header's tooltip via the string-keyed overview
     // catalogue (the only caller that takes this path is the Per-language
     // overview).
-    write_table_core(out, headers, aligns, rows, cell_class, |_, h| {
+    write_table_core(out, headers, aligns, rows, None, cell_class, |_, h| {
         header_tooltip(h)
     });
 }
@@ -323,15 +454,18 @@ pub(crate) fn write_table_classed(
 /// the header-string ambiguity that made the bus-factor "Files" column
 /// inherit the unrelated "source files analysed" definition (issue #610).
 /// `tooltips[i]` is the `title=` text for column `i`; `None` leaves the
-/// header bare.
+/// header bare. `ranked` names the column the table is already sorted by
+/// (and the direction) so its `<th>` carries `aria-sort` at render time;
+/// pass `None` for an unranked table.
 pub(crate) fn write_table_with_tooltips(
     out: &mut String,
     headers: &[&str],
     aligns: &[Align],
     tooltips: &[Option<&str>],
+    ranked: Option<RankedColumn>,
     rows: &[Vec<String>],
 ) {
-    write_table_classed_with_tooltips(out, headers, aligns, tooltips, rows, |_, _| None);
+    write_table_classed_with_tooltips(out, headers, aligns, tooltips, ranked, rows, |_, _| None);
 }
 
 /// [`write_table_with_tooltips`] plus a `cell_class` callback (the
@@ -341,11 +475,12 @@ pub(crate) fn write_table_classed_with_tooltips(
     headers: &[&str],
     aligns: &[Align],
     tooltips: &[Option<&str>],
+    ranked: Option<RankedColumn>,
     rows: &[Vec<String>],
     cell_class: impl Fn(usize, usize) -> Option<&'static str>,
 ) {
     debug_assert_eq!(headers.len(), tooltips.len());
-    write_table_core(out, headers, aligns, rows, cell_class, |i, _| {
+    write_table_core(out, headers, aligns, rows, ranked, cell_class, |i, _| {
         tooltips.get(i).copied().flatten()
     });
 }
@@ -358,6 +493,7 @@ fn write_table_core<'t>(
     headers: &[&str],
     aligns: &[Align],
     rows: &[Vec<String>],
+    ranked: Option<RankedColumn>,
     cell_class: impl Fn(usize, usize) -> Option<&'static str>,
     tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
 ) {
@@ -370,6 +506,16 @@ fn write_table_core<'t>(
             ""
         };
         let _ = write!(out, "<th{numeric_attr}");
+        // Announce the pre-ranked column's initial sort order at render
+        // time. The `dir` string comes from `SortDir::aria_sort`, so it is
+        // always the literal `ascending`/`descending` the inline JS toggles
+        // (no escaping needed); the click handler reads and replaces it on
+        // first interaction (issue #622).
+        if let Some(rank) = ranked
+            && rank.index == i
+        {
+            let _ = write!(out, " aria-sort=\"{}\"", rank.dir);
+        }
         if let Some(tip) = tooltip_for(i, h) {
             let _ = write!(out, " title=\"{}\"", escape_html(tip));
         }
@@ -411,7 +557,8 @@ fn write_table_core<'t>(
 /// the single source of truth for table bytes and escaping. HTML escapes
 /// every cell uniformly, so the raw [`Cell`] payload (regardless of kind) is
 /// handed to `write_table`, whose `escape_html` runs exactly once per cell.
-fn write_hotspot_table(out: &mut String, columns: &[Column], entries: &[&FunctionSummary]) {
+fn write_hotspot_table(out: &mut String, spec: &HotspotSpec, entries: &[&FunctionSummary]) {
+    let columns = spec.columns;
     let mut headers = Vec::with_capacity(columns.len());
     let mut aligns = Vec::with_capacity(columns.len());
     let mut tooltips = Vec::with_capacity(columns.len());
@@ -431,7 +578,13 @@ fn write_hotspot_table(out: &mut String, columns: &[Column], entries: &[&Functio
     }
     // The column spec carries the authoritative tooltip; pass it
     // positionally so each header's `title=` matches the legend exactly.
-    write_table_with_tooltips(out, &headers, &aligns, &tooltips, &rows);
+    // The spec also names the pre-ranked column and its direction, so the
+    // table announces its initial sort order without renderer guesswork.
+    let ranked = RankedColumn {
+        index: spec.rank_col,
+        dir: spec.dir.aria_sort(),
+    };
+    write_table_with_tooltips(out, &headers, &aligns, &tooltips, Some(ranked), &rows);
 }
 
 /// Per-language grouping of summaries, keyed by `LANG::name()` and
@@ -604,8 +757,13 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
     ]
 }
 
-fn write_overview_table(out: &mut String, by_lang: &LangGroups<'_>) {
-    let _ = out.write_str("<h2>Per-language overview</h2>\n");
+fn write_overview_table(out: &mut String, headings: &mut Headings, by_lang: &LangGroups<'_>) {
+    headings.emit_h2(out, "Per-language overview", "Per-language overview");
+    let _ = out.write_str("\n");
+    // One discoverability hint near the first table: the columns are
+    // sortable, which is otherwise invisible until a reader happens to
+    // click a header (issue #622).
+    let _ = out.write_str("<p class=\"sort-hint\">Click a column header to sort any table.</p>\n");
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
     for (&lang_name, lang_summaries) in by_lang {
         rows.push(overview_row(lang_name, lang_summaries));
@@ -675,19 +833,36 @@ pub(crate) fn generate_html_report_with_vcs(
         "Code Quality Metrics Summary",
     );
     write_global_summary(&mut out, &totals, &by_lang);
+
+    // Render the body into a side buffer so the heading ids it assigns can
+    // be collected into the table-of-contents `<nav>`, which must precede
+    // the body. `headings` owns both the slug-dedup state and the collected
+    // `h2` TOC entries (issue #622).
+    let mut headings = Headings::default();
+    let mut body = String::with_capacity(out.capacity());
     if !by_lang.is_empty() {
-        write_overview_table(&mut out, &by_lang);
+        write_overview_table(&mut body, &mut headings, &by_lang);
         for (&lang_name, lang_summaries) in &by_lang {
-            write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
+            write_language_section(
+                &mut body,
+                &mut headings,
+                lang_name,
+                lang_summaries,
+                top_n,
+                policy,
+            );
         }
         // A visible legend so the column definitions survive print, mobile,
         // and screen readers — the `title=` tooltips are hover-only and
         // invisible to all three (issue #611).
-        write_legend_html(&mut out, &hotspot::legend_entries());
+        write_legend_html(&mut body, &hotspot::legend_entries());
     }
     if let Some(report) = vcs {
-        crate::vcs_report::push_html_section(&mut out, report);
+        crate::vcs_report::push_html_section(&mut body, &mut headings, report);
     }
+
+    write_toc(&mut out, &headings.toc);
+    out.push_str(&body);
     write_html_tail(&mut out);
     out
 }
@@ -772,26 +947,32 @@ impl LanguageTotals {
     }
 }
 
-fn write_language_header(out: &mut String, lang_name: &str) {
+fn write_language_header(out: &mut String, headings: &mut Headings, lang_name: &str) {
     let display_name = language_display_name(lang_name);
     // `slug` is sourced from `LANGUAGE_PALETTE` (or the literal "other"
     // fallback) — always lowercase ASCII, so it is interpolated raw
     // into the class attribute without `escape_html`.
     let slug = language_palette_slug(lang_name);
-    let _ = writeln!(
-        out,
-        "<section class=\"lang-section lang-{slug}\"><h2>{}</h2>",
-        escape_html(&display_name)
-    );
+    let _ = write!(out, "<section class=\"lang-section lang-{slug}\">");
+    // The heading id is slug-based off the raw language name (`lang_name`,
+    // e.g. "cpp"/"csharp"), NOT the display name — so `C++` deep-links to a
+    // valid `#cpp` fragment rather than the punctuation-laden display text.
+    headings.emit_h2(out, lang_name, &escape_html(&display_name));
+    let _ = out.write_str("\n");
 }
 
-fn write_language_summary(out: &mut String, units: &[&FunctionSummary]) {
+fn write_language_summary(
+    out: &mut String,
+    headings: &mut Headings,
+    id_prefix: &str,
+    units: &[&FunctionSummary],
+) {
     let totals = LanguageTotals::from_units(units);
     let cr = totals.comment_ratio();
     let avg_mi = totals.avg_mi();
     let rating = mi_rating(avg_mi);
 
-    let _ = out.write_str("<h3>Summary</h3>\n");
+    headings.emit_h3(out, &format!("{id_prefix}-summary"), "Summary");
     let _ = writeln!(
         out,
         "<p class=\"note\">Files: {} | SLOC: {} | PLOC: {} | Comment ratio: {cr:.1}%</p>",
@@ -811,13 +992,18 @@ fn write_language_summary(out: &mut String, units: &[&FunctionSummary]) {
 /// heading → `&gt;`); it is a no-op for the metachar-free titles.
 fn emit_html_section(
     out: &mut String,
+    headings: &mut Headings,
+    id_prefix: &str,
     spec: &HotspotSpec,
     top_n: usize,
     rows: &[&FunctionSummary],
 ) {
     let title = spec.title.render(top_n);
-    let _ = writeln!(out, "<h3>{}</h3>", escape_html(&title));
-    write_hotspot_table(out, spec.columns, rows);
+    // The id basis is the language slug plus the section title; the title
+    // is the slug source (not the display text), so a `>` in the
+    // many-parameters heading never reaches the fragment.
+    headings.emit_h3(out, &format!("{id_prefix}-{title}"), &escape_html(&title));
+    write_hotspot_table(out, spec, rows);
 }
 
 /// The cyclomatic summary note under the CC hotspot table. A caption over the
@@ -883,11 +1069,17 @@ impl ActionableCounts {
 
 fn write_actionable_summary(
     out: &mut String,
+    headings: &mut Headings,
+    id_prefix: &str,
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
 ) {
     let counts = ActionableCounts::from_funcs(funcs);
-    let _ = out.write_str("<h3>Actionable Summary</h3>\n");
+    headings.emit_h3(
+        out,
+        &format!("{id_prefix}-actionable-summary"),
+        "Actionable Summary",
+    );
     let suppressed = hotspot::suppressed_func_count(funcs, policy);
     let _ = writeln!(
         out,
@@ -955,14 +1147,19 @@ fn emit_fully_suppressed_note_html(out: &mut String, title: &str, count: usize) 
 
 fn write_language_section(
     out: &mut String,
+    headings: &mut Headings,
     lang_name: &str,
     entries: &[&FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
 ) {
-    write_language_header(out, lang_name);
+    write_language_header(out, headings, lang_name);
+    // Slug-based id prefix for this language's `h3` headings, so a hotspot
+    // table deep-links to e.g. `#rust-cyclomatic-complexity-hotspots`. Built
+    // from the raw language slug, matching the `h2` section id.
+    let id_prefix = slugify(lang_name);
     let (units, funcs) = partition_by_kind(entries);
-    write_language_summary(out, &units);
+    write_language_summary(out, headings, &id_prefix, &units);
 
     // Drive every hotspot section from the shared `SPECS` table so the HTML
     // and Markdown reports cannot diverge in membership/order/suppression.
@@ -971,7 +1168,7 @@ fn write_language_section(
     // functions.
     for (i, spec) in SPECS.iter().enumerate() {
         if i == ACTIONABLE_SUMMARY_INDEX {
-            write_actionable_summary(out, &funcs, policy);
+            write_actionable_summary(out, headings, &id_prefix, &funcs, policy);
         }
         let base: &[&FunctionSummary] = match spec.source {
             Source::Units => &units,
@@ -987,7 +1184,7 @@ fn write_language_section(
                 let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
                 emit_fully_suppressed_note_html(out, &spec.title.render(top_n), suppressed);
             } else {
-                emit_html_section(out, spec, top_n, &rows);
+                emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
                 emit_cc_note_html(out, &stats, policy);
             }
         } else {
@@ -999,7 +1196,7 @@ fn write_language_section(
                 let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
                 emit_fully_suppressed_note_html(out, &spec.title.render(top_n), suppressed);
             } else {
-                emit_html_section(out, spec, top_n, &rows);
+                emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
             }
         }
     }
@@ -1107,8 +1304,23 @@ mod tests {
         ];
         let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
         assert!(
-            out.contains("<h2>C++</h2>"),
+            out.contains(">C++</h2>"),
             "heading should render the display name, got:\n{out}"
+        );
+        // The heading id must be the slug ("cpp"), NOT a fragment derived
+        // from the punctuation-laden display name "C++" (issue #622).
+        assert!(
+            out.contains("<h2 id=\"cpp\">C++</h2>"),
+            "C++ heading id must be the slug, not the display text, got:\n{out}"
+        );
+        assert!(
+            !out.contains("id=\"c\""),
+            "the `+` chars must not collapse the id to a bare `c`, got:\n{out}"
+        );
+        // The TOC entry links to the slug fragment.
+        assert!(
+            out.contains("<a href=\"#cpp\">C++</a>"),
+            "TOC must link the C++ section by slug fragment, got:\n{out}"
         );
         assert!(
             out.contains("lang-cpp"),
@@ -1119,10 +1331,7 @@ mod tests {
             "Languages line should use the display name, got:\n{out}"
         );
         // The raw title-cased slug must not leak into any heading.
-        assert!(
-            !out.contains("<h2>Cpp</h2>"),
-            "raw slug leaked into heading"
-        );
+        assert!(!out.contains(">Cpp</h2>"), "raw slug leaked into heading");
     }
 
     #[test]
@@ -1196,7 +1405,7 @@ mod tests {
     #[test]
     fn single_language_well_formed() {
         let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
-        assert!(out.contains("<h2>Rust</h2>"));
+        assert!(out.contains(">Rust</h2>"));
         assert!(out.contains("class=\"hotspot\""));
         assert_html_well_formed(&out);
     }
@@ -1204,10 +1413,10 @@ mod tests {
     #[test]
     fn two_language_well_formed_and_alphabetical() {
         let out = generate_html_report(&two_lang_fixture(), 20, SuppressionPolicy::Honor);
-        assert!(out.contains("<h2>Python</h2>"));
-        assert!(out.contains("<h2>Rust</h2>"));
-        let py = out.find("<h2>Python</h2>").expect("python heading");
-        let rs = out.find("<h2>Rust</h2>").expect("rust heading");
+        assert!(out.contains(">Python</h2>"));
+        assert!(out.contains(">Rust</h2>"));
+        let py = out.find(">Python</h2>").expect("python heading");
+        let rs = out.find(">Rust</h2>").expect("rust heading");
         assert!(
             py < rs,
             "language sections must be alphabetical: python at {py}, rust at {rs}"
@@ -1255,7 +1464,7 @@ mod tests {
 
         let out = generate_html_report(&summaries, 5, SuppressionPolicy::Honor);
         let cc_section = out
-            .split_once("<h3>Cyclomatic Complexity Hotspots</h3>")
+            .split_once(">Cyclomatic Complexity Hotspots</h3>")
             .expect("cyclomatic section present")
             .1;
         let cc_table = cc_section.split_once("</table>").expect("table closes").0;
@@ -1284,7 +1493,7 @@ mod tests {
         ];
         let out = generate_html_report(&entries, 20, SuppressionPolicy::Honor);
         let wmc_table = out
-            .split_once("<h3>Class/Trait/Impl Hotspots (WMC)</h3>")
+            .split_once(">Class/Trait/Impl Hotspots (WMC)</h3>")
             .expect("WMC section present even with no functions")
             .1
             .split_once("</table>")
@@ -1502,12 +1711,14 @@ mod tests {
     fn per_language_sections_carry_palette_class() {
         let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
         assert!(
-            out.contains("<section class=\"lang-section lang-rust\"><h2>Rust</h2>"),
-            "Rust section must carry stable lang-rust palette class"
+            out.contains("<section class=\"lang-section lang-rust\"><h2 id=\"rust\">Rust</h2>"),
+            "Rust section must carry stable lang-rust palette class and slug heading id"
         );
         assert!(
-            out.contains("<section class=\"lang-section lang-python\"><h2>Python</h2>"),
-            "Python section must carry stable lang-python palette class"
+            out.contains(
+                "<section class=\"lang-section lang-python\"><h2 id=\"python\">Python</h2>"
+            ),
+            "Python section must carry stable lang-python palette class and slug heading id"
         );
         // Both palette rules must be present in the inline stylesheet
         // so the class actually paints something.
@@ -1540,7 +1751,7 @@ mod tests {
         // opened between the heading and the table close — earlier
         // versions of this test only caught the former.
         let overview = out
-            .find("<h2>Per-language overview</h2>")
+            .find(">Per-language overview</h2>")
             .expect("overview heading present");
         // Anchor on the table that immediately follows the heading
         // first, then find ITS closing tag — guards against a future
@@ -1682,7 +1893,7 @@ mod tests {
             "a fully-suppressed HTML table must leave an explanatory caption:\n{report}"
         );
         assert!(
-            !report.contains("<h3>Functions With Many Parameters"),
+            !report.contains(">Functions With Many Parameters (&gt;3)</h3>"),
             "the all-suppressed many-parameters table must not render:\n{report}"
         );
     }
@@ -1702,7 +1913,7 @@ mod tests {
 
         let report = generate_html_report(&[unit, hot], 20, SuppressionPolicy::Honor);
         assert!(
-            !report.contains("<h3>Cyclomatic Complexity Hotspots"),
+            !report.contains(">Cyclomatic Complexity Hotspots</h3>"),
             "the all-suppressed CC table must not render its rows:\n{report}"
         );
         assert!(
@@ -1724,17 +1935,19 @@ mod tests {
         c
     }
 
-    /// Slice the rendered HTML from `<h3>{title}</h3>` to the next `<h3>`
-    /// (or `</section>`), so a per-table membership check does not match a
-    /// name in a sibling table.
+    /// Slice the rendered HTML from `<h3 id="…">{title}</h3>` to the next
+    /// `<h3>` (or `</section>`), so a per-table membership check does not
+    /// match a name in a sibling table. Headings carry a slug id (issue
+    /// #622), so the needle matches the heading text+close, not the bare
+    /// open tag.
     fn html_section<'a>(html: &'a str, title: &str) -> &'a str {
-        let needle = format!("<h3>{title}</h3>");
+        let needle = format!(">{title}</h3>");
         let Some(start) = html.find(&needle) else {
             return "";
         };
         let rest = &html[start + needle.len()..];
         let end = rest
-            .find("<h3>")
+            .find("<h3")
             .or_else(|| rest.find("</section>"))
             .unwrap_or(rest.len());
         &rest[..end]
@@ -1757,5 +1970,169 @@ mod tests {
     fn snapshot_two_lang_report() {
         let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
         insta::assert_snapshot!("html_report_two_lang", out);
+    }
+
+    /// Collect every `<tag attr1="…" id="VALUE" …>` `id` attribute in
+    /// document order. A minimal scanner sufficient for the well-formed,
+    /// double-quoted attributes this renderer emits (no single quotes, no
+    /// unquoted values) — it is not a general HTML parser.
+    fn collect_ids(html: &str) -> Vec<String> {
+        let mut ids = Vec::new();
+        let mut rest = html;
+        while let Some(pos) = rest.find(" id=\"") {
+            rest = &rest[pos + " id=\"".len()..];
+            if let Some((value, tail)) = rest.split_once('"') {
+                ids.push(value.to_string());
+                rest = tail;
+            } else {
+                break;
+            }
+        }
+        ids
+    }
+
+    /// Collect every TOC `href="#FRAGMENT"` target (fragment without the `#`).
+    fn collect_href_fragments(html: &str) -> Vec<String> {
+        let mut frags = Vec::new();
+        let mut rest = html;
+        while let Some(pos) = rest.find("href=\"#") {
+            rest = &rest[pos + "href=\"#".len()..];
+            if let Some((value, tail)) = rest.split_once('"') {
+                frags.push(value.to_string());
+                rest = tail;
+            } else {
+                break;
+            }
+        }
+        frags
+    }
+
+    #[test]
+    fn slugify_is_fragment_safe_and_never_empty() {
+        assert_eq!(
+            slugify("Cyclomatic Complexity Hotspots"),
+            "cyclomatic-complexity-hotspots"
+        );
+        // Punctuation collapses to single hyphens, trimmed at the ends.
+        assert_eq!(
+            slugify("Functions With Many Parameters (>3)"),
+            "functions-with-many-parameters-3"
+        );
+        // Display names with HTML-special chars must NOT survive into a
+        // fragment — they slugify to plain ASCII (issue #622).
+        assert_eq!(slugify("C++"), "c");
+        assert_eq!(slugify("C#"), "c");
+        // An all-separator / empty basis yields a valid non-empty fragment.
+        assert_eq!(slugify("()"), "section");
+        assert_eq!(slugify(""), "section");
+    }
+
+    #[test]
+    fn heading_ids_are_unique_and_present_for_every_section() {
+        // Two languages emit the same h3 titles ("Summary", every hotspot),
+        // so the de-duplicator must keep every id distinct.
+        let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
+        let ids = collect_ids(&out);
+        assert!(!ids.is_empty(), "report must emit heading ids");
+        let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "every emitted id must be unique; got duplicates in {ids:?}"
+        );
+        // Every h2 section is present and slug-based.
+        for expect in ["per-language-overview", "python", "rust"] {
+            assert!(
+                ids.iter().any(|i| i == expect),
+                "missing slug id {expect:?} in {ids:?}"
+            );
+        }
+        // The per-language h3 ids are prefixed by the language slug so a
+        // reader can deep-link to one table.
+        assert!(
+            ids.iter()
+                .any(|i| i == "rust-cyclomatic-complexity-hotspots")
+        );
+        assert!(ids.iter().any(|i| i == "python-summary"));
+    }
+
+    #[test]
+    fn toc_links_resolve_to_existing_ids() {
+        // Parse (don't substring): every TOC fragment must name an id that
+        // actually exists on the page, or the nav is a dead link (issue #622).
+        let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
+        assert!(
+            out.contains("<nav class=\"toc\""),
+            "TOC nav must be present"
+        );
+        let ids: std::collections::BTreeSet<String> = collect_ids(&out).into_iter().collect();
+        let frags = collect_href_fragments(&out);
+        assert!(!frags.is_empty(), "TOC must contain links");
+        for frag in &frags {
+            assert!(
+                ids.contains(frag),
+                "TOC href #{frag} resolves to no id on the page; ids: {ids:?}"
+            );
+        }
+        // The TOC lists exactly the h2 sections (overview + both languages).
+        assert_eq!(
+            frags.len(),
+            3,
+            "TOC should list the three h2 sections, got {frags:?}"
+        );
+    }
+
+    #[test]
+    fn empty_report_emits_no_toc() {
+        // No sections means no nav (and no dead links).
+        let out = generate_html_report(&[], 20, SuppressionPolicy::Honor);
+        assert!(!out.contains("<nav class=\"toc\""));
+        assert_html_well_formed(&out);
+    }
+
+    #[test]
+    fn ranked_column_carries_aria_sort_at_render_time() {
+        // The pre-ranked column of every hotspot table must announce its
+        // initial sort order before any click — exactly one `aria-sort` per
+        // table header row, on the column the spec ranks by, with the
+        // direction matching `SortDir` (issue #622).
+        let out = generate_html_report(
+            &crate::markdown_report::rich_fixture(),
+            5,
+            SuppressionPolicy::Honor,
+        );
+
+        // The CC table ranks by CC descending: the `aria-sort` must sit on
+        // the CC `<th>`, not on Function/File/Line.
+        let cc = html_section(&out, "Cyclomatic Complexity Hotspots");
+        let header_row = cc.split_once("</thead>").expect("CC thead").0;
+        assert_eq!(
+            header_row.matches("aria-sort=").count(),
+            1,
+            "exactly one column may be marked as the initial sort:\n{header_row}"
+        );
+        assert!(
+            header_row.contains("aria-sort=\"descending\" title=\"Cyclomatic Complexity"),
+            "CC ranking column must carry aria-sort=descending:\n{header_row}"
+        );
+
+        // The MI table ranks ascending (lowest MI first) on the MI column.
+        let mi = html_section(&out, "Maintainability Index (lowest files, top-5)");
+        let mi_header = mi.split_once("</thead>").expect("MI thead").0;
+        assert_eq!(mi_header.matches("aria-sort=").count(), 1);
+        assert!(
+            mi_header.contains("aria-sort=\"ascending\" title=\"Maintainability Index"),
+            "MI ranking column must carry aria-sort=ascending:\n{mi_header}"
+        );
+    }
+
+    #[test]
+    fn sort_hint_present_once_near_first_table() {
+        let out = generate_html_report(&rust_fixture(), 5, SuppressionPolicy::Honor);
+        assert_eq!(
+            out.matches("class=\"sort-hint\"").count(),
+            1,
+            "the click-to-sort hint should appear exactly once"
+        );
     }
 }

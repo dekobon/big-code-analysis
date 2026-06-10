@@ -586,7 +586,7 @@ fn report_html_vcs_appends_sortable_change_history_section() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("<h2>Change-history risk</h2>")
+            predicate::str::contains(">Change-history risk</h2>")
                 .and(predicate::str::contains("<table class=\"hotspot\">"))
                 .and(predicate::str::contains("src/work.rs")),
         );

@@ -1027,13 +1027,15 @@ mod tests {
     /// across **every** occurrence of the title (one per language) — matching
     /// the all-occurrences behaviour of [`md_section_first_column`].
     fn html_section_first_column(report: &str, title: &str) -> Vec<String> {
-        let needle = format!("<h3>{title}</h3>");
+        // Headings now carry a slug `id=` attribute (issue #622), so match
+        // on the text+close (`>{title}</h3>`) rather than the bare open tag.
+        let needle = format!(">{title}</h3>");
         let mut names = Vec::new();
         let mut rest = report;
         while let Some(pos) = rest.find(&needle) {
             rest = &rest[pos + needle.len()..];
             let end = rest
-                .find("<h3>")
+                .find("<h3")
                 .or_else(|| rest.find("</section>"))
                 .unwrap_or(rest.len());
             for row in rest[..end].split("<tr>").skip(1) {
@@ -2035,7 +2037,9 @@ mod tests {
             );
 
             // HTML: the section emits a `<th>Line</th>` in its header row.
-            let html_hdr = format!("<h3>{header}");
+            // Headings carry a slug `id=` now (issue #622), so match the
+            // heading *text* after the tag-open rather than the bare tag.
+            let html_hdr = format!(">{header}");
             let start = html
                 .find(&html_hdr)
                 .unwrap_or_else(|| panic!("missing HTML section: {header}"));

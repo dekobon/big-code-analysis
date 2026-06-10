@@ -7,7 +7,7 @@ expression: out
 <head>
 <meta charset="utf-8">
 <title>Code Quality Metrics Summary — big-code-analysis</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:1.5rem;color:#222;background:#fafafa}h1{font-size:1.4rem;margin:0 0 0.5rem}h2{font-size:1.15rem;margin:1.5rem 0 0.5rem;border-bottom:1px solid #ccc;padding-bottom:0.25rem}h3{font-size:1rem;margin:1rem 0 0.4rem;color:#444}section{margin-top:2rem}section.lang-section{padding:0.5rem 1rem;border-radius:4px;border-left:3px solid rgba(127,127,127,0.35)}section.lang-section>h2{margin-top:0.25rem}section.lang-rust{background:rgba(222,128,82,0.08);border-left-color:rgba(222,128,82,0.55)}section.lang-python{background:rgba(58,118,196,0.08);border-left-color:rgba(58,118,196,0.55)}section.lang-javascript{background:rgba(229,202,71,0.10);border-left-color:rgba(229,202,71,0.65)}section.lang-typescript{background:rgba(46,116,194,0.08);border-left-color:rgba(46,116,194,0.55)}section.lang-java{background:rgba(196,69,60,0.08);border-left-color:rgba(196,69,60,0.55)}section.lang-kotlin{background:rgba(193,71,167,0.08);border-left-color:rgba(193,71,167,0.55)}section.lang-go{background:rgba(0,173,181,0.08);border-left-color:rgba(0,173,181,0.55)}section.lang-cpp{background:rgba(120,80,180,0.08);border-left-color:rgba(120,80,180,0.55)}section.lang-csharp{background:rgba(83,150,80,0.08);border-left-color:rgba(83,150,80,0.55)}section.lang-php{background:rgba(98,113,178,0.08);border-left-color:rgba(98,113,178,0.55)}section.lang-bash{background:rgba(96,128,96,0.08);border-left-color:rgba(96,128,96,0.55)}section.lang-perl{background:rgba(180,120,60,0.08);border-left-color:rgba(180,120,60,0.55)}section.lang-lua{background:rgba(0,86,180,0.08);border-left-color:rgba(0,86,180,0.55)}section.lang-tcl{background:rgba(160,90,140,0.08);border-left-color:rgba(160,90,140,0.55)}section.lang-irules{background:rgba(200,70,120,0.08);border-left-color:rgba(200,70,120,0.55)}section.lang-ruby{background:rgba(204,52,45,0.08);border-left-color:rgba(204,52,45,0.55)}section.lang-elixir{background:rgba(110,73,153,0.08);border-left-color:rgba(110,73,153,0.55)}section.lang-other{background:rgba(127,127,127,0.06);border-left-color:rgba(127,127,127,0.45)}@media (prefers-color-scheme:dark){section.lang-rust{background:rgba(222,128,82,0.16)}section.lang-python{background:rgba(58,118,196,0.18)}section.lang-javascript{background:rgba(229,202,71,0.16)}section.lang-typescript{background:rgba(46,116,194,0.18)}section.lang-java{background:rgba(196,69,60,0.18)}section.lang-kotlin{background:rgba(193,71,167,0.18)}section.lang-go{background:rgba(0,173,181,0.18)}section.lang-cpp{background:rgba(120,80,180,0.20)}section.lang-csharp{background:rgba(83,150,80,0.18)}section.lang-php{background:rgba(98,113,178,0.20)}section.lang-bash{background:rgba(96,128,96,0.18)}section.lang-perl{background:rgba(180,120,60,0.18)}section.lang-lua{background:rgba(0,86,180,0.20)}section.lang-tcl{background:rgba(160,90,140,0.20)}section.lang-irules{background:rgba(200,70,120,0.20)}section.lang-ruby{background:rgba(204,52,45,0.18)}section.lang-elixir{background:rgba(110,73,153,0.20)}section.lang-other{background:rgba(200,200,200,0.10)}}.summary{font-size:0.9rem;color:#444;margin-bottom:0.5rem}.summary strong{color:#222}.summary p{margin:0.2rem 0}.note{font-size:0.85rem;color:#555;margin:0.4rem 0}details.legend{font-size:0.85rem;color:#444;margin:0.8rem 0}details.legend summary{cursor:pointer;font-weight:600;color:#222}details.legend dl{margin:0.4rem 0 0 0}details.legend dt{font-weight:600;margin-top:0.3rem}details.legend dd{margin:0 0 0 1rem;color:#555}ul{margin:0.4rem 0 0.4rem 1.2rem;padding:0}li{margin:0.15rem 0;font-size:0.9rem}table.hotspot{border-collapse:collapse;width:100%;font-size:0.85rem;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.06);margin-bottom:0.5rem}table.hotspot th,table.hotspot td{padding:0.4rem 0.6rem;border-bottom:1px solid #e5e5e5;text-align:left;white-space:nowrap}table.hotspot th{background:#f0f0f0;cursor:pointer;user-select:none;font-weight:600}table.hotspot th:hover{background:#e5e5e5}table.hotspot th[aria-sort=ascending]::after{content:" \2191"}table.hotspot th[aria-sort=descending]::after{content:" \2193"}table.hotspot tr:nth-child(even) td{background:#fafafa}table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}table.hotspot td.risk-heat-0,table.hotspot td.risk-heat-1,table.hotspot td.risk-heat-2,table.hotspot td.risk-heat-3,table.hotspot td.risk-heat-4{font-weight:600}table.hotspot tr:nth-child(even) td.risk-heat-0,table.hotspot td.risk-heat-0{background:#f4b8b0;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-1,table.hotspot td.risk-heat-1{background:#f6cba3;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-2,table.hotspot td.risk-heat-2{background:#f1e3a3;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-3,table.hotspot td.risk-heat-3{background:#cfe6b0;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4{background:#bfe3c0;color:#222}@media (prefers-color-scheme:dark){table.hotspot td.risk-heat-0{background:#7a1f17;color:#f0f0f0}table.hotspot td.risk-heat-1{background:#7a4a12;color:#f0f0f0}table.hotspot td.risk-heat-2{background:#6b5e12;color:#f0f0f0}table.hotspot td.risk-heat-3{background:#33591f;color:#f0f0f0}table.hotspot td.risk-heat-4{background:#1f5a2e;color:#f0f0f0}}</style>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:1.5rem;color:#222;background:#fafafa}h1{font-size:1.4rem;margin:0 0 0.5rem}h2{font-size:1.15rem;margin:1.5rem 0 0.5rem;border-bottom:1px solid #ccc;padding-bottom:0.25rem}h3{font-size:1rem;margin:1rem 0 0.4rem;color:#444}section{margin-top:2rem}section.lang-section{padding:0.5rem 1rem;border-radius:4px;border-left:3px solid rgba(127,127,127,0.35)}section.lang-section>h2{margin-top:0.25rem}section.lang-rust{background:rgba(222,128,82,0.08);border-left-color:rgba(222,128,82,0.55)}section.lang-python{background:rgba(58,118,196,0.08);border-left-color:rgba(58,118,196,0.55)}section.lang-javascript{background:rgba(229,202,71,0.10);border-left-color:rgba(229,202,71,0.65)}section.lang-typescript{background:rgba(46,116,194,0.08);border-left-color:rgba(46,116,194,0.55)}section.lang-java{background:rgba(196,69,60,0.08);border-left-color:rgba(196,69,60,0.55)}section.lang-kotlin{background:rgba(193,71,167,0.08);border-left-color:rgba(193,71,167,0.55)}section.lang-go{background:rgba(0,173,181,0.08);border-left-color:rgba(0,173,181,0.55)}section.lang-cpp{background:rgba(120,80,180,0.08);border-left-color:rgba(120,80,180,0.55)}section.lang-csharp{background:rgba(83,150,80,0.08);border-left-color:rgba(83,150,80,0.55)}section.lang-php{background:rgba(98,113,178,0.08);border-left-color:rgba(98,113,178,0.55)}section.lang-bash{background:rgba(96,128,96,0.08);border-left-color:rgba(96,128,96,0.55)}section.lang-perl{background:rgba(180,120,60,0.08);border-left-color:rgba(180,120,60,0.55)}section.lang-lua{background:rgba(0,86,180,0.08);border-left-color:rgba(0,86,180,0.55)}section.lang-tcl{background:rgba(160,90,140,0.08);border-left-color:rgba(160,90,140,0.55)}section.lang-irules{background:rgba(200,70,120,0.08);border-left-color:rgba(200,70,120,0.55)}section.lang-ruby{background:rgba(204,52,45,0.08);border-left-color:rgba(204,52,45,0.55)}section.lang-elixir{background:rgba(110,73,153,0.08);border-left-color:rgba(110,73,153,0.55)}section.lang-other{background:rgba(127,127,127,0.06);border-left-color:rgba(127,127,127,0.45)}@media (prefers-color-scheme:dark){section.lang-rust{background:rgba(222,128,82,0.16)}section.lang-python{background:rgba(58,118,196,0.18)}section.lang-javascript{background:rgba(229,202,71,0.16)}section.lang-typescript{background:rgba(46,116,194,0.18)}section.lang-java{background:rgba(196,69,60,0.18)}section.lang-kotlin{background:rgba(193,71,167,0.18)}section.lang-go{background:rgba(0,173,181,0.18)}section.lang-cpp{background:rgba(120,80,180,0.20)}section.lang-csharp{background:rgba(83,150,80,0.18)}section.lang-php{background:rgba(98,113,178,0.20)}section.lang-bash{background:rgba(96,128,96,0.18)}section.lang-perl{background:rgba(180,120,60,0.18)}section.lang-lua{background:rgba(0,86,180,0.20)}section.lang-tcl{background:rgba(160,90,140,0.20)}section.lang-irules{background:rgba(200,70,120,0.20)}section.lang-ruby{background:rgba(204,52,45,0.18)}section.lang-elixir{background:rgba(110,73,153,0.20)}section.lang-other{background:rgba(200,200,200,0.10)}}.summary{font-size:0.9rem;color:#444;margin-bottom:0.5rem}.summary strong{color:#222}.summary p{margin:0.2rem 0}.note{font-size:0.85rem;color:#555;margin:0.4rem 0}nav.toc{font-size:0.9rem;margin:0.8rem 0;padding:0.5rem 0.8rem;background:#fff;border:1px solid #e5e5e5;border-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,0.06)}nav.toc ul{margin:0.2rem 0 0.2rem 1.2rem}nav.toc li{font-size:0.9rem}p.sort-hint{font-size:0.85rem;color:#555;margin:0.4rem 0;font-style:italic}@media (prefers-color-scheme:dark){nav.toc{background:#1e1e1e;border-color:#333}}details.legend{font-size:0.85rem;color:#444;margin:0.8rem 0}details.legend summary{cursor:pointer;font-weight:600;color:#222}details.legend dl{margin:0.4rem 0 0 0}details.legend dt{font-weight:600;margin-top:0.3rem}details.legend dd{margin:0 0 0 1rem;color:#555}ul{margin:0.4rem 0 0.4rem 1.2rem;padding:0}li{margin:0.15rem 0;font-size:0.9rem}table.hotspot{border-collapse:collapse;width:100%;font-size:0.85rem;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.06);margin-bottom:0.5rem}table.hotspot th,table.hotspot td{padding:0.4rem 0.6rem;border-bottom:1px solid #e5e5e5;text-align:left;white-space:nowrap}table.hotspot th{background:#f0f0f0;cursor:pointer;user-select:none;font-weight:600}table.hotspot th:hover{background:#e5e5e5}table.hotspot th[aria-sort=ascending]::after{content:" \2191"}table.hotspot th[aria-sort=descending]::after{content:" \2193"}table.hotspot tr:nth-child(even) td{background:#fafafa}table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}table.hotspot td.risk-heat-0,table.hotspot td.risk-heat-1,table.hotspot td.risk-heat-2,table.hotspot td.risk-heat-3,table.hotspot td.risk-heat-4{font-weight:600}table.hotspot tr:nth-child(even) td.risk-heat-0,table.hotspot td.risk-heat-0{background:#f4b8b0;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-1,table.hotspot td.risk-heat-1{background:#f6cba3;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-2,table.hotspot td.risk-heat-2{background:#f1e3a3;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-3,table.hotspot td.risk-heat-3{background:#cfe6b0;color:#222}table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4{background:#bfe3c0;color:#222}@media (prefers-color-scheme:dark){table.hotspot td.risk-heat-0{background:#7a1f17;color:#f0f0f0}table.hotspot td.risk-heat-1{background:#7a4a12;color:#f0f0f0}table.hotspot td.risk-heat-2{background:#6b5e12;color:#f0f0f0}table.hotspot td.risk-heat-3{background:#33591f;color:#f0f0f0}table.hotspot td.risk-heat-4{background:#1f5a2e;color:#f0f0f0}}</style>
 </head>
 <body>
 <h1>Code Quality Metrics Summary</h1>
@@ -17,7 +17,15 @@ expression: out
 <p><strong>Functions/methods:</strong> 10 <strong>Classes/impls/traits:</strong> 1</p>
 <p><strong>Comment ratio:</strong> 7.5%</p>
 </div>
-<h2>Per-language overview</h2>
+<nav class="toc" aria-label="Sections">
+<ul>
+<li><a href="#per-language-overview">Per-language overview</a></li>
+<li><a href="#python">Python</a></li>
+<li><a href="#rust">Rust</a></li>
+</ul>
+</nav>
+<h2 id="per-language-overview">Per-language overview</h2>
+<p class="sort-hint">Click a column header to sort any table.</p>
 <table class="hotspot">
 <thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
 <tbody>
@@ -25,94 +33,94 @@ expression: out
 <tr><td>Rust</td><td class="numeric">2</td><td class="numeric">280</td><td class="numeric">8</td><td class="numeric">28.5</td><td class="numeric">23.4</td><td class="numeric">22.6</td></tr>
 </tbody>
 </table>
-<section class="lang-section lang-python"><h2>Python</h2>
-<h3>Summary</h3>
+<section class="lang-section lang-python"><h2 id="python">Python</h2>
+<h3 id="python-summary">Summary</h3>
 <p class="note">Files: 1 | SLOC: 120 | PLOC: 25 | Comment ratio: 4.2%</p>
 <p class="note">Average MI: 28.0 (GOOD)</p>
-<h3>Maintainability Index (lowest files, top-5)</h3>
+<h3 id="python-maintainability-index-lowest-files-top-5">Maintainability Index (lowest files, top-5)</h3>
 <table class="hotspot">
-<thead><tr><th>File</th><th data-numeric="1" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">MI</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>File</th><th data-numeric="1" aria-sort="ascending" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">MI</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>src/main.py</td><td class="numeric">28.0</td><td class="numeric">120</td><td class="numeric">800</td></tr>
 </tbody>
 </table>
-<h3>Cyclomatic Complexity Hotspots</h3>
+<h3 id="python-cyclomatic-complexity-hotspots">Cyclomatic Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>main</td><td>src/main.py</td><td class="numeric">10</td><td class="numeric">10</td><td class="numeric">12</td><td class="numeric">60</td><td class="numeric">300</td></tr>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">7</td><td class="numeric">6</td><td class="numeric">35</td><td class="numeric">180</td></tr>
 </tbody>
 </table>
 <p class="note">Average CC: 8.5 | Max: 10 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions (excluding suppressed functions)</p>
-<h3>Cognitive Complexity Hotspots</h3>
+<h3 id="python-cognitive-complexity-hotspots">Cognitive Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>main</td><td>src/main.py</td><td class="numeric">10</td><td class="numeric">12</td><td class="numeric">10</td><td class="numeric">60</td><td class="numeric">300</td></tr>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">6</td><td class="numeric">7</td><td class="numeric">35</td><td class="numeric">180</td></tr>
 </tbody>
 </table>
-<h3>Halstead Effort Hotspots</h3>
+<h3 id="python-halstead-effort-hotspots">Halstead Effort Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>main</td><td>src/main.py</td><td class="numeric">10</td><td class="numeric">2000</td><td class="numeric">1000</td><td class="numeric">0.33</td><td class="numeric">60</td><td class="numeric">300</td></tr>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">1200</td><td class="numeric">600</td><td class="numeric">0.23</td><td class="numeric">35</td><td class="numeric">180</td></tr>
 </tbody>
 </table>
-<h3>Largest Functions by SLOC</h3>
+<h3 id="python-largest-functions-by-sloc">Largest Functions by SLOC</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
 <tbody>
 <tr><td>main</td><td>src/main.py</td><td class="numeric">10</td><td class="numeric">60</td><td class="numeric">300</td><td class="numeric">10</td><td class="numeric">12</td></tr>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">35</td><td class="numeric">180</td><td class="numeric">7</td><td class="numeric">6</td></tr>
 </tbody>
 </table>
-<h3>Functions With Many Parameters (&gt;3)</h3>
+<h3 id="python-functions-with-many-parameters-3">Functions With Many Parameters (&gt;3)</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Number of declared parameters of the function.">Args</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Number of declared parameters of the function.">Args</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">4</td><td class="numeric">35</td><td class="numeric">180</td></tr>
 </tbody>
 </table>
-<h3>Actionable Summary</h3>
+<h3 id="python-actionable-summary">Actionable Summary</h3>
 <p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <ul>
 <li><strong>1</strong> functions with more than 3 parameters</li>
 </ul>
-<h3>Functions with the most exit points (NEXITS)</h3>
+<h3 id="python-functions-with-the-most-exit-points-nexits">Functions with the most exit points (NEXITS)</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Number of exit points (returns, throws, breaks out of the function).">Exits</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Number of exit points (returns, throws, breaks out of the function).">Exits</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>main</td><td>src/main.py</td><td class="numeric">10</td><td class="numeric">2</td><td class="numeric">10</td><td class="numeric">60</td><td class="numeric">300</td></tr>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">2</td><td class="numeric">7</td><td class="numeric">35</td><td class="numeric">180</td></tr>
 </tbody>
 </table>
-<h3>ABC Magnitude Hotspots</h3>
+<h3 id="python-abc-magnitude-hotspots">ABC Magnitude Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.">ABC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.">ABC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>main</td><td>src/main.py</td><td class="numeric">10</td><td class="numeric">9.0</td><td class="numeric">60</td><td class="numeric">300</td></tr>
 <tr><td>load_data</td><td>src/main.py</td><td class="numeric">40</td><td class="numeric">7.0</td><td class="numeric">35</td><td class="numeric">180</td></tr>
 </tbody>
 </table>
 </section>
-<section class="lang-section lang-rust"><h2>Rust</h2>
-<h3>Summary</h3>
+<section class="lang-section lang-rust"><h2 id="rust">Rust</h2>
+<h3 id="rust-summary">Summary</h3>
 <p class="note">Files: 2 | SLOC: 280 | PLOC: 265 | Comment ratio: 8.9%</p>
 <p class="note">Average MI: 28.5 (GOOD)</p>
-<h3>Maintainability Index (lowest files, top-5)</h3>
+<h3 id="rust-maintainability-index-lowest-files-top-5">Maintainability Index (lowest files, top-5)</h3>
 <table class="hotspot">
-<thead><tr><th>File</th><th data-numeric="1" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">MI</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>File</th><th data-numeric="1" aria-sort="ascending" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">MI</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>src/lib.rs</td><td class="numeric">12.0</td><td class="numeric">200</td><td class="numeric">1,500</td></tr>
 <tr><td>src/util.rs</td><td class="numeric">45.0</td><td class="numeric">80</td><td class="numeric">600</td></tr>
 </tbody>
 </table>
-<h3>Cyclomatic Complexity Hotspots</h3>
+<h3 id="rust-cyclomatic-complexity-hotspots">Cyclomatic Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>process_request</td><td>src/lib.rs</td><td class="numeric">10</td><td class="numeric">25</td><td class="numeric">30</td><td class="numeric">150</td><td class="numeric">900</td></tr>
 <tr><td>validate_input</td><td>src/lib.rs</td><td class="numeric">40</td><td class="numeric">20</td><td class="numeric">24</td><td class="numeric">120</td><td class="numeric">700</td></tr>
@@ -122,9 +130,9 @@ expression: out
 </tbody>
 </table>
 <p class="note">Average CC: 12.6 | Max: 25 | CC &gt; 10: 4 functions | CC &gt; 20: 1 functions (excluding suppressed functions)</p>
-<h3>Cognitive Complexity Hotspots</h3>
+<h3 id="rust-cognitive-complexity-hotspots">Cognitive Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>secret_internal</td><td>src/lib.rs</td><td class="numeric">220</td><td class="numeric">80</td><td class="numeric">99</td><td class="numeric">300</td><td class="numeric">2,000</td></tr>
 <tr><td>process_request</td><td>src/lib.rs</td><td class="numeric">10</td><td class="numeric">30</td><td class="numeric">25</td><td class="numeric">150</td><td class="numeric">900</td></tr>
@@ -133,9 +141,9 @@ expression: out
 <tr><td>handle_event</td><td>src/lib.rs</td><td class="numeric">100</td><td class="numeric">14</td><td class="numeric">12</td><td class="numeric">70</td><td class="numeric">400</td></tr>
 </tbody>
 </table>
-<h3>Halstead Effort Hotspots</h3>
+<h3 id="rust-halstead-effort-hotspots">Halstead Effort Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>secret_internal</td><td>src/lib.rs</td><td class="numeric">220</td><td class="numeric">20000</td><td class="numeric">10000</td><td class="numeric">3.30</td><td class="numeric">300</td><td class="numeric">2,000</td></tr>
 <tr><td>process_request</td><td>src/lib.rs</td><td class="numeric">10</td><td class="numeric">9000</td><td class="numeric">4500</td><td class="numeric">0.83</td><td class="numeric">150</td><td class="numeric">900</td></tr>
@@ -144,9 +152,9 @@ expression: out
 <tr><td>handle_event</td><td>src/lib.rs</td><td class="numeric">100</td><td class="numeric">3000</td><td class="numeric">1500</td><td class="numeric">0.40</td><td class="numeric">70</td><td class="numeric">400</td></tr>
 </tbody>
 </table>
-<h3>Largest Functions by SLOC</h3>
+<h3 id="rust-largest-functions-by-sloc">Largest Functions by SLOC</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
 <tbody>
 <tr><td>secret_internal</td><td>src/lib.rs</td><td class="numeric">220</td><td class="numeric">300</td><td class="numeric">2,000</td><td class="numeric">99</td><td class="numeric">80</td></tr>
 <tr><td>process_request</td><td>src/lib.rs</td><td class="numeric">10</td><td class="numeric">150</td><td class="numeric">900</td><td class="numeric">25</td><td class="numeric">30</td></tr>
@@ -155,9 +163,9 @@ expression: out
 <tr><td>handle_event</td><td>src/lib.rs</td><td class="numeric">100</td><td class="numeric">70</td><td class="numeric">400</td><td class="numeric">12</td><td class="numeric">14</td></tr>
 </tbody>
 </table>
-<h3>Functions With Many Parameters (&gt;3)</h3>
+<h3 id="rust-functions-with-many-parameters-3">Functions With Many Parameters (&gt;3)</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Number of declared parameters of the function.">Args</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Number of declared parameters of the function.">Args</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>secret_internal</td><td>src/lib.rs</td><td class="numeric">220</td><td class="numeric">8</td><td class="numeric">300</td><td class="numeric">2,000</td></tr>
 <tr><td>process_request</td><td>src/lib.rs</td><td class="numeric">10</td><td class="numeric">6</td><td class="numeric">150</td><td class="numeric">900</td></tr>
@@ -165,7 +173,7 @@ expression: out
 <tr><td>compute_score</td><td>src/lib.rs</td><td class="numeric">130</td><td class="numeric">4</td><td class="numeric">40</td><td class="numeric">200</td></tr>
 </tbody>
 </table>
-<h3>Actionable Summary</h3>
+<h3 id="rust-actionable-summary">Actionable Summary</h3>
 <p class="note">Raw counts across all functions, including 1 suppressed (re-run with --no-suppress to list them).</p>
 <ul>
 <li><strong>5</strong> functions with CC &gt; 10</li>
@@ -174,16 +182,16 @@ expression: out
 <li><strong>4</strong> functions with more than 3 parameters</li>
 <li><strong>1</strong> functions with estimated Halstead bugs &gt; 1.0</li>
 </ul>
-<h3>Class/Trait/Impl Hotspots (WMC)</h3>
+<h3 id="rust-class-trait-impl-hotspots-wmc">Class/Trait/Impl Hotspots (WMC)</h3>
 <table class="hotspot">
-<thead><tr><th>Class</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Weighted Methods per Class: sum of cyclomatic complexity across the class&#39;s methods.">WMC</th><th data-numeric="1" title="Number of methods declared on the class.">Methods</th><th data-numeric="1" title="Number of Public Attributes declared on the class.">NPA</th><th data-numeric="1" title="Number of Public Methods declared on the class.">NPM</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Class</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Weighted Methods per Class: sum of cyclomatic complexity across the class&#39;s methods.">WMC</th><th data-numeric="1" title="Number of methods declared on the class.">Methods</th><th data-numeric="1" title="Number of Public Attributes declared on the class.">NPA</th><th data-numeric="1" title="Number of Public Methods declared on the class.">NPM</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>Widget</td><td>src/lib.rs</td><td class="numeric">250</td><td class="numeric">40</td><td class="numeric">8</td><td class="numeric">2</td><td class="numeric">6</td><td class="numeric">180</td><td class="numeric">1,100</td></tr>
 </tbody>
 </table>
-<h3>Functions with the most exit points (NEXITS)</h3>
+<h3 id="rust-functions-with-the-most-exit-points-nexits">Functions with the most exit points (NEXITS)</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Number of exit points (returns, throws, breaks out of the function).">Exits</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="Number of exit points (returns, throws, breaks out of the function).">Exits</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>secret_internal</td><td>src/lib.rs</td><td class="numeric">220</td><td class="numeric">10</td><td class="numeric">99</td><td class="numeric">300</td><td class="numeric">2,000</td></tr>
 <tr><td>handle_event</td><td>src/lib.rs</td><td class="numeric">100</td><td class="numeric">6</td><td class="numeric">12</td><td class="numeric">70</td><td class="numeric">400</td></tr>
@@ -192,9 +200,9 @@ expression: out
 <tr><td>validate_input</td><td>src/lib.rs</td><td class="numeric">40</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">120</td><td class="numeric">700</td></tr>
 </tbody>
 </table>
-<h3>ABC Magnitude Hotspots</h3>
+<h3 id="rust-abc-magnitude-hotspots">ABC Magnitude Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.">ABC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" aria-sort="descending" title="ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.">ABC</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>secret_internal</td><td>src/lib.rs</td><td class="numeric">220</td><td class="numeric">50.0</td><td class="numeric">300</td><td class="numeric">2,000</td></tr>
 <tr><td>process_request</td><td>src/lib.rs</td><td class="numeric">10</td><td class="numeric">22.0</td><td class="numeric">150</td><td class="numeric">900</td></tr>

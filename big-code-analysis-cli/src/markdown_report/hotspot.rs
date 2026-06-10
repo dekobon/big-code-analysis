@@ -45,6 +45,20 @@ pub(crate) enum SortDir {
     Desc,
 }
 
+impl SortDir {
+    /// The `aria-sort` attribute value the HTML renderer emits on the
+    /// pre-ranked column's `<th>`, so the initial sort order is announced
+    /// to screen readers and the existing CSS arrow shows on first render
+    /// (issue #622). Matches the vocabulary the inline sort handler
+    /// toggles between (`ascending` / `descending`).
+    pub(crate) fn aria_sort(self) -> &'static str {
+        match self {
+            Self::Asc => "ascending",
+            Self::Desc => "descending",
+        }
+    }
+}
+
 /// Which per-language slice a section ranks over.
 #[derive(Clone, Copy)]
 pub(crate) enum Source {
@@ -152,6 +166,13 @@ pub(crate) struct HotspotSpec {
     pub(crate) dir: SortDir,
     pub(crate) metric_kind: Metric,
     pub(crate) columns: &'static [Column],
+    /// Index into `columns` of the column the table is pre-ranked by
+    /// (the one whose cell renders `metric`). The HTML renderer emits
+    /// `aria-sort` here so the initial sort order is visible and
+    /// screen-reader-announced (issue #622). This is spec data, not
+    /// renderer guesswork: most sections rank on column 3, but the MI
+    /// table ranks on column 1, so the index cannot be inferred.
+    pub(crate) rank_col: usize,
     /// Cyclomatic is the one section with a trailing summary note.
     pub(crate) cc_note: bool,
 }
@@ -215,6 +236,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.mi_visual_studio,
         dir: SortDir::Asc,
         metric_kind: Metric::Mi,
+        // Ranked by MI (column 1), the only section not ranking on column 3.
+        rank_col: 1,
         columns: &[
             COL_FILE,
             Column {
@@ -236,6 +259,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.cyclomatic,
         dir: SortDir::Desc,
         metric_kind: Metric::Cyclomatic,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -255,6 +279,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.cognitive,
         dir: SortDir::Desc,
         metric_kind: Metric::Cognitive,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -274,6 +299,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.halstead_effort,
         dir: SortDir::Desc,
         metric_kind: Metric::Halstead,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -309,6 +335,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.sloc as f64,
         dir: SortDir::Desc,
         metric_kind: Metric::Loc,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -329,6 +356,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.nargs as f64,
         dir: SortDir::Desc,
         metric_kind: Metric::NArgs,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -354,6 +382,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.wmc,
         dir: SortDir::Desc,
         metric_kind: Metric::Wmc,
+        rank_col: 3,
         columns: &[
             Column {
                 header: "Class",
@@ -402,6 +431,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.nexits as f64,
         dir: SortDir::Desc,
         metric_kind: Metric::Nexits,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -426,6 +456,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         metric: |s| s.abc,
         dir: SortDir::Desc,
         metric_kind: Metric::Abc,
+        rank_col: 3,
         columns: &[
             COL_FUNCTION,
             COL_FILE,
@@ -768,6 +799,34 @@ mod tests {
             "only the cyclomatic spec carries the note"
         );
         assert_eq!(SPECS.iter().filter(|s| s.cc_note).count(), 1);
+    }
+
+    #[test]
+    fn rank_col_indexes_the_metric_column() {
+        // The HTML renderer emits `aria-sort` on `columns[rank_col]`, so it
+        // must be in bounds and name a numeric metric column (right-aligned
+        // with a tooltip), not an identity column like Function/File/Line
+        // (issue #622). A spec edit that reorders columns without updating
+        // `rank_col` would point the initial-sort arrow at the wrong header.
+        for (i, spec) in SPECS.iter().enumerate() {
+            assert!(
+                spec.rank_col < spec.columns.len(),
+                "spec {i} rank_col {} out of bounds (cols {})",
+                spec.rank_col,
+                spec.columns.len()
+            );
+            let col = spec.columns[spec.rank_col];
+            assert!(
+                col.align.is_numeric(),
+                "spec {i} rank_col points at non-numeric column {:?}",
+                col.header
+            );
+            assert!(
+                col.tooltip.is_some(),
+                "spec {i} rank_col points at identity column {:?}, not a metric",
+                col.header
+            );
+        }
     }
 
     #[test]

@@ -24,7 +24,7 @@
 use std::fmt::Write as _;
 
 use crate::html_report::{
-    write_html_head, write_html_tail, write_legend_html,
+    Headings, RankedColumn, write_html_head, write_html_tail, write_legend_html,
     write_table_classed_with_tooltips as write_html_table_classed, write_table_with_tooltips,
 };
 use crate::markdown_report::hotspot::Cell;
@@ -538,9 +538,12 @@ fn write_markdown_bus_factor(
 pub(crate) fn render_html(report: &Report) -> String {
     let mut out = String::with_capacity(8 * 1024 + report.files.len() * 128);
     write_html_head(&mut out, HEADING, HEADING);
+    // The standalone page has no TOC nav, but heading ids still aid
+    // deep-linking; a local `Headings` supplies the slug-dedup state.
+    let mut headings = Headings::default();
     let _ = out.write_str("<section>\n");
     // Page title is `<h1>`, so subsections start at `<h2>` (issue #618).
-    write_html_body(&mut out, report, STANDALONE_SUBSECTION_LEVEL);
+    write_html_body(&mut out, &mut headings, report, STANDALONE_SUBSECTION_LEVEL);
     let _ = out.write_str("</section>\n");
     write_html_tail(&mut out);
     out
@@ -548,19 +551,27 @@ pub(crate) fn render_html(report: &Report) -> String {
 
 /// Append the change-history `<section>` under a level-2 heading, for
 /// embedding in the aggregated `bca report --vcs` page (before its
-/// closing tail).
-pub(crate) fn push_html_section(out: &mut String, report: &Report) {
+/// closing tail). `headings` is the aggregated page's id/TOC collector, so
+/// this section's `<h2>` joins the table-of-contents (issue #622).
+pub(crate) fn push_html_section(out: &mut String, headings: &mut Headings, report: &Report) {
     let _ = out.write_str("<section>\n");
-    let _ = writeln!(out, "<h2>{HEADING}</h2>");
+    // The section `<h2>` carries a slug id and is linked from the page TOC.
+    headings.emit_h2(out, HEADING, HEADING);
+    let _ = out.write_str("\n");
     // Section header is `<h2>`, so subsections start at `<h3>`.
-    write_html_body(out, report, EMBEDDED_SUBSECTION_LEVEL);
+    write_html_body(out, headings, report, EMBEDDED_SUBSECTION_LEVEL);
     let _ = out.write_str("</section>\n");
 }
 
 /// Provenance summary + sortable table (or the empty-set message). No
 /// `<section>` wrapper or heading — the caller supplies those.
 /// `subsection_level` is the heading depth for the Bus factor subsection.
-fn write_html_body(out: &mut String, report: &Report, subsection_level: usize) {
+fn write_html_body(
+    out: &mut String,
+    headings: &mut Headings,
+    report: &Report,
+    subsection_level: usize,
+) {
     let _ = out.write_str("<div class=\"summary\">\n");
     let _ = writeln!(out, "<p>{}</p>", provenance(report));
     if report.truncated_shallow_clone {
@@ -582,11 +593,20 @@ fn write_html_body(out: &mut String, report: &Report, subsection_level: usize) {
         // valid against the active spec set.
         let risk_col = risk_column_index();
         let n_rows = rows.len();
+        // The table arrives pre-ranked by Risk descending (`report.files`
+        // is risk-ranked), so announce that as the initial sort on the Risk
+        // column's `<th>` — the existing CSS arrow then shows on first
+        // render and screen readers get `aria-sort` semantics (issue #622).
+        let ranked = risk_col.map(|index| RankedColumn {
+            index,
+            dir: "descending",
+        });
         write_html_table_classed(
             out,
             &headers(&specs),
             &aligns(&specs),
             &vcs_tooltips(&specs),
+            ranked,
             &rows,
             |r, c| {
                 if Some(c) == risk_col {
@@ -598,7 +618,7 @@ fn write_html_body(out: &mut String, report: &Report, subsection_level: usize) {
         );
     }
     if let Some(aggregate) = &report.vcs_aggregate {
-        write_html_bus_factor(out, &aggregate.bus_factor, subsection_level);
+        write_html_bus_factor(out, headings, &aggregate.bus_factor, subsection_level);
     }
     // A visible legend so the column definitions survive print, mobile, and
     // screen readers (the `title=` tooltips are hover-only) — issue #611;
@@ -611,9 +631,14 @@ fn write_html_body(out: &mut String, report: &Report, subsection_level: usize) {
 /// Append the bus-factor subsection (repo sentence + per-directory table)
 /// to the HTML body, delegating the table to the shared renderer (which
 /// escapes cells).
-fn write_html_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFactor, level: usize) {
+fn write_html_bus_factor(
+    out: &mut String,
+    headings: &mut Headings,
+    bf: &big_code_analysis::vcs::BusFactor,
+    level: usize,
+) {
     let _ = out.write_str("<section class=\"bus-factor\">\n");
-    let _ = writeln!(out, "<h{level}>Bus factor</h{level}>");
+    headings.emit_heading(out, level, "Bus factor", "Bus factor");
     let _ = writeln!(out, "<p class=\"summary\">{BUS_FACTOR_EXPLANATION}</p>");
     let _ = writeln!(
         out,
@@ -630,6 +655,9 @@ fn write_html_bus_factor(out: &mut String, bf: &big_code_analysis::vcs::BusFacto
             &bus_factor_headers(),
             &bus_factor_aligns(),
             &bus_factor_tooltips(),
+            // The bus-factor table is not pre-ranked by a single metric
+            // column, so no header announces an initial sort.
+            None,
             &bus_factor_rows(bf),
         );
     }
@@ -1086,12 +1114,13 @@ mod tests {
         );
 
         let html = render_html(&report);
+        // Headings carry a slug `id=` now (issue #622), so match text+close.
         assert!(
-            html.contains("<h2>Bus factor</h2>"),
+            html.contains(">Bus factor</h2>"),
             "standalone HTML bus factor at h2"
         );
         assert!(
-            !html.contains("<h3>Bus factor</h3>"),
+            !html.contains(">Bus factor</h3>"),
             "no h3 jump in standalone HTML"
         );
 
