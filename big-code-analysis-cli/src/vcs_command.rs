@@ -174,12 +174,7 @@ impl DefaultReport {
             .map(|(i, e)| (e.path.clone(), i))
             .collect();
         for (abs, cyclomatic_sum) in cyclomatic_sums {
-            let Some(rel) = abs
-                .canonicalize()
-                .ok()
-                .and_then(|c| c.strip_prefix(workdir).ok().map(Path::to_path_buf))
-                .and_then(|rel| path_to_string(&rel))
-            else {
+            let Some(rel) = repo_relative(abs, workdir).and_then(|rel| path_to_string(&rel)) else {
                 continue;
             };
             if let Some(idx) = by_path.remove(rel.as_str()) {
@@ -348,14 +343,22 @@ fn under_any_prefix(rel: &Path, prefixes: &[PathBuf]) -> bool {
     prefixes.iter().any(|prefix| rel.starts_with(prefix))
 }
 
+/// Canonicalize a walk-emitted path and strip the work-tree prefix,
+/// yielding the repo-relative path the index keys on. `None` for paths
+/// that vanished since the walk or live outside the work-tree. Single
+/// home for this match so [`lookup`] and [`Report::join_hotspot_scores`]
+/// cannot drift on symlink/relative-seed handling.
+fn repo_relative(abs: &Path, workdir: &Path) -> Option<PathBuf> {
+    let canonical = abs.canonicalize().ok()?;
+    canonical.strip_prefix(workdir).ok().map(Path::to_path_buf)
+}
+
 /// Map a walk-selected filesystem path to its index entry, returning the
 /// repo-relative path alongside the stats. Paths are canonicalised so a
 /// relative seed (`./src/x.rs`) still strips the work-tree prefix.
 fn lookup<'a>(index: &'a vcs::HistoryIndex, abs: &Path) -> Option<(PathBuf, &'a vcs::Stats)> {
-    let canonical = abs.canonicalize().ok()?;
-    let workdir = index.workdir()?;
-    let rel = canonical.strip_prefix(workdir).ok()?;
-    index.get(rel).map(|stat| (rel.to_path_buf(), stat))
+    let rel = repo_relative(abs, index.workdir()?)?;
+    index.get(&rel).map(|stat| (rel.clone(), stat))
 }
 
 /// Convert a repo-relative path to a UTF-8 string for output, warning
