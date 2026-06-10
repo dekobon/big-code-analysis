@@ -28,10 +28,12 @@ A few details worth noting:
   `is_generated` predicate (a leading `@generated`, `DO NOT EDIT`,
   or `GENERATED CODE` marker). Always handle the optional return
   before reaching into `result["metrics"]`.
-* The returned object is a plain `dict[str, Any]`. It is safe to
+* The returned object is a plain dict at runtime — safe to
   serialise with `json.dumps`, ship to a downstream service, or
   feed into [`flatten_spaces`](flat-records.md) for tabular
-  consumers.
+  consumers. Type checkers see it as the `FuncSpaceDict` TypedDict
+  (generated from the Rust wire shapes), so nested metric access
+  checks statically under mypy/pyright without casts.
 * Language detection mirrors the CLI exactly: path extension
   first, then shebang / emacs-mode fallback. Pass
   `bca.analyze_source(code, language)` if you have the source
