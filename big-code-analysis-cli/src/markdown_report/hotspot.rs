@@ -95,7 +95,10 @@ impl HotspotTitle {
         match self {
             Self::Static(s) => Cow::Borrowed(s),
             Self::MiLowest => {
-                Cow::Owned(format!("Maintainability Index (lowest files, top-{top_n})"))
+                // `--top 0` shows every file, so the title says "all" rather
+                // than the misleading "top-0" (issue #602).
+                let suffix = cap(top_n).map_or_else(|| "all".to_owned(), |n| format!("top-{n}"));
+                Cow::Owned(format!("Maintainability Index (lowest files, {suffix})"))
             }
         }
     }
@@ -426,20 +429,28 @@ impl CyclomaticStats {
     }
 }
 
+/// Translate a `--top` value into an optional row cap under the unified
+/// `0 = all` semantics (issue #602): `0` means "no cap" (`None`), any other
+/// `n` caps to `n` rows (`Some(n)`). The single definition the report
+/// renderers share so the three `--top`-family flags can't drift again.
+pub(crate) fn cap(top_n: usize) -> Option<usize> {
+    (top_n != 0).then_some(top_n)
+}
+
 /// In-place: keep the `top_n` highest-by-`metric` survivors of `v`, sorted
-/// descending. `O(N + k·log k)` via `select_nth_unstable_by` over the same
-/// total-order comparator as [`sort_by_metric_desc`]. Carries the `n == 0`
-/// and `n < len` guards so it never underflows or partitions needlessly.
+/// descending. `top_n == 0` means "no cap" — keep every survivor (the unified
+/// `0 = all` semantics, issue #602). `O(N + k·log k)` via
+/// `select_nth_unstable_by` over the same total-order comparator as
+/// [`sort_by_metric_desc`]. Carries the `n < len` guard so it never partitions
+/// needlessly.
 fn partial_top_n_desc<M: Fn(&FunctionSummary) -> f64>(
     v: &mut Vec<&FunctionSummary>,
     top_n: usize,
     metric: M,
 ) {
-    let n = v.len().min(top_n);
-    if n == 0 {
-        v.clear();
-        return;
-    }
+    // `cap()` collapses `0 = all` to the actual length, so the partition and
+    // truncate below keep every row when no cap was requested.
+    let n = cap(top_n).map_or(v.len(), |c| v.len().min(c));
     if n < v.len() {
         // Same comparator as `sort_by_metric_desc` (metric desc + shared
         // `tiebreak`), so the partition selects exactly the rows the final
@@ -455,8 +466,8 @@ fn partial_top_n_desc<M: Fn(&FunctionSummary) -> f64>(
 }
 
 /// Filter `entries`, keep the `top_n` highest-by-`metric` survivors sorted
-/// descending. `None` when the filter drops everything so callers can skip an
-/// empty heading; `Some(empty)` only for the (non-production) `top_n == 0`.
+/// descending (`top_n == 0` keeps all — issue #602). `None` when the filter
+/// drops everything so callers can skip an empty heading.
 pub(crate) fn top_n_desc<'a, F, M>(
     entries: &[&'a FunctionSummary],
     top_n: usize,
@@ -501,7 +512,10 @@ pub(crate) fn select<'a>(
         SortDir::Asc => {
             let mut v: Vec<&FunctionSummary> = base.iter().copied().filter(|s| keep(s)).collect();
             sort_by_metric_asc(&mut v, spec.metric);
-            v.truncate(v.len().min(top_n));
+            // `cap()` yields `None` for `top_n == 0` (show all); otherwise cap.
+            if let Some(c) = cap(top_n) {
+                v.truncate(v.len().min(c));
+            }
             v
         }
     }
@@ -665,13 +679,57 @@ mod tests {
     }
 
     #[test]
-    fn top_n_desc_returns_some_empty_when_top_n_is_zero() {
-        // `top_n == 0` (non-production; CLI clamps `--top` to range(1..))
-        // must return `Some(empty)`, not underflow.
-        let entries = [summary("a", "f.rs", 1, 5.0)];
+    fn top_n_desc_top_n_zero_keeps_all_sorted() {
+        // Issue #602: `top_n == 0` means "no cap" — every survivor is kept,
+        // still sorted descending. `--top` no longer clamps to `range(1..)`.
+        let entries = [
+            summary("low", "f.rs", 1, 1.0),
+            summary("high", "f.rs", 2, 10.0),
+            summary("mid", "f.rs", 3, 5.0),
+        ];
         let refs: Vec<&FunctionSummary> = entries.iter().collect();
-        let got = top_n_desc(&refs, 0, |_| true, |s| s.cyclomatic);
-        assert_eq!(got.as_deref().map(<[_]>::len), Some(0));
+        let got = top_n_desc(&refs, 0, |_| true, |s| s.cyclomatic).expect("Some");
+        assert_eq!(got.len(), 3);
+        assert_eq!(
+            got.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            ["high", "mid", "low"]
+        );
+    }
+
+    #[test]
+    fn cap_zero_is_no_cap() {
+        assert_eq!(cap(0), None);
+        assert_eq!(cap(1), Some(1));
+        assert_eq!(cap(20), Some(20));
+    }
+
+    #[test]
+    fn select_top_n_zero_keeps_all_rows() {
+        // Issue #602: `0 = all` flows through both sort directions. The CC
+        // (Desc) and MI (Asc) sections must list every survivor, not zero.
+        let fx = rust_funcs();
+        let refs: Vec<&FunctionSummary> = fx.iter().collect();
+        // 7 non-suppressed cyclomatic funcs survive `keep`; `--top 0` keeps all.
+        let desc = select(&SPECS[1], &refs, 0, SuppressionPolicy::Honor);
+        assert_eq!(desc.len(), 7, "Desc: top 0 keeps every survivor");
+        let trunc = select(&SPECS[1], &refs, 3, SuppressionPolicy::Honor);
+        assert_eq!(trunc.len(), 3, "nonzero still truncates");
+
+        let (cc_all, _) = select_cc(&SPECS[1], &refs, 0, SuppressionPolicy::Honor);
+        assert_eq!(cc_all.len(), 7, "select_cc: top 0 keeps every survivor");
+    }
+
+    #[test]
+    fn mi_title_says_all_when_uncapped() {
+        // `--top 0` renders "all", not the misleading "top-0".
+        assert_eq!(
+            HotspotTitle::MiLowest.render(0),
+            "Maintainability Index (lowest files, all)"
+        );
+        assert_eq!(
+            HotspotTitle::MiLowest.render(5),
+            "Maintainability Index (lowest files, top-5)"
+        );
     }
 
     #[test]

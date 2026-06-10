@@ -1674,7 +1674,7 @@ fn run_command_report(
     // returns `None`, so the report still renders without the section.
     let vcs = args
         .vcs
-        .then(|| crate::vcs_command::build_default_report(&globals, args.top as usize))
+        .then(|| crate::vcs_command::build_default_report(&globals, args.top))
         .flatten();
     let (tx, rx) = std::sync::mpsc::channel();
     let cfg = Config {
@@ -1687,7 +1687,7 @@ fn run_command_report(
     // ConcurrentRunner::run() consumed Config (and thus the Sender).
     // All worker threads have joined, so `rx.into_iter()` terminates.
     let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
-    let top = args.top as usize;
+    let top = args.top;
     let report = match (format, vcs.as_ref()) {
         (ReportFormat::Markdown, None) => generate_report(&summaries, top, policy),
         (ReportFormat::Markdown, Some(vcs)) => {

@@ -47,7 +47,8 @@ bca \
   machines — without it every row carries the absolute path of the
   current checkout.
 - `--top` controls how many rows appear in each hotspot table. 20 is
-  a good default for a PR comment; drop to 5 for a dashboard tile.
+  a good default for a PR comment; drop to 5 for a dashboard tile, or
+  pass `0` to list every row.
 - `--num-jobs` defaults to the effective CPU count
   (cgroup-/cpuset-aware on Linux); pass `--num-jobs 1` only to force
   serial mode for debugging.

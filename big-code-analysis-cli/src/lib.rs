@@ -625,9 +625,9 @@ struct ReportArgs {
     /// Output file. Stdout if omitted.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
-    /// Maximum number of entries per hotspot table.
-    #[clap(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
-    top: u32,
+    /// Maximum number of entries per hotspot table (`0` = all).
+    #[clap(long, default_value_t = 20)]
+    top: usize,
     /// Path prefix to strip from displayed file paths.
     #[clap(long, default_value = "")]
     strip_prefix: String,

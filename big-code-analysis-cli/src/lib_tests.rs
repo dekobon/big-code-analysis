@@ -433,13 +433,17 @@ fn report_html_with_top_and_strip_prefix() {
 }
 
 #[test]
-fn report_top_zero_rejected() {
-    assert!(parse(&["report", "markdown", "--top", "0"]).is_err());
+fn report_top_zero_means_all() {
+    // Issue #602 unified `0 = all` across `vcs`/`report`/`trend`; what used
+    // to be a usage error is now a valid "show all rows" request.
+    let args = parse_report_args(&["report", "markdown", "--top", "0"]);
+    assert_eq!(args.top, 0);
 }
 
 #[test]
-fn report_html_top_zero_rejected() {
-    assert!(parse(&["report", "html", "--top", "0"]).is_err());
+fn report_html_top_zero_means_all() {
+    let args = parse_report_args(&["report", "html", "--top", "0"]);
+    assert_eq!(args.top, 0);
 }
 
 #[test]

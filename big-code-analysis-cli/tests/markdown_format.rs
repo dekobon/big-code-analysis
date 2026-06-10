@@ -57,19 +57,23 @@ fn report_canonical_format_flag_selects_markdown() {
 }
 
 #[test]
-fn report_top_zero_rejected() {
+fn report_top_zero_shows_all() {
+    // Issue #602 unified `0 = all`: `--top 0` is no longer a usage error but
+    // a valid "show every row" request, and the MI title says "all".
     cli()
         .args([
+            "--paths",
+            &fixture_path(),
             "report",
             "markdown",
             "--top",
             "0",
-            "--paths",
-            &fixture_path(),
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("--top"));
+        .success()
+        .stdout(predicate::str::contains(
+            "Maintainability Index (lowest files, all)",
+        ));
 }
 
 #[test]

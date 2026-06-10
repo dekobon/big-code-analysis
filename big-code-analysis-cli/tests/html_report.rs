@@ -79,12 +79,24 @@ fn report_html_to_file_is_well_formed() {
 }
 
 #[test]
-fn report_html_top_zero_rejected() {
-    cli()
-        .args(["report", "html", "--top", "0", "--paths", &fixture_path()])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--top"));
+fn report_html_top_zero_shows_all() {
+    // Issue #602 unified `0 = all` across `vcs`/`report`/`trend`; `--top 0`
+    // is now a valid "show every row" request, and the MI title says "all".
+    let output = cli()
+        .args(["--paths", &fixture_path(), "report", "html", "--top", "0"])
+        .output()
+        .expect("invocation succeeds");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let body = String::from_utf8(output.stdout).expect("output is UTF-8");
+    assert!(
+        body.contains("Maintainability Index (lowest files, all)"),
+        "uncapped MI title says 'all', not 'top-0'"
+    );
+    assert_html_well_formed(&body);
 }
 
 #[test]

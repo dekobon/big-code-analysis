@@ -40,7 +40,7 @@ bca --paths /path/to/project report markdown --output report.md
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--top N` | 20 | Maximum entries per hotspot table. |
+| `--top N` | 20 | Maximum entries per hotspot table (`0` = all). |
 | `--strip-prefix PATH` | *(empty)* | Prefix removed from file paths. |
 | `--no-suppress` | *(off)* | Include functions silenced by in-source suppression markers (raw audit view). |
 | `--vcs` | *(off)* | Append a "Change-history risk" section ranking files by VCS risk (default windows), mirroring `bca metrics --vcs`. The section ranks the same files-with-metrics as the AST hotspot tables (the `metrics` file-type scope, #576), so both halves describe one file universe. Ignored with a warning outside a git working tree. See [`bca vcs`](vcs.md). |
