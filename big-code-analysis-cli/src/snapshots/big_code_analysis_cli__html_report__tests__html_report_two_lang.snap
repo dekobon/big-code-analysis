@@ -53,9 +53,9 @@ expression: out
 </table>
 <h3>Halstead Effort Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
-<tr><td>greet</td><td>src/main.py</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 </tbody>
 </table>
 <h3>Largest Functions by SLOC</h3>
@@ -113,10 +113,10 @@ expression: out
 </table>
 <h3>Halstead Effort Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Halstead effort: estimated mental effort to (re)create the code.">Effort</th><th data-numeric="1" title="Halstead volume: program length weighted by vocabulary size.">Volume</th><th data-numeric="1" title="Halstead bugs: estimated defect count derived from program volume.">Est. Bugs</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file.">Tokens</th></tr></thead>
 <tbody>
-<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
-<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 </tbody>
 </table>
 <h3>Largest Functions by SLOC</h3>

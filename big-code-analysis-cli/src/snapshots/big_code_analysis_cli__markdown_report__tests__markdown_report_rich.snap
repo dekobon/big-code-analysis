@@ -47,10 +47,10 @@ Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions (excludi
 
 ### Halstead Effort Hotspots
 
-| Function    | File        | Effort | Volume | Est. Bugs | SLOC | Tokens |
-| ----------- | ----------- | -----: | -----: | --------: | ---: | -----: |
-| `main`      | src/main.py |   2000 |   1000 |      0.33 |   60 |    300 |
-| `load_data` | src/main.py |   1200 |    600 |      0.23 |   35 |    180 |
+| Function    | File        | Line | Effort | Volume | Est. Bugs | SLOC | Tokens |
+| ----------- | ----------- | ---: | -----: | -----: | --------: | ---: | -----: |
+| `main`      | src/main.py |   10 |   2000 |   1000 |      0.33 |   60 |    300 |
+| `load_data` | src/main.py |   40 |   1200 |    600 |      0.23 |   35 |    180 |
 
 ### Largest Functions by SLOC
 
@@ -61,9 +61,9 @@ Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions (excludi
 
 ### Functions With Many Parameters (>3)
 
-| Function    | File        | Args | SLOC | Tokens |
-| ----------- | ----------- | ---: | ---: | -----: |
-| `load_data` | src/main.py |    4 |   35 |    180 |
+| Function    | File        | Line | Args | SLOC | Tokens |
+| ----------- | ----------- | ---: | ---: | ---: | -----: |
+| `load_data` | src/main.py |   40 |    4 |   35 |    180 |
 
 ### Actionable Summary
 
@@ -123,13 +123,13 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 
 ### Halstead Effort Hotspots
 
-| Function          | File       | Effort | Volume | Est. Bugs | SLOC | Tokens |
-| ----------------- | ---------- | -----: | -----: | --------: | ---: | -----: |
-| `secret_internal` | src/lib.rs |  20000 |  10000 |      3.30 |  300 |  2,000 |
-| `process_request` | src/lib.rs |   9000 |   4500 |      0.83 |  150 |    900 |
-| `validate_input`  | src/lib.rs |   7000 |   3500 |      0.67 |  120 |    700 |
-| `parse_config`    | src/lib.rs |   5000 |   2500 |      0.50 |   90 |    500 |
-| `handle_event`    | src/lib.rs |   3000 |   1500 |      0.40 |   70 |    400 |
+| Function          | File       | Line | Effort | Volume | Est. Bugs | SLOC | Tokens |
+| ----------------- | ---------- | ---: | -----: | -----: | --------: | ---: | -----: |
+| `secret_internal` | src/lib.rs |  220 |  20000 |  10000 |      3.30 |  300 |  2,000 |
+| `process_request` | src/lib.rs |   10 |   9000 |   4500 |      0.83 |  150 |    900 |
+| `validate_input`  | src/lib.rs |   40 |   7000 |   3500 |      0.67 |  120 |    700 |
+| `parse_config`    | src/lib.rs |   70 |   5000 |   2500 |      0.50 |   90 |    500 |
+| `handle_event`    | src/lib.rs |  100 |   3000 |   1500 |      0.40 |   70 |    400 |
 
 ### Largest Functions by SLOC
 
@@ -143,12 +143,12 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 
 ### Functions With Many Parameters (>3)
 
-| Function          | File       | Args | SLOC | Tokens |
-| ----------------- | ---------- | ---: | ---: | -----: |
-| `secret_internal` | src/lib.rs |    8 |  300 |  2,000 |
-| `process_request` | src/lib.rs |    6 |  150 |    900 |
-| `parse_config`    | src/lib.rs |    5 |   90 |    500 |
-| `compute_score`   | src/lib.rs |    4 |   40 |    200 |
+| Function          | File       | Line | Args | SLOC | Tokens |
+| ----------------- | ---------- | ---: | ---: | ---: | -----: |
+| `secret_internal` | src/lib.rs |  220 |    8 |  300 |  2,000 |
+| `process_request` | src/lib.rs |   10 |    6 |  150 |    900 |
+| `parse_config`    | src/lib.rs |   70 |    5 |   90 |    500 |
+| `compute_score`   | src/lib.rs |  130 |    4 |   40 |    200 |
 
 ### Actionable Summary
 

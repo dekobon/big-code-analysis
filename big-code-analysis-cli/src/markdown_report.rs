@@ -1910,6 +1910,53 @@ mod tests {
         );
     }
 
+    /// Issue #628: the Halstead Effort and Many-Parameters tables were the
+    /// only per-function hotspots missing the `Line` column. Both renderers
+    /// draw from the shared `hotspot::SPECS`, so one fix covers both — assert
+    /// the header is now present in each format for each table.
+    #[test]
+    fn line_column_present_in_halstead_and_many_params() {
+        use crate::html_report::generate_html_report;
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        // One function that surfaces in both tables: nargs > 3 (Many-Params
+        // gate) and a positive Halstead effort.
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.halstead_effort = 200.0;
+        func.nargs = 4;
+        let fixture = [unit, func];
+
+        let md = generate_report(&fixture, 20, SuppressionPolicy::Honor);
+        let html = generate_html_report(&fixture, 20, SuppressionPolicy::Honor);
+
+        for header in ["Halstead Effort Hotspots", "Functions With Many Parameters"] {
+            // Markdown: the header row immediately after the section heading.
+            let md_hdr = format!("### {header}");
+            let start = md
+                .find(&md_hdr)
+                .unwrap_or_else(|| panic!("missing Markdown section: {header}"));
+            let header_row = md[start..]
+                .lines()
+                .find(|l| l.starts_with('|'))
+                .expect("Markdown header row");
+            assert!(
+                header_row.contains("Line"),
+                "Line column missing from Markdown {header} header row:\n{header_row}"
+            );
+
+            // HTML: the section emits a `<th>Line</th>` in its header row.
+            let html_hdr = format!("<h3>{header}");
+            let start = html
+                .find(&html_hdr)
+                .unwrap_or_else(|| panic!("missing HTML section: {header}"));
+            let table_slice = &html[start..];
+            let body_start = table_slice.find("<tbody").unwrap_or(table_slice.len());
+            assert!(
+                table_slice[..body_start].contains(">Line</th>"),
+                "Line column missing from HTML {header} header"
+            );
+        }
+    }
+
     #[test]
     fn nexits_present_abc_absent() {
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);

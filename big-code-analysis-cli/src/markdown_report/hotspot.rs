@@ -230,6 +230,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         columns: &[
             COL_FUNCTION,
             COL_FILE,
+            COL_LINE,
             Column {
                 header: "Effort",
                 align: Align::Right,
@@ -281,6 +282,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         columns: &[
             COL_FUNCTION,
             COL_FILE,
+            COL_LINE,
             Column {
                 header: "Args",
                 align: Align::Right,
