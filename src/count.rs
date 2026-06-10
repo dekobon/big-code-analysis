@@ -21,8 +21,6 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
-extern crate num_format;
-
 use num_format::{Locale, ToFormattedString};
 use std::fmt;
 use std::sync::{Arc, Mutex};
