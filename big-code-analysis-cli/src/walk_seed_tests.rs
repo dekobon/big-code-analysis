@@ -76,6 +76,37 @@ fn nonexistent_absolute_seed_is_unchanged() {
     assert_eq!(reanchor_seed(seed.clone()), seed.as_path());
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinked_seed_under_cwd_becomes_relative_remainder() {
+    // Regression: `current_dir()` returns the canonical CWD (getcwd
+    // resolves every symlink), so a seed spelled through a symlinked
+    // ancestor shares no lexical prefix with it. `reanchor_seed` must
+    // canonicalize the seed before stripping, or the seed stays absolute
+    // and every emitted file nests under its full path. This is the
+    // default on macOS — a `TempDir` (`/var/folders/…`) and `/tmp` are
+    // both symlinks into `/private` — and is what flattened the
+    // `metrics -o` output the include/exclude integration tests assert on.
+    //
+    // The symlink targets the crate `src/` dir (a real directory under the
+    // CWD); the symlink itself lives in a tempdir *outside* the CWD, so
+    // pre-fix the raw `strip_prefix(cwd)` fails and the absolute symlink
+    // path survives — exactly the bug.
+    let td = tempfile::tempdir().expect("tempdir");
+    let target = std::env::current_dir()
+        .expect("cwd available in test")
+        .join("src");
+    assert!(target.is_dir(), "crate `src/` must exist for this test");
+    let link = td.path().join("seed-link");
+    std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+    assert_eq!(
+        reanchor_seed(link),
+        Path::new("src"),
+        "a symlinked seed resolving under the CWD must reanchor to its \
+         canonical relative tail, not stay an absolute path"
+    );
+}
+
 #[test]
 fn match_path_anchors_absolute_walk_root_to_dot_relative() {
     // The #489 core: a file emitted under an *absolute* walk root

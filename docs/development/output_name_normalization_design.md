@@ -49,7 +49,14 @@ of a separate bug:
 
 - **#488** — absolute seeds defeated the `./`-anchored exclude globset.
   Fixed by `reanchor_seed` (collapse an at/under-CWD absolute seed to
-  its CWD-relative form before walking).
+  its CWD-relative form before walking). The strip is lexical first (the
+  as-spelled seed, so path-form independence holds even for a symlinked
+  seed), falling back to the *canonicalized* seed only when the lexical
+  strip fails — the case where the seed reaches the CWD through a
+  symlinked ancestor (`current_dir` is canonical via getcwd; macOS's
+  `/var/folders` and `/tmp` are symlinks into `/private`). Without the
+  fallback, such a seed stayed absolute and nested every emitted file
+  under its full path.
 - **#489** — a manifest root *above* the CWD (run from a subdirectory)
   could not be collapsed by `reanchor_seed`, so the walker emitted
   absolute paths the `./`-anchored deny-set never matched. Fixed by

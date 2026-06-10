@@ -288,10 +288,19 @@ fn perf_10k_lines_200_commits_under_30s() {
         // `per_function` already retries the transient miss; on the rare run
         // where every retry still misses, production skips the file's
         // per-function blocks rather than aborting, so this perf test mirrors
-        // that and skips rather than flaking. Only the two documented
-        // transient strings are tolerated; any other blame error still fails.
+        // that and skips rather than flaking. Only the three documented
+        // transient wordings are tolerated; any other blame error still fails.
+        //
+        // The race surfaces in three `Display` forms, one per retried gix
+        // lookup (see `is_transient_blame_miss` / `is_transient_object_miss`
+        // in src/vcs/git/blame.rs):
+        //   - "iterator over a tree"  — `gix::blame::Error::FindExistingIter`
+        //   - "blob or commit"        — `gix::blame::Error::FindExistingObject`
+        //   - "could not be found"    — the post-blame commit `NotFound` lookup
         Err(big_code_analysis::vcs::Error::Blame(reason))
-            if reason.contains("iterator over a tree") || reason.contains("could not be found") =>
+            if reason.contains("iterator over a tree")
+                || reason.contains("blob or commit")
+                || reason.contains("could not be found") =>
         {
             eprintln!("skipping perf assertion: transient gix-odb race (#579): {reason}");
             return;

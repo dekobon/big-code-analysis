@@ -1787,6 +1787,14 @@ for historical reference.
 
 ### Fixed
 
+- Per-file output (`bca metrics/ops -o <dir>`) is written under the
+  walk-root-relative path again when `--paths` is spelled through a
+  symlinked directory. `reanchor_seed` compared the as-spelled seed
+  against the canonical process CWD, so a symlinked seed (the default on
+  macOS, where a `TempDir` lives under `/var/folders` and `/tmp` is a
+  symlink into `/private`) failed to strip and every output file nested
+  under its full absolute path instead of the expected flat / relative
+  layout. The seed is now canonicalized before the strip.
 - **(breaking)** `bca check --output <path>` without `--format` infers
   the format from the file extension (`.sarif` → SARIF, `.xml` →
   Checkstyle) or exits 1 with a usage error, instead of silently

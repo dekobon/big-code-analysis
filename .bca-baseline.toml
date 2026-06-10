@@ -44,7 +44,7 @@ path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 854.0
+value = 865.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
@@ -59,6 +59,13 @@ qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
 value = 1295.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/walk_seed.rs"
+qualified = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 54137.59525953174
 
 [[entry]]
 path = "big-code-analysis-py/src/codegen.rs"

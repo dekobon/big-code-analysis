@@ -55,16 +55,39 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     let Ok(cwd) = std::env::current_dir() else {
         return seed;
     };
-    // `strip_prefix` is purely lexical and skips `CurDir` components,
-    // so a manifest-resolved `/abs/repo/.` strips cleanly against the
-    // `/abs/repo` CWD to an empty remainder.
-    match seed.strip_prefix(&cwd) {
-        Ok(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
-        Ok(rel) => rel.to_path_buf(),
-        // Outside the CWD (e.g. an absolute sibling tree). Leave it as
-        // an absolute seed; its emitted paths keep the absolute form,
-        // which is the only stable identity available for them.
-        Err(_) => seed,
+    // Try the *as-spelled* seed first. `strip_prefix` is purely lexical and
+    // skips `CurDir` components, so a manifest-resolved `/abs/repo/.` strips
+    // cleanly against the `/abs/repo` CWD to an empty remainder. This is the
+    // whole of the pre-existing behavior, kept first and unchanged so it
+    // cannot regress: a seed lexically at or under the CWD keeps the same
+    // relative tail it always produced, which is what makes `--paths vendor`
+    // and `--paths "$PWD/vendor"` emit one identity even when `vendor` is a
+    // symlink to a tree elsewhere (#488).
+    //
+    // When the lexical strip fails, the seed may still reach the CWD *through*
+    // a symlinked ancestor. `current_dir` returns the canonical CWD — the
+    // getcwd syscall resolves every symlink component — so such a seed shares
+    // no lexical prefix with `cwd` and would otherwise stay absolute, nesting
+    // every emitted file under its full path. This is the default on macOS,
+    // where a `TempDir` (`/var/folders/…`) and `/tmp` are both symlinks into
+    // `/private`. Retry against the canonicalized seed (computed only on the
+    // failure path, so the common at/under-CWD seed pays no extra syscall); an
+    // unresolvable or genuinely-outside seed keeps its as-spelled absolute
+    // form, the only stable identity for it.
+    let stripped = match seed.strip_prefix(&cwd) {
+        Ok(rel) => Some(rel.to_path_buf()),
+        Err(_) => match seed.canonicalize() {
+            Ok(canonical) => canonical.strip_prefix(&cwd).ok().map(PathBuf::from),
+            Err(_) => None,
+        },
+    };
+    match stripped {
+        Some(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
+        Some(rel) => rel,
+        // Neither lexically nor canonically under the CWD (an unresolvable or
+        // genuinely-outside seed). Keep the as-spelled absolute seed; its
+        // emitted paths keep that form, the only stable identity for them.
+        None => seed,
     }
 }
 

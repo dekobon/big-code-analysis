@@ -775,8 +775,17 @@ mod tests {
         // mirrors from `inject`) resolves them; the join must key off the
         // canonicalized-then-stripped repo-relative path, not the raw
         // absolute path the AST walk emits.
+        //
+        // The workdir is canonicalized to mirror production: `repo::open`
+        // stores `repo.workdir().canonicalize()`, and `join_hotspot_scores`
+        // strips that canonical prefix off the canonicalized file path. A
+        // raw `tempdir()` path is *not* canonical where the temp root is a
+        // symlink (macOS `/var/folders`, `/tmp` -> `/private/tmp`; Windows
+        // verbatim `\\?\` prefixes), so the strip would fail and the join
+        // silently match nothing — a test-only artifact, not a real miss.
         let workdir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir(workdir.path().join("src")).expect("mkdir src");
+        let workdir_root = workdir.path().canonicalize().expect("canonicalize workdir");
         let abs_a = workdir.path().join("src/a.rs");
         let abs_b = workdir.path().join("src/b.rs");
         std::fs::write(&abs_a, b"fn a() {}").expect("write a");
@@ -794,15 +803,17 @@ mod tests {
         };
         let mut default = DefaultReport {
             report,
-            workdir: Some(workdir.path().to_path_buf()),
+            workdir: Some(workdir_root),
         };
 
-        // `a.rs` cyclomatic sum 7; `extra.rs` has no change-history row and
-        // must be ignored without panicking.
-        let cyclomatic_sums = vec![
-            (abs_a.clone(), 7.0),
-            (workdir.path().join("src/extra.rs"), 99.0),
-        ];
+        // `a.rs` cyclomatic sum 7; `extra.rs` resolves (it exists on disk, so
+        // `repo_relative`'s `canonicalize` succeeds) but has no change-history
+        // row, exercising the `by_path.remove` miss — it must be skipped
+        // without panicking. Writing it is load-bearing: an absent file would
+        // be dropped earlier at `canonicalize`, never reaching the row lookup.
+        let abs_extra = workdir.path().join("src/extra.rs");
+        std::fs::write(&abs_extra, b"fn extra() {}").expect("write extra");
+        let cyclomatic_sums = vec![(abs_a.clone(), 7.0), (abs_extra, 99.0)];
         default.join_hotspot_scores(&cyclomatic_sums);
 
         let a = &default.report.files[0];
