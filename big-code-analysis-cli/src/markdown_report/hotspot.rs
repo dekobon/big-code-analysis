@@ -505,7 +505,7 @@ pub(crate) fn actionable_summary_caption(breakdown: &[(Metric, usize)]) -> Cow<'
     }
     let parts: Vec<String> = breakdown
         .iter()
-        .map(|(metric, count)| format!("{metric}: {}", crate::markdown_report::thousands(*count)))
+        .map(|(metric, count)| format!("{metric}: {}", thousands(*count)))
         .collect();
     Cow::Owned(format!(
         "Raw counts across all functions; the hotspot tables hide suppressed \
@@ -741,9 +741,13 @@ pub(crate) fn fully_suppressed_count(
 /// metric stops a single noisy metric (e.g. a blanket Halstead suppression)
 /// from reading as if the whole codebase were silenced (issue #672).
 ///
-/// Only metrics with a nonzero count appear. File-level (`Source::Units`)
-/// tables such as MI are skipped: `funcs` carries no unit spaces, so they
-/// would always tally zero. Returns an empty `Vec` under
+/// Only metrics with a nonzero count appear. The tally is restricted to
+/// function-level (`Source::Funcs`) tables, matching the `funcs` slice this
+/// receives and the function-scoped Actionable Summary it captions: the
+/// file-level MI table (`Source::Units`) and the class-level WMC table
+/// (`Source::All`) operate over slices `funcs` does not carry, so counting
+/// them here would always tally zero (or, for WMC, silently miss the
+/// class-likes its own table hides). Returns an empty `Vec` under
 /// [`SuppressionPolicy::Ignore`], since `--no-suppress` honors no markers.
 pub(crate) fn suppressed_metric_breakdown(
     funcs: &[&FunctionSummary],
@@ -754,7 +758,7 @@ pub(crate) fn suppressed_metric_breakdown(
     }
     SPECS
         .iter()
-        .filter(|spec| !matches!(spec.source, Source::Units))
+        .filter(|spec| matches!(spec.source, Source::Funcs))
         .filter_map(|spec| {
             let hidden = funcs
                 .iter()
