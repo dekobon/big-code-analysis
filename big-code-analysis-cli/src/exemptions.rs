@@ -107,7 +107,7 @@ impl ExemptionsReport {
         strip_prefix: &str,
     ) -> Result<String, serde_json::Error> {
         match format {
-            OutputFormat::Tty => Ok(self.render_tty(strip_prefix)),
+            OutputFormat::Text => Ok(self.render_tty(strip_prefix)),
             OutputFormat::Markdown => Ok(self.render_markdown(strip_prefix)),
             OutputFormat::Json => self.render_json(strip_prefix),
         }

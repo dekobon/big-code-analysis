@@ -232,6 +232,14 @@ impl MetricDiff {
         self.buckets.values().map(|b| b.changed.len()).sum()
     }
 
+    /// Whether the diff carries no surviving delta after the active
+    /// `--min-change` / `--metric` filtering: no per-metric field changes
+    /// and no added/removed files. Drives `bca diff --exit-code` (#692),
+    /// which exits with the metric-gate code when this is `false`.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.total_changes() == 0 && self.added_files.is_empty() && self.removed_files.is_empty()
+    }
+
     /// One-line headline reported by every renderer.
     fn summary_line(&self) -> String {
         format!(

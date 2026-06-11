@@ -21,8 +21,49 @@ for historical reference.
 
 ## [Unreleased]
 
+### Changed
+
+- `bca dump` and `bca find` text output now print a `== <path> ==` banner
+  before each file's tree, so a multi-file dump is attributable despite
+  the parallel walk interleaving output (non-breaking; human debug
+  output) (#690).
+- **(breaking)** `bca dump` now requires an explicit path: bare `bca
+  dump` errors (exit 1) instead of dumping the whole current directory —
+  the documented exception to #596's default-`.` walk, since a
+  whole-tree AST dump has no plausible use. Deferred to 2.0.0 (#690).
+- **(breaking)** One human-output-format vocabulary across the CLI
+  (#659): the diff-family human value `tty` is renamed to `text`
+  (`bca diff` / `diff-baseline` / `exemptions --format text`), `bca vcs`
+  gains a selectable `text` value that renders its human ranked table
+  (previously the unnamed default), and `bca check`'s CI-dialect selector
+  is renamed `--format`/`-O` → `--report-format` to separate "which CI
+  report dialect" from data serialization. The renamed values/flags keep
+  one-cycle hidden aliases (`tty`, and `--format`/`-O`/`--output-format`
+  on `check`); `-O`/`--format` stay canonical for the structured format
+  on the data-serialization subcommands. Deferred to 2.0.0.
+- **(breaking)** `bca vcs jit` is renamed to `bca vcs commit` and its
+  gate flag `--fail-over <SCORE>` to `--fail-above <SCORE>`; the gate
+  output prefix is now `vcs commit: …`. The old `jit` subcommand spelling
+  and `--fail-over` flag keep working as hidden aliases for one release
+  cycle, then are removed in the next major. "Just-in-time (JIT)" stays
+  in the long help and book as the defect-prediction-literature
+  cross-reference. Deferred to 2.0.0 (#603).
+
 ### Added
 
+- `bca metrics --metrics <name,…>` restricts computation to a subset of
+  metrics via the public `MetricsOptions::with_only` (dependencies
+  auto-resolved). Accepts comma-separated and/or repeated values using
+  the same canonical ids as `check --threshold` / `diff --metric`
+  (dotted and bare `loc` sub-metric spellings included); an unknown name
+  errors (exit 1) with a did-you-mean. Default (flag absent) computes
+  every metric (additive) (#691).
+- `bca diff` / `bca diff-baseline` gain an opt-in `--exit-code` flag:
+  exit with the metric-gate code (`2`) when the diff, after the active
+  `--metric` / `--min-change` (or `--*-only` section) filtering, is
+  non-empty; exit `0` when empty. Default behavior is unchanged (always
+  `0` on success); a tool error still exits `1`. `git diff
+  --exit-code`-style boolean for grammar-bump CI (#692).
 - Metric legend in reports: Markdown gains a `### Legend` footnote and
   HTML a visible collapsible legend, with per-column definitions hoisted
   onto the shared column specs so the HTML tooltips and both legends
@@ -1846,6 +1887,21 @@ for historical reference.
 
 ### Fixed
 
+- **(breaking)** `bca metrics` / `bca ops --output <path>` without a
+  structured `--format` now errors (exit 1) instead of silently writing
+  nothing on exit 0 — the default `text` format streams to stdout and
+  writes no files, so an explicit `--output` under it was a silent no-op
+  (the failure mode the #600 `check` fix called out). Mirrors #600.
+  Invocations that previously exited 0 writing nothing now exit nonzero
+  (#661).
+- `bca diff --metric <name>` now validates names at parse time: an
+  unknown name (e.g. a typo `cylomatic`) exits 1 with the known-names
+  list and a did-you-mean, instead of silently matching nothing and
+  reporting a clean diff (exit 0). Reuses the `check --threshold`
+  did-you-mean machinery and accepts the #514 dotted / `loc`-sub-metric
+  aliases. Technically breaking — spellings that previously matched
+  nothing now error, but those invocations were already silently broken
+  (#662).
 - `bca check` remediation footer no longer claims a `bca-reports` CI
   artifact on local runs; outside GitHub Actions it now suggests
   `bca report` for the detailed view (#676).

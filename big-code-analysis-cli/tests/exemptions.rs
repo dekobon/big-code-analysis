@@ -396,3 +396,32 @@ fn missing_explicit_baseline_is_an_error() {
         .stderr(predicate::str::contains("baseline"))
         .stderr(predicate::str::contains("does-not-exist.toml"));
 }
+
+/// #659: the human format is named `text` everywhere; `--format text`
+/// renders the same human report the default does, and the former `tty`
+/// spelling still parses as a one-cycle hidden alias.
+#[test]
+fn format_text_and_tty_alias_render_human_report() {
+    let dir = marker_fixture();
+    let path = dir.path().to_str().unwrap();
+    let default_out = cli()
+        .args(["--paths", path, "exemptions"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    for value in ["text", "tty"] {
+        let out = cli()
+            .args(["--paths", path, "exemptions", "--format", value])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        assert_eq!(
+            out, default_out,
+            "`--format {value}` must match the default human report"
+        );
+    }
+}

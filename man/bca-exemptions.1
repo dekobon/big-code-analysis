@@ -9,15 +9,15 @@ bca\-exemptions \- Audit everything the `bca check` gate skips in one view: in\-
 Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
 .SH OPTIONS
 .TP
-\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
-Output style: `tty` (default), `markdown`, or `json`. JSON nests all three sections under a single `suppressions` envelope
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: text]
+Output style: `text` (default), `markdown`, or `json`. JSON nests all three sections under a single `suppressions` envelope
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
 .IP \(bu 2
-tty
+text
 .IP \(bu 2
 markdown
 .IP \(bu 2

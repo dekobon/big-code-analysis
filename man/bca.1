@@ -91,7 +91,7 @@ bca\-report(1)
 Generate an aggregated report across the analyzed source
 .TP
 bca\-dump(1)
-Dump the AST to stdout
+Dump the AST to stdout. Each file\*(Aqs tree is prefixed with a `== <path> ==` banner so a multi\-file dump is attributable (#690). Requires an explicit path — unlike the other walking subcommands, bare `bca dump` errors instead of dumping the whole current directory (a whole\-tree AST dump has no plausible use)
 .TP
 bca\-find(1)
 Find nodes of one or more types
@@ -132,12 +132,13 @@ Print this message or the help of the given subcommand(s)
 Exit codes:
   0  success
   1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)
-  2  metric gate: `check` thresholds exceeded / `vcs jit \-\-fail\-over` breached (default contract)
+  2  metric gate: `check` thresholds exceeded / `vcs commit \-\-fail\-above` breached / `diff \-\-exit\-code` non\-empty (default contract)
   3\-5  `check \-\-strict\-exit\-codes` only: tiered violation severity
 
 Exit code 1 is always a tool error, never a metric signal — usage errors
 (unknown flag, bad subcommand, malformed `\-\-threshold` value) exit 1, not 2.
-Codes 2\-5 are gate signals emitted only by `check` and `vcs jit \-\-fail\-over`.
+Codes 2\-5 are gate signals emitted only by `check`, `vcs commit \-\-fail\-above`,
+and `diff` / `diff\-baseline` when run with the opt\-in `\-\-exit\-code` flag.
 Every other subcommand exits 0 on success and 1 on error.
 
 Migrating from the flag\-style CLI? See the migration guide:

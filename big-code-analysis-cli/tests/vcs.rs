@@ -120,6 +120,38 @@ fn vcs_json_ranks_the_tracked_file() {
     }
 }
 
+/// #659: `bca vcs --format text` renders the same human ranked table the
+/// bare `bca vcs` prints — the human format is now named and selectable
+/// here, not only the unnamed default.
+#[test]
+fn vcs_format_text_renders_the_human_table() {
+    let repo = repo_two_commits();
+    let default_out = cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", "."])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text_out = cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--format", "text"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(
+        text_out, default_out,
+        "`vcs --format text` must match the default human table"
+    );
+    assert!(
+        String::from_utf8(text_out).unwrap().contains("RISK"),
+        "human table carries the RISK column header"
+    );
+}
+
 /// Count `*.json` cache entries anywhere under `root`.
 fn count_cache_entries(root: &Path) -> usize {
     let mut count = 0;

@@ -1533,7 +1533,7 @@ fn parse_cli_with_legacy_hint() -> (Cli, bool) {
 /// of clap's built-in exit 2.
 ///
 /// Exit code 2 is reserved by the workspace exit-code contract (#561,
-/// #594) for the `check` / `vcs jit --fail-over` metric gates. clap's
+/// #594) for the `check` / `vcs commit --fail-above` metric gates. clap's
 /// default `Error::exit` collides with that band on every usage error
 /// (unknown flag, bad subcommand, `value_parser` rejection), so CI
 /// scripts branching on `$? -eq 2` would misread a typo'd flag as a
@@ -1576,6 +1576,16 @@ fn run_command_list_metrics(args: ListMetricsArgs) {
 }
 
 fn run_command_dump(globals: GlobalOpts, line: LineRange, preproc: Option<Arc<PreprocResults>>) {
+    // `dump` is the documented exception to #596's default-`.` walk: a
+    // whole-tree AST dump of the cwd has no plausible use and scrolls
+    // thousands of interleaved lines, so bare `bca dump` errors asking
+    // for a path instead of defaulting to `.` (#690). A path may arrive
+    // via `--paths`, `--paths-from`, or a manifest `paths` key (all
+    // merged into `globals.paths` / `paths_from` before we reach here).
+    if globals.paths.is_empty() && globals.paths_from.is_none() {
+        die("dump needs an explicit path: pass one with --paths <PATH> \
+             (a whole-tree AST dump of the current directory is never useful)");
+    }
     let cfg = Config {
         line_start: line.line_start,
         line_end: line.line_end,
@@ -1603,18 +1613,58 @@ fn require_output_is_dir(have_format: bool, output: Option<&Path>, command: &str
     }
 }
 
+/// Reject `--output` given without a structured `--format` on
+/// `metrics` / `ops` (#661). The default `text` format streams a
+/// human-readable tree to stdout and never writes files, so an explicit
+/// `--output` under it would silently no-op (exit 0, nothing written) —
+/// "the worst CLI failure mode" the sibling #600 fix on `check` calls
+/// out. Mirror it: error loudly (exit 1) so a CI pipeline never consumes
+/// a stale/missing artifact without a signal. `command` names the
+/// subcommand for the message.
+fn require_format_for_output(have_format: bool, output: Option<&Path>, command: &str) {
+    if !have_format && output.is_some() {
+        die(format_args!(
+            "`{command} --output` needs a structured format: the default text \
+             format streams to stdout and writes no files. Pass --format \
+             json|yaml|toml|cbor|csv with --output."
+        ));
+    }
+}
+
 fn run_command_metrics(
     globals: GlobalOpts,
     args: MetricsArgs,
     preproc: Option<Arc<PreprocResults>>,
 ) {
     let mut structured = args.structured;
+    // `--metrics` (issue #691): validate every requested name against the
+    // catalog (reusing the #662 did-you-mean validator), then map each to
+    // its library `Metric` family. An unknown name errors (exit 1). An
+    // empty list (flag absent) leaves the selection `None` → all metrics.
+    let selected_metrics = if args.metrics.is_empty() {
+        None
+    } else {
+        crate::metric_alias::validate_diff_metrics(&args.metrics).unwrap_or_else(|e| die(e));
+        let mut selected: Vec<big_code_analysis::Metric> = args
+            .metrics
+            .iter()
+            .filter_map(|name| crate::metric_alias::metric_for_name(name))
+            .collect();
+        selected.sort_unstable();
+        selected.dedup();
+        Some(selected)
+    };
     // `--format text` (issue #604) is a surface alias for the historical
     // no-`--format` default — the human-readable tree. Collapse it to
     // `None` here so every downstream guard and the dispatch see the
     // exact same shape as an omitted flag; the two paths are then
     // byte-identical by construction.
     structured.normalize_text_format();
+    require_format_for_output(
+        structured.output_format.is_some(),
+        structured.output.as_deref(),
+        "metrics",
+    );
     if matches!(structured.output_format, Some(MetricsFormat::Cbor)) && structured.output.is_none()
     {
         die(CBOR_STDOUT_ERROR);
@@ -1666,6 +1716,7 @@ fn run_command_metrics(
         output: structured.output,
         vcs_index,
         vcs_blame,
+        selected_metrics,
         ..Config::new(action, &globals, preproc)
     };
     run_walk(globals, cfg);
@@ -1680,6 +1731,7 @@ fn run_command_ops(
     // `--format text` collapses to the default human-readable tree, exactly
     // as an omitted `--format` does (issue #604).
     args.normalize_text_format();
+    require_format_for_output(args.output_format.is_some(), args.output.as_deref(), "ops");
     if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
         die(CBOR_STDOUT_ERROR);
     }
@@ -2122,7 +2174,7 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
         args.improved_only,
     ]);
     let rendered = match args.format {
-        OutputFormat::Tty => diff.render_tty(filter, &args.strip_prefix),
+        OutputFormat::Text => diff.render_tty(filter, &args.strip_prefix),
         OutputFormat::Markdown => diff.render_markdown(filter, &args.strip_prefix),
         // Serialization of a fixed-shape struct of owned scalars cannot
         // fail in practice; surface any future error as a tool error
@@ -2136,9 +2188,21 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
         "write diff-baseline to",
         rendered.as_bytes(),
     );
+    // Opt-in metric-gate signal (#692): exit 2 when the filtered diff
+    // carries any entry, so CI can detect "something changed" without
+    // parsing the output. Off by default — the diff stays informational.
+    if args.exit_code && !diff.is_empty_under(filter) {
+        process::exit(crate::EXIT_GATE_BREACH);
+    }
 }
 
 fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
+    // Validate every `--metric` name against the catalog up front, so a
+    // typo (`--metric cylomatic`) errors with a did-you-mean (exit 1)
+    // instead of silently filtering the diff to nothing (#662). Reuses
+    // the `check --threshold` known-names + suggestion machinery and
+    // accepts the #514 dotted/alias spellings the diff filter handles.
+    crate::metric_alias::validate_diff_metrics(&args.metric).unwrap_or_else(|e| die(e));
     // Validate `--output` before the (potentially slow) `--since` analysis
     // walk so a bad path fails fast, mirroring `report` / `exemptions`.
     if let Some(ref output) = args.output {
@@ -2170,7 +2234,7 @@ fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
     }
     .unwrap_or_else(|e| die(format_args!("{e}")));
     let rendered = match args.format {
-        OutputFormat::Tty => diff.render_tty(&args.strip_prefix),
+        OutputFormat::Text => diff.render_tty(&args.strip_prefix),
         OutputFormat::Markdown => diff.render_markdown(&args.strip_prefix),
         // Serialization of a fixed-shape struct of owned scalars cannot
         // fail in practice; surface any future error as a tool error
@@ -2180,6 +2244,12 @@ fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
             .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
     };
     write_output_or_stdout(args.output.as_deref(), "write diff to", rendered.as_bytes());
+    // Opt-in metric-gate signal (#692): exit 2 when any delta survives the
+    // active `--min-change` / `--metric` filtering. Off by default — the
+    // diff stays informational.
+    if args.exit_code && !diff.is_empty() {
+        process::exit(crate::EXIT_GATE_BREACH);
+    }
 }
 
 fn compute_since_diff(

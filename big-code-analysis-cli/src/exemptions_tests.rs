@@ -84,7 +84,7 @@ fn sample_report() -> ExemptionsReport {
 #[test]
 fn tty_lists_all_three_sections_with_counts() {
     let out = sample_report()
-        .render(OutputFormat::Tty, "")
+        .render(OutputFormat::Text, "")
         .expect("tty render");
     assert!(out.contains("# In-source markers (3)"), "got: {out}");
     assert!(out.contains("# [check.exclude] globs (2)"), "got: {out}");
@@ -245,7 +245,7 @@ fn empty_requested_sections_render_explicit_none() {
             entries: Vec::new(),
         }),
     };
-    let tty = report.render(OutputFormat::Tty, "").expect("tty render");
+    let tty = report.render(OutputFormat::Text, "").expect("tty render");
     assert!(tty.contains("# In-source markers (0)"), "got: {tty}");
     assert_eq!(tty.matches("(none)").count(), 3, "got: {tty}");
 
@@ -262,7 +262,7 @@ fn sections_are_separated_by_a_single_blank_line() {
     // blank line. Pin that shape so a future change to the shared frame
     // cannot silently drop or double the separators.
     let tty = sample_report()
-        .render(OutputFormat::Tty, "")
+        .render(OutputFormat::Text, "")
         .expect("tty render");
     assert!(
         !tty.starts_with('\n'),
@@ -289,7 +289,7 @@ fn first_emitted_section_is_flush_when_markers_suppressed() {
         excludes: Some(vec!["tests/**".to_owned()]),
         baseline: None,
     };
-    let tty = report.render(OutputFormat::Tty, "").expect("tty render");
+    let tty = report.render(OutputFormat::Text, "").expect("tty render");
     assert!(
         tty.starts_with("# [check.exclude] globs (1)"),
         "got: {tty:?}"
@@ -300,7 +300,7 @@ fn first_emitted_section_is_flush_when_markers_suppressed() {
 fn strip_prefix_trims_displayed_paths_in_every_format() {
     let prefix = "src/";
     let tty = sample_report()
-        .render(OutputFormat::Tty, prefix)
+        .render(OutputFormat::Text, prefix)
         .expect("tty");
     assert!(tty.contains("parser.rs:120"), "got: {tty}");
     assert!(!tty.contains("src/parser.rs"), "prefix not stripped: {tty}");
@@ -335,7 +335,7 @@ fn dead_function_marker_reads_no_enclosing_fn() {
         excludes: None,
         baseline: None,
     };
-    let tty = report.render(OutputFormat::Tty, "").expect("tty");
+    let tty = report.render(OutputFormat::Text, "").expect("tty");
     assert!(tty.contains("(no enclosing fn)"), "got: {tty}");
 }
 
@@ -357,6 +357,6 @@ fn empty_metric_list_marker_renders_none_metrics() {
         excludes: None,
         baseline: None,
     };
-    let tty = report.render(OutputFormat::Tty, "").expect("tty");
+    let tty = report.render(OutputFormat::Text, "").expect("tty");
     assert!(tty.contains("metrics=none"), "got: {tty}");
 }

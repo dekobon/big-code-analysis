@@ -70,6 +70,17 @@ bca --paths /path/to/your/file/or/directory metrics \
 - `-o, --output`: directory to save output files. Filenames mirror
   the input file plus the format extension. If omitted, results are
   printed to stdout. CBOR is binary and therefore requires `-o`.
+  Passing `--output` without a structured `--format` is an error (the
+  default `text` format streams to stdout and writes no files), so an
+  explicit `--output` never silently no-ops (#661).
+- `--metrics <name,…>`: restrict computation to a subset of metrics
+  (comma-separated and/or repeated, e.g. `--metrics cyclomatic,cognitive
+  --metrics loc`). Names are the canonical ids `bca list-metrics` prints
+  — the same vocabulary `bca check --threshold` and `bca diff --metric`
+  use; dotted (`cyclomatic.modified`) and bare `loc` sub-metric (`sloc`)
+  spellings are accepted. Derived metrics pull in their dependencies
+  automatically. An unknown name errors with a "did you mean" hint.
+  Omit it to compute every metric (#691).
 
 ### CSV (spreadsheets and Pandas)
 

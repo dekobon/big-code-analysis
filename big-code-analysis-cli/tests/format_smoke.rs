@@ -29,6 +29,7 @@
 
 use assert_cmd::Command;
 use big_code_analysis::CSV_HEADER;
+use predicates::prelude::*;
 use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -85,6 +86,50 @@ fn run_check_offender_doc(dir: &TempDir, format: &str, fixture_path: &str) -> St
         .stdout
         .clone();
     String::from_utf8(output).expect("CLI output is UTF-8")
+}
+
+/// #661: `metrics`/`ops --output` without a structured `--format` errors
+/// (exit 1) instead of silently writing nothing on exit 0 — mirroring the
+/// #600 fix on `check`. A given `--format` still writes; the text default
+/// without `--output` still streams to stdout.
+#[test]
+fn metrics_ops_output_without_format_errors() {
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+    let out_dir = dir.path().join("out");
+    for command in ["metrics", "ops"] {
+        // `--output` under the default text format → exit 1, clear message.
+        cli(&dir)
+            .args([
+                "--paths",
+                &fixture,
+                command,
+                "--output",
+                out_dir.to_str().unwrap(),
+            ])
+            .assert()
+            .failure()
+            .code(1)
+            .stderr(predicate::str::contains("needs a structured format"));
+        // With a structured format, `--output` writes as before.
+        cli(&dir)
+            .args([
+                "--paths",
+                &fixture,
+                command,
+                "-O",
+                "json",
+                "--output",
+                out_dir.to_str().unwrap(),
+            ])
+            .assert()
+            .success();
+        // The text default without `--output` still streams to stdout.
+        cli(&dir)
+            .args(["--paths", &fixture, command])
+            .assert()
+            .success();
+    }
 }
 
 #[test]

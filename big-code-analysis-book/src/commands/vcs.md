@@ -306,9 +306,12 @@ AST metrics) still emit.
 
 ## Just-in-time (commit-level) scoring
 
-Where everything above ranks *files* at a ref, `bca vcs jit <commit>`
+Where everything above ranks *files* at a ref, `bca vcs commit <commit>`
 scores a single *commit* for defect-induction risk — the unit a CI gate
-reviews at check-in. It is a static, rule-based scorer (no trained model,
+reviews at check-in. (The subcommand was renamed from `bca vcs jit` in
+2.0; the old `jit` spelling keeps working as a hidden alias for one
+release cycle. "Just-in-time (JIT)" stays the literature term, below.)
+It is a static, rule-based scorer (no trained model,
 so nothing drifts as the project ages), with the feature groups and signs
 taken from the just-in-time defect-prediction literature: Kamei et al.,
 [*A Large-Scale Empirical Study of Just-in-Time Quality
@@ -319,7 +322,7 @@ Kamei, [*Are Fix-Inducing Changes a Moving
 Target?*](https://doi.org/10.1109/TSE.2017.2693980) (IEEE TSE 2018).
 
 ```console
-$ bca vcs jit HEAD --pretty
+$ bca vcs commit HEAD --pretty
 {
   "jit_schema_version": 3,
   "jit_score_version": 1,
@@ -369,29 +372,29 @@ construction — the score then leans on size and author experience, exactly
 as the literature prescribes for changes with no file history.
 
 The window / `--ref` / bot / merge / rename flags are shared with the
-parent `bca vcs` command; the jit-only flags are the positional `<commit>`
+parent `bca vcs` command; the commit-only flags are the positional `<commit>`
 (default `HEAD`), `--format json|yaml|toml|cbor` (default `json`),
 `--output`, `--pretty`, and:
 
 ```bash
 # CI gate: exit 2 when the commit scores at or above the threshold.
-bca vcs jit HEAD --fail-over 6.0
+bca vcs commit HEAD --fail-above 6.0
 ```
 
-`--fail-over` uses exit code `2` (the same "metric gate" convention as
+`--fail-above` uses exit code `2` (the same "metric gate" convention as
 `bca check`; exit `1` stays reserved for tool errors). Because the score
 is ordinal, calibrate the threshold against your repository's own
 commit-score distribution rather than treating it as an absolute.
 
 ### Scoring an arbitrary diff (`--diff`)
 
-`bca vcs jit --diff <file>` scores a `git diff` instead of a commit
+`bca vcs commit --diff <file>` scores a `git diff` instead of a commit
 (use `--diff -` to read the diff from stdin). This is handy in a
 pre-commit hook or a code-review bot, where the change exists only as a
 diff and has not been committed yet.
 
 ```bash
-git diff --cached | bca vcs jit --diff - --pretty
+git diff --cached | bca vcs commit --diff - --pretty
 ```
 
 The input must be a **git-style** unified diff carrying `diff --git`
@@ -406,7 +409,7 @@ A bare diff carries **no author, parent, or file history**, so only the
 a deliberately *partial* report — a distinct shape from a commit report:
 
 ```console
-$ git diff | bca vcs jit --diff - --pretty
+$ git diff | bca vcs commit --diff - --pretty
 {
   "jit_schema_version": 3,
   "jit_score_version": 1,
@@ -432,7 +435,7 @@ prior history scores those groups at zero); an absent group means
 > commit score for the same change (which also folds in history,
 > experience, and purpose). Rank diffs against *other diffs*, never
 > against commit scores. `--diff` and the positional `<commit>` are
-> mutually exclusive; `--fail-over` works in both modes (calibrate the
+> mutually exclusive; `--fail-above` works in both modes (calibrate the
 > diff-mode threshold against your own diff-score distribution).
 
 The parser understands git's default C-style path quoting

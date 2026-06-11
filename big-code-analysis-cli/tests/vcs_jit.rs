@@ -1,5 +1,5 @@
 //! CLI integration tests for `bca vcs jit` (issue #331): the JSON shape,
-//! the `--fail-over` CI gate exit code, and the outside-a-repo error.
+//! the `--fail-above` CI gate exit code, and the outside-a-repo error.
 //!
 //! Each test drives the real `bca` binary against a tiny throwaway git
 //! repository built through the `git` CLI with a fixed identity, so the
@@ -87,23 +87,69 @@ fn jit_emits_stable_json_shape() {
 }
 
 #[test]
-fn fail_over_below_threshold_exits_zero() {
+fn fail_above_below_threshold_exits_zero() {
     let repo = one_commit_repo("initial import");
     bca(repo.path())
-        .args(["vcs", "jit", "HEAD", "-O", "json", "--fail-over", "9999"])
+        .args([
+            "vcs",
+            "commit",
+            "HEAD",
+            "-O",
+            "json",
+            "--fail-above",
+            "9999",
+        ])
         .assert()
         .success();
 }
 
 #[test]
-fn fail_over_at_or_above_threshold_exits_two() {
+fn fail_above_at_or_above_threshold_exits_two() {
     let repo = one_commit_repo("initial import");
     // Every commit scores >= 0, so a zero threshold always trips the gate.
+    bca(repo.path())
+        .args(["vcs", "commit", "HEAD", "-O", "json", "--fail-above", "0"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("fail-above threshold"));
+}
+
+/// #603: the renamed subcommand (`jit` → `commit`) and flag
+/// (`--fail-over` → `--fail-above`) keep their old spellings working for
+/// one release cycle via hidden aliases; the gate still emits the new
+/// `vcs commit: ... fail-above threshold` message regardless.
+#[test]
+fn jit_and_fail_over_aliases_still_work() {
+    let repo = one_commit_repo("initial import");
     bca(repo.path())
         .args(["vcs", "jit", "HEAD", "-O", "json", "--fail-over", "0"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("fail-over threshold"));
+        .stderr(predicate::str::contains("vcs commit:"))
+        .stderr(predicate::str::contains("fail-above threshold"));
+}
+
+/// #603: the deprecated `jit` alias is hidden from `bca vcs --help` while
+/// the canonical `commit` is listed.
+#[test]
+fn commit_listed_in_help_jit_hidden() {
+    let tmp = std::env::temp_dir();
+    let out = bca(&tmp)
+        .args(["vcs", "--help"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let help = String::from_utf8(out).expect("utf8");
+    assert!(help.contains("commit"), "vcs --help should list `commit`");
+    // The hidden alias must not appear as its own listed subcommand line.
+    assert!(
+        !help
+            .lines()
+            .any(|l| l.trim_start().starts_with("jit ") || l.trim_start() == "jit"),
+        "`jit` alias should be hidden from help: {help}"
+    );
 }
 
 /// A small unified diff touching two subsystems, written to a temp file.
@@ -254,7 +300,12 @@ fn jit_accepts_long_window_in_parent_position() {
 #[test]
 fn ref_under_jit_is_a_usage_error() {
     let repo = one_commit_repo("initial import");
+    // Exercised in both flag positions and under both the canonical
+    // `commit` spelling and the deprecated `jit` alias (#603); the error
+    // names the canonical `vcs commit` regardless of how it was invoked.
     for argv in [
+        ["vcs", "--ref", "v1.0", "commit"].as_slice(),
+        ["vcs", "commit", "--ref", "v1.0"].as_slice(),
         ["vcs", "--ref", "v1.0", "jit"].as_slice(),
         ["vcs", "jit", "--ref", "v1.0"].as_slice(),
     ] {
@@ -263,7 +314,7 @@ fn ref_under_jit_is_a_usage_error() {
             .assert()
             .failure()
             .code(1)
-            .stderr(predicate::str::contains("--ref").and(predicate::str::contains("vcs jit")));
+            .stderr(predicate::str::contains("--ref").and(predicate::str::contains("vcs commit")));
     }
 }
 

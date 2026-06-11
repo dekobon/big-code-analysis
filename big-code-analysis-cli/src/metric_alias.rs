@@ -121,6 +121,71 @@ fn leaf_of(id: &str) -> &str {
     id.rsplit_once('.').map_or(id, |(_, leaf)| leaf)
 }
 
+/// The bare bucket names a `diff --metric` filter (and the `bca metrics
+/// --metrics` selector) legitimately accepts: the `list-metrics` names —
+/// every family's row names, which expand the `loc` family to its
+/// sub-metrics and collapse every other family to its single bucket.
+/// Sorted, deduplicated, for the unknown-name error and "did you mean"
+/// suggestion. Derived from the library catalog so it cannot drift.
+pub(crate) fn known_diff_metric_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = big_code_analysis::metric_catalog::FAMILIES
+        .iter()
+        .flat_map(|family| family.rows.iter().map(|row| row.name))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+/// Validate one `diff --metric` / `metrics --metrics` name against the
+/// catalog at parse time, reusing the `check --threshold` did-you-mean
+/// machinery (#381). Accepts every spelling the diff filter handles:
+/// canonical bucket names, the dotted `check --threshold` ids
+/// (`cyclomatic.modified`), and the bare `loc` sub-metric aliases
+/// (`sloc`, #514) — exactly what [`normalize_for_diff`] resolves. An
+/// unknown name returns `Err` with the known-names list and a
+/// suggestion, so a typo errors (exit 1) instead of silently matching
+/// nothing (#662).
+pub(crate) fn validate_diff_metric(name: &str) -> Result<(), String> {
+    let known = known_diff_metric_names();
+    // Resolve dotted / aliased spellings to their bucket name first, so
+    // `cyclomatic.modified` and `sloc` both validate against the bucket
+    // set the diff filter actually compares against.
+    let resolved = normalize_for_diff(name);
+    if known.contains(&resolved.as_ref()) {
+        return Ok(());
+    }
+    Err(format!(
+        "unknown metric {name:?}{}; known metrics: {}",
+        crate::threshold_suggestion::format_suggestion(name, &known),
+        known.join(", ")
+    ))
+}
+
+/// Validate every name in a `--metric` / `--metrics` list, returning the
+/// first error. Shared by `diff`, `diff-baseline`, and `metrics
+/// --metrics` (#662, #691).
+pub(crate) fn validate_diff_metrics(names: &[String]) -> Result<(), String> {
+    names.iter().try_for_each(|n| validate_diff_metric(n))
+}
+
+/// Resolve a validated `--metrics` name (a bucket name, a dotted id, or a
+/// bare `loc` sub-metric) to the library [`big_code_analysis::Metric`]
+/// family it computes. A `loc` sub-metric (`sloc`, `lloc`, …) resolves to
+/// [`Metric::Loc`](big_code_analysis::Metric::Loc); every other bucket
+/// name is itself a family name. Returns `None` for a name with no
+/// catalog family — callers validate first via [`validate_diff_metric`],
+/// so `None` should not occur for accepted names. Used by `bca metrics
+/// --metrics` (#691) to build the `MetricsOptions::with_only` selection.
+pub(crate) fn metric_for_name(name: &str) -> Option<big_code_analysis::Metric> {
+    let bucket = normalize_for_diff(name);
+    let family = big_code_analysis::metric_catalog::FAMILIES
+        .iter()
+        .find(|f| f.rows.iter().any(|r| r.name == bucket.as_ref()))
+        .map(|f| f.name)?;
+    family.parse().ok()
+}
+
 /// Static assertion at first use that the catalog still contains the
 /// `loc` family we expand; a future catalog edit that renamed or dropped
 /// it would otherwise silently disable the `loc` sub-metric aliasing.
