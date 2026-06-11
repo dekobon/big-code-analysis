@@ -1155,13 +1155,19 @@ fn artifact_link() -> String {
     )
 }
 
-/// Pure inner: render the artifact bullet given explicit env values
-/// (rather than reading them from the process environment). Extracted
-/// so tests can pin both the SOME and NONE branches without
+/// Pure inner: render the detailed-reports bullet given explicit env
+/// values (rather than reading them from the process environment).
+/// Extracted so tests can pin both the SOME and NONE branches without
 /// depending on whether the test process happens to have GHA env
 /// vars set. Empty strings are treated as absent — GitHub Actions
 /// does set these vars but the spec doesn't promise non-empty values
 /// on every event type.
+///
+/// Only when both env vars are present (i.e. running inside a GitHub
+/// Actions job) do we point at the uploaded `bca-reports` artifact;
+/// outside CI there is no run and no artifact, so claiming one sends
+/// developers hunting for an upload that does not exist (#676). The
+/// local fallback suggests `bca report` for the detailed view.
 fn artifact_link_for(repo: Option<String>, run_id: Option<String>) -> String {
     let repo = repo.filter(|s| !s.is_empty());
     let run_id = run_id.filter(|s| !s.is_empty());
@@ -1169,7 +1175,7 @@ fn artifact_link_for(repo: Option<String>, run_id: Option<String>) -> String {
         (Some(repo), Some(run_id)) => {
             format!("bca-reports artifact at https://github.com/{repo}/actions/runs/{run_id}")
         }
-        _ => "bca-reports artifact (uploaded to this run)".to_string(),
+        _ => "run `bca report` to see them locally".to_string(),
     }
 }
 

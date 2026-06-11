@@ -460,8 +460,8 @@ The refresh invocation mirrors the gate's resolved `--paths`,
 first-time reader of a failing CI log can copy-paste it verbatim.
 The artifact URL is derived from `$GITHUB_REPOSITORY` and
 `$GITHUB_RUN_ID` when both are present (always true in GHA); local
-runs fall back to the literal name `bca-reports artifact (uploaded
-to this run)`.
+runs — where there is no upload to point at — instead suggest
+running `bca report` to see the detailed view locally.
 
 Suppress the block with `--no-remediation` for downstream tooling
 that grep-pipes stderr.

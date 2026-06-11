@@ -495,26 +495,34 @@ fn refresh_baseline_command_shell_quotes_paths_with_spaces() {
 }
 
 #[test]
-fn artifact_link_for_without_env_returns_plain_text() {
+fn artifact_link_for_without_env_suggests_report_command() {
     // Pin the NONE branch deterministically via the pure inner
     // function. The previous version of this test read env directly
     // and skipped when GHA env vars happened to be set — which
     // inverted coverage on the workflow runner that actually
     // exercises the SOME branch in production.
-    assert_eq!(
-        artifact_link_for(None, None),
-        "bca-reports artifact (uploaded to this run)"
-    );
+    //
+    // Outside GitHub Actions there is no artifact and no run, so the
+    // fallback must NOT claim one exists (#676); it points at the
+    // local `bca report` view instead.
+    let local = "run `bca report` to see them locally";
+    assert_eq!(artifact_link_for(None, None), local);
     // Empty-string env values (rare but observed) must also count
     // as absent.
     assert_eq!(
         artifact_link_for(Some(String::new()), Some(String::new())),
-        "bca-reports artifact (uploaded to this run)"
+        local
     );
     // One-set / one-empty also falls through.
     assert_eq!(
         artifact_link_for(Some("dekobon/big-code-analysis".to_string()), None),
-        "bca-reports artifact (uploaded to this run)"
+        local
+    );
+    // Regression guard for #676: the local fallback must never imply
+    // a CI upload exists.
+    assert!(
+        !artifact_link_for(None, None).contains("artifact"),
+        "local fallback must not claim a CI artifact exists"
     );
 }
 
