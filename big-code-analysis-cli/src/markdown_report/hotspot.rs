@@ -741,14 +741,10 @@ pub(crate) fn fully_suppressed_count(
 /// metric stops a single noisy metric (e.g. a blanket Halstead suppression)
 /// from reading as if the whole codebase were silenced (issue #672).
 ///
-/// Only metrics with a nonzero count appear. The tally is restricted to
-/// function-level (`Source::Funcs`) tables, matching the `funcs` slice this
-/// receives and the function-scoped Actionable Summary it captions: the
-/// file-level MI table (`Source::Units`) and the class-level WMC table
-/// (`Source::All`) operate over slices `funcs` does not carry, so counting
-/// them here would always tally zero (or, for WMC, silently miss the
-/// class-likes its own table hides). Returns an empty `Vec` under
-/// [`SuppressionPolicy::Ignore`], since `--no-suppress` honors no markers.
+/// Only metrics with a nonzero count appear. Restricted to function-level
+/// (`Source::Funcs`) tables: the MI (`Source::Units`) and class-level WMC
+/// (`Source::All`) tables operate over slices `funcs` does not carry. Returns
+/// empty under [`SuppressionPolicy::Ignore`] — `--no-suppress` honors no markers.
 pub(crate) fn suppressed_metric_breakdown(
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
