@@ -1,7 +1,10 @@
 """Type stubs for the compiled ``big_code_analysis._native`` extension.
 
 Kept in lockstep with ``src/lib.rs`` by hand — PyO3 does not generate
-stubs today. The public ``big_code_analysis.__init__`` re-exports
+stubs today — and verified against the compiled extension by
+``make py-stubtest`` (``mypy stubtest``), which diffs names,
+signatures, and **defaults** so this stub cannot silently drift from
+the runtime (#673). The public ``big_code_analysis.__init__`` re-exports
 every name from the compiled extension listed here, so callers can
 ``from big_code_analysis import analyze`` and have it resolve under
 ``mypy --strict``. Pure-Python helpers (e.g. ``flatten_spaces``
@@ -13,7 +16,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
-from typing import Literal
+from typing import Literal, final
 
 from ._types import FuncSpaceDict
 
@@ -77,6 +80,7 @@ class VcsEnvironmentError(VcsError):
     ``vcs::Error`` variants (``is_client_input == false``, #641).
     """
 
+@final
 class AnalysisFailure:
     """Structured per-file failure returned by :func:`analyze_batch`.
 
@@ -160,13 +164,19 @@ class AnalysisFailure:
     def error_kind(self) -> Literal["UnsupportedLanguage", "ParseError", "IoError"]:
         """Closed taxonomy discriminator — see class docstring."""
 
-    def __init__(
-        self,
+    # PyO3 exposes the `#[new]` constructor as `__new__` (not
+    # `__init__`); the signature mirrors the Rust `py_new`
+    # `#[pyo3(signature = (path, error, error_kind))]`. stubtest (#673)
+    # verifies these stay in lockstep.
+    def __new__(
+        cls,
         path: str,
         error: str,
         error_kind: Literal["UnsupportedLanguage", "ParseError", "IoError"],
-    ) -> None: ...
-    def __eq__(self, other: object) -> bool: ...
+    ) -> AnalysisFailure: ...
+    # `value` is positional-only at runtime (the slot wrapper),
+    # matching `object.__eq__`.
+    def __eq__(self, value: object, /) -> bool: ...
     def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 

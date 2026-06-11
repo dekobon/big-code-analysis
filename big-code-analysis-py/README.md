@@ -34,7 +34,7 @@ docs.
 | File | What it shows |
 |------|---------------|
 | `quick_start.py` | Single-file analysis + headline metric. Embedded by the book's *Quick start*. |
-| `batch_processing.py` | `analyze_batch` + the `AnalysisError` discriminator. Embedded by *Batch processing*. |
+| `batch_processing.py` | `analyze_batch` + the `AnalysisFailure` discriminator. Embedded by *Batch processing*. |
 | `flat_records.py` | `flatten_spaces` → sqlite for one file. Embedded by *Flat-record iteration*. |
 | `metric_selection.py` | `metrics=` kwarg + dependency-pull behaviour. Embedded by *Metric selection*. |
 | `sarif_output.py` | Minimal SARIF rendering. Embedded by *SARIF output*. |
@@ -178,7 +178,7 @@ The same kwarg is honoured by `bca.analyze_source` and
 `bca.analyze_batch` — the latter applies the selection uniformly to
 every file in the batch. Validation runs *before* any file I/O: an
 empty list or unknown name raises `ValueError` immediately and never
-returns an `AnalysisError` slot for what is really a caller bug.
+returns an `AnalysisFailure` slot for what is really a caller bug.
 
 ```python
 # Compute only `cyclomatic` and `cognitive` across a batch.
@@ -215,7 +215,7 @@ sarif = bca.to_sarif(
 with open("metrics.sarif", "w", encoding="utf-8") as fh:
     fh.write(sarif)
 
-# Batch input — AnalysisError entries are skipped silently because
+# Batch input — AnalysisFailure entries are skipped silently because
 # they represent files we couldn't analyse, not findings.
 batch = bca.analyze_batch(["src/a.py", "src/b.rs", "src/c.cpp"])
 sarif = bca.to_sarif(batch, thresholds={"cognitive": 20})
@@ -275,7 +275,7 @@ placeholders.
 `bca.analyze_batch(paths)` runs the same analysis as `bca.analyze`
 over every path in an iterable and **never raises on per-file
 errors**: each result element is either an analysis ``dict`` or a
-`bca.AnalysisError` describing the failure. Results preserve input
+`bca.AnalysisFailure` describing the failure. Results preserve input
 order, so `zip(inputs, results)` lines up by index **when no path is
 skipped**. `analyze_batch` accepts the same keyword-only options as
 `analyze` — `exclude_tests`, `allow_lossy_path`, `skip_generated`
@@ -295,7 +295,7 @@ import big_code_analysis as bca
 paths = ["src/a.py", "src/missing.py", "src/b.rs"]
 results = bca.analyze_batch(paths)
 for path, result in zip(paths, results):
-    if isinstance(result, bca.AnalysisError):
+    if isinstance(result, bca.AnalysisFailure):
         print(f"skipped {path}: ({result.error_kind}) {result.error}")
     else:
         process(result)
@@ -316,7 +316,7 @@ results = bca.analyze_batch(paths)
 # now zip(paths, results) works
 ```
 
-`bca.AnalysisError` is a frozen value type with `path: str`,
+`bca.AnalysisFailure` is a frozen value type with `path: str`,
 `error: str`, and `error_kind: Literal["UnsupportedLanguage",
 "ParseError", "IoError"]`. It implements `__eq__`, `__hash__`,
 and `__repr__`, so callers can put errors in a `set` to
@@ -335,11 +335,12 @@ any side effects.
 Generators work — paths are consumed lazily. There is no
 built-in parallelism; the recommended pattern is
 `concurrent.futures.ThreadPoolExecutor` around `bca.analyze` for
-parallel single-file calls. `analyze_batch` also runs with the
-`is_generated` walker filter **off** so every input position
-yields either a `dict` or an `AnalysisError` (never `None`).
-Call `bca.analyze(path)` per-file with the default
-`skip_generated=True` if you need the CLI walker's skip behaviour.
+parallel single-file calls. With the 2.0 default `skip_generated=True`,
+`analyze_batch` applies the CLI's `is_generated` walker filter, so a
+generated file is skipped and contributes no result element — the
+result list can be shorter than the input. Pass `skip_generated=False`
+to analyse every file and guarantee one `dict`-or-`AnalysisFailure`
+element per input.
 
 ## Flatten to records
 
@@ -409,7 +410,7 @@ callers must filter `None` returns from `bca.analyze` (e.g. when
 ## Errors
 
 `bca.analyze` raises exceptions; `bca.analyze_batch` returns
-`bca.AnalysisError` values inside the result list (never raised on
+`bca.AnalysisFailure` values inside the result list (never raised on
 per-file failures — see the Batch processing section above).
 
 Exception types raised by `bca.analyze` / `bca.analyze_source`:
@@ -454,7 +455,7 @@ handlers keep working (#624):
 
 Returned by `bca.analyze_batch` inside the result list:
 
-- `bca.AnalysisError` — frozen value type with `path: str`,
+- `bca.AnalysisFailure` — frozen value type with `path: str`,
   `error: str`, and `error_kind: Literal["UnsupportedLanguage",
   "ParseError", "IoError"]`. Not an `Exception` subclass.
   `error_kind` is a closed taxonomy: ``"IoError"`` covers both

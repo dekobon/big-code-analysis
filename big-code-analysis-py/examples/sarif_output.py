@@ -24,7 +24,7 @@ def run(
     Returns the rendered SARIF JSON so the caller (or the test) can
     inspect it without re-reading the file.
     """
-    batch = bca.analyze_batch([str(p) for p in paths])
+    batch = bca.analyze_batch(paths)
     sarif = bca.to_sarif(batch, thresholds=dict(thresholds))
 
     sarif_path.parent.mkdir(parents=True, exist_ok=True)

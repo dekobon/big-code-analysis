@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -111,6 +111,7 @@ help:
 	@echo "  py-lint                              Lint Python sources with ruff"
 	@echo "  py-typecheck                         Type-check with mypy --strict + pyright"
 	@echo "  py-test                              maturin develop + pytest (needs active venv)"
+	@echo "  py-stubtest                          maturin develop + mypy stubtest of _native.pyi (needs venv)"
 	@echo "  (first-time setup: 'make py-bootstrap' — installs uv-managed venv from uv.lock)"
 	@echo ""
 	@echo "Maintenance:"
@@ -629,6 +630,35 @@ py-test:
 	    { echo "py-test failed"; exit 1; }; \
 	else echo "maturin not found; skipping py-test"; fi
 
+# `mypy stubtest` diffs the hand-written `_native.pyi` stub against the
+# compiled PyO3 extension — names, signatures, and *defaults* — catching
+# the `#[pyo3(signature = …)]`-vs-stub drift that the usage-only
+# `py-typecheck` mypy/pyright passes cannot see (#583 shipped one such
+# drift; #673 closes the gap). Unlike `py-typecheck`, stubtest must
+# import the built extension, so it carries the same `maturin develop`
+# build + pre-build cleanups as `py-test` and skips cleanly when the
+# venv / maturin / stubtest are absent. The allowlist covers the
+# deliberate facade differences (the `vcs` submodule, runtime
+# `__all__`); see `big-code-analysis-py/stubtest-allowlist.txt`.
+py-stubtest:
+	@find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true
+	@rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
+	  if "$(BCA_PY_DIR)/.venv/bin/python" -c "import mypy.stubtest" >/dev/null 2>&1; then \
+	    echo "Building extension + running mypy stubtest (venv)..."; \
+	    (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet && \
+	      .venv/bin/python -m mypy.stubtest big_code_analysis._native \
+	        --allowlist stubtest-allowlist.txt) || \
+	      { echo "stubtest found stub/runtime drift"; exit 1; }; \
+	  else echo "mypy stubtest not found in venv; skipping py-stubtest"; fi; \
+	elif command -v maturin >/dev/null 2>&1 && python -c "import mypy.stubtest" >/dev/null 2>&1; then \
+	  echo "Building extension + running mypy stubtest..."; \
+	  (cd "$(BCA_PY_DIR)" && maturin develop --quiet && \
+	    python -m mypy.stubtest big_code_analysis._native \
+	      --allowlist stubtest-allowlist.txt) || \
+	    { echo "stubtest found stub/runtime drift"; exit 1; }; \
+	else echo "maturin or mypy stubtest not found; skipping py-stubtest"; fi
+
 # ---------------------------------------------------------------------------
 # Lint aggregate
 # ---------------------------------------------------------------------------
@@ -747,7 +777,7 @@ pre-commit:
 	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
-	  _pc-py-fmt _pc-py-typecheck _pc-py-test
+	  _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest
 	@echo "Pre-commit checks passed"
 
 ci:
@@ -756,7 +786,7 @@ ci:
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
 	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test \
-	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 	@echo "CI checks passed"
 
 # ---------------------------------------------------------------------------
@@ -925,6 +955,12 @@ _pc-py-typecheck: _pc-fmt
 _pc-py-test: _pc-self-scan-headroom
 	$(MAKE) py-test
 
+# Chain after _pc-py-test, never concurrently: both run `maturin
+# develop` against the shared workspace target/, so a parallel run
+# would race the editable `_native` .so the other just wrote.
+_pc-py-stubtest: _pc-py-test
+	$(MAKE) py-stubtest
+
 # ---------------------------------------------------------------------------
 # CI validation targets (no auto-formatting)
 #
@@ -1040,6 +1076,11 @@ _ci-py-typecheck:
 
 _ci-py-test:
 	$(MAKE) py-test
+
+# Chain after _ci-py-test (see _pc-py-stubtest): both run `maturin
+# develop` against the shared target/, so they must not race.
+_ci-py-stubtest: _ci-py-test
+	$(MAKE) py-stubtest
 
 # Sequential cargo pipeline for local `make ci`. Every step here
 # touches the workspace `target/` lock, so they are serialized in

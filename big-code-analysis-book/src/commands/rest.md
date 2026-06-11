@@ -8,6 +8,7 @@ The server can be run on any host and port, and supports the following main func
 
 - Remove Comments from source code.
 - Retrieve Function Spans for given code.
+- Retrieve the AST (abstract syntax tree) for given code.
 - Compute Metrics for the provided source code.
 
 ## Running the Server
@@ -25,27 +26,15 @@ bca-web --host 127.0.0.1 --port 9090
 ## API Versioning
 
 All endpoints are mounted under a `/v1` prefix (for example
-`/v1/metrics`). The original unprefixed paths (`/metrics`, `/comment`,
-`/function`, `/ast`, `/vcs`, `/vcs/trend`, `/vcs/jit`, `/ping`, the
-introspection routes, and the route index `/`) remain available as
-**deprecated aliases** until the 2.0 release and resolve to the same
-handlers; new clients should use the `/v1` paths. To discover the full
-route set programmatically, `GET /v1` (see [Route index](#7-route-index)).
-The examples below use the versioned form.
+`/v1/metrics`). The full route set is `/v1/ping`, `/v1/version`,
+`/v1/languages`, `/v1/ast`, `/v1/comment`, `/v1/function`, `/v1/metrics`,
+`/v1/vcs`, `/v1/vcs/trend`, `/v1/vcs/jit`, and the route index `/v1`. To
+discover them programmatically, `GET /v1` (see
+[Route index](#8-route-index)).
 
-Every alias response is stamped with deprecation-signalling headers so
-clients and gateways can detect alias use before the routes are removed:
-
-- `Deprecation: true` — the resource is deprecated
-  ([Deprecation HTTP header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-deprecation-header/)).
-- `Sunset: <http-date>` — the planned-removal date
-  ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594)); advisory, the
-  authoritative removal trigger is the 2.0 release cut.
-- `Link: </v1/...>; rel="successor-version"` — the canonical `/v1` twin
-  to migrate to.
-
-The `/v1` routes carry none of these headers. The aliases themselves are
-removed at the 2.0 release.
+The unprefixed paths (`/metrics`, `/comment`, `/ast`, `/`, …) that
+earlier `1.x` releases served as deprecated aliases were **removed in
+2.0**; requesting one now returns `404`. Use the `/v1` form everywhere.
 
 ## Error responses
 
@@ -58,20 +47,31 @@ shape regardless of the success content-type:
 ```json
 {
   "error": "human-readable message",
+  "error_kind": "stable_machine_token",
   "id": "echoed-request-id"
 }
 ```
 
+`error` is the specific human-readable cause; `error_kind` is a stable
+`snake_case` machine token (e.g. `unknown_field`, `unsupported_language`,
+`bad_request`, `parse_timeout`) so clients branch on the cause without
+string-matching the prose (issue #631). The token vocabulary is closed
+and governed by [`STABILITY.md`](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md).
+
 The `id` key is **always present**. It carries the client-supplied
 correlation id when the request had one (the JSON endpoints), and an
 empty string otherwise (the octet-stream / query endpoints carry no
-id, and the content-type / method / not-found fallbacks have not
-parsed a body).
+id, and the content-type / method / not-found fallbacks — and any
+request whose body failed to parse before the id was read — have no
+parsed id to echo).
 
 Status codes:
 
-- `400 Bad Request` — a malformed query parameter (e.g. a `unit` flag
-  that is not a recognised boolean — see *Compute Metrics* below).
+- `400 Bad Request` — a malformed body or query parameter: invalid
+  JSON, a missing required field, an unrecognised key (the strict
+  `deny_unknown_fields` parse, including the removed `unit` flag — see
+  *Compute Metrics* below), or a `scope` value that is not `full` /
+  `file`.
 - `422 Unprocessable Entity` — the `file_name` extension (and content
   sniffing) maps to no supported language. The route matched and the
   body parsed; only the submitted entity cannot be processed. The
@@ -216,7 +216,93 @@ The envelope reports `id`, the detected `language` slug, and the
 name from the AST (e.g. an anonymous or malformed definition). A
 `null` `name` is the malformed-span signal.
 
-### 4. Compute Metrics
+### 4. Retrieve the AST
+
+This endpoint returns the full tree-sitter abstract syntax tree (AST)
+for the provided source code as a recursive JSON node tree.
+
+**Request:**
+
+```http
+POST http://127.0.0.1:8080/v1/ast
+```
+
+**Payload:**
+
+```json
+{
+  "id": "unique-id",
+  "file_name": "filename.ext",
+  "code": "source code to parse",
+  "comment": false,
+  "span": true
+}
+```
+
+- `id`: A unique identifier for the request.
+- `file_name`: The name of the file being analyzed.
+- `code`: The source code to parse.
+- `comment`: When `true`, comment nodes are omitted from the tree.
+- `span`: When `true`, each node carries its source `span`; when
+  `false`, `span` is `null`.
+
+Both `comment` and `span` are required fields. Unknown keys are rejected
+with `400` (issue #633).
+
+**Response:**
+
+```json
+{
+  "id": "unique-id",
+  "language": "rust",
+  "root": {
+    "type": "source_file",
+    "value": "",
+    "span": { "start_line": 1, "start_col": 1, "end_line": 2, "end_col": 1 },
+    "field_name": null,
+    "children": [
+      {
+        "type": "function_item",
+        "value": "",
+        "span": { "start_line": 1, "start_col": 1, "end_line": 1, "end_col": 13 },
+        "field_name": null,
+        "children": [
+          {
+            "type": "identifier",
+            "value": "main",
+            "span": { "start_line": 1, "start_col": 4, "end_line": 1, "end_col": 8 },
+            "field_name": "name",
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The envelope reports `id`, the detected `language` slug, and `root` —
+the root AST node. Each node carries:
+
+- `type`: the tree-sitter grammar node kind (grammar-specific; the
+  `language` slug tells you which grammar produced it).
+- `value`: the source text for leaf/named tokens (empty for interior
+  nodes).
+- `span`: a `{ start_line, start_col, end_line, end_col }` object (all
+  1-based), or `null` when `span` was `false`. These span keys use the
+  `*_line` vocabulary shared with `/function` and `/metrics` (issue
+  #638 renamed the former `*_row` keys).
+- `field_name`: the tree-sitter grammar field through which the parent
+  reaches this node (e.g. `name`, `left`, `body`), or `null` for the
+  root, anonymous tokens, and unfielded children.
+- `children`: the node's child nodes, recursively.
+
+Unlike the metric and function endpoints, the AST endpoint reports node
+coordinates over the **exact bytes** the client submitted — the source
+is not EOL-normalised, so spans line up with the client's own copy
+(issue #640).
+
+### 5. Compute Metrics
 
 This endpoint computes various metrics for the provided source code.
 
@@ -233,25 +319,29 @@ POST http://127.0.0.1:8080/v1/metrics
   "id": "unique-id",
   "file_name": "filename.ext",
   "code": "source code for metrics",
-  "unit": false
+  "scope": "full"
 }
 ```
 
 - `id`: Unique identifier for the request.
 - `file_name`: The filename of the source code file.
 - `code`: The source code to analyze.
-- `unit`: A boolean value. `true` to compute only top-level metrics,
-  `false` for detailed metrics across all units (functions, classes,
-  etc.).
+- `scope`: How much of the space tree to return. `full` (the default)
+  returns the complete nested space tree — the file-level root plus a
+  recursive `spaces` list for every function, class, and other unit.
+  `file` returns only the file-level root with its `spaces` children
+  cleared. This field replaces the pre-2.0 boolean `unit` flag (issue
 
-In the JSON payload, `unit` is a JSON boolean (`true` / `false`). On
-the `application/octet-stream` variant, the source is the raw request
-body and `unit` is supplied as a **query parameter**
-(`?file_name=…&unit=…`) accepting normal boolean forms: `true` /
-`false` and `1` / `0`, case-insensitively. Any other value (including
-the formerly-accepted `yes` / `on`) is rejected with `400` and the
-uniform JSON error body. When the parameter is omitted it defaults to
-`false`.
+  #638); sending the old `unit` key now fails with `400`.
+
+The payload is validated strictly: an unrecognised key (a typo, or the
+removed `unit`) is rejected with `400` and the uniform JSON error body,
+naming the offending field (issue #633).
+
+On the `application/octet-stream` variant, the source is the raw
+request body and `scope` is supplied as a **query parameter**
+(`?file_name=…&scope=full`). When the parameter is omitted it defaults
+to `full`; an unrecognised value is rejected with `400`.
 
 **Response:**
 
@@ -259,23 +349,48 @@ uniform JSON error body. When the parameter is omitted it defaults to
 {
   "id": "unique-id",
   "language": "rust",
-  "spaces": {
-    "metrics": {
-      "cyclomatic_complexity": 5,
-      "lines_of_code": 100,
-      "function_count": 10
-    }
+  "root": {
+    "name": "sample.rs",
+    "start_line": 1,
+    "end_line": 7,
+    "kind": "unit",
+    "spaces": [
+      {
+        "name": "double",
+        "start_line": 1,
+        "end_line": 7,
+        "kind": "function",
+        "spaces": [],
+        "metrics": {
+          "cyclomatic": { "sum": 2, "average": 2.0, "min": 2, "max": 2 },
+          "loc": { "sloc": 7, "ploc": 7, "lloc": 1, "cloc": 0, "blank": 0 },
+          "nom": { "functions": 1, "closures": 0, "total": 1 }
+        }
+      }
+    ],
+    "metrics": { "...": "the same metric block, aggregated over the file" }
   }
 }
 ```
 
+The response envelope reports `id`, the detected `language` slug, and
+`root` — the **single** file-level space object (issue #638 renamed
+this key from the misleading plural `spaces`). `root` carries `name`
+(the request `file_name`), the `start_line` / `end_line` span, a `kind`
+discriminator (`unit`, `function`, `class`, …), its `metrics` block,
+and a recursive `spaces` list of child units. The example above is
+**trimmed**: each real `metrics` block contains every metric family —
+`cyclomatic`, `cognitive`, `halstead`, `loc`, `nom`, `nargs`, `nexits`,
+`tokens`, `mi`, `abc`, and `wmc` — with the same nested fields the `bca`
+CLI emits. When `scope` is `file`, `root.spaces` is an empty list.
+
 The `language` value is the **canonical lowercase slug** (e.g. `rust`,
 `cpp`, `csharp`, `tsx`) — the same token the language vocabulary
 accepts — not a human-pretty display name. Every analysis endpoint
-(`/metrics`, `/comment`, `/function`) reports this `language` field so
-clients can confirm which grammar was selected.
+(`/ast`, `/comment`, `/function`, `/metrics`) reports this `language`
+field so clients can confirm which grammar was selected.
 
-### 5. Server and Library Version
+### 6. Server and Library Version
 
 Reports the running server version and the version of the
 `big-code-analysis` library it was built against.
@@ -295,7 +410,7 @@ GET http://127.0.0.1:8080/v1/version
 }
 ```
 
-### 6. Supported Languages
+### 7. Supported Languages
 
 Lists the supported languages and their registered file extensions.
 The names are the canonical lowercase slugs; the list and extensions
@@ -318,12 +433,11 @@ GET http://127.0.0.1:8080/v1/languages
 }
 ```
 
-Like `/ping`, both `/version` and `/languages` are also exposed as
-unprefixed aliases (`/version`, `/languages`) until the 2.0 release;
-those alias responses carry the same deprecation headers described under
-[API Versioning](#api-versioning).
+Like every endpoint, `/version` and `/languages` are served only under
+the `/v1` prefix; the unprefixed `1.x` aliases were removed in 2.0 (see
+[API Versioning](#api-versioning)).
 
-### 7. Route index
+### 8. Route index
 
 Returns a machine-readable index of every registered route — its path,
 the HTTP methods it accepts, and a one-line description — so clients can
@@ -351,9 +465,8 @@ GET http://127.0.0.1:8080/v1
 ```
 
 `service` is always `bca-web`; `version` matches the `server` field of
-`GET /v1/version`. The unprefixed root `/` is the deprecated alias for
-this endpoint and carries the same deprecation headers as the other
-aliases.
+`GET /v1/version`. The unprefixed root `/` that earlier releases served
+as this endpoint's alias was removed in 2.0.
 
 ## Change-history (VCS) metrics
 
@@ -376,13 +489,15 @@ representation.
 > the analysis endpoints.
 
 All three endpoints are `POST`-only, accept `application/json`, echo the
-request `id`, and report errors with the uniform `{error, id}` body. A
+request `id`, and report errors with the uniform `{error, error_kind,
+id}` body (its `error_kind` tokens are the `vcs_*` family — e.g.
+`vcs_not_a_repository`, `vcs_invalid_window`). A
 client mistake — `repo_path` is not a git working tree, an unresolvable
 `ref`/`commit`, a malformed diff, or a malformed window / timestamp /
 formula / file-type / threshold / trend parameter — is a `400`; a
 failure of the history walk itself is a `500`.
 
-### 8. Rank files by risk — `/vcs`
+### 9. Rank files by risk — `/vcs`
 
 Walks the repository's history once and returns its files ranked by a
 composite risk score (issue #328).
@@ -407,7 +522,8 @@ defaults to the `bca vcs` default. The optional fields are:
 
 - `long_window` / `recent_window`: window specs (e.g. `12mo`, `90d`).
   Defaults `12mo` / `90d`.
-- `top`: keep only the top *N* files by risk (`0` / absent = all).
+- `top`: keep only the top *N* files by risk. Absent defaults to `50`
+  (the `bca vcs --top` default); an explicit `0` returns all files.
 - `ref`: revision to analyse (default `HEAD`).
 - `risk_formula`: `weighted` (default) or `percentile`.
 - `file_types`: `metrics` (default — only files bca has metrics for),
@@ -433,8 +549,8 @@ defaults to the `bca vcs` default. The optional fields are:
 ```json
 {
   "id": "unique-id",
-  "vcs_schema_version": 1,
-  "risk_score_version": 1,
+  "vcs_schema_version": 2,
+  "risk_score_version": 2,
   "long_window_days": 365,
   "recent_window_days": 90,
   "truncated_shallow_clone": false,
@@ -468,7 +584,7 @@ constant stamps `vcs_schema_version`, `risk_score_version`,
 never per row (issue #635). `vcs_aggregate` carries the directory- and
 repo-level bus factor (issue #332).
 
-### 9. Historical trend — `/vcs/trend`
+### 10. Historical trend — `/vcs/trend`
 
 Samples the change-history metrics at several evenly-spaced points in
 time and returns the per-file time series (issue #333). Its response is a
@@ -482,10 +598,11 @@ POST http://127.0.0.1:8080/v1/vcs/trend
 
 **Payload:** every `/vcs` field above, plus:
 
-- `points` (**required**): number of evenly-spaced sample points (`>= 2`).
+- `points`: number of evenly-spaced sample points (`>= 2`). Defaults to
+  `12` (the `bca vcs trend --points` default) when omitted.
 - `span`: total look-back the points cover (default `12mo`).
-- `top_deltas`: top *N* files per improving / regressing list (`0` /
-  absent = all).
+- `top_deltas`: top *N* files per improving / regressing list. Absent
+  defaults to `10`; an explicit `0` returns all.
 
 **Response:**
 
@@ -493,8 +610,8 @@ POST http://127.0.0.1:8080/v1/vcs/trend
 {
   "id": "unique-id",
   "trend_schema_version": 1,
-  "vcs_schema_version": 1,
-  "risk_score_version": 1,
+  "vcs_schema_version": 2,
+  "risk_score_version": 2,
   "long_window_days": 365,
   "recent_window_days": 90,
   "truncated_shallow_clone": false,
@@ -515,7 +632,7 @@ once at the top level, never per point (issue #635). `deltas` ranks the
 most-improved and most-regressed files by their risk-score movement
 across the series.
 
-### 10. Just-in-time risk — `/vcs/jit`
+### 11. Just-in-time risk — `/vcs/jit`
 
 Scores the just-in-time risk of a **single change** — either one commit
 on a server-side repository, or an arbitrary unified diff carried in the

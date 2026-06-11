@@ -87,12 +87,13 @@ def run(
 
     ``skip_generated`` (default ``True``) routes through per-file
     :func:`bca.analyze` instead of :func:`bca.analyze_batch` so the
-    CLI's ``@generated`` / ``DO NOT EDIT`` walker filter applies —
-    ``bca.analyze_batch`` hardcodes ``skip_generated=False`` and
-    would otherwise pull machine-generated code (``*.pb.rs``,
-    OpenAPI stubs, the workspace's own ``generated.rs`` fixture)
-    into the dashboard. Pass ``False`` to opt back into the batch
-    entry point if you want every file, generated or not.
+    CLI's ``@generated`` / ``DO NOT EDIT`` walker filter applies and
+    machine-generated code (``*.pb.rs``, OpenAPI stubs, the
+    workspace's own ``generated.rs`` fixture) stays out of the
+    dashboard. Pass ``False`` to opt into the batch entry point with
+    ``skip_generated=False`` explicitly, ingesting every file —
+    generated or not — with one result element per input so the
+    ``zip(..., strict=True)`` against ``inputs`` holds.
 
     Returns a small summary dict (``analyzed``, ``errors``,
     ``skipped``, ``rows``, ``top_n``) so the caller can assert
@@ -128,7 +129,10 @@ def run(
             analyzed += 1
             flat_rows.extend(dict(record) for record in bca.flatten_spaces(result))
     else:
-        batch = bca.analyze_batch([str(p) for p in inputs])
+        # `skip_generated=False` guarantees one result element per
+        # input (generated files are analyzed, not dropped), so the
+        # `strict=True` zip against `inputs` cannot raise `ValueError`.
+        batch = bca.analyze_batch(inputs, skip_generated=False)
         for path, batch_result in zip(inputs, batch, strict=True):
             if isinstance(batch_result, bca.AnalysisFailure):
                 errors += 1

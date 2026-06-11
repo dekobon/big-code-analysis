@@ -21,249 +21,21 @@ for historical reference.
 
 ## [Unreleased]
 
-### Changed
-
-- **(breaking within report scope)** Unified the AST report's hotspot
-  section titles onto one sentence-case template,
-  `<Concept> hotspots (<top N|lowest N|all> by <column>)` (#677). The nine
-  titles previously mixed Title Case, sentence case, and an all-caps
-  internal `(NEXITS)` ID; the metric IDs now live only in the legend. The
-  truncation clause appears on every table and reflects the actual `--top`
-  state (`top 20 by CC`, or `all, by CC` for `--top 0`). HTML section
-  anchors derive from a *stable* `<Concept> hotspots` slug
-  (`#rust-cyclomatic-complexity-hotspots`), so deep links no longer shift
-  with `--top`; the cross-format section-membership test and the rich
-  Markdown/HTML snapshots moved with the titles. Wire shape untouched.
-- **(breaking within report scope)** Relabelled the WMC hotspot from
-  "Classes/impls/traits" to "Types" (#687): the global-header row, the
-  section title, and the column header all read `Type`/`Types`, since
-  `is_class_like` matches six kinds (class, struct, trait, impl, interface,
-  namespace), not three. The full kind list is enumerated once in the
-  legend's WMC entry. The WMC wire accessor (`class_wmc_sum`) is unchanged
-  and stays distinct from this presentation label.
-- Moved the per-language Actionable Summary to the top of each language
-  section — directly after `### Summary`, before any hotspot table (#678),
-  so a reader who stops after one or two tables still sees the
-  highest-altitude counts. Dropped the index-splice mechanism in favour of
-  explicit emission order. Section anchors keep their ids; only their
-  position moves.
-- Emit the Markdown report legend at `##` (was `###`) so it gets its own
-  TOC entry instead of nesting under the last language's section, and
-  render the HTML legend `<details open>` (was collapsed) so it survives
-  print, mobile, and screen readers — the surfaces the legend exists to
-  serve (#679). Added legend entries (and an HTML tooltip) for the
-  global-header PLOC / Comments / Comment-ratio stats.
-- Render Halstead Effort and Volume in the report tables as rounded
-  integers with thousands separators (`8,845`, not `8844.75701441285`),
-  matching the neighbouring SLOC/Tokens columns (#668). JSON/CSV/wire keep
-  full f64 precision.
-- Raised the exit-points (NEXITS) hotspot floor from `nexits > 0` to
-  `> 2` (#689). A single `return` is the baseline, not a hotspot, so the
-  old floor degenerated into a table of noise on a healthy codebase; a
-  codebase whose worst function clears only the baseline now omits the
-  section entirely.
-- Relabelled the VCS report's `(total)` column headers to `(long)`
-  (Churn / Commits / Authors / Change entropy / Co-change entropy), so they
-  grep straight back to the `*_long` wire keys, and enriched each
-  window-relevant tooltip with its window duration (default 365d long /
-  90d recent) and backing key (#592). The plain table's `COMMITS r/l` /
-  `CHURN r/l` headers spell out to `rec/long`. `(total)` was doubly wrong:
-  it matched no key and misrepresented a one-year window as all-history.
-  Rendered text only — CSV/wire already use `_long`/`_recent`.
-- **(Python, breaking, deferred to 2.0)** Renamed the `AnalysisError`
-  pyclass to `AnalysisFailure` (#614). It is a value type **returned** (not
-  raised) by `analyze_batch` — the `…Error` suffix that PEP 8 reserves for
-  exceptions misled readers into `except bca.AnalysisError:`, a `TypeError`
-  at the `except` site since the class does not inherit `BaseException`.
-  The shape, fields, and returned-not-raised semantics are unchanged; only
-  the name moves. The package is not yet on PyPI, so the rename is cheap
-  now but pinned by the 2.0 contract.
-- **(Python, breaking, deferred to 2.0)** Namespaced the change-history
-  surface into a `big_code_analysis.vcs` submodule (#612). The flat
-  `vcs_metrics` / `vcs_trend` / `vcs_jit` functions become `vcs.rank` /
-  `vcs.trend` / `vcs.commit` (names mirroring the `bca vcs` CLI
-  subcommands), with the 15-shared parameters collapsed onto a single
-  `vcs.Options` object all three accept — killing the duplicated
-  17-kwarg signatures (and the drift #583 patched once already). The GIL
-  is released across the history walks (folds in #620), so a
-  `ThreadPoolExecutor` over several repositories parallelises them.
-- **(Python, breaking, deferred to 2.0)** Split the dual-mode `vcs_jit`
-  into `vcs.commit` (commit mode) and `vcs.score_diff(diff)` (diff mode)
-  (#667). `vcs.commit` no longer accepts a `diff` kwarg — the footgun where
-  `diff` silently discarded a named `commit` and returned a non-comparable
-  `partial_risk_score` is gone structurally, matching the CLI/web's #632
-  reject-the-mix behaviour. Each function now returns one well-defined
-  shape.
-- Structured the `bca-web` error body with a machine-readable
-  `error_kind` token (#631). Every error response is now
-  `{error, error_kind, id}`: `error` keeps its human role but carries the
-  *specific* cause, and `error_kind` is a new closed-vocabulary
-  `snake_case` token (e.g. `invalid_window`, `unknown_field`,
-  `unsupported_language`) that clients branch on without string-matching
-  the prose. This replaces the single kitchen-sink `/vcs` 400 message —
-  a bad window now answers the specific `vcs_invalid_window` cause, not a
-  sentence listing every possible parameter, and the message no longer
-  names `/vcs` when the request hit `/vcs/jit` or `/vcs/trend`. The
-  `VCS_BAD_REQUEST` constant is removed. Additive over the prior
-  `{error, id}` shape (`error_kind` is purely new; `error` was always a
-  free-form string), so this is not itself a break; the token vocabulary
-  is pinned in STABILITY.md.
-- **(breaking, deferred to 2.0)** Rejected unknown fields on every
-  `bca-web` request body and query string with a `400` naming the
-  offending key (#633). A typo'd field (e.g. `long_widnow`) previously
-  `200`'d, silently computing with defaults the client did not ask for;
-  it now `400`s with `error_kind: "unknown_field"` and the key named in
-  the `error`. Every request struct gains `#[serde(deny_unknown_fields)]`,
-  and the `/vcs/trend` payload is un-flattened (its shared `/vcs` knobs
-  are inlined so `deny_unknown_fields` applies; the JSON shape is
-  unchanged). Clients probing for feature support use the `GET /v1` route
-  index (#643). Payloads with extra/typo'd fields that succeeded before
-  now fail.
-- **(breaking, deferred to 2.0)** Aligned the `bca-web` `/vcs`-family
-  defaults with the CLI (#636). `top` now defaults to 50, `top_deltas`
-  to 10, and `points` to 12 (formerly hard-required, so an omitted
-  `points` now succeeds instead of `400`ing) — matching `bca vcs --top`
-  / `--top-deltas` / `--points`. An explicit `top: 0` / `top_deltas: 0`
-  still returns all (the #602 `0 = all` escape). This fixes the
-  unbounded "all files" default on the most-exposed surface (a
-  serializer self-DoS on a monorepo) and makes the same logical
-  invocation return the same-sized result regardless of surface.
-  Payloads omitting these fields get a smaller result.
-- **(breaking, deferred to 2.0)** Added the `language` key to the
-  `/v1/ast` response envelope (#654), bringing the published
-  `AstResponse` library type to `{id, language, root}` and matching
-  `/comment`, `/function`, and `/metrics`. AST node kinds are
-  grammar-specific, so an `/ast` consumer can now confirm which grammar
-  produced them. Additive on the wire, but a shape change to the
-  published `AstResponse` type.
-- **(breaking, deferred to 2.0)** Renamed the `bca-web` `/metrics`
-  envelope and aligned the span vocabulary (#638). The single root
-  metric space moves from the misleading plural `spaces` key to `root`
-  (its own nested `spaces` list still holds the children); the boolean
-  `unit` request flag (body field and query parameter) becomes the
-  self-describing `scope` enum — `"full"` (default) or `"file"`; and
-  `/ast`'s span keys `start_row` / `end_row` are renamed to
-  `start_line` / `end_line`, matching `/function` and `/metrics` (1-based
-  everywhere). This shape-changes the published `Span` library type.
-  With #633's unknown-field rejection, a stale `unit` key now `400`s as
-  an unknown field.
-- **(breaking, deferred to 2.0)** Removed the unprefixed `bca-web` route
-  aliases (#637 / #517). The original unprefixed paths (`/metrics`,
-  `/comment`, `/function`, `/ast`, `/ping`, `/version`, `/languages`,
-  the bare `/` index, and the `/vcs*` routes) now `404` like any other
-  unknown URL; all routes are served under the `/v1` prefix. The interim
-  `Deprecation` / `Sunset` / `Link` signalling headers (shipped in 1.x)
-  are gone with the aliases. Clients must use the `/v1` prefix.
-- **(breaking, deferred to 2.0)** Simplified `bca check`'s threshold-tier
-  model (#688). The standalone `--headroom <RATIO>` flag is retired; the
-  soft tier now carries its own scale ratio via the value-taking
-  `--tier <hard|soft|soft=RATIO>` (default `hard`; a bare `--tier`
-  means `soft`; `soft` alone uses the 0.95 default ratio). This folds
-  the former four-mechanism precedence model (config / `[thresholds.soft]`
-  / headroom / `--threshold`) down to tier-carries-ratio plus absolute
-  `--threshold` overrides, and removes the three runtime precedence
-  notes whose self-contradictory help text the issue flagged. The
-  `[check] headroom` manifest key is unchanged and folds into the soft
-  tier's ratio. `--headroom <R>` survives as a hidden one-cycle
-  deprecated alias for `--tier=soft=<R>` (warns; removed next major) —
-  note that it now *promotes* a hard run to the soft tier rather than
-  being ignored at the hard tier.
-- **(breaking, deferred to 2.0)** Aligned `bca.toml` manifest key names
-  with their CLI flags (#666). The `num_jobs` key is renamed to `jobs`
-  (matching `--jobs`); `--no-cyclomatic-try` (presence flag) becomes the
-  value-taking `--cyclomatic-count-try <bool>` (matching the positive
-  `cyclomatic_count_try` key); and `--strict-exit-codes` becomes the
-  value-taking `--exit-codes <default|tiered>` (matching the
-  `[check] exit_codes` key). All three new flags are full overrides — a
-  CLI value beats the manifest in *both* directions, not just opt-in.
-  One-cycle deprecated aliases (warn-but-honor): the `num_jobs` manifest
-  key, the `--no-cyclomatic-try` flag (= `--cyclomatic-count-try=false`),
-  and the `--strict-exit-codes` flag (= `--exit-codes=tiered`). The false
-  "Every key mirrors a CLI flag" doc claim is corrected.
-- **(breaking, deferred to 2.0)** Gave the auto-enabled CI behaviours of
-  `bca check` never-forms and gave manifest booleans two-way CLI
-  overrides (#683). `--github-annotations` becomes tri-state
-  `<auto|always|never>` (mirroring `--color`; `auto` detects
-  `$GITHUB_ACTIONS`, `never` suppresses even inside a step, a bare flag
-  still means `always`); `--summary-file` now accepts `auto` / `never`
-  keywords alongside a path (`never` suppresses the step-summary append
-  even when `$GITHUB_STEP_SUMMARY` is set); and `--baseline-fuzzy-match`
-  / `--no-suppress` become value-taking (`<bool>`, bare = `true`) so a
-  CLI `false` overrides the matching manifest key without dropping the
-  whole config via `--no-config`.
-- **(breaking)** CLI flags are now scoped to the subcommands that consume
-  them, with sectioned `--help` output (#597). Every flag that used to be
-  `global = true` — `--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,
-  `--language`/`-l`, `--jobs`/`-j` (alias `--num-jobs`), `--no-ignore`,
-  `--exclude-tests`, `--no-cyclomatic-try`, `--no-config`,
-  `--preproc-data`, `--color`, `--no-skip-generated`, `--paths-from`,
-  `--exclude-from` — now lives in a per-subcommand group
-  (Input selection / Walker tuning / Preprocessor / Output) and must be
-  passed **after** the subcommand: `bca metrics --paths src`, not
-  `bca --paths src metrics`. Only `-w`/`--warnings` and `--report-skipped`
-  stay universal. A flag passed to a subcommand that never consumed it is
-  now a hard usage error (exit 1) instead of a silent no-op — e.g.
-  `bca vcs commit --exclude-tests` and `bca list-metrics --paths` now
-  error, and `bca list-metrics --help` no longer advertises walker flags.
-  `vcs commit` / `vcs trend` take no walk or preproc flags. Migration:
-  move each affected flag to after the subcommand token. Deferred to
-  2.0.0 (#597).
-- **(breaking)** Input paths are now accepted as a trailing `[PATHS]...`
-  positional on the walking subcommands (#651): `bca metrics src/` works,
-  matching tokei / cloc / scc / rg. The positional is unioned with any
-  `--paths`/`-p` values (both remain valid). `bca find` and `bca count`
-  move their node kinds off the `<NODES>...` positional onto a repeatable
-  `-t`/`--type` flag to free the positional slot for paths —
-  `bca find function_item` becomes `bca find -t function_item [PATHS]...`,
-  and at least one `-t` is required. Script authors relying on positional
-  `<NODES>...` for `find`/`count` must add `-t`. Deferred to 2.0.0 (#651).
-- `bca dump` and `bca find` text output now print a `== <path> ==` banner
-  before each file's tree, so a multi-file dump is attributable despite
-  the parallel walk interleaving output (non-breaking; human debug
-  output) (#690).
-- **(breaking)** `bca dump` now requires an explicit path: bare `bca
-  dump` errors (exit 1) instead of dumping the whole current directory —
-  the documented exception to #596's default-`.` walk, since a
-  whole-tree AST dump has no plausible use. Deferred to 2.0.0 (#690).
-- **(breaking)** One human-output-format vocabulary across the CLI
-  (#659): the diff-family human value `tty` is renamed to `text`
-  (`bca diff` / `diff-baseline` / `exemptions --format text`), `bca vcs`
-  gains a selectable `text` value that renders its human ranked table
-  (previously the unnamed default), and `bca check`'s CI-dialect selector
-  is renamed `--format`/`-O` → `--report-format` to separate "which CI
-  report dialect" from data serialization. The renamed values/flags keep
-  one-cycle hidden aliases (`tty`, and `--format`/`-O`/`--output-format`
-  on `check`); `-O`/`--format` stay canonical for the structured format
-  on the data-serialization subcommands. Deferred to 2.0.0.
-- **(breaking)** `bca vcs jit` is renamed to `bca vcs commit` and its
-  gate flag `--fail-over <SCORE>` to `--fail-above <SCORE>`; the gate
-  output prefix is now `vcs commit: …`. The old `jit` subcommand spelling
-  and `--fail-over` flag keep working as hidden aliases for one release
-  cycle, then are removed in the next major. "Just-in-time (JIT)" stays
-  in the long help and book as the defect-prediction-literature
-  cross-reference. Deferred to 2.0.0 (#603).
-- **(breaking)** `bca metrics`/`ops`: `--output <FILE>` now means a
-  single aggregate file everywhere (a top-level array of the per-file
-  documents; TOML wraps it under a `files` key, CSV concatenates each
-  file's rows), matching every other subcommand. The per-file directory
-  tree that `--output` used to imply moved to a new `--output-dir <DIR>`;
-  `--output out.json` used to create a *directory* named `out.json`.
-  Passing both `--output` and `--output-dir` is a usage error (exit 1).
-  Migration: scripts that relied on `metrics -o <dir>` / `ops -o <dir>`
-  for the per-file tree must switch to `--output-dir <dir>`. Deferred to
-  2.0.0 (#669).
-- **(breaking)** `bca metrics`/`ops`: an *explicitly-named* file whose
-  language is unrecognized now warns on stderr unconditionally (no longer
-  gated behind `-w`) and exits 1 when the run produced no analyzable
-  output — mirroring the nonexistent-explicit-path rule (#596). A mixed
-  run that analyzed at least one file still exits 0 with the warning;
-  `--language` forces a parser for files whose extension lies.
-  Directory-walk skips for unrecognized languages stay silently gated
-  behind `-w`. Previously such an explicit file was skipped silently with
-  exit 0. Deferred to 2.0.0 (#663).
-
 ### Added
 
+- A `mypy stubtest` gate (`make py-stubtest`) verifies the hand-written
+  PyO3 type stub
+  `big-code-analysis-py/python/big_code_analysis/_native.pyi` against the
+  compiled extension — diffing names, signatures, and **defaults** — so a
+  stub default can no longer silently drift from the
+  `#[pyo3(signature = …)]` runtime the way #583 did (the usage-only
+  `make py-typecheck` mypy/pyright passes cannot catch that class of
+  drift). Wired into `make pre-commit` and `make ci` (chained after
+  `py-test`, sharing its `maturin develop` build) and skipped with a clear
+  "not found" message when the venv / maturin / stubtest are absent. A
+  minimal, commented allowlist
+  (`big-code-analysis-py/stubtest-allowlist.txt`) covers the deliberate
+  facade differences (the `vcs` submodule, runtime `__all__`) (#673).
 - The HTML report's table of contents now nests each language's h3 hotspot
   subsections under its h2 entry in a collapsible `<details>` list (#685),
   reusing the per-language-unique ids the report already mints, so a reader
@@ -2164,6 +1936,245 @@ for historical reference.
   external constructors. Landable now because the VCS surface is
   unreleased — not a break for any existing user. Part of #505's 2.0
   preparation (#584).
+
+- **(breaking within report scope)** Unified the AST report's hotspot
+  section titles onto one sentence-case template,
+  `<Concept> hotspots (<top N|lowest N|all> by <column>)` (#677). The nine
+  titles previously mixed Title Case, sentence case, and an all-caps
+  internal `(NEXITS)` ID; the metric IDs now live only in the legend. The
+  truncation clause appears on every table and reflects the actual `--top`
+  state (`top 20 by CC`, or `all, by CC` for `--top 0`). HTML section
+  anchors derive from a *stable* `<Concept> hotspots` slug
+  (`#rust-cyclomatic-complexity-hotspots`), so deep links no longer shift
+  with `--top`; the cross-format section-membership test and the rich
+  Markdown/HTML snapshots moved with the titles. Wire shape untouched.
+- **(breaking within report scope)** Relabelled the WMC hotspot from
+  "Classes/impls/traits" to "Types" (#687): the global-header row, the
+  section title, and the column header all read `Type`/`Types`, since
+  `is_class_like` matches six kinds (class, struct, trait, impl, interface,
+  namespace), not three. The full kind list is enumerated once in the
+  legend's WMC entry. The WMC wire accessor (`class_wmc_sum`) is unchanged
+  and stays distinct from this presentation label.
+- Moved the per-language Actionable Summary to the top of each language
+  section — directly after `### Summary`, before any hotspot table (#678),
+  so a reader who stops after one or two tables still sees the
+  highest-altitude counts. Dropped the index-splice mechanism in favour of
+  explicit emission order. Section anchors keep their ids; only their
+  position moves.
+- Emit the Markdown report legend at `##` (was `###`) so it gets its own
+  TOC entry instead of nesting under the last language's section, and
+  render the HTML legend `<details open>` (was collapsed) so it survives
+  print, mobile, and screen readers — the surfaces the legend exists to
+  serve (#679). Added legend entries (and an HTML tooltip) for the
+  global-header PLOC / Comments / Comment-ratio stats.
+- Render Halstead Effort and Volume in the report tables as rounded
+  integers with thousands separators (`8,845`, not `8844.75701441285`),
+  matching the neighbouring SLOC/Tokens columns (#668). JSON/CSV/wire keep
+  full f64 precision.
+- Raised the exit-points (NEXITS) hotspot floor from `nexits > 0` to
+  `> 2` (#689). A single `return` is the baseline, not a hotspot, so the
+  old floor degenerated into a table of noise on a healthy codebase; a
+  codebase whose worst function clears only the baseline now omits the
+  section entirely.
+- Relabelled the VCS report's `(total)` column headers to `(long)`
+  (Churn / Commits / Authors / Change entropy / Co-change entropy), so they
+  grep straight back to the `*_long` wire keys, and enriched each
+  window-relevant tooltip with its window duration (default 365d long /
+  90d recent) and backing key (#592). The plain table's `COMMITS r/l` /
+  `CHURN r/l` headers spell out to `rec/long`. `(total)` was doubly wrong:
+  it matched no key and misrepresented a one-year window as all-history.
+  Rendered text only — CSV/wire already use `_long`/`_recent`.
+- **(Python, breaking, deferred to 2.0)** Renamed the `AnalysisError`
+  pyclass to `AnalysisFailure` (#614). It is a value type **returned** (not
+  raised) by `analyze_batch` — the `…Error` suffix that PEP 8 reserves for
+  exceptions misled readers into `except bca.AnalysisError:`, a `TypeError`
+  at the `except` site since the class does not inherit `BaseException`.
+  The shape, fields, and returned-not-raised semantics are unchanged; only
+  the name moves. The package is not yet on PyPI, so the rename is cheap
+  now but pinned by the 2.0 contract.
+- **(Python, breaking, deferred to 2.0)** Namespaced the change-history
+  surface into a `big_code_analysis.vcs` submodule (#612). The flat
+  `vcs_metrics` / `vcs_trend` / `vcs_jit` functions become `vcs.rank` /
+  `vcs.trend` / `vcs.commit` (names mirroring the `bca vcs` CLI
+  subcommands), with the 15-shared parameters collapsed onto a single
+  `vcs.Options` object all three accept — killing the duplicated
+  17-kwarg signatures (and the drift #583 patched once already). The GIL
+  is released across the history walks (folds in #620), so a
+  `ThreadPoolExecutor` over several repositories parallelises them.
+- **(Python, breaking, deferred to 2.0)** Split the dual-mode `vcs_jit`
+  into `vcs.commit` (commit mode) and `vcs.score_diff(diff)` (diff mode)
+  (#667). `vcs.commit` no longer accepts a `diff` kwarg — the footgun where
+  `diff` silently discarded a named `commit` and returned a non-comparable
+  `partial_risk_score` is gone structurally, matching the CLI/web's #632
+  reject-the-mix behaviour. Each function now returns one well-defined
+  shape.
+- Structured the `bca-web` error body with a machine-readable
+  `error_kind` token (#631). Every error response is now
+  `{error, error_kind, id}`: `error` keeps its human role but carries the
+  *specific* cause, and `error_kind` is a new closed-vocabulary
+  `snake_case` token (e.g. `invalid_window`, `unknown_field`,
+  `unsupported_language`) that clients branch on without string-matching
+  the prose. This replaces the single kitchen-sink `/vcs` 400 message —
+  a bad window now answers the specific `vcs_invalid_window` cause, not a
+  sentence listing every possible parameter, and the message no longer
+  names `/vcs` when the request hit `/vcs/jit` or `/vcs/trend`. The
+  `VCS_BAD_REQUEST` constant is removed. Additive over the prior
+  `{error, id}` shape (`error_kind` is purely new; `error` was always a
+  free-form string), so this is not itself a break; the token vocabulary
+  is pinned in STABILITY.md.
+- **(breaking, deferred to 2.0)** Rejected unknown fields on every
+  `bca-web` request body and query string with a `400` naming the
+  offending key (#633). A typo'd field (e.g. `long_widnow`) previously
+  `200`'d, silently computing with defaults the client did not ask for;
+  it now `400`s with `error_kind: "unknown_field"` and the key named in
+  the `error`. Every request struct gains `#[serde(deny_unknown_fields)]`,
+  and the `/vcs/trend` payload is un-flattened (its shared `/vcs` knobs
+  are inlined so `deny_unknown_fields` applies; the JSON shape is
+  unchanged). Clients probing for feature support use the `GET /v1` route
+  index (#643). Payloads with extra/typo'd fields that succeeded before
+  now fail.
+- **(breaking, deferred to 2.0)** Aligned the `bca-web` `/vcs`-family
+  defaults with the CLI (#636). `top` now defaults to 50, `top_deltas`
+  to 10, and `points` to 12 (formerly hard-required, so an omitted
+  `points` now succeeds instead of `400`ing) — matching `bca vcs --top`
+  / `--top-deltas` / `--points`. An explicit `top: 0` / `top_deltas: 0`
+  still returns all (the #602 `0 = all` escape). This fixes the
+  unbounded "all files" default on the most-exposed surface (a
+  serializer self-DoS on a monorepo) and makes the same logical
+  invocation return the same-sized result regardless of surface.
+  Payloads omitting these fields get a smaller result.
+- **(breaking, deferred to 2.0)** Added the `language` key to the
+  `/v1/ast` response envelope (#654), bringing the published
+  `AstResponse` library type to `{id, language, root}` and matching
+  `/comment`, `/function`, and `/metrics`. AST node kinds are
+  grammar-specific, so an `/ast` consumer can now confirm which grammar
+  produced them. Additive on the wire, but a shape change to the
+  published `AstResponse` type.
+- **(breaking, deferred to 2.0)** Renamed the `bca-web` `/metrics`
+  envelope and aligned the span vocabulary (#638). The single root
+  metric space moves from the misleading plural `spaces` key to `root`
+  (its own nested `spaces` list still holds the children); the boolean
+  `unit` request flag (body field and query parameter) becomes the
+  self-describing `scope` enum — `"full"` (default) or `"file"`; and
+  `/ast`'s span keys `start_row` / `end_row` are renamed to
+  `start_line` / `end_line`, matching `/function` and `/metrics` (1-based
+  everywhere). This shape-changes the published `Span` library type.
+  With #633's unknown-field rejection, a stale `unit` key now `400`s as
+  an unknown field.
+- **(breaking, deferred to 2.0)** Removed the unprefixed `bca-web` route
+  aliases (#637 / #517). The original unprefixed paths (`/metrics`,
+  `/comment`, `/function`, `/ast`, `/ping`, `/version`, `/languages`,
+  the bare `/` index, and the `/vcs*` routes) now `404` like any other
+  unknown URL; all routes are served under the `/v1` prefix. The interim
+  `Deprecation` / `Sunset` / `Link` signalling headers (shipped in 1.x)
+  are gone with the aliases. Clients must use the `/v1` prefix.
+- **(breaking, deferred to 2.0)** Simplified `bca check`'s threshold-tier
+  model (#688). The standalone `--headroom <RATIO>` flag is retired; the
+  soft tier now carries its own scale ratio via the value-taking
+  `--tier <hard|soft|soft=RATIO>` (default `hard`; a bare `--tier`
+  means `soft`; `soft` alone uses the 0.95 default ratio). This folds
+  the former four-mechanism precedence model (config / `[thresholds.soft]`
+  / headroom / `--threshold`) down to tier-carries-ratio plus absolute
+  `--threshold` overrides, and removes the three runtime precedence
+  notes whose self-contradictory help text the issue flagged. The
+  `[check] headroom` manifest key is unchanged and folds into the soft
+  tier's ratio. `--headroom <R>` survives as a hidden one-cycle
+  deprecated alias for `--tier=soft=<R>` (warns; removed next major) —
+  note that it now *promotes* a hard run to the soft tier rather than
+  being ignored at the hard tier.
+- **(breaking, deferred to 2.0)** Aligned `bca.toml` manifest key names
+  with their CLI flags (#666). The `num_jobs` key is renamed to `jobs`
+  (matching `--jobs`); `--no-cyclomatic-try` (presence flag) becomes the
+  value-taking `--cyclomatic-count-try <bool>` (matching the positive
+  `cyclomatic_count_try` key); and `--strict-exit-codes` becomes the
+  value-taking `--exit-codes <default|tiered>` (matching the
+  `[check] exit_codes` key). All three new flags are full overrides — a
+  CLI value beats the manifest in *both* directions, not just opt-in.
+  One-cycle deprecated aliases (warn-but-honor): the `num_jobs` manifest
+  key, the `--no-cyclomatic-try` flag (= `--cyclomatic-count-try=false`),
+  and the `--strict-exit-codes` flag (= `--exit-codes=tiered`). The false
+  "Every key mirrors a CLI flag" doc claim is corrected.
+- **(breaking, deferred to 2.0)** Gave the auto-enabled CI behaviours of
+  `bca check` never-forms and gave manifest booleans two-way CLI
+  overrides (#683). `--github-annotations` becomes tri-state
+  `<auto|always|never>` (mirroring `--color`; `auto` detects
+  `$GITHUB_ACTIONS`, `never` suppresses even inside a step, a bare flag
+  still means `always`); `--summary-file` now accepts `auto` / `never`
+  keywords alongside a path (`never` suppresses the step-summary append
+  even when `$GITHUB_STEP_SUMMARY` is set); and `--baseline-fuzzy-match`
+  / `--no-suppress` become value-taking (`<bool>`, bare = `true`) so a
+  CLI `false` overrides the matching manifest key without dropping the
+  whole config via `--no-config`.
+- **(breaking)** CLI flags are now scoped to the subcommands that consume
+  them, with sectioned `--help` output (#597). Every flag that used to be
+  `global = true` — `--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,
+  `--language`/`-l`, `--jobs`/`-j` (alias `--num-jobs`), `--no-ignore`,
+  `--exclude-tests`, `--no-cyclomatic-try`, `--no-config`,
+  `--preproc-data`, `--color`, `--no-skip-generated`, `--paths-from`,
+  `--exclude-from` — now lives in a per-subcommand group
+  (Input selection / Walker tuning / Preprocessor / Output) and must be
+  passed **after** the subcommand: `bca metrics --paths src`, not
+  `bca --paths src metrics`. Only `-w`/`--warnings` and `--report-skipped`
+  stay universal. A flag passed to a subcommand that never consumed it is
+  now a hard usage error (exit 1) instead of a silent no-op — e.g.
+  `bca vcs commit --exclude-tests` and `bca list-metrics --paths` now
+  error, and `bca list-metrics --help` no longer advertises walker flags.
+  `vcs commit` / `vcs trend` take no walk or preproc flags. Migration:
+  move each affected flag to after the subcommand token. Deferred to
+  2.0.0 (#597).
+- **(breaking)** Input paths are now accepted as a trailing `[PATHS]...`
+  positional on the walking subcommands (#651): `bca metrics src/` works,
+  matching tokei / cloc / scc / rg. The positional is unioned with any
+  `--paths`/`-p` values (both remain valid). `bca find` and `bca count`
+  move their node kinds off the `<NODES>...` positional onto a repeatable
+  `-t`/`--type` flag to free the positional slot for paths —
+  `bca find function_item` becomes `bca find -t function_item [PATHS]...`,
+  and at least one `-t` is required. Script authors relying on positional
+  `<NODES>...` for `find`/`count` must add `-t`. Deferred to 2.0.0 (#651).
+- `bca dump` and `bca find` text output now print a `== <path> ==` banner
+  before each file's tree, so a multi-file dump is attributable despite
+  the parallel walk interleaving output (non-breaking; human debug
+  output) (#690).
+- **(breaking)** `bca dump` now requires an explicit path: bare `bca
+  dump` errors (exit 1) instead of dumping the whole current directory —
+  the documented exception to #596's default-`.` walk, since a
+  whole-tree AST dump has no plausible use. Deferred to 2.0.0 (#690).
+- **(breaking)** One human-output-format vocabulary across the CLI
+  (#659): the diff-family human value `tty` is renamed to `text`
+  (`bca diff` / `diff-baseline` / `exemptions --format text`), `bca vcs`
+  gains a selectable `text` value that renders its human ranked table
+  (previously the unnamed default), and `bca check`'s CI-dialect selector
+  is renamed `--format`/`-O` → `--report-format` to separate "which CI
+  report dialect" from data serialization. The renamed values/flags keep
+  one-cycle hidden aliases (`tty`, and `--format`/`-O`/`--output-format`
+  on `check`); `-O`/`--format` stay canonical for the structured format
+  on the data-serialization subcommands. Deferred to 2.0.0.
+- **(breaking)** `bca vcs jit` is renamed to `bca vcs commit` and its
+  gate flag `--fail-over <SCORE>` to `--fail-above <SCORE>`; the gate
+  output prefix is now `vcs commit: …`. The old `jit` subcommand spelling
+  and `--fail-over` flag keep working as hidden aliases for one release
+  cycle, then are removed in the next major. "Just-in-time (JIT)" stays
+  in the long help and book as the defect-prediction-literature
+  cross-reference. Deferred to 2.0.0 (#603).
+- **(breaking)** `bca metrics`/`ops`: `--output <FILE>` now means a
+  single aggregate file everywhere (a top-level array of the per-file
+  documents; TOML wraps it under a `files` key, CSV concatenates each
+  file's rows), matching every other subcommand. The per-file directory
+  tree that `--output` used to imply moved to a new `--output-dir <DIR>`;
+  `--output out.json` used to create a *directory* named `out.json`.
+  Passing both `--output` and `--output-dir` is a usage error (exit 1).
+  Migration: scripts that relied on `metrics -o <dir>` / `ops -o <dir>`
+  for the per-file tree must switch to `--output-dir <dir>`. Deferred to
+  2.0.0 (#669).
+- **(breaking)** `bca metrics`/`ops`: an *explicitly-named* file whose
+  language is unrecognized now warns on stderr unconditionally (no longer
+  gated behind `-w`) and exits 1 when the run produced no analyzable
+  output — mirroring the nonexistent-explicit-path rule (#596). A mixed
+  run that analyzed at least one file still exits 0 with the warning;
+  `--language` forces a parser for files whose extension lies.
+  Directory-walk skips for unrecognized languages stay silently gated
+  behind `-w`. Previously such an explicit file was skipped silently with
+  exit 0. Deferred to 2.0.0 (#663).
 
 ### Fixed
 

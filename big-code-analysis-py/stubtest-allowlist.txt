@@ -1,0 +1,26 @@
+# stubtest allowlist for `big_code_analysis._native` (#673).
+#
+# `make py-stubtest` runs `python -m mypy.stubtest big_code_analysis._native`
+# to diff the hand-written `python/big_code_analysis/_native.pyi` stub against
+# the compiled PyO3 extension — catching signature / default drift that the
+# usage-only `mypy` / `pyright` passes (`make py-typecheck`) cannot see (#583
+# was the demonstrated stub-drift failure).
+#
+# Each line is a regex matched against fully-qualified runtime names. Keep
+# this list MINIMAL and commented: every entry suppresses a real check, so an
+# un-justified entry can mask genuine drift. Add a name here only when the
+# runtime/stub difference is a deliberate facade detail, not an API contract.
+
+# The `vcs` submodule is exposed to Python under its own `vcs.pyi` stub (and
+# the `big_code_analysis.vcs` pure-Python facade), not inlined into
+# `_native.pyi`. stubtest only diffs the module it is pointed at, so it sees
+# the nested `vcs` attribute as "missing from the stub". The submodule's
+# surface is covered separately by mypy/pyright against `vcs.pyi`.
+big_code_analysis._native.vcs
+
+# PyO3 emits a runtime `__all__` listing every exported symbol. The stub
+# enumerates the same names explicitly (so `from big_code_analysis import *`
+# and `mypy --strict` resolve them); duplicating `__all__` in the stub would
+# add a second hand-maintained copy of that list to keep in sync. The export
+# surface is already verified name-by-name by stubtest itself.
+big_code_analysis._native.__all__
