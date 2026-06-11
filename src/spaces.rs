@@ -876,7 +876,13 @@ impl Ast {
     ///
     /// let resp = Ast::parse(Source::new(LANG::Rust, b"fn f() {}"))
     ///     .expect("rust feature enabled")
-    ///     .dump(AstCfg { id: String::new(), comment: false, span: false });
+    ///     .dump(AstCfg {
+    ///         id: String::new(),
+    ///         language: "rust".to_owned(),
+    ///         comment: false,
+    ///         span: false,
+    ///     });
+    /// assert_eq!(resp.language, "rust");
     /// assert_eq!(resp.root.expect("root node").r#type, "source_file");
     /// ```
     #[must_use]

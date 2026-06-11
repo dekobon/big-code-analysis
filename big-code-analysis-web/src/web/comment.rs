@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 use big_code_analysis::{Ast, LANG, MetricsError, Source};
 
 /// Payload containing source code with comments to be removed.
+///
+/// Unknown fields are rejected with a `400` naming the offender (#633).
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebCommentPayload {
     /// Payload identifier.
     pub id: String,
@@ -79,7 +82,11 @@ impl TryFrom<WebCommentResponse> for WebCommentJson {
 }
 
 /// Source code information.
+///
+/// Unknown query parameters are rejected with a `400` naming the offender
+/// (#633).
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebCommentInfo {
     /// Source code filename.
     pub file_name: String,

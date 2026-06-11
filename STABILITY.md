@@ -978,14 +978,40 @@ The full route-by-route reference lives in the book
 ([*REST API*](big-code-analysis-book/src/commands/rest.md)); the
 contract points are:
 
-- **Analysis envelope.** `/metrics`, `/function`, and `/comment`
-  return a JSON object carrying the request `id` (echoed; empty when
-  the request carried none), a `language` field, and the endpoint's
-  result. The `language` value is the #540 canonical slug (routed
-  through `guess_language` → `LANG::name()`), the same identifier
-  used by the CLI JSON output and the Python bindings — the comment
-  endpoint reports the *guessed* language, not its internal
-  `ccomment` grammar swap.
+- **Analysis envelope.** `/ast`, `/metrics`, `/function`, and
+  `/comment` return a JSON object carrying the request `id` (echoed;
+  empty when the request carried none), a `language` field, and the
+  endpoint's result. The `language` value is the #540 canonical slug
+  (routed through `guess_language` → `LANG::name()`), the same
+  identifier used by the CLI JSON output and the Python bindings — the
+  comment endpoint reports the *guessed* language, not its internal
+  `ccomment` grammar swap. `/ast` joined the language echo at `2.0`
+  (#654), bringing the published `AstResponse` library type to
+  `{id, language, root}`.
+- **`/metrics` result shape.** The single root metric space is
+  returned under the `root` key (a single object, not the misleading
+  plural `spaces`); its own nested `spaces` list holds the child
+  spaces. The request flag selecting file-level-only output is
+  `scope` — `"full"` (default, the full nested tree) or `"file"` (the
+  root only) — both as a JSON-body field and as a query parameter on
+  the octet-stream variant. The former plural `spaces` envelope key and
+  the boolean `unit` flag were renamed as a `2.0`-line break (#638);
+  the old `unit` key now fails as an unknown field (see *Unknown
+  fields* below).
+- **Span vocabulary.** `/ast`, `/function`, and `/metrics` all report
+  node/space spans with `start_line` / `end_line` (1-based) and, where
+  columns are emitted, `start_col` / `end_col`. `/ast`'s former
+  `start_row` / `end_row` keys were renamed to `*_line` as a `2.0`-line
+  break (#638) so a client correlating spans across endpoints no longer
+  special-cases the field names per endpoint. This shape-changes the
+  published `Span` library type.
+- **Unknown fields.** Every request body and query string rejects an
+  unrecognised field with a `400` whose `error` names the offending key
+  and whose `error_kind` is `unknown_field` (#633). A typo can no longer
+  silently change analysis semantics; clients probing for feature
+  support use the `GET /v1` route index (#643) instead. This is a
+  `2.0`-line break — payloads with extra/typo'd fields that `200`'d
+  before now `400`.
 - **`/comment` result shape.** The JSON variant returns `code` as a
   **string** holding the stripped source; the request `code` arrived
   as a JSON string, so the output is valid UTF-8 and is handed back as
@@ -1001,31 +1027,62 @@ contract points are:
   `2.0`-line break (#558) so the empty outcome shares one status code
   and one envelope shape across `Accept` types.
 - **Uniform errors.** Every error path returns the JSON body
-  `{error, id}` with an appropriate status; no endpoint emits a bare
-  `text/plain` error. The `id` is always present. A `file_name` that
-  maps to no supported language is a `422 Unprocessable Entity`
-  carrying the stable machine token `"error": "unsupported_language"`
-  (the route matched and the body parsed); only an unknown URL is a
-  `404`. The former `404` for the unsupported-language case was a
-  `2.0`-line break (#634).
+  `{error, error_kind, id}` with an appropriate status; no endpoint
+  emits a bare `text/plain` error. `error` carries the *specific*
+  human-readable cause; `error_kind` carries a stable `snake_case`
+  machine token clients branch on without string-matching the prose
+  (#631); `id` is always present. The token vocabulary is closed and
+  governed by this contract — adding a token is additive, renaming or
+  removing one is a break. The current tokens are:
+  `unsupported_language`, `unknown_field`, `bad_request`, `bad_query`,
+  `invalid_scope_flag`, `vcs_mode_conflict`, `payload_too_large`,
+  `read_error`, `internal_error`, `parse_timeout`,
+  `parse_pool_saturated`, `ast_build_failed`, `metrics_failed`,
+  `not_found`, `method_not_allowed`, `unsupported_media_type`, and the
+  per-cause vcs tokens `vcs_not_a_repository`, `vcs_invalid_revision`,
+  `vcs_invalid_bot_pattern`, `vcs_invalid_window`,
+  `vcs_invalid_timestamp`, `vcs_invalid_formula`,
+  `vcs_invalid_file_type_scope`, `vcs_invalid_bus_factor_threshold`,
+  `vcs_invalid_trend`, `vcs_invalid_diff`, and the catch-all
+  `vcs_internal_error`. A `file_name` that maps to no supported
+  language is a `422 Unprocessable Entity` carrying
+  `error_kind: "unsupported_language"` (the route matched and the body
+  parsed); only an unknown URL is a `404`. The former `404` for the
+  unsupported-language case was a `2.0`-line break (#634). The
+  per-vcs-cause tokens replace the former single kitchen-sink `/vcs`
+  400 message at `2.0` (#631): a bad window now answers
+  `vcs_invalid_window` with the specific cause, not a sentence listing
+  every possible parameter.
+- **`/vcs`-family defaults.** The web defaults match the CLI's bounded
+  defaults so the same logical invocation returns the same-sized result
+  on either surface (#636): `top` defaults to 50, `top_deltas` to 10,
+  and `points` to 12 (formerly hard-required). An explicit `top: 0` /
+  `top_deltas: 0` still returns all (the #602 `0 = all` escape).
+  Aligning these from the former unbounded "all" default is a behavioural
+  `2.0`-line break — payloads omitting these fields get a smaller result.
 - **Introspection.** `GET /v1/version` reports the server and
   library versions; `GET /v1/languages` reports the supported
   languages and their extensions, sourced from the `LANG` table (not
   hardcoded), mirroring the Python `__version__` /
   `supported_languages()` / `language_extensions()` surface.
-  Unprefixed aliases exist for the introspection routes.
-- **Deprecated unprefixed aliases.** The original unprefixed paths
+  All routes are served under the `/v1` prefix.
+- **Unprefixed aliases removed at 2.0.** The original unprefixed paths
   (`/metrics`, `/comment`, `/function`, `/ast`, `/ping`, `/version`,
-  `/languages`, and the `/vcs*` routes) remain available as deprecated
-  aliases until the 2.0 release cut (#517 / #637). Every alias response
-  carries `Deprecation: true`, a `Sunset` HTTP-date, and a
-  `Link rel="successor-version"` naming the canonical `/v1` twin; the
-  `/v1` routes carry none of these headers. The aliases are removed at
-  2.0 — a deliberate, already-planned break.
+  `/languages`, the bare `/` index, and the `/vcs*` routes) were
+  removed at the 2.0 release cut (#517 / #637) — a deliberate,
+  already-planned break. For one cycle each carried `Deprecation: true`,
+  a `Sunset` HTTP-date, and a `Link rel="successor-version"` naming the
+  canonical `/v1` twin; they now `404` like any other unknown URL.
+  Clients must use the `/v1` prefix.
 
-The `{id, language}` envelope on `/function` and `/comment`, the
-uniform `{error, id}` error body, and the stricter `unit` bool
-parsing all landed as `2.0`-line breaks (#541).
+The `{id, language}` envelope on `/function` and `/comment` (and
+`/ast` at #654), the uniform error body (now `{error, error_kind, id}`
+— #631), the `/metrics` `root` key + `scope` flag and the `*_line`
+span vocabulary (#638), unknown-field rejection (#633), the
+CLI-aligned `/vcs`-family defaults (#636), and the removal of the
+unprefixed aliases (#637) all landed as `2.0`-line breaks. The
+original `{id, language}` envelope and uniform `{error, id}` body
+first landed under #541.
 
 ## MSRV policy
 
@@ -1176,9 +1233,14 @@ loose ends that will be tightened at `2.0`:
   string-compatible, so string-based call sites keep working; the
   breaking pieces are the default flip and the static return types.
   See *Python bindings* above.
-- The REST surface adopts the uniform `{error, id}` error body and the
-  `{id, language}` analysis envelope, and tightens `unit` bool parsing
-  (#541). See *REST schema* above.
+- The REST surface adopts the uniform `{error, error_kind, id}` error
+  body (#541, #631) and the `{id, language}` analysis envelope across
+  all four analysis endpoints including `/ast` (#541, #654); renames the
+  `/metrics` envelope to `root` and the file-only flag to `scope`, and
+  aligns `/ast` spans to `*_line` (#638); rejects unknown payload /
+  query fields (#633); aligns the `/vcs`-family `top` / `top_deltas` /
+  `points` defaults with the CLI (#636); and removes the unprefixed
+  route aliases (#637). See *REST schema* above.
 
 `2.0` is not scheduled. We will cut it when the items above are
 ripe and the value-drift accumulated since `1.0` is worth the

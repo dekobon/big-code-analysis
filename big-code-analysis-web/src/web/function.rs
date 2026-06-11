@@ -4,7 +4,10 @@ use serde_json::{self, Value};
 use big_code_analysis::{Ast, FunctionSpan, LANG, MetricsError, Source};
 
 /// Payload containing source code with function spans to be retrieved.
+///
+/// Unknown fields are rejected with a `400` naming the offender (#633).
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebFunctionPayload {
     /// Payload identifier.
     pub id: String,
@@ -27,7 +30,11 @@ pub struct WebFunctionResponse {
 }
 
 /// Source code information.
+///
+/// Unknown query parameters are rejected with a `400` naming the offender
+/// (#633).
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebFunctionInfo {
     /// Source code filename.
     pub file_name: String,

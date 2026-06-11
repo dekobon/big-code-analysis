@@ -13,9 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use actix_web::{
-    App, HttpResponse, HttpServer,
-    dev::Service as _,
-    guard,
+    App, HttpResponse, HttpServer, guard,
     guard::GuardContext,
     http,
     http::header::ContentType,
@@ -30,7 +28,7 @@ use super::comment::{
     WebCommentCfg, WebCommentInfo, WebCommentJson, WebCommentPayload, strip_comments,
 };
 use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
-use super::metrics::{WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
+use super::metrics::{Scope, WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
 use super::vcs::{
     WebVcsJitPayload, WebVcsPayload, WebVcsTrendPayload, compute_vcs, compute_vcs_jit,
     compute_vcs_trend,
@@ -39,36 +37,36 @@ use super::vcs::{
 use big_code_analysis::vcs::Error as VcsError;
 use big_code_analysis::{Ast, AstCfg, AstPayload, LANG, Source, guess_language, normalize_eol};
 
-/// Machine-readable error token returned when the submitted `file_name`
-/// (and content sniffing) cannot be mapped to a supported language.
+/// `error` message returned when the submitted `file_name` (and content
+/// sniffing) cannot be mapped to a supported language.
 ///
 /// The route was matched and the request entity is well-formed, so the
 /// failure is *unprocessable*, not *not found*: the endpoint answers
-/// `422 Unprocessable Entity` with this `snake_case` token rather than the
-/// pre-2.0 `404` (issue #634). Clients match on the stable token; the set
-/// of supported languages is available from `GET /v1/languages`.
+/// `422 Unprocessable Entity` rather than the pre-2.0 `404` (issue #634),
+/// carrying [`error_kind::UNSUPPORTED_LANGUAGE`] as its machine token
+/// (#631). The string value coincides with the token. The set of
+/// supported languages is available from `GET /v1/languages`.
 const UNSUPPORTED_LANGUAGE: &str = "unsupported_language";
 
-/// Error body emitted when the `unit` query flag is not a recognised
-/// boolean (#541).
-const INVALID_UNIT_FLAG: &str =
-    "The `unit` query flag must be one of `true`, `false`, `1`, or `0` (case-insensitive)";
+/// Error body emitted when the `scope` query flag is not a recognised
+/// value (#638).
+const INVALID_SCOPE_FLAG: &str =
+    "The `scope` query flag must be one of `full` or `file` (case-insensitive)";
 
-/// Parses the optional `unit` query flag into a bool with normal
-/// boolean semantics (#541).
+/// Parses the optional `scope` query flag into a [`Scope`] (#638).
 ///
-/// Absent (`None`) defaults to `false`. Present values accept
-/// `true`/`false` and `1`/`0`, case-insensitively, mirroring the
-/// JSON-payload `bool` (`WebMetricsInfo`/`WebMetricsPayload.unit`).
-/// Any other value is rejected so the caller can answer `400` with the
-/// uniform JSON error body. The former lenient truthy set
-/// (`yes`/`on`) is no longer accepted.
-fn parse_unit_flag(raw: Option<&str>) -> Result<bool, &'static str> {
+/// Absent (`None`) defaults to [`Scope::Full`] (the entire space tree).
+/// Present values accept `full`/`file`, case-insensitively, mirroring the
+/// JSON-payload `scope` enum (`WebMetricsPayload.scope`). Replaces the
+/// pre-2.0 boolean `unit` flag — the old `true`/`false`/`1`/`0` truthy set
+/// is no longer accepted. Any other value is rejected so the caller can
+/// answer `400` with the uniform JSON error body.
+fn parse_scope_flag(raw: Option<&str>) -> Result<Scope, &'static str> {
     match raw {
-        None => Ok(false),
-        Some(s) if s.eq_ignore_ascii_case("true") || s == "1" => Ok(true),
-        Some(s) if s.eq_ignore_ascii_case("false") || s == "0" => Ok(false),
-        Some(_) => Err(INVALID_UNIT_FLAG),
+        None => Ok(Scope::Full),
+        Some(s) if s.eq_ignore_ascii_case("full") => Ok(Scope::Full),
+        Some(s) if s.eq_ignore_ascii_case("file") => Ok(Scope::File),
+        Some(_) => Err(INVALID_SCOPE_FLAG),
     }
 }
 
@@ -130,10 +128,13 @@ const AST_BUILD_FAILED: &str = "Failed to build an AST for the supplied source";
 /// this `500` is unreachable today and exists to keep failures off the
 /// `200` path if that changes (issue #517).
 const METRICS_FAILED: &str = "Failed to compute metrics for the supplied source";
-/// Error body when `repo_path` is not a git working tree, or a window /
-/// timestamp / formula is malformed (a client mistake → `400`).
-const VCS_BAD_REQUEST: &str = "Invalid `/vcs` request: repo_path is not a git working tree, ref/commit is unresolvable, the supplied diff is malformed, or a window / timestamp / formula / file-type scope / bus-factor threshold / trend parameter is malformed";
 /// Error body when the history walk itself fails (server-side → `500`).
+///
+/// Client-input vcs failures no longer collapse onto one kitchen-sink
+/// message: each carries the specific `vcs::Error` `Display` output plus
+/// its own `error_kind` token (#631). This constant is the generic body
+/// for the *environment / backend* `500` path only, where the real cause
+/// is logged server-side rather than leaked.
 const VCS_FAILED: &str = "Failed to walk change history for the supplied repository";
 
 /// Default parse timeout used by [`run`].
@@ -285,6 +286,15 @@ impl ParseError {
             ParseError::Internal { .. } => INTERNAL_SERVER_ERROR,
         }
     }
+
+    /// Stable `error_kind` machine token for this failure (#631).
+    fn error_kind(&self) -> &'static str {
+        match self {
+            ParseError::Saturated { .. } => error_kind::PARSE_POOL_SATURATED,
+            ParseError::Timeout { .. } => error_kind::PARSE_TIMEOUT,
+            ParseError::Internal { .. } => error_kind::INTERNAL_ERROR,
+        }
+    }
 }
 
 impl fmt::Display for ParseError {
@@ -303,12 +313,17 @@ impl actix_web::ResponseError for ParseError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        json_error(self.status_code(), self.message(), self.id().to_owned())
+        json_error(
+            self.status_code(),
+            self.message(),
+            self.error_kind(),
+            self.id().to_owned(),
+        )
     }
 }
 
 /// Uniform machine-readable error body for *every* endpoint, regardless
-/// of the success content-type (#541).
+/// of the success content-type (#541, #631).
 ///
 /// The `id` key is always present: it carries the client-supplied
 /// correlation id when the request had one, and an empty string
@@ -317,32 +332,144 @@ impl actix_web::ResponseError for ParseError {
 /// emitting the key keeps the shape predictable for clients that
 /// destructure it.
 ///
-/// `error` is a `Cow` so the static endpoint tokens (e.g.
-/// [`UNSUPPORTED_LANGUAGE`]) and the dynamic per-request messages from
-/// the actix extractor error handlers (serde's precise "missing field
-/// …" / "expected … at line …" text) share the same wire shape (#639).
+/// `error` is a `Cow` so the static endpoint messages and the dynamic
+/// per-request messages from the actix extractor error handlers (serde's
+/// precise "missing field …" / "expected … at line …" text) share the
+/// same wire shape (#639). `error` carries the *specific* human-readable
+/// cause; `error_kind` carries a stable `snake_case` machine token so
+/// clients branch on the cause without string-matching the prose (#631).
+/// The token vocabulary is closed and governed by `STABILITY.md`;
+/// `error_kind` is purely additive over the pre-#631 `{error, id}` shape.
 #[derive(Debug, Deserialize, Serialize)]
+// The `error` / `error_kind` field names are the published wire contract
+// (#631), so they intentionally repeat the struct name.
+#[allow(clippy::struct_field_names)]
 struct Error {
     error: Cow<'static, str>,
+    error_kind: &'static str,
     id: String,
 }
 
 /// Builds an `application/json` error response with the uniform
-/// `{error, id}` body (#541).
+/// `{error, error_kind, id}` body (#541, #631).
 ///
 /// Every error path in the crate routes through this helper so clients
 /// parse one error shape no matter which endpoint or success
-/// content-type they hit. `status` is the HTTP status; `id` is the
-/// echoed correlation id (empty when the request carried none).
+/// content-type they hit. `status` is the HTTP status; `error_kind` is
+/// the stable machine token from [`error_kind`]; `id` is the echoed
+/// correlation id (empty when the request carried none).
 fn json_error(
     status: http::StatusCode,
     error: impl Into<Cow<'static, str>>,
+    error_kind: &'static str,
     id: String,
 ) -> HttpResponse {
     HttpResponse::build(status).json(Error {
         error: error.into(),
+        error_kind,
         id,
     })
+}
+
+/// Closed vocabulary of stable `snake_case` machine tokens carried in the
+/// `error_kind` field of the uniform error body (#631).
+///
+/// Each constant names one distinct client-input or server-side failure
+/// cause. The set is governed by `STABILITY.md`; adding a token is an
+/// additive change, renaming or removing one is a break. Clients branch
+/// on these tokens instead of string-matching the free-form `error`
+/// prose. The vcs-family mapping lives in [`vcs_error_kind`], keyed off
+/// `vcs::Error`'s own variants so a new variant forces a token decision.
+mod error_kind {
+    /// `file_name` (and content sniffing) mapped to no supported language.
+    pub(super) const UNSUPPORTED_LANGUAGE: &str = "unsupported_language";
+    /// The request body could not be parsed / deserialized (malformed
+    /// JSON, a missing required field, a wrong type, or — with
+    /// `deny_unknown_fields` — an unrecognised key, #633). serde's precise
+    /// message names the offending key in the `error` prose.
+    pub(super) const BAD_REQUEST: &str = "bad_request";
+    /// The request body carried an unrecognised key, rejected by
+    /// `#[serde(deny_unknown_fields)]` (#633). The offending key is named
+    /// in the human `error` prose.
+    pub(super) const UNKNOWN_FIELD: &str = "unknown_field";
+    /// A query-string parameter was missing or malformed.
+    pub(super) const BAD_QUERY: &str = "bad_query";
+    /// The `scope` query flag was not a recognised value (#638).
+    pub(super) const INVALID_SCOPE_FLAG: &str = "invalid_scope_flag";
+    /// A `/vcs/jit` payload combined `diff` with commit-mode fields.
+    pub(super) const VCS_MODE_CONFLICT: &str = "vcs_mode_conflict";
+    /// The request body exceeded the maximum accepted size.
+    pub(super) const PAYLOAD_TOO_LARGE: &str = "payload_too_large";
+    /// A transport-level read failure while draining the request body.
+    pub(super) const READ_ERROR: &str = "read_error";
+    /// The blocking parse task panicked or was cancelled (server fault).
+    pub(super) const INTERNAL_ERROR: &str = "internal_error";
+    /// The parse exceeded the configured deadline.
+    pub(super) const PARSE_TIMEOUT: &str = "parse_timeout";
+    /// The orphaned-task pool was saturated; the request was shed.
+    pub(super) const PARSE_POOL_SATURATED: &str = "parse_pool_saturated";
+    /// AST construction yielded no root node (defensive 500).
+    pub(super) const AST_BUILD_FAILED: &str = "ast_build_failed";
+    /// Metric computation failed for a parsed source (defensive 500).
+    pub(super) const METRICS_FAILED: &str = "metrics_failed";
+    /// The history walk itself failed (environment / backend, not input).
+    pub(super) const VCS_INTERNAL_ERROR: &str = "vcs_internal_error";
+    /// The target path is not inside a supported VCS working tree.
+    pub(super) const VCS_NOT_A_REPOSITORY: &str = "vcs_not_a_repository";
+    /// A `reference` / `commit` could not be resolved.
+    pub(super) const VCS_INVALID_REVISION: &str = "vcs_invalid_revision";
+    /// A bot-author glob pattern was malformed.
+    pub(super) const VCS_INVALID_BOT_PATTERN: &str = "vcs_invalid_bot_pattern";
+    /// A time-window option was malformed.
+    pub(super) const VCS_INVALID_WINDOW: &str = "vcs_invalid_window";
+    /// An `as-of` / point timestamp was malformed.
+    pub(super) const VCS_INVALID_TIMESTAMP: &str = "vcs_invalid_timestamp";
+    /// The risk-score formula was malformed.
+    pub(super) const VCS_INVALID_FORMULA: &str = "vcs_invalid_formula";
+    /// A file-type scope option was malformed.
+    pub(super) const VCS_INVALID_FILE_TYPE_SCOPE: &str = "vcs_invalid_file_type_scope";
+    /// The bus-factor threshold was out of range.
+    pub(super) const VCS_INVALID_BUS_FACTOR_THRESHOLD: &str = "vcs_invalid_bus_factor_threshold";
+    /// A trend point-count / span option was malformed.
+    pub(super) const VCS_INVALID_TREND: &str = "vcs_invalid_trend";
+    /// The unified diff passed to `/vcs/jit` was malformed.
+    pub(super) const VCS_INVALID_DIFF: &str = "vcs_invalid_diff";
+    /// No registered resource matched the request URL.
+    pub(super) const NOT_FOUND: &str = "not_found";
+    /// The resource does not accept the request method.
+    pub(super) const METHOD_NOT_ALLOWED: &str = "method_not_allowed";
+    /// The `POST` body carried an unsupported / missing `Content-Type`.
+    pub(super) const UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
+}
+
+/// Stable `error_kind` token for a [`VcsError`] (#631).
+///
+/// Keyed exhaustively off the library `vcs::Error` variants (no wildcard
+/// arm) so adding a variant is a compile error here until a token is
+/// chosen — the same forcing function `is_client_input` uses. Every
+/// environment / backend failure collapses onto
+/// [`error_kind::VCS_INTERNAL_ERROR`]; each client-input variant gets its
+/// own specific token.
+fn vcs_error_kind(error: &VcsError) -> &'static str {
+    match error {
+        VcsError::NotARepository(_) => error_kind::VCS_NOT_A_REPOSITORY,
+        VcsError::ResolveRef { .. } => error_kind::VCS_INVALID_REVISION,
+        VcsError::InvalidBotPattern(_) => error_kind::VCS_INVALID_BOT_PATTERN,
+        VcsError::InvalidWindow(_) => error_kind::VCS_INVALID_WINDOW,
+        VcsError::InvalidTimestamp(_) => error_kind::VCS_INVALID_TIMESTAMP,
+        VcsError::InvalidFormula(_) => error_kind::VCS_INVALID_FORMULA,
+        VcsError::InvalidFileTypeScope(_) => error_kind::VCS_INVALID_FILE_TYPE_SCOPE,
+        VcsError::InvalidBusFactorThreshold(_) => error_kind::VCS_INVALID_BUS_FACTOR_THRESHOLD,
+        VcsError::InvalidTrend(_) => error_kind::VCS_INVALID_TREND,
+        VcsError::InvalidDiff(_) => error_kind::VCS_INVALID_DIFF,
+        // Every environment / backend failure (`OpenRepository`, `Walk`,
+        // `Diff`, `Mailmap`, `Blame`, `Cache`) and any future
+        // `#[non_exhaustive]` variant collapses onto the generic internal
+        // token; `is_client_input` already owns the exhaustive
+        // client-vs-environment forcing function, so this wildcard cannot
+        // silently mis-classify a client error.
+        _ => error_kind::VCS_INTERNAL_ERROR,
+    }
 }
 
 /// Builds the uniform error response for a request whose `file_name`
@@ -355,6 +482,7 @@ fn unsupported_language(id: String) -> HttpResponse {
     json_error(
         http::StatusCode::UNPROCESSABLE_ENTITY,
         UNSUPPORTED_LANGUAGE,
+        error_kind::UNSUPPORTED_LANGUAGE,
         id,
     )
 }
@@ -410,6 +538,14 @@ impl BodyError {
             BodyError::Read => "Failed to read the request body",
         }
     }
+
+    /// Stable `error_kind` machine token for this failure (#631).
+    fn error_kind(&self) -> &'static str {
+        match self {
+            BodyError::TooLarge => error_kind::PAYLOAD_TOO_LARGE,
+            BodyError::Read => error_kind::READ_ERROR,
+        }
+    }
 }
 
 impl fmt::Display for BodyError {
@@ -427,7 +563,12 @@ impl actix_web::ResponseError for BodyError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        json_error(self.status_code(), self.message(), String::new())
+        json_error(
+            self.status_code(),
+            self.message(),
+            self.error_kind(),
+            String::new(),
+        )
     }
 }
 
@@ -449,8 +590,12 @@ async fn ast_parser(
         // Clone the (small) correlation id for server-side log correlation;
         // the original is moved into `cfg` and consumed by `action` below.
         let payload_id = payload.id.clone();
+        // Echo the resolved #540 canonical slug in the envelope, matching
+        // /comment, /function, and /metrics (#654). Captured before
+        // `language` moves into the parse closure below.
         let cfg = AstCfg {
             id: payload.id,
+            language: language.name().to_string(),
             comment: payload.comment,
             span: payload.span,
         };
@@ -469,6 +614,7 @@ async fn ast_parser(
             Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 AST_BUILD_FAILED,
+                error_kind::AST_BUILD_FAILED,
                 result.id,
             ))
         }
@@ -515,6 +661,7 @@ async fn comment_removal_json(
             Err(_) => Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 INTERNAL_SERVER_ERROR,
+                error_kind::INTERNAL_ERROR,
                 payload_id,
             )),
         }
@@ -578,7 +725,7 @@ async fn metrics_json(
         // client. A future change can thread the flag through the
         // request payload and chain `.with_exclude_tests(...)` here.
         let payload_id = payload.id.clone();
-        let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
+        let cfg = WebMetricsCfg::new(payload.id, path, payload.scope, name.to_string());
         let response = run_parse(&config, &payload_id, move || {
             compute_metrics(language, buf, cfg).expect(FEATURES_PINNED)
         })
@@ -590,6 +737,7 @@ async fn metrics_json(
             None => Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 METRICS_FAILED,
+                error_kind::METRICS_FAILED,
                 payload_id,
             )),
         }
@@ -618,7 +766,7 @@ async fn vcs_trend_json(
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let payload = item.into_inner();
-    let payload_id = payload.base.id.clone();
+    let payload_id = payload.id.clone();
     // The repeated history walks are blocking I/O, so they run on the same
     // timeout-guarded blocking pool as the other endpoints.
     let result = run_parse(&config, &payload_id, move || compute_vcs_trend(payload)).await?;
@@ -643,6 +791,7 @@ async fn vcs_jit_json(
         return Ok(json_error(
             http::StatusCode::BAD_REQUEST,
             message,
+            error_kind::VCS_MODE_CONFLICT,
             payload_id,
         ));
     }
@@ -657,23 +806,34 @@ async fn vcs_jit_json(
 }
 
 /// Map a [`VcsError`] from `/vcs`, `/vcs/trend`, or `/vcs/jit` to the
-/// uniform JSON error response. Bad path / window / timestamp / pattern /
-/// formula / threshold / trend-parameter / `ref` / diff are client mistakes
-/// (`400`); an actual walk failure is a `500`. The real error is logged
-/// server-side; the client sees the uniform body.
+/// uniform JSON error response (#631). Bad path / window / timestamp /
+/// pattern / formula / threshold / trend-parameter / `ref` / diff are
+/// client mistakes (`400`); an actual walk failure is a `500`.
+///
+/// A client-input failure now carries the *specific* `vcs::Error`
+/// `Display` message (e.g. `invalid time window: banana`) plus its own
+/// `error_kind` token from [`vcs_error_kind`] (e.g. `vcs_invalid_window`),
+/// replacing the former kitchen-sink `VCS_BAD_REQUEST` sentence that
+/// enumerated every possible cause and named `/vcs` even on `/vcs/jit` or
+/// `/vcs/trend`. An environment / backend failure keeps the generic
+/// [`VCS_FAILED`] body — the real error is logged server-side, not leaked.
 fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
     // The library owns the client-input vs environment/backend split
     // (`vcs::Error::is_client_input`, issue #641) via an exhaustive match,
     // so a new variant forces a classification decision at the library and
     // is mapped here without re-enumerating variants — closing the silent
     // fall-through that twice mis-mapped client errors to 500.
-    let (status, body) = if error.is_client_input() {
-        (http::StatusCode::BAD_REQUEST, VCS_BAD_REQUEST)
+    let kind = vcs_error_kind(error);
+    let (status, body): (http::StatusCode, Cow<'static, str>) = if error.is_client_input() {
+        (http::StatusCode::BAD_REQUEST, error.to_string().into())
     } else {
-        (http::StatusCode::INTERNAL_SERVER_ERROR, VCS_FAILED)
+        (
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            Cow::Borrowed(VCS_FAILED),
+        )
     };
     tracing::warn!(payload_id = %payload_id, error = %error, "vcs request failed");
-    json_error(status, body, payload_id)
+    json_error(status, body, kind, payload_id)
 }
 
 async fn metrics_plain(
@@ -684,14 +844,15 @@ async fn metrics_plain(
     // Normalise EOL + trailing newline for CLI parity (issue #640); the
     // octet-stream path shares the JSON variant's divergence.
     let buf = normalize_eol(get_code(body, config.max_body_size).await?);
-    // Validate the `unit` flag up front so a bad value is a clear `400`
-    // regardless of whether the language resolves (#541).
-    let unit = match parse_unit_flag(info.unit.as_deref()) {
-        Ok(unit) => unit,
+    // Validate the `scope` flag up front so a bad value is a clear `400`
+    // regardless of whether the language resolves (#638).
+    let scope = match parse_scope_flag(info.scope.as_deref()) {
+        Ok(scope) => scope,
         Err(error) => {
             return Ok(json_error(
                 http::StatusCode::BAD_REQUEST,
                 error,
+                error_kind::INVALID_SCOPE_FLAG,
                 String::new(),
             ));
         }
@@ -700,7 +861,7 @@ async fn metrics_plain(
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
         // Same `exclude_tests` rationale as the JSON variant above.
-        let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
+        let cfg = WebMetricsCfg::new(String::new(), path, scope, name.to_string());
         let response = run_parse(&config, "", move || {
             compute_metrics(language, buf, cfg).expect(FEATURES_PINNED)
         })
@@ -712,6 +873,7 @@ async fn metrics_plain(
             None => Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 METRICS_FAILED,
+                error_kind::METRICS_FAILED,
                 String::new(),
             )),
         }
@@ -932,8 +1094,8 @@ struct RouteIndex {
 /// Returns the [`ROUTES`] table verbatim so clients can enumerate the API
 /// surface — path, accepted methods, and a one-line description per route —
 /// without scraping the book. Like the other introspection routes it also
-/// answers `HEAD` (#644) and is exposed as an unprefixed `/` alias carrying
-/// the deprecation headers (#637).
+/// answers `HEAD` (#644). The former unprefixed `/` alias was removed at
+/// 2.0 (#637).
 async fn index() -> HttpResponse {
     HttpResponse::Ok().json(RouteIndex {
         service: "bca-web",
@@ -944,10 +1106,10 @@ async fn index() -> HttpResponse {
 
 /// Builds the route-index resource at the scope-root `path` (#643).
 ///
-/// `path` is `""` for the `/v1` scope (which matches `/v1`) and `"/"` for
-/// the empty alias scope (which matches the bare `/`) — actix resolves a
-/// scope root only with the scope-appropriate rooted path. GET/HEAD only,
-/// with the same `405` fallback as the other introspection resources.
+/// `path` is `""` for the `/v1` scope (which matches `/v1`) — actix
+/// resolves a scope root only with a scope-appropriately rooted path.
+/// GET/HEAD only, with the same `405` fallback as the other introspection
+/// resources. (The unprefixed `/` alias was removed at 2.0 — #637.)
 fn index_resource(path: &str) -> actix_web::Resource {
     web::resource(path)
         .route(web::route().guard(get_or_head_guard()).to(index))
@@ -1039,8 +1201,8 @@ fn get_or_head_guard() -> impl guard::Guard {
 /// A URL matching no resource at all falls through to the app-level
 /// default service in [`configure_routes`], which answers `404`.
 ///
-/// Shared by the root registration (the deprecated unprefixed aliases)
-/// and the `/v1` scope, so both expose identical routing.
+/// Registered once, under the `/v1` scope (the unprefixed aliases were
+/// removed at 2.0 — #637).
 fn register_endpoints(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/ast")
@@ -1106,51 +1268,67 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
     );
 }
 
-/// `Deprecation` header value flagging the unprefixed aliases (#637).
-///
-/// Per the Deprecation HTTP header draft (draft-ietf-httpapi-deprecation-header),
-/// the bare token `true` marks a response as served by a deprecated
-/// resource without committing to a deprecation date.
-const DEPRECATION_HEADER_VALUE: &str = "true";
-
-/// `Sunset` header value for the unprefixed aliases (#637).
-///
-/// RFC 8594 defines `Sunset` as an HTTP-date after which the resource is
-/// expected to be unresponsive. The aliases are removed at the 2.0 release
-/// cut (#517 / #637); this date is the planned-removal signal for clients
-/// and gateways, an HTTP-date (RFC 9110) marking the start of the 2.0 line.
-/// It is advisory — the authoritative removal trigger is the 2.0 release,
-/// not the calendar — and is bumped if the 2.0 cut slips.
-const SUNSET_HEADER_VALUE: &str = "Wed, 01 Jul 2026 00:00:00 GMT";
-
 fn json_config() -> web::JsonConfig {
     web::JsonConfig::default()
         .limit(MAX_BODY_SIZE)
         .error_handler(json_error_handler)
 }
 
-/// Renders a `JsonConfig` extractor failure as the uniform `{error, id}`
-/// JSON body (#639).
+/// serde's deny-unknown-fields message marker (#633).
+///
+/// `deny_unknown_fields` renders an unrecognised key as an `unknown
+/// field "<key>", expected one of ...` message. actix wraps that in its
+/// own `JsonPayloadError` / `QueryPayloadError` `Display` prefix (e.g.
+/// `Json deserialize error: ...`), so the marker is matched as a substring
+/// rather than a prefix. Detecting it lets the extractor error handler
+/// stamp the specific [`error_kind::UNKNOWN_FIELD`] token (with the field
+/// name preserved in the human `error` prose) instead of the generic
+/// `bad_request`.
+const SERDE_UNKNOWN_FIELD_MARKER: &str = "unknown field";
+
+/// Renders a `JsonConfig` extractor failure as the uniform
+/// `{error, error_kind, id}` JSON body (#639, #631).
 ///
 /// An oversized body answers `413`; every other failure (malformed JSON,
-/// missing field, wrong content type) answers `400`. serde's precise
-/// message is preserved as the `error` value rather than collapsed to a
-/// token. Factored out of [`json_config`] so the integration tests can
-/// attach it to a small-limit `JsonConfig` and exercise the `413` body
-/// without allocating megabytes.
+/// missing field, wrong content type, an unknown field under
+/// `deny_unknown_fields`) answers `400`. serde's precise message is
+/// preserved as the `error` value rather than collapsed to a token, while
+/// `error_kind` carries the machine token: `payload_too_large`,
+/// `unknown_field` for a rejected key (#633), or the generic
+/// `bad_request`. Factored out of [`json_config`] so the integration
+/// tests can attach it to a small-limit `JsonConfig` and exercise the
+/// `413` body without allocating megabytes.
 fn json_error_handler(
     err: actix_web::error::JsonPayloadError,
     _req: &actix_web::HttpRequest,
 ) -> actix_web::Error {
-    let status = match err {
+    let message = err.to_string();
+    let (status, kind) = match err {
         actix_web::error::JsonPayloadError::Overflow { .. }
-        | actix_web::error::JsonPayloadError::OverflowKnownLength { .. } => {
-            http::StatusCode::PAYLOAD_TOO_LARGE
-        }
-        _ => http::StatusCode::BAD_REQUEST,
+        | actix_web::error::JsonPayloadError::OverflowKnownLength { .. } => (
+            http::StatusCode::PAYLOAD_TOO_LARGE,
+            error_kind::PAYLOAD_TOO_LARGE,
+        ),
+        _ => (http::StatusCode::BAD_REQUEST, bad_request_kind(&message)),
     };
-    let response = json_error(status, err.to_string(), String::new());
+    let response = json_error(status, message, kind, String::new());
     actix_web::error::InternalError::from_response(err, response).into()
+}
+
+/// Classifies a serde deserialization message into a `400` `error_kind`
+/// token (#631 / #633).
+///
+/// An unknown-field rejection (the `deny_unknown_fields` path, #633) gets
+/// the specific [`error_kind::UNKNOWN_FIELD`] token so a client can detect
+/// a typo'd key without scraping the prose; every other deserialization
+/// failure (malformed JSON, missing field, wrong type) is the generic
+/// [`error_kind::BAD_REQUEST`].
+fn bad_request_kind(message: &str) -> &'static str {
+    if message.contains(SERDE_UNKNOWN_FIELD_MARKER) {
+        error_kind::UNKNOWN_FIELD
+    } else {
+        error_kind::BAD_REQUEST
+    }
 }
 
 /// Builds the `QueryConfig` shared by the query-string endpoints.
@@ -1161,28 +1339,32 @@ fn json_error_handler(
 /// carry no correlation id, so `id` is always empty.
 fn query_config() -> web::QueryConfig {
     web::QueryConfig::default().error_handler(|err, _req| {
-        let response = json_error(
-            http::StatusCode::BAD_REQUEST,
-            err.to_string(),
-            String::new(),
-        );
+        let message = err.to_string();
+        // An unknown query parameter (deny_unknown_fields, #633) gets the
+        // specific `unknown_field` token; every other query failure
+        // (missing/malformed parameter) is the generic `bad_query`.
+        let kind = if message.contains(SERDE_UNKNOWN_FIELD_MARKER) {
+            error_kind::UNKNOWN_FIELD
+        } else {
+            error_kind::BAD_QUERY
+        };
+        let response = json_error(http::StatusCode::BAD_REQUEST, message, kind, String::new());
         actix_web::error::InternalError::from_response(err, response).into()
     })
 }
 
-/// Registers the versioned (`/v1/...`) routes plus, for one deprecation
-/// cycle, the original unprefixed paths as aliases (issue #517).
+/// Registers the versioned (`/v1/...`) routes (issue #517).
 ///
 /// Shared by [`run_with_timeout`] and the integration tests so both
 /// exercise the same routing, content-type guards, and per-resource
 /// fallbacks. The app-level default service answers `404` for any URL
-/// that matches no registered resource under either prefix.
+/// that matches no registered resource.
 ///
-/// The unprefixed aliases are wrapped in a deprecation middleware (#637)
-/// that stamps every alias response with `Deprecation: true`, a `Sunset`
-/// date, and a `Link rel="successor-version"` pointing at the canonical
-/// `/v1` twin. The `/v1` routes are left header-free. The aliases
-/// themselves are removed at the 2.0 release cut (#517 / #637).
+/// The original unprefixed aliases (`/metrics`, `/comment`, …) were
+/// removed at the 2.0 release cut (#517 / #637): for one cycle they
+/// carried `Deprecation: true` / `Sunset` / `Link rel="successor-version"`
+/// headers signalling the migration, and they now `404` like any other
+/// unknown URL. Clients must use the `/v1` prefix.
 fn configure_routes(cfg: &mut web::ServiceConfig) {
     // Install the extractor configs as app-wide data so every JSON / query
     // endpoint renders extractor failures through the uniform `{error, id}`
@@ -1192,49 +1374,15 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.app_data(json_config());
     cfg.app_data(query_config());
 
-    // Deprecated unprefixed aliases, kept until the 2.0 release cut.
-    // An empty-prefix scope matches the bare paths (`/metrics`, …) but
-    // not their `/v1/...` twins, so the deprecation headers land only on
-    // alias responses (#637).
-    // The route index sits at each scope's root. actix matches a scope
-    // root only with an explicitly-rooted resource path that differs per
-    // scope: `resource("")` matches `/v1` under the versioned scope, while
-    // the empty alias scope needs `resource("/")` to match the bare `/`.
-    // It is registered here rather than in the shared `register_endpoints`
-    // so each scope can supply its own root path (#643). GET/HEAD only,
-    // mirroring the other introspection routes (#644).
+    // The route index sits at the `/v1` scope root. actix matches a scope
+    // root only with an explicitly-rooted resource path: `resource("")`
+    // matches `/v1`. It is registered here rather than in the shared
+    // `register_endpoints` so the scope can supply its own root path
+    // (#643). GET/HEAD only, mirroring the other introspection routes
+    // (#644).
     cfg.service(
         web::scope("/v1")
             .service(index_resource(""))
-            .configure(register_endpoints),
-    );
-    cfg.service(
-        web::scope("")
-            .wrap_fn(|req, srv| {
-                // Derive the successor `/v1` path from the matched alias
-                // path so the `Link` header always names the canonical twin.
-                let successor = format!("/v1{}", req.path());
-                let fut = srv.call(req);
-                async move {
-                    let mut res = fut.await?;
-                    let headers = res.headers_mut();
-                    headers.insert(
-                        http::header::HeaderName::from_static("deprecation"),
-                        http::header::HeaderValue::from_static(DEPRECATION_HEADER_VALUE),
-                    );
-                    headers.insert(
-                        http::header::HeaderName::from_static("sunset"),
-                        http::header::HeaderValue::from_static(SUNSET_HEADER_VALUE),
-                    );
-                    if let Ok(link) = http::header::HeaderValue::from_str(&format!(
-                        "<{successor}>; rel=\"successor-version\""
-                    )) {
-                        headers.insert(http::header::LINK, link);
-                    }
-                    Ok(res)
-                }
-            })
-            .service(index_resource("/"))
             .configure(register_endpoints),
     );
     cfg.default_service(web::route().to(not_found));
@@ -1272,6 +1420,7 @@ fn method_fallback(
     let mut resp = json_error(
         http::StatusCode::METHOD_NOT_ALLOWED,
         not_allowed_message,
+        error_kind::METHOD_NOT_ALLOWED,
         String::new(),
     );
     resp.headers_mut().insert(http::header::ALLOW, allow);
@@ -1291,6 +1440,7 @@ async fn guarded_post_fallback(req: actix_web::HttpRequest) -> HttpResponse {
             http::StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "Unsupported or missing Content-Type. Send 'application/json' \
              or 'application/octet-stream' (a charset parameter is allowed).",
+            error_kind::UNSUPPORTED_MEDIA_TYPE,
             String::new(),
         )
     } else {
@@ -1317,7 +1467,12 @@ async fn get_only_method_not_allowed(req: actix_web::HttpRequest) -> HttpRespons
 
 /// App-level fallback for URLs that match no registered resource.
 async fn not_found() -> HttpResponse {
-    json_error(http::StatusCode::NOT_FOUND, "Not found", String::new())
+    json_error(
+        http::StatusCode::NOT_FOUND,
+        "Not found",
+        error_kind::NOT_FOUND,
+        String::new(),
+    )
 }
 
 /// Runs an HTTP server with a configurable parse timeout.

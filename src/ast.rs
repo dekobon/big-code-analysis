@@ -15,25 +15,37 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// Start and end positions of a node in a code in terms of rows and columns.
+/// Start and end positions of a node in a code in terms of lines and columns.
 ///
-/// Serialized as a flat object `{start_row, start_col, end_row, end_col}`.
+/// Serialized as a flat object `{start_line, start_col, end_line, end_col}`,
+/// all 1-based. The `*_line` vocabulary aligns the `/ast` span field names
+/// with the `/function` and `/metrics` endpoints (`start_line` / `end_line`),
+/// so a client correlating spans across endpoints no longer special-cases
+/// `*_row` vs `*_line` per endpoint (#638). The former `start_row` /
+/// `end_row` keys were renamed as a `2.0`-line break.
+///
 /// A node's span is `None` for the root and any node when span tracking is
 /// disabled; in that case the wrapping `Option<Span>` serializes as `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Span {
-    /// Row of the start position (1-based).
-    pub start_row: usize,
+    /// Line of the start position (1-based).
+    pub start_line: usize,
     /// Column of the start position (1-based).
     pub start_col: usize,
-    /// Row of the end position (1-based).
-    pub end_row: usize,
+    /// Line of the end position (1-based).
+    pub end_line: usize,
     /// Column of the end position (1-based).
     pub end_col: usize,
 }
 
 /// The payload of an `Ast` request.
+///
+/// Unknown fields are rejected with a deserialization error naming the
+/// offending key, so a typo'd field cannot silently change request
+/// semantics (#633). The web boundary renders that as a `400` carrying the
+/// `unknown_field` `error_kind` token.
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AstPayload {
     /// The id associated to a request for an `AST`
     pub id: String,
@@ -49,10 +61,23 @@ pub struct AstPayload {
 }
 
 /// The response of an `AST` request.
+///
+/// The envelope echoes the resolved `language` slug alongside `id` and
+/// `root`, matching the `/function`, `/comment`, and `/metrics` analysis
+/// endpoints (#654). AST node kinds are grammar-specific, so an `/ast`
+/// consumer most needs to confirm which grammar actually parsed the
+/// source. `language` is the #540 canonical lowercase slug (the same value
+/// the sibling endpoints emit). The added field is a `2.0`-line shape
+/// change to this published library type (STABILITY.md).
 #[derive(Debug, Serialize)]
 pub struct AstResponse {
     /// The id associated to a request for an `AST`
     pub id: String,
+    /// The resolved source-language slug that produced this tree (#654).
+    ///
+    /// The #540 canonical lowercase slug (e.g. `cpp`, `python`), matching
+    /// the other analysis endpoints' `language` echo.
+    pub language: String,
     /// The root node of an `AST`
     ///
     /// If `None`, an error has occurred
@@ -196,6 +221,9 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
 pub struct AstCfg {
     /// The id associated to a request for an `AST`
     pub id: String,
+    /// The resolved source-language slug to echo in the response
+    /// envelope (#654). The #540 canonical lowercase slug.
+    pub language: String,
     /// If `true`, nodes representing comments are ignored
     pub comment: bool,
     /// If `true`, the start and end positions of a node in a code
@@ -209,6 +237,7 @@ pub struct AstCfg {
 pub(crate) fn dump_inner<T: ParserTrait>(parser: &T, cfg: AstCfg) -> AstResponse {
     AstResponse {
         id: cfg.id,
+        language: cfg.language,
         root: build(parser, cfg.span, cfg.comment),
     }
 }
@@ -224,6 +253,7 @@ mod tests {
         let parser = P::new(code.to_vec(), &path, None);
         let cfg = AstCfg {
             id: String::new(),
+            language: String::new(),
             comment: false,
             span: false,
         };
@@ -237,6 +267,7 @@ mod tests {
         let parser = P::new(code.to_vec(), &path, None);
         let cfg = AstCfg {
             id: String::new(),
+            language: String::new(),
             comment: false,
             span: true,
         };
@@ -381,8 +412,9 @@ mod tests {
     #[test]
     fn span_serializes_as_named_object() {
         // The span is a flat named object preserving the 1-based
-        // tree-sitter row/column values in the original tuple order
-        // (start_row, start_col, end_row, end_col).
+        // tree-sitter line/column values in the original tuple order
+        // (start_line, start_col, end_line, end_col). The `*_line`
+        // vocabulary matches /function and /metrics (#638).
         let root = build_ast_with_span::<crate::RustParser>(b"fn f(){}", "test.rs");
         let span = root
             .span
@@ -390,19 +422,24 @@ mod tests {
         assert_eq!(
             span,
             Span {
-                start_row: 1,
+                start_line: 1,
                 start_col: 1,
-                end_row: 1,
+                end_line: 1,
                 end_col: 9,
             }
         );
         let json = serde_json::to_string(&root.span).expect("serialize span");
         assert!(
-            json.contains("\"start_row\":1")
+            json.contains("\"start_line\":1")
                 && json.contains("\"start_col\":1")
-                && json.contains("\"end_row\":1")
+                && json.contains("\"end_line\":1")
                 && json.contains("\"end_col\":9"),
             "expected named span object; got {json}"
+        );
+        // The pre-2.0 `*_row` keys must be gone (#638).
+        assert!(
+            !json.contains("start_row") && !json.contains("end_row"),
+            "unexpected pre-2.0 *_row span keys; got {json}"
         );
     }
 
@@ -410,9 +447,9 @@ mod tests {
     fn span_round_trips_through_serde() {
         // Span derives Deserialize for wire round-trip parity.
         let span = Span {
-            start_row: 2,
+            start_line: 2,
             start_col: 3,
-            end_row: 4,
+            end_line: 4,
             end_col: 5,
         };
         let json = serde_json::to_string(&span).expect("serialize");

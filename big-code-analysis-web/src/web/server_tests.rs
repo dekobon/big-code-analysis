@@ -105,12 +105,16 @@ async fn test_web_ast() {
     // `type` and `declarator` fields, `init_declarator` names its
     // `declarator` and `value` fields. Anonymous tokens (`=`, `;`)
     // carry no field name. Regression coverage for #244. Span is a
-    // flat named object `{start_row, start_col, end_row, end_col}`
+    // flat named object `{start_line, start_col, end_line, end_col}`
     // (#535); the four values preserve the former tuple order.
     let span =
-        |sr, sc, er, ec| json!({"start_row": sr, "start_col": sc, "end_row": er, "end_col": ec});
+        |sr, sc, er, ec| json!({"start_line": sr, "start_col": sc, "end_line": er, "end_col": ec});
     let expected = json!({
         "id": "1234",
+        // The /ast envelope echoes the resolved language slug, matching the
+        // other analysis endpoints (#654). `.c` resolves to the C/C++
+        // grammar, whose slug is `cpp` in this project.
+        "language": "cpp",
         "root": {
             "type": "translation_unit",
             "value": "",
@@ -201,9 +205,12 @@ async fn test_web_ast_string() {
     // and its `var` keyword / `;` token are unnamed. Regression
     // coverage for #244. Span is a flat named object (#535).
     let span =
-        |sr, sc, er, ec| json!({"start_row": sr, "start_col": sc, "end_row": er, "end_col": ec});
+        |sr, sc, er, ec| json!({"start_line": sr, "start_col": sc, "end_line": er, "end_col": ec});
     let expected = json!({
         "id": "1234",
+        // /ast echoes the resolved language slug (#654); `foo.js` is
+        // upstream `javascript` (#507).
+        "language": "javascript",
         "root": {"children": [{"children": [{"children": [],
                                              "field_name": null,
                                              "span": span(1, 1, 1, 4),
@@ -307,6 +314,7 @@ async fn test_web_comment_json_invalid() {
     let expected = json!({
         "id": "1234",
         "error": UNSUPPORTED_LANGUAGE,
+        "error_kind": "unsupported_language",
     });
 
     assert_eq!(res, expected);
@@ -395,6 +403,7 @@ async fn test_web_comment_plain_invalid() {
     let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
     let expected = json!({
         "error": UNSUPPORTED_LANGUAGE,
+        "error_kind": "unsupported_language",
         "id": "",
     });
 
@@ -579,15 +588,17 @@ async fn test_web_metrics_json() {
             id: "1234".to_string(),
             file_name: "test.py".to_string(),
             code: "# -*- Mode: Objective-C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-\n\ndef foo():\n    pass\n".to_string(),
-            unit: false,
+            scope: Scope::Full,
         })
         .to_request();
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
+    // The single root space sits under `root` (not the misleading plural
+    // `spaces`); its own nested `spaces` list holds the children (#638).
     let expected = json!({
         "id": "1234",
         "language": "python",
-        "spaces": {"kind": "unit",
+        "root": {"kind": "unit",
                    "start_line": 1,
                    "end_line": 4,
                    "metrics": {"cyclomatic": {"sum": 2, "average": 2.0, "min":1, "max":1, "modified": {"sum": 2, "average": 2.0, "min":1, "max":1}},
@@ -668,15 +679,17 @@ async fn test_web_metrics_json_unit() {
             id: "1234".to_string(),
             file_name: "test.py".to_string(),
             code: "def foo():\n    pass\n".to_string(),
-            unit: true,
+            scope: Scope::File,
         })
         .to_request();
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
+    // `scope: File` returns only the file-level root (no nested children),
+    // emitted under the `root` envelope key (#638).
     let expected = json!({
         "id": "1234",
         "language": "python",
-        "spaces": {"kind": "unit",
+        "root": {"kind": "unit",
                    "start_line": 1,
                    "end_line": 2,
                    "metrics": {"cyclomatic": {"sum": 2, "average": 2.0, "min":1, "max":1, "modified": {"sum": 2, "average": 2.0, "min":1, "max":1}},
@@ -741,7 +754,7 @@ async fn test_web_metrics_language_is_canonical_slug() {
                 id: "lang".to_string(),
                 file_name: file_name.to_string(),
                 code: code.to_string(),
-                unit: false,
+                scope: Scope::Full,
             })
             .to_request();
         let res: Value = test::call_and_read_body_json(&app, req).await;
@@ -775,10 +788,12 @@ async fn test_web_metrics_plain() {
         .to_request();
 
     let res: Value = test::call_and_read_body_json(&app, req).await;
+    // Default scope (`full`) returns the nested tree under the `root`
+    // envelope key (#638).
     let expected = json!({
         "id": "",
         "language": "python",
-        "spaces": {"kind": "unit",
+        "root": {"kind": "unit",
                    "start_line": 1,
                    "end_line": 2,
                    "metrics": {"cyclomatic": {"sum": 2, "average": 2.0, "min": 1,"max": 1, "modified": {"sum": 2, "average": 2.0, "min": 1,"max": 1}},
@@ -1337,7 +1352,7 @@ async fn test_web_ast_accepts_json_charset_suffix() {
     // The exact variant browsers / Python `requests` send and that the
     // old exact-match `guard::Header` rejected with a bodyless 404.
     let req = test::TestRequest::post()
-        .uri("/ast")
+        .uri("/v1/ast")
         .insert_header(("content-type", "application/json; charset=utf-8"))
         .set_payload(ast_request_body().to_string())
         .to_request();
@@ -1359,7 +1374,7 @@ async fn test_web_ast_accepts_uppercase_content_type() {
     )
     .await;
     let req = test::TestRequest::post()
-        .uri("/ast")
+        .uri("/v1/ast")
         .insert_header(("content-type", "APPLICATION/JSON"))
         .set_payload(ast_request_body().to_string())
         .to_request();
@@ -1382,7 +1397,7 @@ async fn test_web_octet_stream_accepts_charset_suffix() {
     // `application/octet-stream` with a parameter still matches the
     // octet-stream route by essence.
     let req = test::TestRequest::post()
-        .uri("/comment?file_name=foo.c")
+        .uri("/v1/comment?file_name=foo.c")
         .insert_header(("content-type", "application/octet-stream; boundary=x"))
         .set_payload("int x;//c")
         .to_request();
@@ -1402,7 +1417,7 @@ async fn test_web_missing_content_type_yields_415() {
     // No content-type header at all on a known endpoint: the default
     // service must return a diagnosable 415, not a bodyless 404.
     let req = test::TestRequest::post()
-        .uri("/ast")
+        .uri("/v1/ast")
         .set_payload(ast_request_body().to_string())
         .to_request();
 
@@ -1427,7 +1442,7 @@ async fn test_web_wrong_content_type_yields_415() {
     // A media type matching neither json nor octet-stream on a known
     // endpoint is a 415, distinguishable from a wrong URL.
     let req = test::TestRequest::post()
-        .uri("/metrics")
+        .uri("/v1/metrics")
         .insert_header(("content-type", "text/plain"))
         .set_payload("int x = 1;")
         .to_request();
@@ -1457,7 +1472,10 @@ async fn test_web_unknown_url_still_404() {
     // The app-level 404 now carries the uniform JSON `{error, id}` body
     // (#541) rather than the former bare `text/plain` "Not found".
     let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
-    assert_eq!(body, json!({"error": "Not found", "id": ""}));
+    assert_eq!(
+        body,
+        json!({"error": "Not found", "error_kind": "not_found", "id": ""})
+    );
 }
 
 #[actix_rt::test]
@@ -1474,7 +1492,7 @@ async fn test_web_wrong_method_on_known_endpoint_yields_405() {
     // gets and the 404 an unknown URL gets.
     let req = test::TestRequest::default()
         .method(http::Method::PUT)
-        .uri("/metrics")
+        .uri("/v1/metrics")
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -1506,7 +1524,7 @@ async fn test_web_options_on_post_endpoint_yields_204_with_allow() {
     // without triggering a 405 (#655).
     let req = test::TestRequest::default()
         .method(http::Method::OPTIONS)
-        .uri("/metrics")
+        .uri("/v1/metrics")
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -1658,53 +1676,15 @@ async fn test_web_head_on_post_endpoint_still_405() {
     );
 }
 
-#[actix_rt::test]
-async fn test_web_head_on_get_alias_carries_deprecation_headers() {
-    let app = test::init_service(
-        App::new()
-            .app_data(test_config())
-            .configure(configure_routes),
-    )
-    .await;
-
-    // A HEAD probe against a deprecated unprefixed GET alias must still
-    // flow through the deprecation middleware (#637), so monitors hitting
-    // the alias see the Sunset/Link signalling just as a GET would (#644).
-    let resp = test::call_service(
-        &app,
-        test::TestRequest::default()
-            .method(http::Method::HEAD)
-            .uri("/ping")
-            .to_request(),
-    )
-    .await;
-    assert_eq!(resp.status(), StatusCode::OK);
-    let headers = resp.headers();
-    assert_eq!(
-        headers.get("deprecation").map(|v| v.to_str().unwrap()),
-        Some("true"),
-        "HEAD alias must carry Deprecation: true",
-    );
-    assert!(
-        headers.contains_key("sunset"),
-        "HEAD alias must carry a Sunset header",
-    );
-    assert!(
-        headers
-            .get("link")
-            .is_some_and(|v| v.to_str().unwrap().contains("</v1/ping>")),
-        "HEAD alias Link must name the /v1 successor",
-    );
-}
-
-// --- /v1 versioned routes + deprecated unprefixed aliases (issue #517) ---
+// --- /v1 versioned routes; unprefixed aliases removed at 2.0 (#637) ------
 //
-// Built via the production `configure_routes`, so both the `/v1` scope and
-// the unprefixed aliases run through the real route table, content-type
-// guards, and per-resource `default_service` fallbacks.
+// Built via the production `configure_routes`, so the `/v1` scope runs
+// through the real route table, content-type guards, and per-resource
+// `default_service` fallbacks. The unprefixed aliases were removed at 2.0
+// (#637); the tests below pin that every bare path now 404s.
 
 #[actix_rt::test]
-async fn test_web_v1_ast_matches_unprefixed_alias() {
+async fn test_web_v1_ast_returns_expected_envelope() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -1713,33 +1693,24 @@ async fn test_web_v1_ast_matches_unprefixed_alias() {
     .await;
 
     let payload = ast_request_body().to_string();
-    let post_json = |uri: &'static str| {
+    let v1_resp = test::call_service(
+        &app,
         test::TestRequest::post()
-            .uri(uri)
+            .uri("/v1/ast")
             .insert_header(ContentType::json())
-            .set_payload(payload.clone())
-            .to_request()
-    };
-
-    let v1_resp = test::call_service(&app, post_json("/v1/ast")).await;
+            .set_payload(payload)
+            .to_request(),
+    )
+    .await;
     assert_eq!(v1_resp.status(), StatusCode::OK);
     let v1_body: Value = serde_json::from_slice(&test::read_body(v1_resp).await).unwrap();
-
-    let alias_resp = test::call_service(&app, post_json("/ast")).await;
-    assert_eq!(alias_resp.status(), StatusCode::OK);
-    let alias_body: Value = serde_json::from_slice(&test::read_body(alias_resp).await).unwrap();
-
-    // The versioned route and the deprecated alias must be byte-identical.
-    assert_eq!(v1_body, alias_body);
     assert_eq!(v1_body["root"]["type"], json!("translation_unit"));
 }
 
-// Deprecation signalling on the unprefixed aliases (#637). Every alias
-// response must carry `Deprecation: true`, a `Sunset` date, and a
-// `Link rel="successor-version"` naming the canonical `/v1` twin; the
-// `/v1` routes must stay header-free.
+/// The unprefixed aliases were removed at 2.0 (#637): every bare path now
+/// falls through to the app-level `404`, while its `/v1` twin still works.
 #[actix_rt::test]
-async fn test_web_unprefixed_aliases_carry_deprecation_headers() {
+async fn test_web_unprefixed_routes_now_404() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -1747,22 +1718,10 @@ async fn test_web_unprefixed_aliases_carry_deprecation_headers() {
     )
     .await;
 
-    // (alias path, request builder) covering every registered alias —
-    // GET introspection routes and the content-type-guarded POST routes.
-    // VCS routes are exercised via their guarded-fallback responses
-    // (wrong method): the deprecation middleware wraps every response the
-    // alias scope produces, including the resource-level 405/415.
-    let json_post = |uri: &'static str, body: String| {
-        test::TestRequest::post()
-            .uri(uri)
-            .insert_header(ContentType::json())
-            .set_payload(body)
-            .to_request()
-    };
-
-    // The full alias surface mirrored from `register_endpoints`. Each entry
-    // produces a fresh request (requests are single-use).
+    // The full former-alias surface mirrored from `register_endpoints` plus
+    // the bare `/` index alias.
     let alias_paths = [
+        "/",
         "/ast",
         "/comment",
         "/metrics",
@@ -1776,105 +1735,46 @@ async fn test_web_unprefixed_aliases_carry_deprecation_headers() {
     ];
 
     for path in alias_paths {
-        // A GET reaches the POST endpoints' resource fallback (405) and the
-        // GET endpoints' handler (200); either way the response flows
-        // through the deprecation middleware, which is what we assert on.
-        let alias_resp =
-            test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
-        let headers = alias_resp.headers();
+        // A bare path now matches no registered resource and 404s with the
+        // uniform `{error, error_kind, id}` body — no deprecation headers,
+        // because the alias scope is gone.
+        let resp = test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
         assert_eq!(
-            headers.get("deprecation").map(|v| v.to_str().unwrap()),
-            Some("true"),
-            "alias {path} must carry Deprecation: true",
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "unprefixed {path} must 404 now the alias is removed (#637)",
         );
+        let headers_have_deprecation = resp.headers().contains_key("deprecation");
+        let body = test::read_body(resp).await;
         assert!(
-            headers.contains_key("sunset"),
-            "alias {path} must carry a Sunset header",
+            !headers_have_deprecation,
+            "unprefixed {path} must not carry a Deprecation header (alias removed)",
         );
-        let link = headers
-            .get("link")
-            .unwrap_or_else(|| panic!("alias {path} must carry a Link header"))
-            .to_str()
-            .unwrap();
-        assert!(
-            link.contains(&format!("</v1{path}>")) && link.contains("rel=\"successor-version\""),
-            "alias {path} Link must name the /v1 successor, got: {link}",
+        assert_uniform_error_body(&body, "");
+        let parsed: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            parsed["error_kind"],
+            json!("not_found"),
+            "removed alias {path} must carry the not_found token",
         );
     }
 
-    // The canonical `/v1` twins must stay header-free — the middleware is
-    // scoped to the unprefixed aliases only.
-    for path in alias_paths {
-        let v1_uri = format!("/v1{path}");
-        let resp =
-            test::call_service(&app, test::TestRequest::get().uri(&v1_uri).to_request()).await;
-        let headers = resp.headers();
-        assert!(
-            !headers.contains_key("deprecation"),
-            "{v1_uri} must not carry a Deprecation header",
-        );
-        assert!(
-            !headers.contains_key("sunset"),
-            "{v1_uri} must not carry a Sunset header",
-        );
-        assert!(
-            headers
-                .get("link")
-                .is_none_or(|v| { !v.to_str().unwrap().contains("successor-version") }),
-            "{v1_uri} must not carry a successor-version Link header",
-        );
-    }
-
-    // Behaviour parity: a successful alias response is byte-identical to
-    // its `/v1` twin once the deprecation headers are set aside (the
-    // headers are additive, the body is unchanged).
-    let body =
-        json!({"id": "dep", "file_name": "a.c", "code": "int x = 1;", "unit": false}).to_string();
-    let v1 = test::call_service(&app, json_post("/v1/metrics", body.clone())).await;
-    let alias = test::call_service(&app, json_post("/metrics", body)).await;
-    assert_eq!(v1.status(), StatusCode::OK);
-    assert_eq!(alias.status(), StatusCode::OK);
-    let v1_body: Value = serde_json::from_slice(&test::read_body(v1).await).unwrap();
-    let alias_body: Value = serde_json::from_slice(&test::read_body(alias).await).unwrap();
-    assert_eq!(v1_body, alias_body, "alias body must match the /v1 twin");
-}
-
-/// An extractor failure on an alias route must produce BOTH halves of the
-/// contract: the `{error, id}` JSON body (#639) and the deprecation
-/// headers (#637). actix renders extractor errors as `Ok(ServiceResponse)`,
-/// so the alias scope's `wrap_fn` still sees and stamps them — this pins
-/// that interaction against an actix upgrade changing error propagation.
-#[actix_rt::test]
-async fn test_web_alias_extractor_error_keeps_deprecation_headers() {
-    let app = test::init_service(
-        App::new()
-            .app_data(test_config())
-            .configure(configure_routes),
+    // The canonical `/v1` POST twin still works.
+    let body = json!({"id": "v1", "file_name": "a.c", "code": "int x = 1;"}).to_string();
+    let v1 = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/v1/metrics")
+            .insert_header(ContentType::json())
+            .set_payload(body)
+            .to_request(),
     )
     .await;
-
-    let req = test::TestRequest::post()
-        .uri("/ast")
-        .insert_header(ContentType::json())
-        .set_payload("{")
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        resp.headers()
-            .get("deprecation")
-            .map(|v| v.to_str().unwrap()),
-        Some("true"),
-        "alias error responses must keep the Deprecation header",
-    );
+    assert_eq!(v1.status(), StatusCode::OK, "the /v1 twin must still work");
+    // And the /v1 routes never carried the deprecation headers.
     assert!(
-        resp.headers().contains_key("sunset"),
-        "alias error responses must keep the Sunset header",
-    );
-    let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
-    assert!(
-        body.get("error").is_some_and(Value::is_string),
-        "alias extractor error must carry the {{error, id}} JSON body, got: {body}",
+        !v1.headers().contains_key("deprecation"),
+        "/v1 routes must not carry a Deprecation header",
     );
 }
 
@@ -1893,7 +1793,7 @@ async fn test_web_v1_post_endpoints_return_200() {
     let cases = [
         (
             "/v1/metrics",
-            json!({"id": "id-metrics", "file_name": "a.c", "code": "int x = 1;", "unit": false}),
+            json!({"id": "id-metrics", "file_name": "a.c", "code": "int x = 1;"}),
         ),
         (
             "/v1/comment",
@@ -1922,7 +1822,7 @@ async fn test_web_v1_post_endpoints_return_200() {
 }
 
 #[actix_rt::test]
-async fn test_web_v1_metrics_spaces_is_present_object() {
+async fn test_web_v1_metrics_root_is_present_object() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -1930,23 +1830,27 @@ async fn test_web_v1_metrics_spaces_is_present_object() {
     )
     .await;
 
-    // `spaces` is now a non-optional `FuncSpace` (#517): a successful
-    // response carries the unit-space object directly, never `null`.
+    // `root` is a non-optional `FuncSpace` (#517) under the `root` envelope
+    // key (#638): a successful response carries the unit-space object
+    // directly, never `null`, and never under the misleading plural
+    // `spaces`.
     let req = test::TestRequest::post()
         .uri("/v1/metrics")
         .insert_header(ContentType::json())
-        .set_payload(
-            json!({"id": "m", "file_name": "a.c", "code": "int x = 1;", "unit": false}).to_string(),
-        )
+        .set_payload(json!({"id": "m", "file_name": "a.c", "code": "int x = 1;"}).to_string())
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
-    assert_eq!(body["spaces"]["kind"], json!("unit"));
+    assert_eq!(body["root"]["kind"], json!("unit"));
+    assert!(
+        body.get("spaces").is_none(),
+        "the single root space must not be under the plural `spaces` key (#638)"
+    );
 }
 
 #[actix_rt::test]
-async fn test_web_v1_ping_works_and_unprefixed_alias_too() {
+async fn test_web_v1_ping_works() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -1954,10 +1858,15 @@ async fn test_web_v1_ping_works_and_unprefixed_alias_too() {
     )
     .await;
 
-    for uri in ["/v1/ping", "/ping"] {
-        let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
-        assert_eq!(resp.status(), StatusCode::OK, "GET {uri} should return 200");
-    }
+    // The `/v1/ping` route works; the unprefixed `/ping` alias was removed
+    // at 2.0 (#637) and now 404s (covered by `test_web_unprefixed_routes_now_404`).
+    let resp =
+        test::call_service(&app, test::TestRequest::get().uri("/v1/ping").to_request()).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "GET /v1/ping should return 200"
+    );
 }
 
 #[actix_rt::test]
@@ -1969,22 +1878,21 @@ async fn test_web_post_to_ping_yields_405() {
     )
     .await;
 
-    // `/ping` is GET-only; its own `default_service` answers a method
-    // error (not the 415 a content-type-guarded POST endpoint gives, nor
-    // the bodyless 404 the pre-#517 path constant produced for `/ping`).
-    for uri in ["/ping", "/v1/ping"] {
-        let resp = test::call_service(&app, test::TestRequest::post().uri(uri).to_request()).await;
-        assert_eq!(
-            resp.status(),
-            StatusCode::METHOD_NOT_ALLOWED,
-            "POST {uri} should return 405"
-        );
-        let body = test::read_body(resp).await;
-        assert!(
-            String::from_utf8_lossy(&body).contains("GET"),
-            "405 body should name the accepted method"
-        );
-    }
+    // `/v1/ping` is GET-only; its own `default_service` answers a method
+    // error (not the 415 a content-type-guarded POST endpoint gives). The
+    // unprefixed `/ping` alias is gone (#637), so a POST there is a 404.
+    let resp =
+        test::call_service(&app, test::TestRequest::post().uri("/v1/ping").to_request()).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::METHOD_NOT_ALLOWED,
+        "POST /v1/ping should return 405"
+    );
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("GET"),
+        "405 body should name the accepted method"
+    );
 }
 
 #[actix_rt::test]
@@ -2130,7 +2038,7 @@ async fn test_web_v1_index_head_matches_get() {
 }
 
 #[actix_rt::test]
-async fn test_web_index_unprefixed_alias_carries_deprecation_headers() {
+async fn test_web_index_unprefixed_alias_removed_404s() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -2138,33 +2046,23 @@ async fn test_web_index_unprefixed_alias_carries_deprecation_headers() {
     )
     .await;
 
-    // `GET /` serves the same index as `GET /v1` (the issue's other 404),
-    // but as a deprecated alias it carries the #637 signalling headers and
-    // the `/v1` twin stays header-free.
+    // The bare `/` index alias was removed at 2.0 (#637): it now 404s,
+    // while `GET /v1` still serves the route index.
     let alias = test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
-    assert_eq!(alias.status(), StatusCode::OK);
-    let headers = alias.headers();
     assert_eq!(
-        headers.get("deprecation").map(|v| v.to_str().unwrap()),
-        Some("true"),
-        "alias / must carry Deprecation: true",
+        alias.status(),
+        StatusCode::NOT_FOUND,
+        "the bare `/` index alias must 404 now it is removed (#637)",
     );
     assert!(
-        headers.contains_key("sunset"),
-        "alias / must carry a Sunset header",
-    );
-    assert!(
-        headers
-            .get("link")
-            .is_some_and(|v| v.to_str().unwrap().contains("</v1/>")),
-        "alias / Link must name the /v1 successor",
+        !alias.headers().contains_key("deprecation"),
+        "the removed `/` alias must not carry a Deprecation header",
     );
 
-    // Body parity: the alias index is byte-identical to the /v1 index.
-    let alias_body: Value = serde_json::from_slice(&test::read_body(alias).await).unwrap();
     let v1 = test::call_service(&app, test::TestRequest::get().uri("/v1").to_request()).await;
+    assert_eq!(v1.status(), StatusCode::OK, "/v1 index must still work");
     let v1_body: Value = serde_json::from_slice(&test::read_body(v1).await).unwrap();
-    assert_eq!(alias_body, v1_body, "alias index body must match /v1");
+    assert_eq!(v1_body["service"], json!("bca-web"));
 }
 
 #[actix_rt::test]
@@ -2215,14 +2113,19 @@ async fn test_web_v1_wrong_method_yields_405() {
 // right status, so clients parse one error shape regardless of the
 // success content-type.
 
-/// Asserts `body` parses as the uniform `{error, id}` shape with a
-/// non-empty `error` string and `id == expected_id`.
+/// Asserts `body` parses as the uniform `{error, error_kind, id}` shape
+/// with a non-empty `error` string, a non-empty `error_kind` machine
+/// token (#631), and `id == expected_id`.
 fn assert_uniform_error_body(body: &[u8], expected_id: &str) {
-    let parsed: Value =
-        serde_json::from_slice(body).expect("error body must be valid JSON `{error, id}`");
+    let parsed: Value = serde_json::from_slice(body)
+        .expect("error body must be valid JSON `{error, error_kind, id}`");
     assert!(
         parsed["error"].as_str().is_some_and(|s| !s.is_empty()),
         "error body must carry a non-empty `error` string: {parsed}"
+    );
+    assert!(
+        parsed["error_kind"].as_str().is_some_and(|s| !s.is_empty()),
+        "error body must carry a non-empty `error_kind` token (#631): {parsed}"
     );
     assert_eq!(
         parsed["id"],
@@ -2247,8 +2150,7 @@ async fn test_web_error_body_uniform_across_endpoints() {
         .uri("/v1/metrics")
         .insert_header(ContentType::json())
         .set_payload(
-            json!({"id": "err-json", "file_name": "x.unknown_ext", "code": "x", "unit": false})
-                .to_string(),
+            json!({"id": "err-json", "file_name": "x.unknown_ext", "code": "x"}).to_string(),
         )
         .to_request();
     let json_resp = test::call_service(&app, json_req).await;
@@ -2346,10 +2248,10 @@ async fn test_web_comment_envelope_carries_id_and_language_slug() {
     );
 }
 
-// --- `unit` query flag: normal bool semantics (#541) --------------------
+// --- #654: every analysis endpoint echoes the resolved language ---------
 
 #[actix_rt::test]
-async fn test_web_metrics_plain_unit_flag_accepts_bool_forms() {
+async fn test_web_all_analysis_endpoints_echo_language() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -2357,13 +2259,124 @@ async fn test_web_metrics_plain_unit_flag_accepts_bool_forms() {
     )
     .await;
 
-    // `true`/`1` (and case variants) enable unit-only metrics: the
-    // response carries no nested `spaces`. `false`/`0`/absent keep the
-    // full tree, which for this single-function source has a non-empty
-    // nested `spaces` array.
-    let post_unit = |unit: Option<&str>| {
-        let uri = match unit {
-            Some(v) => format!("/v1/metrics?file_name=u.py&unit={v}"),
+    // /ast, /comment, /function, and /metrics must all echo the resolved
+    // language slug (#654 brings /ast into line with the other three). A
+    // `.cpp` source resolves to the `cpp` slug everywhere.
+    let cases = [
+        (
+            "/v1/ast",
+            json!({"id": "p", "file_name": "a.cpp", "code": "int x = 1;", "comment": false, "span": false}),
+        ),
+        (
+            "/v1/comment",
+            json!({"id": "p", "file_name": "a.cpp", "code": "int x = 1; // c"}),
+        ),
+        (
+            "/v1/function",
+            json!({"id": "p", "file_name": "a.cpp", "code": "int f() { return 0; }"}),
+        ),
+        (
+            "/v1/metrics",
+            json!({"id": "p", "file_name": "a.cpp", "code": "int x = 1;"}),
+        ),
+    ];
+    for (uri, body) in cases {
+        let req = test::TestRequest::post()
+            .uri(uri)
+            .insert_header(ContentType::json())
+            .set_payload(body.to_string())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK, "{uri} should 200");
+        let parsed: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        assert_eq!(
+            parsed["language"],
+            json!("cpp"),
+            "{uri} must echo the resolved language slug (#654)",
+        );
+    }
+}
+
+// --- #633: unknown payload fields are rejected, naming the offender -----
+
+#[actix_rt::test]
+async fn test_web_unknown_field_400s_naming_the_key() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // A typo'd field (`long_widnow`) on `/vcs` must 400 — not silently
+    // drop the key and compute with defaults — naming the offender in the
+    // human `error` and carrying the `unknown_field` machine token (#633 /
+    // #631).
+    let req = test::TestRequest::post()
+        .uri("/v1/vcs")
+        .insert_header(ContentType::json())
+        .set_payload(
+            json!({"id": "x", "repo_path": "/tmp/whatever", "long_widnow": "banana"}).to_string(),
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "an unknown field must 400, not silently use defaults (#633)"
+    );
+    let body = test::read_body(resp).await;
+    assert_uniform_error_body(&body, "");
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        parsed["error_kind"],
+        json!("unknown_field"),
+        "an unknown field must carry the unknown_field token (#631/#633)"
+    );
+    assert!(
+        parsed["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("long_widnow")),
+        "the 400 must name the offending key, got: {parsed}"
+    );
+
+    // The stale `unit` metrics flag is now an unknown field (#638 renamed
+    // it to `scope`), so sending it 400s naming `unit` (migration note).
+    let req = test::TestRequest::post()
+        .uri("/v1/metrics")
+        .insert_header(ContentType::json())
+        .set_payload(
+            json!({"id": "x", "file_name": "a.c", "code": "int x = 1;", "unit": false}).to_string(),
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let parsed: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+    assert_eq!(parsed["error_kind"], json!("unknown_field"));
+    assert!(
+        parsed["error"].as_str().is_some_and(|e| e.contains("unit")),
+        "the stale `unit` flag must be named as the offender, got: {parsed}"
+    );
+}
+
+// --- `scope` query flag: `full` / `file` (#638) -------------------------
+
+#[actix_rt::test]
+async fn test_web_metrics_plain_scope_flag_accepts_full_and_file() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // `scope=file` (and case variants) returns the file-level root only:
+    // the response's nested `spaces` list is empty. `scope=full`/absent
+    // keep the full tree, which for this single-function source has a
+    // non-empty nested `spaces` array. The root sits under `root` (#638).
+    let post_scope = |scope: Option<&str>| {
+        let uri = match scope {
+            Some(v) => format!("/v1/metrics?file_name=u.py&scope={v}"),
             None => "/v1/metrics?file_name=u.py".to_string(),
         };
         test::TestRequest::post()
@@ -2373,42 +2386,42 @@ async fn test_web_metrics_plain_unit_flag_accepts_bool_forms() {
             .to_request()
     };
 
-    for truthy in ["true", "TRUE", "True", "1"] {
-        let resp = test::call_service(&app, post_unit(Some(truthy))).await;
-        assert_eq!(resp.status(), StatusCode::OK, "unit={truthy} should be 200");
+    for file in ["file", "FILE", "File"] {
+        let resp = test::call_service(&app, post_scope(Some(file))).await;
+        assert_eq!(resp.status(), StatusCode::OK, "scope={file} should be 200");
         let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
         assert_eq!(
-            body["spaces"]["spaces"],
+            body["root"]["spaces"],
             json!([]),
-            "unit={truthy} should clear nested spaces"
+            "scope={file} should clear the nested children"
         );
     }
 
-    for falsy in ["false", "FALSE", "0"] {
-        let resp = test::call_service(&app, post_unit(Some(falsy))).await;
-        assert_eq!(resp.status(), StatusCode::OK, "unit={falsy} should be 200");
+    for full in ["full", "FULL"] {
+        let resp = test::call_service(&app, post_scope(Some(full))).await;
+        assert_eq!(resp.status(), StatusCode::OK, "scope={full} should be 200");
         let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
         assert!(
-            body["spaces"]["spaces"]
+            body["root"]["spaces"]
                 .as_array()
                 .is_some_and(|s| !s.is_empty()),
-            "unit={falsy} should keep nested spaces"
+            "scope={full} should keep the nested children"
         );
     }
 
-    // Absent defaults to false (full tree).
-    let resp = test::call_service(&app, post_unit(None)).await;
+    // Absent defaults to `full` (full tree).
+    let resp = test::call_service(&app, post_scope(None)).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
     assert!(
-        body["spaces"]["spaces"]
+        body["root"]["spaces"]
             .as_array()
             .is_some_and(|s| !s.is_empty())
     );
 }
 
 #[actix_rt::test]
-async fn test_web_metrics_plain_unit_flag_rejects_non_bool() {
+async fn test_web_metrics_plain_scope_flag_rejects_unknown() {
     let app = test::init_service(
         App::new()
             .app_data(test_config())
@@ -2416,12 +2429,13 @@ async fn test_web_metrics_plain_unit_flag_rejects_non_bool() {
     )
     .await;
 
-    // The former lenient truthy set (`yes`/`on`) is gone (#541); any
-    // value that is not a recognised bool is a 400 with the uniform
-    // JSON error body.
-    for bad in ["yes", "on", "bogus"] {
+    // The pre-2.0 boolean truthy/falsy set (`true`/`false`/`1`/`0`) is
+    // gone (#638); only `full`/`file` are accepted. Any other value is a
+    // 400 with the uniform JSON error body carrying the
+    // `invalid_scope_flag` token.
+    for bad in ["true", "false", "1", "0", "yes", "bogus"] {
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/metrics?file_name=u.py&unit={bad}"))
+            .uri(&format!("/v1/metrics?file_name=u.py&scope={bad}"))
             .insert_header(ContentType::octet_stream())
             .set_payload("def foo():\n    pass\n")
             .to_request();
@@ -2429,13 +2443,20 @@ async fn test_web_metrics_plain_unit_flag_rejects_non_bool() {
         assert_eq!(
             resp.status(),
             StatusCode::BAD_REQUEST,
-            "unit={bad} should be rejected with 400"
+            "scope={bad} should be rejected with 400"
         );
-        assert_uniform_error_body(&test::read_body(resp).await, "");
+        let body = test::read_body(resp).await;
+        assert_uniform_error_body(&body, "");
+        let parsed: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            parsed["error_kind"],
+            json!("invalid_scope_flag"),
+            "scope={bad} should carry the invalid_scope_flag token"
+        );
     }
 }
 
-// --- Introspection endpoints + unprefixed aliases (#541) ----------------
+// --- Introspection endpoints (#541; unprefixed aliases removed #637) -----
 
 #[actix_rt::test]
 async fn test_web_version_endpoint_reports_server_and_library() {
@@ -2446,7 +2467,7 @@ async fn test_web_version_endpoint_reports_server_and_library() {
     )
     .await;
 
-    for uri in ["/v1/version", "/version"] {
+    for uri in ["/v1/version"] {
         let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
         assert_eq!(resp.status(), StatusCode::OK, "GET {uri} should return 200");
         let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
@@ -2472,7 +2493,7 @@ async fn test_web_languages_endpoint_lists_slugs_and_extensions() {
     )
     .await;
 
-    for uri in ["/v1/languages", "/languages"] {
+    for uri in ["/v1/languages"] {
         let resp = test::call_service(&app, test::TestRequest::get().uri(uri).to_request()).await;
         assert_eq!(resp.status(), StatusCode::OK, "GET {uri} should return 200");
         let body: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
@@ -2694,15 +2715,25 @@ async fn vcs_error_response_maps_classification_to_status() {
     // Asserting both branches directly pins the HTTP contract without
     // needing to provoke a backend failure through the endpoint.
     let client = vcs_error_response(
-        &VcsError::InvalidWindow("bad".to_owned()),
+        &VcsError::InvalidWindow("banana".to_owned()),
         "id-1".to_owned(),
     );
     assert_eq!(client.status(), StatusCode::BAD_REQUEST);
-    // The status and body are a pair: a 400 must carry the client-facing
-    // message and echo the id, not the generic failure body.
+    // The status and body are a triple: a 400 carries the *specific*
+    // `vcs::Error` Display message (not the former kitchen-sink sentence),
+    // its `error_kind` machine token, and the echoed id (#631).
     let client_body = actix_web::body::to_bytes(client.into_body()).await.unwrap();
     let client_json: Value = serde_json::from_slice(&client_body).unwrap();
-    assert_eq!(client_json["error"], json!(VCS_BAD_REQUEST));
+    assert_eq!(
+        client_json["error"],
+        json!("invalid time window: banana"),
+        "the 400 must carry the specific cause, not a kitchen-sink sentence",
+    );
+    assert_eq!(
+        client_json["error_kind"],
+        json!("vcs_invalid_window"),
+        "the 400 must carry the per-variant machine token (#631)",
+    );
     assert_eq!(client_json["id"], json!("id-1"));
 
     let internal = vcs_error_response(&VcsError::Walk("boom".to_owned()), "id-2".to_owned());
@@ -2711,8 +2742,92 @@ async fn vcs_error_response_maps_classification_to_status() {
         .await
         .unwrap();
     let internal_json: Value = serde_json::from_slice(&internal_body).unwrap();
+    // The environment/backend 500 keeps the generic body and never leaks
+    // the real cause, but still carries a machine token.
     assert_eq!(internal_json["error"], json!(VCS_FAILED));
+    assert_eq!(internal_json["error_kind"], json!("vcs_internal_error"));
     assert_eq!(internal_json["id"], json!("id-2"));
+}
+
+#[actix_rt::test]
+async fn vcs_error_kind_maps_each_client_variant_to_a_distinct_token() {
+    // Locks the closed #631 token vocabulary: every `is_client_input`
+    // variant gets its own distinct, non-internal token. `is_client_input`
+    // (#641) owns 400-vs-500; `vcs_error_kind` owns which 400 token — this
+    // pins all ten so a future variant or a renamed token cannot silently
+    // collapse onto the generic internal token or collide with a sibling.
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    let cases: [(VcsError, &str); 10] = [
+        (
+            VcsError::NotARepository(PathBuf::from("/x")),
+            error_kind::VCS_NOT_A_REPOSITORY,
+        ),
+        (
+            VcsError::ResolveRef {
+                reference: "HEAD".to_owned(),
+                reason: "gone".to_owned(),
+            },
+            error_kind::VCS_INVALID_REVISION,
+        ),
+        (
+            VcsError::InvalidBotPattern("[".to_owned()),
+            error_kind::VCS_INVALID_BOT_PATTERN,
+        ),
+        (
+            VcsError::InvalidWindow("x".to_owned()),
+            error_kind::VCS_INVALID_WINDOW,
+        ),
+        (
+            VcsError::InvalidTimestamp("x".to_owned()),
+            error_kind::VCS_INVALID_TIMESTAMP,
+        ),
+        (
+            VcsError::InvalidFormula("x".to_owned()),
+            error_kind::VCS_INVALID_FORMULA,
+        ),
+        (
+            VcsError::InvalidFileTypeScope("x".to_owned()),
+            error_kind::VCS_INVALID_FILE_TYPE_SCOPE,
+        ),
+        (
+            VcsError::InvalidBusFactorThreshold("x".to_owned()),
+            error_kind::VCS_INVALID_BUS_FACTOR_THRESHOLD,
+        ),
+        (
+            VcsError::InvalidTrend("x".to_owned()),
+            error_kind::VCS_INVALID_TREND,
+        ),
+        (
+            VcsError::InvalidDiff("x".to_owned()),
+            error_kind::VCS_INVALID_DIFF,
+        ),
+    ];
+    let mut seen = HashSet::new();
+    for (err, expected) in &cases {
+        assert!(
+            err.is_client_input(),
+            "{err:?} must classify as client input"
+        );
+        let token = vcs_error_kind(err);
+        assert_eq!(token, *expected, "wrong token for {err:?}");
+        assert_ne!(
+            token,
+            error_kind::VCS_INTERNAL_ERROR,
+            "client variant {err:?} must not collapse onto the internal token",
+        );
+        assert!(
+            seen.insert(token),
+            "token `{token}` is not distinct across client variants"
+        );
+    }
+    // An environment/backend variant collapses onto the internal token.
+    assert!(!VcsError::Walk("boom".to_owned()).is_client_input());
+    assert_eq!(
+        vcs_error_kind(&VcsError::Walk("boom".to_owned())),
+        error_kind::VCS_INTERNAL_ERROR,
+    );
 }
 
 #[actix_rt::test]
@@ -2745,7 +2860,7 @@ async fn test_web_vcs_wrong_content_type_yields_415() {
     )
     .await;
     let req = test::TestRequest::post()
-        .uri("/vcs")
+        .uri("/v1/vcs")
         .insert_header(("content-type", "text/plain"))
         .set_payload("not json")
         .to_request();
@@ -2765,7 +2880,7 @@ async fn test_web_vcs_wrong_method_yields_405() {
             .configure(configure_routes),
     )
     .await;
-    let req = test::TestRequest::get().uri("/vcs").to_request();
+    let req = test::TestRequest::get().uri("/v1/vcs").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
@@ -2841,7 +2956,7 @@ async fn test_web_vcs_trend_json_shape() {
         "span": "300d",
     });
     let req = test::TestRequest::post()
-        .uri("/vcs/trend")
+        .uri("/v1/vcs/trend")
         .insert_header(ContentType::json())
         .set_json(&payload)
         .to_request();
@@ -2874,7 +2989,7 @@ async fn test_web_vcs_trend_too_few_points_is_400() {
         "span": "300d",
     });
     let req = test::TestRequest::post()
-        .uri("/vcs/trend")
+        .uri("/v1/vcs/trend")
         .insert_header(ContentType::json())
         .set_json(&payload)
         .to_request();
@@ -2883,6 +2998,43 @@ async fn test_web_vcs_trend_too_few_points_is_400() {
         resp.status(),
         StatusCode::BAD_REQUEST,
         "a sub-minimum point count is a client error"
+    );
+}
+
+/// #636: omitting `points` now succeeds with the CLI default of 12 (it
+/// was formerly hard-required and 400'd when absent).
+#[actix_rt::test]
+async fn test_web_vcs_trend_points_defaults_to_twelve() {
+    let repo = build_trend_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // No `points` key — must default to 12, not 400.
+    let payload = json!({
+        "id": "trend-default",
+        "repo_path": repo.path().to_str().unwrap(),
+        "as_of": "@1700000000",
+        "span": "300d",
+    });
+    let req = test::TestRequest::post()
+        .uri("/v1/vcs/trend")
+        .insert_header(ContentType::json())
+        .set_json(&payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "an omitted `points` must default to 12, not 400 (#636)"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["as_of_points"].as_array().unwrap().len(),
+        12,
+        "the default point count is the CLI's 12 (#636)"
     );
 }
 
@@ -2898,7 +3050,7 @@ async fn test_web_vcs_jit_commit_happy_path() {
     )
     .await;
     let req = test::TestRequest::post()
-        .uri("/vcs/jit")
+        .uri("/v1/vcs/jit")
         .insert_header(ContentType::json())
         .set_json(json!({
             "id": "jit-1",
@@ -2935,7 +3087,7 @@ async fn test_web_vcs_jit_diff_mode_partial_report() {
     .await;
     let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,1 +1,3 @@\n keep\n+one\n+two\n";
     let req = test::TestRequest::post()
-        .uri("/vcs/jit")
+        .uri("/v1/vcs/jit")
         .insert_header(ContentType::json())
         .set_json(json!({ "id": "jit-diff", "diff": diff }))
         .to_request();
@@ -2976,7 +3128,7 @@ async fn test_web_vcs_jit_malformed_diff_is_400() {
     )
     .await;
     let req = test::TestRequest::post()
-        .uri("/vcs/jit")
+        .uri("/v1/vcs/jit")
         .insert_header(ContentType::json())
         .set_json(json!({
             "id": "jit-bad",
@@ -2992,14 +3144,20 @@ async fn test_web_vcs_jit_malformed_diff_is_400() {
     let body: Value = test::read_body_json(resp).await;
     // The body must name the problem (so a 400 is actionable, not opaque).
     assert_eq!(body["id"], "jit-bad");
-    // Pin the exact uniform bad-request contract string rather than a
-    // fragile `contains("diff")` substring: this proves the malformed diff
-    // routes through the documented `VCS_BAD_REQUEST` error shape, not some
-    // other 400 that merely happens to mention "diff".
+    // Pin the machine token (#631): a malformed diff routes through the
+    // specific `vcs_invalid_diff` cause, not the former kitchen-sink
+    // bad-request string. The human `error` carries the specific
+    // `vcs::Error::InvalidDiff` Display prefix.
     assert_eq!(
-        body["error"].as_str(),
-        Some(VCS_BAD_REQUEST),
-        "the 400 body must be the documented uniform bad-request contract string"
+        body["error_kind"],
+        json!("vcs_invalid_diff"),
+        "the 400 must carry the per-variant machine token for a bad diff (#631)"
+    );
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|e| e.starts_with("invalid unified diff:")),
+        "the 400 must carry the specific diff-parse cause, got: {body}",
     );
 }
 
@@ -3014,7 +3172,7 @@ async fn test_web_vcs_jit_missing_repo_path_is_400() {
     )
     .await;
     let req = test::TestRequest::post()
-        .uri("/vcs/jit")
+        .uri("/v1/vcs/jit")
         .insert_header(ContentType::json())
         .set_json(json!({ "id": "jit-norepo" }))
         .to_request();
@@ -3049,7 +3207,7 @@ async fn test_web_vcs_jit_diff_with_commit_mode_field_is_400() {
     ];
     for payload in conflicting {
         let req = test::TestRequest::post()
-            .uri("/vcs/jit")
+            .uri("/v1/vcs/jit")
             .insert_header(ContentType::json())
             .set_json(&payload)
             .to_request();
@@ -3080,7 +3238,7 @@ async fn test_web_vcs_jit_wrong_method_yields_405() {
             .configure(configure_routes),
     )
     .await;
-    let req = test::TestRequest::get().uri("/vcs/jit").to_request();
+    let req = test::TestRequest::get().uri("/v1/vcs/jit").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
@@ -3107,7 +3265,7 @@ async fn test_web_vcs_jit_wrong_content_type_yields_415() {
     )
     .await;
     let req = test::TestRequest::post()
-        .uri("/vcs/jit")
+        .uri("/v1/vcs/jit")
         .insert_header((http::header::CONTENT_TYPE, "text/plain"))
         .set_payload("not json")
         .to_request();
@@ -3300,7 +3458,7 @@ async fn metrics_for_rust_source(code: &str) -> Value {
             id: "640".to_string(),
             file_name: "test.rs".to_string(),
             code: code.to_string(),
-            unit: false,
+            scope: Scope::Full,
         })
         .to_request();
     test::call_and_read_body_json(&app, req).await
@@ -3314,7 +3472,7 @@ async fn test_web_metrics_unterminated_buffer_matches_cli() {
     // on the same bytes via `read_file_with_eol`. The web handler now
     // normalises the buffer, so both surfaces agree.
     let res = metrics_for_rust_source("fn f(){}").await;
-    let unit = &res["spaces"];
+    let unit = &res["root"];
     assert_eq!(
         unit["end_line"], 1,
         "unit space must not end before its child"

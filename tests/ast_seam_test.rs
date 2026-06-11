@@ -501,10 +501,12 @@ fn dump_returns_root_node_tree() {
         .expect("rust feature enabled")
         .dump(AstCfg {
             id: "req-1".to_owned(),
+            language: "rust".to_owned(),
             comment: false,
             span: false,
         });
     assert_eq!(resp.id, "req-1");
+    assert_eq!(resp.language, "rust", "the dump echoes the language slug");
     let root = resp.root.expect("a root node is produced");
     // Rust's grammar roots at `source_file`; the lone `fn` is a child.
     assert_eq!(root.r#type, "source_file");

@@ -32,8 +32,40 @@ use big_code_analysis::vcs::{
 };
 use big_code_analysis::wire;
 
+/// Default file-ranking cap when `top` is omitted (#636).
+///
+/// Matches the CLI's `--top` default (`bca vcs`, 50) so the same logical
+/// invocation returns the same-sized ranking regardless of surface. An
+/// explicit `top: 0` still means "all files" (#602); the web no longer
+/// defaults to the unbounded "all" that risked a serializer self-DoS on a
+/// monorepo.
+const DEFAULT_TOP: usize = 50;
+
+/// Default per-delta-list cap when `top_deltas` is omitted (#636).
+///
+/// Matches the CLI's `--top-deltas` default (10). `top_deltas: 0` means
+/// "all" per #602.
+const DEFAULT_TOP_DELTAS: usize = 10;
+
+/// Default sample-point count when `points` is omitted (#636).
+///
+/// Matches the CLI's `--points` default (12), which over a 12-month span
+/// yields roughly monthly snapshots. Replaces the former hard-required
+/// field, so an omitted `points` succeeds instead of 400ing.
+const DEFAULT_TREND_POINTS: usize = 12;
+
+/// serde `default` provider for [`WebVcsTrendPayload::points`] (#636).
+fn default_trend_points() -> usize {
+    DEFAULT_TREND_POINTS
+}
+
 /// Request body for `POST /vcs`.
+///
+/// Unknown fields are rejected with a `400` naming the offending key
+/// (#633): on a payload this wide, a typo silently selecting defaults the
+/// client did not ask for is worse than a hard error.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebVcsPayload {
     /// Request identifier echoed back in the response.
     pub id: String,
@@ -43,7 +75,8 @@ pub struct WebVcsPayload {
     pub long_window: Option<String>,
     /// Recent window (default `90d`).
     pub recent_window: Option<String>,
-    /// Show only the top N files by risk (`0` / absent = all).
+    /// Show only the top N files by risk. Absent defaults to 50 (the CLI
+    /// `--top` default — #636); an explicit `0` returns all files (#602).
     pub top: Option<usize>,
     /// Revision to analyse (default `HEAD`).
     #[serde(rename = "ref")]
@@ -181,7 +214,9 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
             })
         })
         .collect();
-    vcs::rank_by_risk(&mut files, payload.top.unwrap_or(0), |e| {
+    // Absent `top` defaults to the CLI's bounded 50, not the unbounded
+    // "all"; an explicit `top: 0` still returns all files (#636 / #602).
+    vcs::rank_by_risk(&mut files, payload.top.unwrap_or(DEFAULT_TOP), |e| {
         (e.path.as_str(), e.vcs.risk_score)
     });
 
@@ -206,7 +241,11 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
 /// rename / `as_of` knob) would silently score the diff and ignore the
 /// other fields, answering a different question than the one asked. See
 /// [`WebVcsJitPayload::validate`].
+///
+/// Unknown fields are rejected with a `400` naming the offending key
+/// (#633).
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebVcsJitPayload {
     /// Request identifier echoed back in the response.
     pub id: String,
@@ -358,18 +397,109 @@ pub fn compute_vcs_jit(payload: WebVcsJitPayload) -> Result<WebVcsJitResponse, v
 /// the same as [`WebVcsPayload`] — `top` selects how many files the series
 /// keeps, `as_of` anchors the most-recent point — plus the trend-only
 /// `points` / `span` / `top_deltas`.
+///
+/// The shared `/vcs` fields are **inlined** rather than `#[serde(flatten)]`d
+/// (#633): `deny_unknown_fields` is incompatible with `flatten` (serde
+/// cannot tell which struct owns a given key), so the only way to reject an
+/// unknown key on this endpoint is a single flat struct. The JSON shape is
+/// unchanged — every field still sits at the top level. The inlined block
+/// mirrors [`WebVcsPayload`] field-for-field; keep the two in lockstep when
+/// either gains a knob.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WebVcsTrendPayload {
-    /// All the shared `/vcs` knobs (`id`, `repo_path`, windows, `ref`, …).
-    #[serde(flatten)]
-    pub base: WebVcsPayload,
-    /// Number of evenly-spaced sample points (>= 2).
+    // --- shared `/vcs` knobs, inlined from `WebVcsPayload` (#633) ---
+    /// Request identifier echoed back in the response.
+    pub id: String,
+    /// Server-side path to (a directory inside) the git working tree.
+    pub repo_path: String,
+    /// Long window (default `12mo`).
+    pub long_window: Option<String>,
+    /// Recent window (default `90d`).
+    pub recent_window: Option<String>,
+    /// Show only the top N files by risk (default 50; `0` = all — #636).
+    pub top: Option<usize>,
+    /// Revision to analyse (default `HEAD`).
+    #[serde(rename = "ref")]
+    pub reference: Option<String>,
+    /// Composite formula: `weighted` (default) or `percentile`.
+    pub risk_formula: Option<String>,
+    /// File-type scope (issue #576).
+    pub file_types: Option<String>,
+    /// Walk the full DAG rather than first-parent only.
+    pub full_history: Option<bool>,
+    /// Include merge commits.
+    pub include_merges: Option<bool>,
+    /// Follow renames (default true).
+    pub follow_renames: Option<bool>,
+    /// Exclude bot identities (default true).
+    pub exclude_bots: Option<bool>,
+    /// Override the bot-author exclusion regex.
+    pub bot_pattern: Option<String>,
+    /// Reference "now" (RFC 3339 / `@unix` / git date) for snapshots.
+    pub as_of: Option<String>,
+    /// Emit SHA-256-hashed author identities.
+    pub emit_author_details: Option<bool>,
+    /// Include files deleted at the target ref.
+    pub include_deleted: Option<bool>,
+    /// Bus-factor coverage (abandonment) threshold in `(0, 1)` (issue #332).
+    pub bus_factor_threshold: Option<f64>,
+    /// Disable the persistent change-history cache for this request.
+    pub no_cache: Option<bool>,
+    /// Override the server-side cache directory.
+    pub cache_dir: Option<String>,
+    // --- trend-only knobs ---
+    /// Number of evenly-spaced sample points (>= 2; default 12 — #636).
+    #[serde(default = "default_trend_points")]
     pub points: usize,
     /// Total look-back span the points cover (default `12mo`).
     pub span: Option<String>,
-    /// Top N files per improving / regressing delta list (`0` / absent =
-    /// all).
+    /// Top N files per improving / regressing delta list (default 10;
+    /// `0` = all — #636).
     pub top_deltas: Option<usize>,
+}
+
+impl WebVcsTrendPayload {
+    /// Reassemble the shared `/vcs` knobs into a [`WebVcsPayload`] so the
+    /// trend handler reuses `options_from` without duplicating the
+    /// payload→[`Options`] mapping. Consumes the inlined fields.
+    fn into_base(self) -> (WebVcsPayload, TrendKnobs) {
+        let base = WebVcsPayload {
+            id: self.id,
+            repo_path: self.repo_path,
+            long_window: self.long_window,
+            recent_window: self.recent_window,
+            top: self.top,
+            reference: self.reference,
+            risk_formula: self.risk_formula,
+            file_types: self.file_types,
+            full_history: self.full_history,
+            include_merges: self.include_merges,
+            follow_renames: self.follow_renames,
+            exclude_bots: self.exclude_bots,
+            bot_pattern: self.bot_pattern,
+            as_of: self.as_of,
+            emit_author_details: self.emit_author_details,
+            include_deleted: self.include_deleted,
+            bus_factor_threshold: self.bus_factor_threshold,
+            no_cache: self.no_cache,
+            cache_dir: self.cache_dir,
+        };
+        let knobs = TrendKnobs {
+            points: self.points,
+            span: self.span,
+            top_deltas: self.top_deltas,
+        };
+        (base, knobs)
+    }
+}
+
+/// The trend-only knobs split out of [`WebVcsTrendPayload`] by
+/// [`WebVcsTrendPayload::into_base`].
+struct TrendKnobs {
+    points: usize,
+    span: Option<String>,
+    top_deltas: Option<usize>,
 }
 
 /// Response body for `POST /vcs/trend`: the echoed id plus the flattened
@@ -392,26 +522,80 @@ pub struct WebVcsTrendResponse {
 /// a non-repository `repo_path`, or a history-walk failure; the handler
 /// maps it to the appropriate HTTP status.
 pub fn compute_vcs_trend(payload: WebVcsTrendPayload) -> Result<WebVcsTrendResponse, vcs::Error> {
-    let options = options_from(&payload.base)?;
+    let (base, knobs) = payload.into_base();
+    let options = options_from(&base)?;
     let span_secs = parse_window(
-        payload
+        knobs
             .span
             .as_deref()
             .unwrap_or(vcs::options::DEFAULT_LONG_WINDOW),
     )?;
     let trend = build_trend(
-        &PathBuf::from(&payload.base.repo_path),
+        &PathBuf::from(&base.repo_path),
         &options,
-        payload.points,
+        knobs.points,
         span_secs,
     )?;
+    // Both default to the CLI's bounded counts (`top` 50, `top_deltas`
+    // 10), with `0` meaning "all" per #602 (#636).
     let wire_trend = wire::VcsTrend::from_trend(
         &trend,
-        payload.base.top.unwrap_or(0),
-        payload.top_deltas.unwrap_or(0),
+        base.top.unwrap_or(DEFAULT_TOP),
+        knobs.top_deltas.unwrap_or(DEFAULT_TOP_DELTAS),
     );
     Ok(WebVcsTrendResponse {
-        id: payload.base.id,
+        id: base.id,
         trend: wire_trend,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #636: the web defaults must equal the CLI's bounded defaults so the
+    // same logical invocation returns the same-sized result on either
+    // surface (`bca vcs --top` 50, `--top-deltas` 10, `--points` 12).
+    #[test]
+    fn web_vcs_defaults_match_cli() {
+        assert_eq!(DEFAULT_TOP, 50, "web `top` default must match the CLI");
+        assert_eq!(
+            DEFAULT_TOP_DELTAS, 10,
+            "web `top_deltas` default must match the CLI"
+        );
+        assert_eq!(
+            DEFAULT_TREND_POINTS, 12,
+            "web `points` default must match the CLI"
+        );
+    }
+
+    // #636: an omitted `points` deserializes to the default 12 rather than
+    // failing the previously-required field. The shared `/vcs` knobs stay
+    // flat (no nested `base` object) after un-flattening for #633.
+    #[test]
+    fn trend_payload_points_defaults_when_absent() {
+        let payload: WebVcsTrendPayload =
+            serde_json::from_str(r#"{"id":"t","repo_path":"/x","span":"300d"}"#)
+                .expect("a trend payload without `points` must deserialize");
+        assert_eq!(payload.points, DEFAULT_TREND_POINTS);
+        // `top` / `top_deltas` stay `None` here; the handler applies the
+        // 50 / 10 defaults at the call site (an explicit `0` means "all").
+        assert_eq!(payload.top, None);
+        assert_eq!(payload.top_deltas, None);
+    }
+
+    // #633: an unknown key on the un-flattened trend payload is rejected
+    // (serde names the offender), proving the flatten removal kept
+    // `deny_unknown_fields` working across the inlined `/vcs` knobs.
+    #[test]
+    fn trend_payload_rejects_unknown_field() {
+        let err = serde_json::from_str::<WebVcsTrendPayload>(
+            r#"{"id":"t","repo_path":"/x","points":3,"top_dletas":5}"#,
+        )
+        .expect_err("an unknown key must be rejected");
+        assert!(
+            err.to_string().contains("top_dletas"),
+            "the error must name the offending key, got: {err}"
+        );
+    }
 }

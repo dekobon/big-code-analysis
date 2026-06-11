@@ -23,6 +23,66 @@ for historical reference.
 
 ### Changed
 
+- Structured the `bca-web` error body with a machine-readable
+  `error_kind` token (#631). Every error response is now
+  `{error, error_kind, id}`: `error` keeps its human role but carries the
+  *specific* cause, and `error_kind` is a new closed-vocabulary
+  `snake_case` token (e.g. `invalid_window`, `unknown_field`,
+  `unsupported_language`) that clients branch on without string-matching
+  the prose. This replaces the single kitchen-sink `/vcs` 400 message —
+  a bad window now answers the specific `vcs_invalid_window` cause, not a
+  sentence listing every possible parameter, and the message no longer
+  names `/vcs` when the request hit `/vcs/jit` or `/vcs/trend`. The
+  `VCS_BAD_REQUEST` constant is removed. Additive over the prior
+  `{error, id}` shape (`error_kind` is purely new; `error` was always a
+  free-form string), so this is not itself a break; the token vocabulary
+  is pinned in STABILITY.md.
+- **(breaking, deferred to 2.0)** Rejected unknown fields on every
+  `bca-web` request body and query string with a `400` naming the
+  offending key (#633). A typo'd field (e.g. `long_widnow`) previously
+  `200`'d, silently computing with defaults the client did not ask for;
+  it now `400`s with `error_kind: "unknown_field"` and the key named in
+  the `error`. Every request struct gains `#[serde(deny_unknown_fields)]`,
+  and the `/vcs/trend` payload is un-flattened (its shared `/vcs` knobs
+  are inlined so `deny_unknown_fields` applies; the JSON shape is
+  unchanged). Clients probing for feature support use the `GET /v1` route
+  index (#643). Payloads with extra/typo'd fields that succeeded before
+  now fail.
+- **(breaking, deferred to 2.0)** Aligned the `bca-web` `/vcs`-family
+  defaults with the CLI (#636). `top` now defaults to 50, `top_deltas`
+  to 10, and `points` to 12 (formerly hard-required, so an omitted
+  `points` now succeeds instead of `400`ing) — matching `bca vcs --top`
+  / `--top-deltas` / `--points`. An explicit `top: 0` / `top_deltas: 0`
+  still returns all (the #602 `0 = all` escape). This fixes the
+  unbounded "all files" default on the most-exposed surface (a
+  serializer self-DoS on a monorepo) and makes the same logical
+  invocation return the same-sized result regardless of surface.
+  Payloads omitting these fields get a smaller result.
+- **(breaking, deferred to 2.0)** Added the `language` key to the
+  `/v1/ast` response envelope (#654), bringing the published
+  `AstResponse` library type to `{id, language, root}` and matching
+  `/comment`, `/function`, and `/metrics`. AST node kinds are
+  grammar-specific, so an `/ast` consumer can now confirm which grammar
+  produced them. Additive on the wire, but a shape change to the
+  published `AstResponse` type.
+- **(breaking, deferred to 2.0)** Renamed the `bca-web` `/metrics`
+  envelope and aligned the span vocabulary (#638). The single root
+  metric space moves from the misleading plural `spaces` key to `root`
+  (its own nested `spaces` list still holds the children); the boolean
+  `unit` request flag (body field and query parameter) becomes the
+  self-describing `scope` enum — `"full"` (default) or `"file"`; and
+  `/ast`'s span keys `start_row` / `end_row` are renamed to
+  `start_line` / `end_line`, matching `/function` and `/metrics` (1-based
+  everywhere). This shape-changes the published `Span` library type.
+  With #633's unknown-field rejection, a stale `unit` key now `400`s as
+  an unknown field.
+- **(breaking, deferred to 2.0)** Removed the unprefixed `bca-web` route
+  aliases (#637 / #517). The original unprefixed paths (`/metrics`,
+  `/comment`, `/function`, `/ast`, `/ping`, `/version`, `/languages`,
+  the bare `/` index, and the `/vcs*` routes) now `404` like any other
+  unknown URL; all routes are served under the `/v1` prefix. The interim
+  `Deprecation` / `Sunset` / `Link` signalling headers (shipped in 1.x)
+  are gone with the aliases. Clients must use the `/v1` prefix.
 - **(breaking, deferred to 2.0)** Simplified `bca check`'s threshold-tier
   model (#688). The standalone `--headroom <RATIO>` flag is retired; the
   soft tier now carries its own scale ratio via the value-taking
