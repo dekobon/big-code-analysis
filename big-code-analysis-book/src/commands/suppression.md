@@ -196,7 +196,7 @@ code-scan report entirely. `bca check --report-suppressed` puts it back, as
 
 ```bash
 bca check --format sarif --no-fail --report-suppressed \
-    --tier soft=0.95 --output bca.sarif
+    --tier=soft=0.95 --output bca.sarif
 ```
 
 Offenders silenced by an in-source marker or covered by the baseline are
@@ -219,7 +219,7 @@ Notes:
 
 - Only the SARIF format represents suppression; other `--format`
   values ignore the flag and emit the active offenders alone.
-- Pair it with `--tier soft=0.95` (matching your baseline's
+- Pair it with `--tier=soft=0.95` (matching your baseline's
   provenance) so baseline-covered offenders that sit below the hard limit
   still appear.
 - Mutually exclusive with `--no-suppress` (which un-silences markers to

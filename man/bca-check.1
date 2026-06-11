@@ -63,7 +63,7 @@ Git ref to diff `HEAD` against. The set of files reported by `git diff \-\-name\
 \fB\-\-changed\-only\fR
 Drop violations from files outside the `\-\-since`/auto\-detected touched set entirely (terser CI output for PR gates). Requires a resolvable diff base, either via `\-\-since` or one of the auto\-detected env vars; failing to resolve is fatal so a misconfigured CI does not silently turn the gate into a no\-op
 .TP
-\fB\-\-github\-annotations\fR [\fI<auto|always|never>\fR] [default: auto]
+\fB\-\-github\-annotations\fR[=\fI<auto|always|never>\fR] [default: auto]
 Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands per violation so the GHA UI renders them as inline annotations on the file\-diff view. Additive to the human\-readable stderr stream — annotations ride on top, they don\*(Aqt replace it. Tri\-state `<auto|always|never>` mirroring `\-\-color` (issue #683): `auto` (default) emits annotations when `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never` suppresses them even inside a GHA step (so a workflow that runs `bca check` twice can annotate from only one run). A bare `\-\-github\-annotations` means `always`. Capped at 10 per metric (GitHub Actions surfaces at most 10 errors per step in the UI); overflow rolls up to one `::error::N more <metric> violations not shown` line per affected metric so the count is still visible
 .br
 
@@ -97,17 +97,17 @@ toml
 json
 .RE
 .TP
-\fB\-\-tier\fR [\fI<hard|soft|soft=RATIO>\fR] [default: hard]
+\fB\-\-tier\fR[=\fI<hard|soft|soft=RATIO>\fR] [default: hard]
 Which threshold tier to gate against (issue #688). Accepts `hard`, `soft`, or `soft=<RATIO>`:
 
 \- `hard` (default) — flag a function only when a metric is at or over its `[thresholds]` limit. \- `soft` — early\-warning tier: flag a function when a metric reaches `RATIO` (default 0.95) of any limit, i.e. before the hard gate trips. With a `[thresholds.soft]` table present, the per\-metric soft limits take precedence over the blanket ratio (metrics absent from it inherit their hard limit). \- `soft=0.90` — soft tier scaling every limit by 0.90; `soft=1.0` disables the blanket scale (a soft tier driven only by an explicit `[thresholds.soft]` table).
 
 Resolution order: `[thresholds]` (manifest + `\-\-config`) → `[thresholds.soft]` or the soft ratio → absolute `\-\-threshold name=value` overrides (applied last, never scaled). Both tiers ratchet through the same `\-\-baseline`. `RATIO` must lie in `(0, 1]`; an out\-of\-range value is a usage error.
 .TP
-\fB\-\-exit\-codes\fR [\fI<default|tiered>\fR]
+\fB\-\-exit\-codes\fR[=\fI<default|tiered>\fR]
 Exit\-code style (issue #385/#666): `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr +N%]` stderr tags:
 
-\- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
+\- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier=soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
 
 Every fail\-state stays non\-zero, so existing `exit != 0 → fail` tooling is unaffected; only consumers that test `$? \-eq 2` explicitly need to widen to 2\-5. `\-\-no\-fail` still forces exit `0`. Mirrors the `[check] exit_codes` key in `bca.toml`; the CLI value overrides the manifest in either direction.
 .br
@@ -124,8 +124,8 @@ tiered
 \fB\-\-baseline\-line\-tolerance\fR \fI<LINES>\fR
 Tolerance, in lines, for matching a `\-\-baseline` entry whose qualified symbol is ambiguous (two methods with the same name on different `impl` blocks, overloads, collided anonymous spaces). Unambiguous symbols match regardless of line drift; this only disambiguates a tie. Defaults to 50. Mirrored by the `baseline_line_tolerance` key in `bca.toml`
 .TP
-\fB\-\-baseline\-fuzzy\-match\fR [\fI<BOOL>\fR]
-Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Value\-taking (issue #683): a bare `\-\-baseline\-fuzzy\-match` means `true`; `\-\-baseline\-fuzzy\-match false` forces it off even when the `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value overrides the manifest in either direction
+\fB\-\-baseline\-fuzzy\-match\fR[=\fI<BOOL>\fR]
+Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Value\-taking (issue #683): a bare `\-\-baseline\-fuzzy\-match` means `true`; `\-\-baseline\-fuzzy\-match=false` forces it off even when the `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value overrides the manifest in either direction
 .br
 
 .br
@@ -186,8 +186,8 @@ Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and c
 \fB\-\-exclude\-tests\fR
 Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
 .TP
-\fB\-\-cyclomatic\-count\-try\fR [\fI<BOOL>\fR]
-Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (issue #666); the CLI value overrides the manifest in either direction
+\fB\-\-cyclomatic\-count\-try\fR[=\fI<BOOL>\fR]
+Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (issue #666); the CLI value overrides the manifest in either direction
 .br
 
 .br

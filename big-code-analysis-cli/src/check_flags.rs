@@ -23,7 +23,7 @@ use clap::ValueEnum;
 /// `[thresholds]` (per-metric soft limits, absolute or `"<ratio>x"`
 /// scale-relative), and — when no soft table is configured — falls
 /// back to scaling every limit by the soft tier's ratio (the `RATIO`
-/// in `--tier soft=RATIO`, default 0.95). See the resolution order on
+/// in `--tier=soft=RATIO`, default 0.95). See the resolution order on
 /// [`CheckArgs::tier`](crate::CheckArgs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) enum Tier {
@@ -86,7 +86,7 @@ impl TierSpec {
     }
 }
 
-/// Parse and range-check the `RATIO` in `--tier soft=RATIO` to `(0, 1]`.
+/// Parse and range-check the `RATIO` in `--tier=soft=RATIO` to `(0, 1]`.
 /// Split out of [`TierSpec::from_str`] so each carries one responsibility
 /// (parse-vs-dispatch) and neither accumulates the other's exit points.
 fn parse_soft_ratio(ratio_str: &str) -> Result<f64, String> {
@@ -104,9 +104,9 @@ impl FromStr for TierSpec {
     type Err = String;
 
     /// Parse `hard`, `soft`, or `soft=<RATIO>`. The ratio is validated to
-    /// `(0, 1]` here so a bad `--tier soft=2` is a clap usage error (exit
-    /// 2) with a per-flag message, matching how `--headroom` used to be
-    /// range-checked downstream.
+    /// `(0, 1]` here so a bad `--tier=soft=2` is a usage error (exit 1,
+    /// routed through `exit_clap_error`) with a per-flag message, matching
+    /// how `--headroom` used to be range-checked downstream.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let invalid = || format!("expected `hard`, `soft`, or `soft=<ratio>`; got {s:?}");
         match s {

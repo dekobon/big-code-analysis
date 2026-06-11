@@ -23,9 +23,9 @@ fails the pipeline before the change lands.
 `1` is reserved so CI can distinguish a regression (`2`) from a tool
 misconfiguration (`1`).
 
-### Tiered exit codes (`--exit-codes tiered`)
+### Tiered exit codes (`--exit-codes=tiered`)
 
-`--exit-codes tiered` (or `[check] exit_codes = "tiered"` in
+`--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
 `bca.toml`) splits the single violation code `2` by severity so CI can
 branch on it without parsing the `[new]` / `[regr +N%]` stderr tags:
 
@@ -36,7 +36,7 @@ branch on it without parsing the `[new]` / `[regr +N%]` stderr tags:
 | `2`  | New offenders only (no `--baseline` entry matched). |
 | `3`  | Baseline regressions only (a baselined offender worsened). |
 | `4`  | Both new offenders and regressions. |
-| `5`  | A `--tier soft` violation that also breaches the hard limit. |
+| `5`  | A `--tier=soft` violation that also breaches the hard limit. |
 
 The tiered codes are opt-in; the default contract above stays
 `0`/`1`/`2`. Every fail-state remains non-zero, so `exit != 0 → fail`
@@ -142,7 +142,7 @@ cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
 ```
 
 ```bash
-bca check --paths src/ --tier soft
+bca check --paths src/ --tier=soft
 ```
 
 The soft tier resolves in a fixed order:
@@ -158,8 +158,8 @@ The soft tier resolves in a fixed order:
 
 The soft `RATIO` (and the scale factor in a `"<ratio>x"` string) must
 be in `(0, 1]`. The `[check] headroom` manifest key supplies the ratio
-for a bare `--tier soft`. The deprecated `--headroom <R>` flag is a
-one-cycle alias for `--tier soft=<R>` (warns; removed at the next
+for a bare `--tier=soft`. The deprecated `--headroom <R>` flag is a
+one-cycle alias for `--tier=soft=<R>` (warns; removed at the next
 major) — it now promotes a hard run to the soft tier. Both tiers
 ratchet through the same `--baseline`, and `--print-effective-config`
 reports the resolved `tier` alongside the post-merge limits. See the

@@ -1071,7 +1071,7 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
 
     let content = fs::read_to_string(&baseline).unwrap();
     assert!(content.contains("version = 5"));
-    // No `--tier soft`, so the write is stamped at the hard tier (#486).
+    // No `--tier=soft`, so the write is stamped at the hard tier (#486).
     assert!(content.contains("tier = \"hard\""));
     assert!(!content.contains("headroom"));
     assert!(!content.contains("[[entry]]"));
@@ -1343,8 +1343,7 @@ fn soft_write_baseline_stamps_tier_and_headroom() {
             "check",
             "--paths",
             &src,
-            "--tier",
-            "soft=0.95",
+            "--tier=soft=0.95",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1373,8 +1372,7 @@ fn hard_check_reading_soft_baseline_is_silent() {
             "check",
             "--paths",
             &src,
-            "--tier",
-            "soft=0.95",
+            "--tier=soft=0.95",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1411,8 +1409,7 @@ fn stricter_check_reading_looser_baseline_warns() {
             "check",
             "--paths",
             &src,
-            "--tier",
-            "soft=0.95",
+            "--tier=soft=0.95",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1426,8 +1423,7 @@ fn stricter_check_reading_looser_baseline_warns() {
             "check",
             "--paths",
             &src,
-            "--tier",
-            "soft=0.90",
+            "--tier=soft=0.90",
             "--threshold",
             "cyclomatic=1",
             "--baseline",

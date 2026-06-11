@@ -800,7 +800,7 @@ Reserving `1` for tool errors lets CI distinguish "a function got too
 complex" from "the analyzer crashed". This 0/1/2 contract is the
 default and will not change within `1.x`.
 
-`--exit-codes tiered` (or `[check] exit_codes = "tiered"` in
+`--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
 `bca.toml`, [#385](https://github.com/dekobon/big-code-analysis/issues/385),
 [#666](https://github.com/dekobon/big-code-analysis/issues/666))
 opts into a finer split of the violation case. `--exit-codes` is
@@ -814,7 +814,7 @@ key in either direction. The default codes above are unaffected:
 | `2`  | new offenders only (no baseline entry matched) |
 | `3`  | baseline regressions only (a baselined offender worsened) |
 | `4`  | both new offenders and regressions |
-| `5`  | a `--tier soft` violation that also breaches the hard limit |
+| `5`  | a `--tier=soft` violation that also breaches the hard limit |
 
 Every fail-state stays non-zero, so existing `exit != 0 → fail`
 tooling is unaffected. Only consumers that test `$? -eq 2`
@@ -824,7 +824,7 @@ soft tier; at the hard tier every violation is a hard breach by
 definition, so the `2`/`3`/`4` split applies instead.
 
 The deprecated `--strict-exit-codes` flag remains a hidden one-cycle
-alias for `--exit-codes tiered` (warns; removed at the next major).
+alias for `--exit-codes=tiered` (warns; removed at the next major).
 
 ### Threshold tiers and the soft ratio
 
@@ -842,8 +842,8 @@ value-taking `--tier <hard|soft|soft=RATIO>`
   disables the blanket scale.
 
 A bare `--tier` means `soft`. The manifest `[check] headroom` key
-supplies the soft ratio for a bare `--tier soft`. The retired
-`--headroom <R>` flag is a hidden one-cycle alias for `--tier soft=<R>`
+supplies the soft ratio for a bare `--tier=soft`. The retired
+`--headroom <R>` flag is a hidden one-cycle alias for `--tier=soft=<R>`
 (warns; removed at the next major) — it now promotes a hard run to the
 soft tier rather than being ignored at the hard tier.
 

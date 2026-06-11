@@ -170,7 +170,7 @@ fn manifest_headroom_scales_thresholds_at_soft_tier() {
 
     cli()
         .current_dir(dir.path())
-        .args(["check", "--tier", "soft"])
+        .args(["check", "--tier=soft"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("cyclomatic"))
@@ -426,7 +426,7 @@ fn manifest_soft_threshold_subtable_applies_only_at_soft_tier() {
     // `classify` trips.
     cli()
         .current_dir(dir.path())
-        .args(["check", "--tier", "soft"])
+        .args(["check", "--tier=soft"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("(limit 1)"));
@@ -560,7 +560,7 @@ fn manifest_num_jobs_alias_warns_but_honors() {
         ));
 }
 
-/// `--cyclomatic-count-try true` on the CLI overrides a manifest
+/// `--cyclomatic-count-try=true` on the CLI overrides a manifest
 /// `cyclomatic_count_try = false` (issue #666 full override) — the
 /// direction the old OR-merge could not express. With `?` counting
 /// restored, the branchy fixture's `?`-bearing function trips a tight
@@ -569,7 +569,7 @@ fn manifest_num_jobs_alias_warns_but_honors() {
 fn cli_cyclomatic_count_try_overrides_manifest_both_directions() {
     // `try_caller` has cyclomatic 2 (one `?`); manifest opts `?` out, so
     // at limit 1 the manifest alone keeps it at 1 (clean). The CLI
-    // `--cyclomatic-count-try true` restores the `?` count → offender.
+    // `--cyclomatic-count-try=true` restores the `?` count → offender.
     let src = "pub fn try_caller() -> Result<i32, ()> { let x: Result<i32, ()> = Ok(1); Ok(x?) }\n";
     let dir = fixture_with(
         "paths = [\".\"]\ncyclomatic_count_try = false\n\n[thresholds]\ncyclomatic = 1\n",
@@ -587,7 +587,7 @@ fn cli_cyclomatic_count_try_overrides_manifest_both_directions() {
     // CLI forces counting back on → cyclomatic 2 > 1 → offender.
     cli()
         .current_dir(dir.path())
-        .args(["check", "--cyclomatic-count-try", "true"])
+        .args(["check", "--cyclomatic-count-try=true"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("cyclomatic"));

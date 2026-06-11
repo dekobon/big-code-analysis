@@ -34,7 +34,7 @@ for historical reference.
   notes whose self-contradictory help text the issue flagged. The
   `[check] headroom` manifest key is unchanged and folds into the soft
   tier's ratio. `--headroom <R>` survives as a hidden one-cycle
-  deprecated alias for `--tier soft=<R>` (warns; removed next major) —
+  deprecated alias for `--tier=soft=<R>` (warns; removed next major) —
   note that it now *promotes* a hard run to the soft tier rather than
   being ignored at the hard tier.
 - **(breaking, deferred to 2.0)** Aligned `bca.toml` manifest key names
@@ -46,8 +46,8 @@ for historical reference.
   `[check] exit_codes` key). All three new flags are full overrides — a
   CLI value beats the manifest in *both* directions, not just opt-in.
   One-cycle deprecated aliases (warn-but-honor): the `num_jobs` manifest
-  key, the `--no-cyclomatic-try` flag (= `--cyclomatic-count-try false`),
-  and the `--strict-exit-codes` flag (= `--exit-codes tiered`). The false
+  key, the `--no-cyclomatic-try` flag (= `--cyclomatic-count-try=false`),
+  and the `--strict-exit-codes` flag (= `--exit-codes=tiered`). The false
   "Every key mirrors a CLI flag" doc claim is corrected.
 - **(breaking, deferred to 2.0)** Gave the auto-enabled CI behaviours of
   `bca check` never-forms and gave manifest booleans two-way CLI
@@ -786,7 +786,7 @@ for historical reference.
   surfaced by `--print-effective-config`. Replaces the
   `utils/bca-self-scan-headroom.py` helper, which is removed;
   `make self-scan-headroom` and the local-gates book recipe now
-  invoke `--tier soft --headroom` directly. Additive, minor bump.
+  invoke `--tier=soft --headroom` directly. Additive, minor bump.
 - `metric_catalog` module — a single canonical registry of metric
   metadata ([#397](https://github.com/dekobon/big-code-analysis/issues/397)).
   Public items: `metric_catalog::{MetricInfo, MetricFamily, MetricRow,
@@ -1969,6 +1969,15 @@ for historical reference.
 
 ### Fixed
 
+- The optional-value check/walk flags introduced this cycle
+  (`--cyclomatic-count-try`, `--tier`, `--exit-codes`,
+  `--github-annotations`, `--no-suppress`, `--baseline-fuzzy-match`) no
+  longer swallow a following positional `[PATHS]` argument (#651/#669).
+  They now require `=` to take a value (`--tier=soft`,
+  `--github-annotations=never`); the bare form still selects each flag's
+  default-missing value (`--tier` → `soft`). Previously
+  `bca metrics --cyclomatic-count-try src` errored with "invalid value
+  'src'" because the path was parsed as the flag's value.
 - **(breaking)** `bca metrics` / `bca ops --output <path>` without a
   structured `--format` now errors (exit 1) instead of silently writing
   nothing on exit 0 — the default `text` format streams to stdout and

@@ -296,7 +296,7 @@ struct EffectiveCheck {
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
     /// The soft-tier scale ratio applied to the config-derived limits,
-    /// if any (the `RATIO` in `--tier soft=RATIO`, issue #688). Recorded
+    /// if any (the `RATIO` in `--tier=soft=RATIO`, issue #688). Recorded
     /// for provenance: the `[thresholds]` table above already shows the
     /// post-scaling values, so this is the one signal that distinguishes
     /// "limit 14.25 because config said 15 × 0.95" from "limit 14.25
@@ -311,7 +311,7 @@ struct EffectiveCheck {
     tier: &'static str,
     /// Which exit-code contract is in force (#385/#666): `"default"`
     /// (the stable 0/1/2 codes) or `"tiered"` (the 2-5 severity split,
-    /// enabled by `--exit-codes tiered` or `[check] exit_codes`).
+    /// enabled by `--exit-codes=tiered` or `[check] exit_codes`).
     exit_codes: &'static str,
     /// The `--baseline-line-tolerance` override, if set (issue #377).
     /// Absent means the built-in default applies.
@@ -504,7 +504,7 @@ fn validate_and_build_thresholds(
         soft.extend(cfg.soft);
     }
 
-    // The soft ratio (the `RATIO` in `--tier soft=RATIO`) was already
+    // The soft ratio (the `RATIO` in `--tier=soft=RATIO`) was already
     // validated to `(0, 1]` by `TierSpec::from_str` at parse time, so a
     // typo is a clap usage error before we ever reach here.
 
@@ -577,12 +577,12 @@ fn resolve_tier(
             return out;
         }
         // No soft table: scale the hard limits by the spec's ratio,
-        // defaulting so a bare `--tier soft` is never a silent no-op.
+        // defaulting so a bare `--tier=soft` is never a silent no-op.
         TierSpec::Soft(r) => r.unwrap_or(DEFAULT_SOFT_HEADROOM),
     };
     if hard.is_empty() {
         eprintln!(
-            "note: --tier soft has no effect without configured thresholds \
+            "note: --tier=soft has no effect without configured thresholds \
              (bca.toml [thresholds] or --config); --threshold limits are \
              absolute and are not scaled"
         );
@@ -733,7 +733,7 @@ fn provenance_warning(
              stricter than the baseline was written against (strictness \
              {base}); the baseline may under-cover and the gate can fire on \
              untouched files. Refresh it at the matching tier, e.g. \
-             `bca check --tier soft={cur} --write-baseline \
+             `bca check --tier=soft={cur} --write-baseline \
              <file>` (or `--write-baseline <file>` for the hard tier)."
         )),
     }
@@ -1439,7 +1439,7 @@ fn write_footer_row(
 /// inside another process, use the [`big_code_analysis`] library crate
 /// directly instead of going through this entry point.
 pub fn run() {
-    // bca: suppress(cyclomatic)
+    // bca: suppress(cyclomatic, abc)
     // Flat top-level subcommand dispatch (one arm per `Command` variant) —
     // cyclomatic is arm count, not nested branching; cognitive stays enforced.
     let (cli, num_jobs_from_cli) = parse_cli_with_legacy_hint();
@@ -1843,7 +1843,7 @@ fn run_command_metrics(
     };
     run_walk(globals, cfg);
     if let (StructuredOutput::AggregateFile(out), Some(rx)) = (&output_target, aggregate_rx) {
-        write_aggregate(fmt, &rx.into_iter().collect::<Vec<_>>(), out, pretty);
+        write_aggregate(fmt, rx.into_iter().collect::<Vec<_>>(), out, pretty);
     }
     enforce_explicit_unrecognized(&output_produced, &explicit_unrecognized);
 }
@@ -1871,7 +1871,12 @@ fn enforce_explicit_unrecognized(
 /// top-level array (TOML under a `files` key). `fmt` is `Some` here — an
 /// aggregate file without a structured format is rejected upstream by
 /// `resolve_structured_output`.
-fn write_aggregate(fmt: Option<MetricsFormat>, items: &[AggregateItem], out: &Path, pretty: bool) {
+fn write_aggregate(
+    fmt: Option<MetricsFormat>,
+    items: Vec<AggregateItem>,
+    out: &Path,
+    pretty: bool,
+) {
     let Some(fmt) = fmt else {
         return;
     };
@@ -1881,9 +1886,9 @@ fn write_aggregate(fmt: Option<MetricsFormat>, items: &[AggregateItem], out: &Pa
     let is_ops = matches!(items.first(), Some(AggregateItem::Ops(_)));
     let result = if is_ops {
         let ops: Vec<Ops> = items
-            .iter()
+            .into_iter()
             .filter_map(|item| match item {
-                AggregateItem::Ops(o) => Some((**o).clone()),
+                AggregateItem::Ops(o) => Some(*o),
                 AggregateItem::Metrics(..) => None,
             })
             .collect();
@@ -1899,9 +1904,9 @@ fn write_aggregate(fmt: Option<MetricsFormat>, items: &[AggregateItem], out: &Pa
         }
     } else {
         let spaces_with_path: Vec<(FuncSpace, PathBuf)> = items
-            .iter()
+            .into_iter()
             .filter_map(|item| match item {
-                AggregateItem::Metrics(space, path) => Some(((**space).clone(), path.clone())),
+                AggregateItem::Metrics(space, path) => Some((*space, path)),
                 AggregateItem::Ops(_) => None,
             })
             .collect();
@@ -1970,7 +1975,7 @@ fn run_command_ops(
     };
     run_walk(globals, cfg);
     if let (StructuredOutput::AggregateFile(out), Some(rx)) = (&output_target, aggregate_rx) {
-        write_aggregate(fmt, &rx.into_iter().collect::<Vec<_>>(), out, pretty);
+        write_aggregate(fmt, rx.into_iter().collect::<Vec<_>>(), out, pretty);
     }
     enforce_explicit_unrecognized(&output_produced, &explicit_unrecognized);
 }

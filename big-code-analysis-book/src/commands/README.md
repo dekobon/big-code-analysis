@@ -48,7 +48,7 @@ scripts can branch on the process status without inspecting output:
 | `0`  | Success. |
 | `1`  | Tool error — a bad flag / threshold / glob spec, unreadable input, or a parse failure. This includes **usage errors** (unknown flag, bad subcommand, a malformed `--threshold` value rejected by clap). **Never** a metric signal. |
 | `2`  | Metric gate: [`check`](check.md) thresholds were exceeded, [`vcs commit --fail-above`](vcs.md) was breached, or [`diff` / `diff-baseline --exit-code`](nodes.md) found a non-empty filtered diff (default contract). |
-| `3`–`5` | [`check --exit-codes tiered`](check.md#tiered-exit-codes---exit-codes-tiered) only: tiered violation severity (new-only / regression-only / mixed / hard-breach). |
+| `3`–`5` | [`check --exit-codes=tiered`](check.md#tiered-exit-codes---exit-codestiered) only: tiered violation severity (new-only / regression-only / mixed / hard-breach). |
 
 Codes `2`–`5` are gate signals, emitted only by [`check`](check.md),
 [`vcs commit --fail-above`](vcs.md), and `diff` / `diff-baseline` under

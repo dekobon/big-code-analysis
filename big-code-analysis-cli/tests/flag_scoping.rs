@@ -184,7 +184,10 @@ fn find_uses_type_flag_and_positional_path() {
         .arg("function_item")
         .arg(&file)
         .assert()
-        .success();
+        .success()
+        // Assert the matched node is actually reported: a bare `.success()`
+        // would pass even if `-t` were silently ignored and nothing found.
+        .stdout(predicate::str::contains("function_item"));
     drop(dir);
 }
 
@@ -224,7 +227,10 @@ fn count_uses_type_flag_and_positional_path() {
         .arg("function_item")
         .arg(&file)
         .assert()
-        .success();
+        .success()
+        // The fixture has exactly one `function_item`; assert the tally so a
+        // silently-ignored `-t` (count 0) would fail rather than pass.
+        .stdout(predicate::str::contains("Found nodes: 1"));
     drop(dir);
 }
 
@@ -251,4 +257,53 @@ fn include_does_not_swallow_following_positional_path() {
         .success()
         .stdout(predicate::str::contains("a.rs"));
     drop(dir);
+}
+
+/// #651/#669: an optional-value flag (`num_args(0..=1)`) must not swallow
+/// a following positional `[PATHS]`. Before `require_equals = true`,
+/// `bca metrics --cyclomatic-count-try src` parsed `src` as the flag's
+/// bool value and errored with "invalid value 'src'". The bare flag now
+/// uses its default-missing value and the path is the positional.
+#[test]
+fn bare_optional_value_flag_does_not_swallow_positional_path() {
+    let (dir, file) = fixture();
+    cli()
+        .arg("metrics")
+        .arg("--cyclomatic-count-try")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("a.rs"));
+    drop(dir);
+}
+
+/// #688/#669: `--tier` takes its value with `=` (`--tier=soft`) so a
+/// following positional path is walked rather than parsed as the tier.
+#[test]
+fn tier_equals_form_walks_following_positional_path() {
+    let (dir, file) = fixture();
+    cli()
+        .arg("check")
+        .arg("--tier=soft")
+        .arg(&file)
+        .assert()
+        // The trivial fixture has no offenders, so the gate passes (exit
+        // 0); the point is that `--tier=soft` did not consume the path.
+        .success();
+    drop(dir);
+}
+
+/// #688/#669: the space form `--tier soft <path>` no longer takes `soft`
+/// as the value — with `require_equals` it is left as a positional, so
+/// `soft` is treated as an input path and the run fails because that
+/// path does not exist.
+#[test]
+fn tier_space_form_treats_value_as_positional() {
+    cli()
+        .arg("check")
+        .arg("--tier")
+        .arg("soft")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("path does not exist: soft"));
 }
