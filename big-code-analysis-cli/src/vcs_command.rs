@@ -67,10 +67,10 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     }
     let root = resolve_root(&globals);
 
-    // `bca vcs jit <commit>` and `bca vcs trend` are distinct paths; the
-    // bare `bca vcs` ranking flow is the `None` case below.
+    // `bca vcs commit <commit>` and `bca vcs trend` are distinct paths;
+    // the bare `bca vcs` ranking flow is the `None` case below.
     match args.command.as_ref() {
-        Some(crate::VcsSubcommand::Jit(jit)) => {
+        Some(crate::VcsSubcommand::Commit(jit)) => {
             crate::vcs_jit::run(&root, &args, jit);
             return;
         }
@@ -386,7 +386,9 @@ fn path_to_string(path: &Path) -> Option<String> {
 fn emit(report: &Report, args: &VcsArgs) -> std::io::Result<()> {
     let output = args.output.as_ref();
     match args.format {
-        None => write_table(report),
+        // The human table is the default (no `--format`) and is also
+        // explicitly selectable via `--format text` (#659).
+        None | Some(VcsFormat::Text) => write_table(report),
         Some(VcsFormat::Markdown) => {
             write_text(&crate::vcs_report::render_markdown(report), output)
         }

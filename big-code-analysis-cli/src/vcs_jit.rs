@@ -4,13 +4,13 @@
 // per-function logic complexity (cognitive/cyclomatic stay enforced) —
 // mirrors the sibling `vcs_command.rs`.
 
-//! `bca vcs jit` — score a single commit (or an arbitrary diff) for
+//! `bca vcs commit` — score a single commit (or an arbitrary diff) for
 //! just-in-time (commit-level) defect-induction risk (issues #331 / #580).
 //!
 //! Unlike `bca vcs` (which ranks files at a ref), this scores one commit
 //! against its first parent and emits a single structured document: the
 //! size / diffusion / history / experience features, their per-group
-//! contributions, and the ordinal composite score. `--fail-over` turns
+//! contributions, and the ordinal composite score. `--fail-above` turns
 //! it into a CI gate.
 //!
 //! With `--diff <file>` (or `--diff -` for stdin) it instead scores an
@@ -30,7 +30,7 @@ use serde::Serialize;
 use crate::formats::{CBOR_STDOUT_ERROR, JitFormat};
 use crate::{JitArgs, VcsArgs, die};
 
-/// Entry point for `bca vcs jit`. `root` is the repository-discovery
+/// Entry point for `bca vcs commit`. `root` is the repository-discovery
 /// seed already resolved by [`crate::vcs_command::run`]; `args` carries
 /// the shared window / bot / merge / rename flags, `jit` the jit-only
 /// ones. Dispatches to the commit path or — when `--diff` is given — the
@@ -44,8 +44,8 @@ pub(crate) fn run(root: &Path, args: &VcsArgs, jit: &JitArgs) {
     // position via clap `global = true`.
     if args.reference.is_some() {
         die(format_args!(
-            "the argument '--ref' cannot be used with 'vcs jit': jit names its \
-             commit positionally (e.g. `bca vcs jit <COMMIT>`), not via --ref"
+            "the argument '--ref' cannot be used with 'vcs commit': it names its \
+             commit positionally (e.g. `bca vcs commit <COMMIT>`), not via --ref"
         ));
     }
     if let Some(diff_source) = &jit.diff {
@@ -67,11 +67,11 @@ fn run_commit(root: &Path, args: &VcsArgs, jit: &JitArgs) {
     // CI gate: a score at or above the threshold exits 2 (the `check`
     // "metric gate" convention; exit 1 stays reserved for tool errors).
     // Done after emitting so the breakdown is still available to the gate.
-    if let Some(threshold) = jit.fail_over
+    if let Some(threshold) = jit.fail_above
         && report.risk_score >= threshold
     {
         eprintln!(
-            "vcs jit: score {:.4} >= fail-over threshold {threshold:.4} for {}",
+            "vcs commit: score {:.4} >= fail-above threshold {threshold:.4} for {}",
             report.risk_score, report.commit.id
         );
         process::exit(crate::EXIT_GATE_BREACH);
@@ -81,7 +81,7 @@ fn run_commit(root: &Path, args: &VcsArgs, jit: &JitArgs) {
 /// Arbitrary-diff path (issue #580): read the unified diff from a file (or
 /// stdin when `source` is `-`), score its size / diffusion groups only, and
 /// gate on the *partial* score. The partial score is not comparable to a
-/// commit score, but the same `--fail-over` mechanics still let a hook gate
+/// commit score, but the same `--fail-above` mechanics still let a hook gate
 /// a raw diff against a diff-calibrated threshold.
 fn run_diff(source: &Path, jit: &JitArgs) {
     let diff = read_diff(source).unwrap_or_else(|e| die(format_args!("reading diff: {e}")));
@@ -89,11 +89,11 @@ fn run_diff(source: &Path, jit: &JitArgs) {
 
     emit(&report, jit).unwrap_or_else(|e| die(format_args!("writing jit output: {e}")));
 
-    if let Some(threshold) = jit.fail_over
+    if let Some(threshold) = jit.fail_above
         && report.partial_risk_score >= threshold
     {
         eprintln!(
-            "vcs jit: partial diff score {:.4} >= fail-over threshold {threshold:.4}",
+            "vcs commit: partial diff score {:.4} >= fail-above threshold {threshold:.4}",
             report.partial_risk_score
         );
         process::exit(crate::EXIT_GATE_BREACH);

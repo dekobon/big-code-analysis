@@ -88,6 +88,50 @@ fn since_diffs_working_tree_against_first_commit() {
     assert_eq!(new, 6.0, "after-side cyclomatic.sum");
 }
 
+/// #692: `bca diff --exit-code` over a changed tree exits with the
+/// metric-gate code (2); the default (no flag) exits 0.
+#[test]
+fn exit_code_flag_returns_two_on_changed_diff() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths", "src", "--exit-code"])
+        .assert()
+        .code(2);
+    // Without the flag, the same changed diff exits 0 (informational).
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths", "src"])
+        .assert()
+        .success();
+}
+
+/// #692: `bca diff --exit-code` over an identical tree (working tree ==
+/// HEAD) exits 0 — the filtered diff is empty.
+#[test]
+fn exit_code_flag_returns_zero_on_identical_diff() {
+    let repo = repo_with_flat_commit();
+    // No working-tree edit: before == after, so the diff is empty.
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths", "src", "--exit-code"])
+        .assert()
+        .success();
+}
+
+/// #692: a tool error (unresolvable ref) under `--exit-code` still exits
+/// 1, keeping the tool-error signal distinct from the metric gate (2).
+#[test]
+fn exit_code_flag_tool_error_still_exits_one() {
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "no-such-ref", "--exit-code"])
+        .assert()
+        .code(1);
+}
+
 #[test]
 fn output_flag_writes_diff_to_file_and_stdout_stays_empty() {
     let repo = repo_with_flat_commit();
@@ -319,6 +363,39 @@ fn since_rejects_paths_from() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains("--paths-from is not supported"));
+}
+
+/// #662: a typo'd `--metric` errors at parse time (exit 1) with the
+/// known-names list and a did-you-mean, instead of silently filtering
+/// the diff to nothing and exiting 0.
+#[test]
+fn unknown_metric_errors_with_did_you_mean() {
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--metric", "cylomatic"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("unknown metric"))
+        .stderr(predicate::str::contains("did you mean"))
+        .stderr(predicate::str::contains("cyclomatic"));
+}
+
+/// #662: valid `--metric` spellings — a canonical bucket name, the #514
+/// bare `loc` sub-metric alias, and a dotted `check --threshold` id — all
+/// pass validation and run.
+#[test]
+fn valid_metric_spellings_are_accepted() {
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
+    for name in ["cyclomatic", "sloc", "cyclomatic.modified"] {
+        cli()
+            .current_dir(repo.path())
+            .args(["diff", "--since", "HEAD", "src", "--metric", name])
+            .assert()
+            .success();
+    }
 }
 
 /// Pull `(old, new)` for the `cyclomatic.sum` field out of the

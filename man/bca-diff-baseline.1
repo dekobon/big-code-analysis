@@ -4,20 +4,20 @@
 .SH NAME
 bca\-diff\-baseline \- Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-exit\-code\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
 .SH DESCRIPTION
 Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .SH OPTIONS
 .TP
-\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
-Output style: `tty` (default), `markdown`, or `json`
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: text]
+Output style: `text` (default), `markdown`, or `json`
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
 .IP \(bu 2
-tty
+text
 .IP \(bu 2
 markdown
 .IP \(bu 2
@@ -41,6 +41,9 @@ Output file. Stdout if omitted
 .TP
 \fB\-\-strip\-prefix\fR \fI<STRIP_PREFIX>\fR [default: ]
 Path prefix to strip from displayed file paths in the TTY and Markdown per\-file tables. No\-op for `\-\-format json`, whose paths are a stable machine identity
+.TP
+\fB\-\-exit\-code\fR
+Exit with the metric\-gate code (`2`) when the diff — after the active `\-\-*\-only` section filtering — is non\-empty; exit `0` when it is empty. Opt\-in (`git diff \-\-exit\-code`\-style) for grammar\-bump CI that wants a boolean "anything changed" without parsing the output. Default (flag absent) always exits `0` on success. A tool error still exits `1` regardless (issue #692)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

@@ -163,6 +163,19 @@ impl BaselineDiff {
         }
     }
 
+    /// Whether the diff carries no entry in any section the active
+    /// [`SectionFilter`] would render. Drives `bca diff-baseline
+    /// --exit-code` (#692): a `--worsened-only` run exits clean when only
+    /// the *added* bucket is non-empty, mirroring "survives the active
+    /// filtering".
+    pub(crate) fn is_empty_under(&self, filter: SectionFilter) -> bool {
+        let added = filter.added && !self.added.is_empty();
+        let removed = filter.removed && !self.removed.is_empty();
+        let worsened = filter.worsened && !self.worsened.is_empty();
+        let improved = filter.improved && !self.improved.is_empty();
+        !(added || removed || worsened || improved)
+    }
+
     /// Human-readable, column-aligned form for a terminal. Empty
     /// sections are omitted; an all-empty diff renders just the summary
     /// line.

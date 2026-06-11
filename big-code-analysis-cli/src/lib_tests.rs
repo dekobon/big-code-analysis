@@ -354,11 +354,33 @@ fn check_accepts_sarif_output_format() {
 
 #[test]
 fn check_accepts_canonical_format_flag() {
-    // Inspect the parsed value so the canonical `--format` spelling is
-    // proven to bind `check`'s offender-format field, not merely parse.
+    // The deprecated `--format` spelling still binds `check`'s
+    // report-dialect field for one cycle (#659 aliases it).
     match parse(&["check", "--threshold", "cyclomatic=10", "--format", "sarif"])
         .expect("check --format sarif parses")
         .command
+    {
+        Command::Check(args) => {
+            assert_eq!(args.output_format, Some(AggregatedFormat::Sarif));
+        }
+        other => panic!("expected Command::Check, got {other:?}"),
+    }
+}
+
+/// #659: `check`'s report-dialect selector is canonically
+/// `--report-format`, separating it from the data-serialization
+/// `--format`/`-O` on the structured subcommands.
+#[test]
+fn check_accepts_report_format_flag() {
+    match parse(&[
+        "check",
+        "--threshold",
+        "cyclomatic=10",
+        "--report-format",
+        "sarif",
+    ])
+    .expect("check --report-format sarif parses")
+    .command
     {
         Command::Check(args) => {
             assert_eq!(args.output_format, Some(AggregatedFormat::Sarif));

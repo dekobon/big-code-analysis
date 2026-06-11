@@ -10,12 +10,14 @@ Rank files by change\-history (VCS) risk: churn, commit and author counts, owner
 .SH OPTIONS
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR
-Output format. When omitted, a human\-readable ranked table is printed. `markdown` / `html` render a sortable report page like `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit structured data. `\-\-output\-format` is accepted as a deprecated alias (issue #513)
+Output format. When omitted, the human\-readable ranked `text` table is printed; pass `\-\-format text` to request it explicitly (#659). `markdown` / `html` render a sortable report page like `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit structured data. `\-\-output\-format` is accepted as a deprecated alias (issue #513)
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
+.IP \(bu 2
+text: The human\-readable ranked table — the same output a bare `bca vcs` prints, now explicitly selectable so the human format is named and requestable everywhere (#659)
 .IP \(bu 2
 cbor
 .IP \(bu 2
@@ -91,7 +93,7 @@ Emit SHA\-256\-hashed canonical author identities
 Emit stats for files deleted at the target ref
 .TP
 \fB\-\-bus\-factor\-threshold\fR \fI<BUS_FACTOR_THRESHOLD>\fR [default: 0.5]
-Bus\-factor coverage (abandonment) threshold — the fraction of a directory\*(Aqs files that must be orphaned for the truck\-factor greedy removal to stop (issue #332). Must be in `(0, 1)`; default `0.5` per Avelino. Ignored by `bca vcs jit`
+Bus\-factor coverage (abandonment) threshold — the fraction of a directory\*(Aqs files that must be orphaned for the truck\-factor greedy removal to stop (issue #332). Must be in `(0, 1)`; default `0.5` per Avelino. Ignored by `bca vcs commit`
 .TP
 \fB\-\-no\-cache\fR
 Disable the persistent change\-history cache for the file ranking: always walk fresh, and neither read nor write the cache (issue #334). The cache otherwise reuses prior work on an unchanged tree and walks only new commits when `HEAD` has advanced
@@ -106,8 +108,8 @@ Directory for the persistent history cache. Defaults to `$XDG_CACHE_HOME/big\-co
 Print help (see a summary with \*(Aq\-h\*(Aq)
 .SH SUBCOMMANDS
 .TP
-bca\-vcs\-jit(1)
-Score a single commit for just\-in\-time (commit\-level) defect\-induction risk, the unit a CI gate reviews at check\-in (issue #331). Emits a JSON breakdown of size / diffusion / history / experience / purpose features, their contributions, and an ordinal composite score. Window / `\-\-ref` / bot / merge / rename behaviour comes from the parent `vcs` flags
+bca\-vcs\-commit(1)
+Score a single commit for defect\-induction risk — the just\-in\-time (JIT) defect\-prediction unit a CI gate reviews at check\-in (issue #331). Emits a JSON breakdown of size / diffusion / history / experience / purpose features, their contributions, and an ordinal composite score. Window / `\-\-ref` / bot / merge / rename behaviour comes from the parent `vcs` flags. The old `jit` spelling stays a hidden alias for one release cycle (issue #603)
 .TP
 bca\-vcs\-trend(1)
 Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life (issue #333). Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags

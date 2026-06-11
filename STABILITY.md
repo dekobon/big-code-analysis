@@ -250,8 +250,10 @@ slice of the same surface: `big_code_analysis::vcs::{score_commit,
 JitReport, JitFeatures, JitContributions, JitCommit, JitSize,
 JitDiffusion, JitHistory, JitExperience, JitPurpose}` plus the
 `JIT_SCORE_VERSION` / `JIT_SCHEMA_VERSION` constants, and the `bca vcs
-jit <commit>` subcommand with its `--fail-over` CI-gate exit code (`2`,
-the `check` metric-gate convention). The `JitReport` JSON *shape* is
+commit <commit>` subcommand with its `--fail-above` CI-gate exit code
+(`2`, the `check` metric-gate convention). (In `2.0` the subcommand was
+renamed from `bca vcs jit` and the flag from `--fail-over`; both old
+spellings remain as hidden aliases for one release cycle, #603.) The `JitReport` JSON *shape* is
 stable within `1.x` and versioned by `jit_schema_version`; the composite
 `risk_score` (per-diff `partial_risk_score`) is **ordinal, not cardinal**
 and formula-versioned by `jit_score_version` (separate from the file-level

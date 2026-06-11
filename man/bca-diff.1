@@ -4,7 +4,7 @@
 .SH NAME
 bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
+\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-exit\-code\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
 .SH DESCRIPTION
 Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH OPTIONS
@@ -14,15 +14,15 @@ Analyze the tree at this git ref for the "before" side instead of reading a capt
 
 In this mode the before side comes from `<ref>` and the after side is the working tree, so at most one positional is accepted and it is a relative path *scope* (equivalent to `\-\-paths`) applied to both sides; omit it to diff the whole tree. Passing two positionals with `\-\-since` is rejected at runtime.
 .TP
-\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
-Output style: `tty` (default), `markdown`, or `json`
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: text]
+Output style: `text` (default), `markdown`, or `json`
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
 .IP \(bu 2
-tty
+text
 .IP \(bu 2
 markdown
 .IP \(bu 2
@@ -40,6 +40,9 @@ Output file. Stdout if omitted
 .TP
 \fB\-\-strip\-prefix\fR \fI<STRIP_PREFIX>\fR [default: ]
 Path prefix to strip from displayed file paths in the TTY and Markdown per\-file tables. No\-op for `\-\-format json`, whose paths are a stable machine identity
+.TP
+\fB\-\-exit\-code\fR
+Exit with the metric\-gate code (`2`) when the diff is non\-empty in any section the active `\-\-metric` / `\-\-min\-change` filtering keeps; exit `0` when it is empty. Opt\-in (`git diff \-\-exit\-code`\-style) for grammar\-bump CI that wants a boolean "anything changed". Default (flag absent) always exits `0` on success. A tool error still exits `1` regardless (issue #692)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

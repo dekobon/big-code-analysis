@@ -156,6 +156,10 @@ fn dispatch_dump(
     // `LanguageDisabled` from `Ast::parse` is unreachable; the `expect`
     // documents that invariant.
     let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
+    // Per-file banner so a multi-file dump is attributable: the parallel
+    // walk interleaves trees by worker scheduling, and without a header
+    // which tree belongs to which file is unrecoverable (#690).
+    println!("== {} ==", path.display());
     dump_node_with_color(
         ast.source(),
         &ast.root_node(),
@@ -299,7 +303,9 @@ fn dispatch_find(
     let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
     let found = ast.find(&filters[..]).expect("find is infallible today");
     if !found.is_empty() {
-        println!("In file {}", path.display());
+        // Per-file banner, consistent with `dump` (#690), so interleaved
+        // multi-file `find` output stays attributable.
+        println!("== {} ==", path.display());
         for node in &found {
             dump_node_with_color(
                 ast.source(),
@@ -594,6 +600,7 @@ mod tests {
             vcs_index: None,
             vcs_blame: None,
             color: big_code_analysis::ColorMode::Never,
+            selected_metrics: None,
         }
     }
 

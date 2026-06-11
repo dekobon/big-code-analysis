@@ -110,7 +110,7 @@ pub(crate) const EXIT_TOOL_ERROR: i32 = 1;
 /// Process exit code for a metric-gate breach: `check` threshold
 /// violations (the stable contract; the tiered 3-5 variants under
 /// `--strict-exit-codes` are derived in the check outcome) and
-/// `vcs jit --fail-over`.
+/// `vcs commit --fail-above`.
 pub(crate) const EXIT_GATE_BREACH: i32 = 2;
 
 fn die(msg: impl Display) -> ! {
@@ -180,7 +180,7 @@ fn write_output_or_stdout(output: Option<&Path>, verb: &str, bytes: &[u8]) {
     about = "Analyze source code.",
     subcommand_required = true,
     arg_required_else_help = true,
-    after_help = "Exit codes:\n  0  success\n  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)\n  2  metric gate: `check` thresholds exceeded / `vcs jit --fail-over` breached (default contract)\n  3-5  `check --strict-exit-codes` only: tiered violation severity\n\nExit code 1 is always a tool error, never a metric signal — usage errors\n(unknown flag, bad subcommand, malformed `--threshold` value) exit 1, not 2.\nCodes 2-5 are gate signals emitted only by `check` and `vcs jit --fail-over`.\nEvery other subcommand exits 0 on success and 1 on error.\n\nMigrating from the flag-style CLI? See the migration guide:\n  https://dekobon.github.io/big-code-analysis/migration.html"
+    after_help = "Exit codes:\n  0  success\n  1  tool error (bad flag/threshold/glob spec, unreadable input, parse failure)\n  2  metric gate: `check` thresholds exceeded / `vcs commit --fail-above` breached / `diff --exit-code` non-empty (default contract)\n  3-5  `check --strict-exit-codes` only: tiered violation severity\n\nExit code 1 is always a tool error, never a metric signal — usage errors\n(unknown flag, bad subcommand, malformed `--threshold` value) exit 1, not 2.\nCodes 2-5 are gate signals emitted only by `check`, `vcs commit --fail-above`,\nand `diff` / `diff-baseline` when run with the opt-in `--exit-code` flag.\nEvery other subcommand exits 0 on success and 1 on error.\n\nMigrating from the flag-style CLI? See the migration guide:\n  https://dekobon.github.io/big-code-analysis/migration.html"
 )]
 pub struct Cli {
     #[clap(flatten)]
@@ -384,7 +384,11 @@ enum Command {
     Vcs(Box<VcsArgs>),
     /// Generate an aggregated report across the analyzed source.
     Report(ReportArgs),
-    /// Dump the AST to stdout.
+    /// Dump the AST to stdout. Each file's tree is prefixed with a
+    /// `== <path> ==` banner so a multi-file dump is attributable
+    /// (#690). Requires an explicit path — unlike the other walking
+    /// subcommands, bare `bca dump` errors instead of dumping the whole
+    /// current directory (a whole-tree AST dump has no plausible use).
     Dump(LineRange),
     /// Find nodes of one or more types.
     Find(FindArgs),
@@ -495,17 +499,19 @@ impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
 #[derive(Args, Debug)]
 struct VcsArgs {
     /// Optional `vcs` subcommand. With none, `bca vcs` ranks files by
-    /// change-history risk (the default). `jit` instead scores a single
-    /// commit for just-in-time defect-induction risk (issue #331); it
-    /// reuses the window / bot / merge / rename / as-of flags below (which
-    /// are accepted in either position — `bca vcs --long-window 6mo jit`
-    /// or `bca vcs jit --long-window 6mo`). `jit` names its commit
-    /// positionally, so passing `--ref` with it is a usage error (issue
-    /// #598).
+    /// change-history risk (the default). `commit` instead scores a single
+    /// commit for just-in-time (JIT) defect-induction risk (issue #331);
+    /// it reuses the window / bot / merge / rename / as-of flags below
+    /// (which are accepted in either position — `bca vcs --long-window 6mo
+    /// commit` or `bca vcs commit --long-window 6mo`). `commit` names its
+    /// commit positionally, so passing `--ref` with it is a usage error
+    /// (issue #598). The old `jit` spelling is a hidden alias for one
+    /// release cycle (issue #603).
     #[command(subcommand)]
     command: Option<VcsSubcommand>,
-    /// Output format. When omitted, a human-readable ranked table is
-    /// printed. `markdown` / `html` render a sortable report page like
+    /// Output format. When omitted, the human-readable ranked `text`
+    /// table is printed; pass `--format text` to request it explicitly
+    /// (#659). `markdown` / `html` render a sortable report page like
     /// `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit
     /// structured data. `--output-format` is accepted as a deprecated
     /// alias (issue #513).
@@ -582,7 +588,7 @@ struct VcsArgs {
     /// Bus-factor coverage (abandonment) threshold — the fraction of a
     /// directory's files that must be orphaned for the truck-factor
     /// greedy removal to stop (issue #332). Must be in `(0, 1)`; default
-    /// `0.5` per Avelino. Ignored by `bca vcs jit`.
+    /// `0.5` per Avelino. Ignored by `bca vcs commit`.
     #[clap(long, default_value_t = big_code_analysis::vcs::options::DEFAULT_BUS_FACTOR_THRESHOLD)]
     bus_factor_threshold: f64,
     /// Disable the persistent change-history cache for the file ranking:
@@ -606,13 +612,15 @@ struct VcsArgs {
 /// the bare `bca vcs` ranking path is the `None` case.
 #[derive(Subcommand, Debug)]
 enum VcsSubcommand {
-    /// Score a single commit for just-in-time (commit-level)
-    /// defect-induction risk, the unit a CI gate reviews at check-in
-    /// (issue #331). Emits a JSON breakdown of size / diffusion /
+    /// Score a single commit for defect-induction risk — the
+    /// just-in-time (JIT) defect-prediction unit a CI gate reviews at
+    /// check-in (issue #331). Emits a JSON breakdown of size / diffusion /
     /// history / experience / purpose features, their contributions, and
     /// an ordinal composite score. Window / `--ref` / bot / merge /
-    /// rename behaviour comes from the parent `vcs` flags.
-    Jit(JitArgs),
+    /// rename behaviour comes from the parent `vcs` flags. The old `jit`
+    /// spelling stays a hidden alias for one release cycle (issue #603).
+    #[command(name = "commit", alias = "jit")]
+    Commit(JitArgs),
     /// Sample the change-history metrics at several points in time and
     /// emit a per-file time series, surfacing whether code is improving or
     /// degrading over the project's life (issue #333). Each point
@@ -623,7 +631,7 @@ enum VcsSubcommand {
     Trend(TrendArgs),
 }
 
-/// Flags for `bca vcs jit` (issue #331). The history-window, bot, merge,
+/// Flags for `bca vcs commit` (issue #331). The history-window, bot, merge,
 /// rename, and as-of options come from the parent [`VcsArgs`] (`--ref`
 /// does not apply — the commit is named positionally); these are the
 /// jit-only additions.
@@ -656,12 +664,14 @@ struct JitArgs {
     /// Pretty-print JSON / TOML output.
     #[clap(long)]
     pretty: bool,
-    /// Exit non-zero (code 2, the `check` "metric gate" convention) when
-    /// the composite score is greater than or equal to this threshold.
-    /// For use as a CI gate. The score is ordinal, so calibrate the
-    /// threshold against the repository's own commit-score distribution.
-    #[clap(long, value_name = "SCORE")]
-    fail_over: Option<f64>,
+    /// Fail the gate (exit code 2, the `check` "metric gate" convention)
+    /// when the composite score is at or above this threshold. For use as
+    /// a CI gate. The score is ordinal, so calibrate the threshold against
+    /// the repository's own commit-score distribution. The old
+    /// `--fail-over` spelling stays a hidden alias for one release cycle
+    /// (issue #603).
+    #[clap(long = "fail-above", alias = "fail-over", value_name = "SCORE")]
+    fail_above: Option<f64>,
 }
 
 /// Flags for `bca vcs trend` (issue #333). The history-window, bot, merge,
@@ -705,6 +715,17 @@ struct TrendArgs {
 struct MetricsArgs {
     #[clap(flatten)]
     structured: StructuredArgs,
+    /// Restrict computation to this comma-separated and/or repeated set
+    /// of metrics (`--metrics cyclomatic,cognitive --metrics loc`).
+    /// Names are the canonical ids `bca list-metrics` prints — the same
+    /// vocabulary `bca check --threshold` and `bca diff --metric` use;
+    /// dotted (`cyclomatic.modified`) and bare `loc` sub-metric (`sloc`)
+    /// spellings are accepted too. An unknown name errors (exit 1) with a
+    /// "did you mean" hint. Derived metrics auto-pull their dependencies
+    /// (selecting `mi` also computes `loc` / `cyclomatic` / `halstead`).
+    /// When omitted, every metric is computed (issue #691).
+    #[clap(long = "metrics", value_delimiter = ',', action = clap::ArgAction::Append, value_name = "NAME")]
+    metrics: Vec<String>,
     /// Also compute change-history (VCS) metrics and attach a `vcs`
     /// block — plus a `hotspot_score` (cyclomatic × recent churn) — to
     /// each file's metrics. Uses default windows (12mo / 90d, weighted
@@ -879,23 +900,31 @@ struct CheckArgs {
     /// markers) and `--write-baseline`.
     #[clap(long = "report-suppressed", conflicts_with_all = ["no_suppress", "write_baseline"])]
     report_suppressed: bool,
-    /// CI/IDE document format for offender records (Checkstyle 4.3 XML,
+    /// CI/IDE *report dialect* for offender records (Checkstyle 4.3 XML,
     /// SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning
-    /// lines, MSVC warning lines). When omitted *and* `--output` is also
-    /// omitted, only the human-readable stderr stream is emitted; the
-    /// exit-code contract is unaffected. When omitted but `--output` is
-    /// given, the format is inferred from the output extension (`.sarif`
-    /// → sarif, `.xml` → checkstyle); an extension with no unique format
-    /// is a usage error. `--output-format` is accepted as a deprecated
-    /// alias (issue #513); it is hidden from help and slated for removal
-    /// in 2.0.
-    #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
+    /// lines, MSVC warning lines). Named `--report-format` to separate
+    /// "which CI report dialect" from the data-serialization `--format`
+    /// the structured subcommands use (#659). When omitted *and*
+    /// `--output` is also omitted, only the human-readable stderr stream
+    /// is emitted; the exit-code contract is unaffected. When omitted but
+    /// `--output` is given, the dialect is inferred from the output
+    /// extension (`.sarif` → sarif, `.xml` → checkstyle); an extension
+    /// with no unique dialect is a usage error. The old `--format` / `-O`
+    /// / `--output-format` spellings stay hidden aliases for one release
+    /// cycle (issues #513, #659) and are slated for removal in 2.0.
+    #[clap(
+        long = "report-format",
+        alias = "format",
+        alias = "output-format",
+        short_alias = 'O',
+        value_enum
+    )]
     output_format: Option<AggregatedFormat>,
     /// File path for the aggregated offender document. Stdout if omitted.
-    /// When `--format` is also omitted, the format is inferred from this
-    /// path's extension (`.sarif` → sarif, `.xml` → checkstyle); a path
-    /// with no format-bearing extension is rejected rather than silently
-    /// ignored. Parent directories are created on demand.
+    /// When `--report-format` is also omitted, the dialect is inferred
+    /// from this path's extension (`.sarif` → sarif, `.xml` → checkstyle);
+    /// a path with no dialect-bearing extension is rejected rather than
+    /// silently ignored. Parent directories are created on demand.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
     /// Filter known offenders listed in this TOML baseline. A baselined
@@ -911,7 +940,7 @@ struct CheckArgs {
     /// <path>` writes there; a bare `--write-baseline` (no value) writes
     /// to the `baseline` key from the auto-discovered `bca.toml` manifest
     /// (errors if no manifest `baseline` is set). Conflicts with
-    /// `--baseline`, `--format`, `--output`, `--since`, and
+    /// `--baseline`, `--report-format`, `--output`, `--since`, and
     /// `--changed-only` — diff-scope filtering would write a *partial*
     /// baseline that the next non-`--changed-only` run would treat as a
     /// complete snapshot, silently masking every offender outside the
@@ -1132,18 +1161,24 @@ struct InitArgs {
     no_baseline: bool,
 }
 
-/// Shared `tty`/`markdown`/`json` output style for the read-only
-/// reporting commands (`bca diff-baseline`, `bca exemptions`).
+/// Shared `text`/`markdown`/`json` output style for the read-only
+/// reporting commands (`bca diff`, `bca diff-baseline`, `bca
+/// exemptions`).
 ///
-/// `Tty` (default) is the human, column-aligned form. `Markdown` wraps
+/// `Text` (default) is the human, column-aligned form. `Markdown` wraps
 /// each section in tables / fenced blocks so the output drops cleanly
 /// into a sticky PR comment. `Json` emits the complete structured form
 /// for tooling — and deliberately ignores any `--*-only` filters, since
 /// a machine consumer reads the field it wants from a stable schema.
+///
+/// The human value is `text` to match the one human-format vocabulary
+/// used across `metrics` / `ops` / `vcs` (#659). The former `tty`
+/// spelling stays a hidden alias for one release cycle.
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum OutputFormat {
     #[default]
-    Tty,
+    #[value(alias = "tty")]
+    Text,
     Markdown,
     Json,
 }
@@ -1173,8 +1208,8 @@ struct DiffBaselineArgs {
     /// New (updated) baseline file — the "after" side of the diff.
     #[clap(value_parser)]
     new: PathBuf,
-    /// Output style: `tty` (default), `markdown`, or `json`.
-    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Tty)]
+    /// Output style: `text` (default), `markdown`, or `json`.
+    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
     /// Render only the "Added" section (combinable with the other
     /// `--*-only` flags). Ignored by `--format json`.
@@ -1197,6 +1232,14 @@ struct DiffBaselineArgs {
     /// are a stable machine identity.
     #[clap(long, default_value = "")]
     strip_prefix: String,
+    /// Exit with the metric-gate code (`2`) when the diff — after the
+    /// active `--*-only` section filtering — is non-empty; exit `0` when
+    /// it is empty. Opt-in (`git diff --exit-code`-style) for grammar-bump
+    /// CI that wants a boolean "anything changed" without parsing the
+    /// output. Default (flag absent) always exits `0` on success. A tool
+    /// error still exits `1` regardless (issue #692).
+    #[clap(long = "exit-code")]
+    exit_code: bool,
 }
 
 /// Arguments for the `diff` subcommand (issue #487, `--since` from
@@ -1246,8 +1289,8 @@ struct DiffArgs {
     /// two positionals with `--since` is rejected at runtime.
     #[clap(long)]
     since: Option<String>,
-    /// Output style: `tty` (default), `markdown`, or `json`.
-    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Tty)]
+    /// Output style: `text` (default), `markdown`, or `json`.
+    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
     /// Minimum absolute change for a per-file metric delta to be
     /// reported. `0` (the default) reports any change of any size;
@@ -1270,6 +1313,14 @@ struct DiffArgs {
     /// are a stable machine identity.
     #[clap(long, default_value = "")]
     strip_prefix: String,
+    /// Exit with the metric-gate code (`2`) when the diff is non-empty in
+    /// any section the active `--metric` / `--min-change` filtering keeps;
+    /// exit `0` when it is empty. Opt-in (`git diff --exit-code`-style) for
+    /// grammar-bump CI that wants a boolean "anything changed". Default
+    /// (flag absent) always exits `0` on success. A tool error still exits
+    /// `1` regardless (issue #692).
+    #[clap(long = "exit-code")]
+    exit_code: bool,
 }
 
 /// Arguments for the `exemptions` subcommand (issue #386). Audits the
@@ -1284,9 +1335,9 @@ struct DiffArgs {
 /// reflects exactly what the gate would skip.
 #[derive(Args, Debug)]
 struct ExemptionsArgs {
-    /// Output style: `tty` (default), `markdown`, or `json`. JSON nests
+    /// Output style: `text` (default), `markdown`, or `json`. JSON nests
     /// all three sections under a single `suppressions` envelope.
-    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Tty)]
+    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
     /// Output file. Stdout if omitted.
     #[clap(long, short, value_parser)]
@@ -1508,6 +1559,12 @@ struct Config {
     /// library `*_with_color` dump entry points, so piped output is
     /// escape-free by default. Inert for structured / file output.
     color: big_code_analysis::ColorMode,
+    /// Subset of metrics to compute, from `bca metrics --metrics`
+    /// (issue #691). `None` (the default) computes every metric;
+    /// `Some(set)` restricts via [`MetricsOptions::with_only`], which
+    /// auto-resolves each metric's dependencies. Set only by
+    /// `run_command_metrics`; every other flow leaves it `None`.
+    selected_metrics: Option<Vec<big_code_analysis::Metric>>,
 }
 
 impl Config {
@@ -1555,6 +1612,9 @@ impl Config {
             // `--color` > `NO_COLOR` > stdout tty detection. Threaded
             // into the library `*_with_color` dump entry points (#605).
             color: globals.color.resolve(),
+            // Set by `run_command_metrics` only when `--metrics` is
+            // passed; every other flow computes the full set.
+            selected_metrics: None,
         }
     }
 
@@ -1564,9 +1624,16 @@ impl Config {
     /// every `act_on_file` arm that drives a metric computation.
     #[inline]
     fn metrics_options(&self) -> MetricsOptions {
-        MetricsOptions::default()
+        let mut opts = MetricsOptions::default()
             .with_exclude_tests(self.exclude_tests)
-            .with_count_cyclomatic_try(!self.no_cyclomatic_try)
+            .with_count_cyclomatic_try(!self.no_cyclomatic_try);
+        // `--metrics` (issue #691) restricts the computed set to the
+        // requested metrics plus their dependencies (resolved by
+        // `with_only`). Absent → every metric, matching prior behavior.
+        if let Some(selected) = &self.selected_metrics {
+            opts = opts.with_only(selected);
+        }
+        opts
     }
 }
 

@@ -98,6 +98,65 @@ fn empty_diff_exits_zero_with_summary() {
         .stdout("0 added, 0 removed, 0 worsened, 0 improved\n");
 }
 
+/// #692: `--exit-code` over a non-empty diff exits with the metric-gate
+/// code (2), so grammar-bump CI can branch on "anything changed".
+#[test]
+fn exit_code_flag_returns_two_on_non_empty_diff() {
+    let dir = fixture();
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "old.toml", "new.toml", "--exit-code"])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::starts_with(
+            "1 added, 1 removed, 2 worsened, 0 improved\n",
+        ));
+}
+
+/// #692: `--exit-code` over an identical pair exits 0 — the filtered
+/// diff is empty.
+#[test]
+fn exit_code_flag_returns_zero_on_empty_diff() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.toml"), "version = 4\n").unwrap();
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "a.toml", "a.toml", "--exit-code"])
+        .assert()
+        .success();
+}
+
+/// #692: `--exit-code` honors the active `--*-only` filter. The fixture
+/// has no improved entries, so `--improved-only` filters the diff to
+/// empty and the run exits 0 despite real added/removed/worsened deltas.
+#[test]
+fn exit_code_flag_respects_section_filter() {
+    let dir = fixture();
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "diff-baseline",
+            "old.toml",
+            "new.toml",
+            "--exit-code",
+            "--improved-only",
+        ])
+        .assert()
+        .success();
+}
+
+/// #692: without `--exit-code`, a non-empty diff still exits 0 — the
+/// default behavior is unchanged.
+#[test]
+fn non_empty_diff_without_flag_still_exits_zero() {
+    let dir = fixture();
+    cli()
+        .current_dir(dir.path())
+        .args(["diff-baseline", "old.toml", "new.toml"])
+        .assert()
+        .success();
+}
+
 #[test]
 fn markdown_format_fences_each_section() {
     let dir = fixture();

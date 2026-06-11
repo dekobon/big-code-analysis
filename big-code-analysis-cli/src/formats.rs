@@ -63,6 +63,10 @@ pub(crate) enum ReportFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
 pub(crate) enum VcsFormat {
+    /// The human-readable ranked table — the same output a bare `bca vcs`
+    /// prints, now explicitly selectable so the human format is named and
+    /// requestable everywhere (#659).
+    Text,
     Cbor,
     Csv,
     Json,
@@ -72,7 +76,7 @@ pub(crate) enum VcsFormat {
     Html,
 }
 
-/// Output formats accepted by `bca vcs jit`. A single commit's JIT score
+/// Output formats accepted by `bca vcs commit`. A single commit's JIT score
 /// is one structured document, so only the structured serializers apply
 /// — the ranked-report renderings (`markdown` / `html`) and the per-file
 /// `csv` row shape do not. JSON is the default (the issue's headline
