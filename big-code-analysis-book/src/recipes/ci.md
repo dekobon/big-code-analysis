@@ -394,8 +394,12 @@ added / removed / worsened / improved entries. `--since` diffs
 The GHA UI renders `::error file=…,line=…,title=…::msg` workflow
 commands as inline annotations on the file-diff view — much more
 discoverable than scrolling the raw job log. `bca check` emits one
-per violation when `--github-annotations` is passed, and auto-enables
-when `$GITHUB_ACTIONS == "true"` (set by every GHA workflow step).
+per violation per the tri-state `--github-annotations
+<auto|always|never>`: `auto` (the default) enables when
+`$GITHUB_ACTIONS == "true"` (set by every GHA workflow step),
+`always` forces them on, `never` suppresses them even inside a step
+(handy when a workflow runs `bca check` twice and wants annotations
+from only one run). A bare `--github-annotations` means `always`.
 
 The annotations ride on top of the existing per-violation human
 stream — both are emitted. To avoid exhausting GitHub's
@@ -421,7 +425,8 @@ file that, when populated, renders as the step's summary view in the
 job UI. `bca check` appends a digest containing the per-file rollup
 table, a per-metric count breakdown, and the top-10 offenders by
 `value / limit` ratio whenever that env var is set, or when
-`--summary-file <path>` is passed explicitly.
+`--summary-file <path>` is passed explicitly. `--summary-file never`
+suppresses the digest even when `$GITHUB_STEP_SUMMARY` is set.
 
 The digest is bracketed by HTML-comment markers (`<!-- bca-step-summary-begin -->`
 / `<!-- /bca-step-summary-end -->`) so a retried step replaces (not
@@ -525,8 +530,8 @@ Knobs:
 | --------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
 | `--since <ref>`             | Partition footer; auto-detect from env if omitted           | Off, auto-detect via `BCA_DIFF_BASE` / `GITHUB_BASE_REF` / `GITHUB_EVENT_BEFORE` |
 | `--changed-only`            | Drop violations outside the diff entirely                   | Off                                                              |
-| `--github-annotations`      | Emit `::error file=…::msg` workflow commands                | Off; auto-enabled when `$GITHUB_ACTIONS == "true"`               |
-| `--summary-file <path>`     | Append markdown digest                                      | Off; auto-detected via `$GITHUB_STEP_SUMMARY`                    |
+| `--github-annotations <auto\|always\|never>` | Emit `::error file=…::msg` workflow commands (bare flag = `always`) | `auto` enables when `$GITHUB_ACTIONS == "true"`; `never` opts out |
+| `--summary-file <path\|auto\|never>` | Append markdown digest; `never` opts out                   | `auto` detects `$GITHUB_STEP_SUMMARY`                           |
 | `--no-remediation`          | Suppress the trailing `--- next steps ---` block            | Block emitted on failure                                         |
 
 Local users running `bca check` outside GHA see no change in
@@ -861,10 +866,10 @@ Applies regardless of provider:
   threshold violation, `1` on tool error (bad config, unknown
   metric, unreadable path). Reserving `1` for tool errors lets CI
   distinguish "a function got too complex" from "the analyzer
-  crashed". Pass `--strict-exit-codes` (or set `[check] exit_codes
+  crashed". Pass `--exit-codes tiered` (or set `[check] exit_codes
   = "tiered"` in `bca.toml`) to split the violation case by
   severity: `2` new offenders only, `3` regressions only, `4` both,
-  `5` a `--tier=soft` violation that also breaches the hard limit.
+  `5` a `--tier soft` violation that also breaches the hard limit.
   The tiered codes are opt-in; the default stays `0`/`1`/`2`. Every
   fail-state remains non-zero, so `exit != 0 → fail` wrappers keep
   working — only tooling that tests `$? -eq 2` explicitly needs to

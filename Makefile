@@ -388,15 +388,15 @@ enums-check:
 #   self-scan            hard gate (limits as configured in bca.toml;
 #                        absorbed by .bca-baseline.toml). Mirrors CI.
 #
-#   self-scan-headroom   soft gate (`--tier soft`). Scales every
-#                        limit by BCA_HEADROOM (default 0.95) and
-#                        runs the same baseline-ratcheted check, so
-#                        new functions encroaching into the 95-100%
-#                        band fail before they would trip the hard
-#                        gate. Set BCA_HEADROOM=0.90 to widen the
-#                        band, 0.99 to tighten it. `--headroom` is a
-#                        soft-tier dial (#375): it only takes effect
-#                        under `--tier soft`.
+#   self-scan-headroom   soft gate (`--tier soft=BCA_HEADROOM`).
+#                        Scales every limit by BCA_HEADROOM (default
+#                        0.95) and runs the same baseline-ratcheted
+#                        check, so new functions encroaching into the
+#                        95-100% band fail before they would trip the
+#                        hard gate. Set BCA_HEADROOM=0.90 to widen the
+#                        band, 0.99 to tighten it. The ratio rides on
+#                        the soft tier itself (#688): `--tier soft=R`
+#                        replaces the retired `--headroom R` dial.
 #
 # Refresh the baseline (after an intentional regression or after
 # raising a limit):
@@ -446,8 +446,7 @@ self-scan:
 self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
 	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS) \
-	  --tier soft \
-	  --headroom $${BCA_HEADROOM:-0.95}
+	  --tier soft=$${BCA_HEADROOM:-0.95}
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
@@ -462,8 +461,7 @@ self-scan-write-baseline:
 self-scan-write-baseline-headroom:
 	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
 	@$(SELF_SCAN_BCA) check \
-	  --tier soft \
-	  --headroom $${BCA_HEADROOM:-0.95} \
+	  --tier soft=$${BCA_HEADROOM:-0.95} \
 	  --write-baseline
 
 # ---------------------------------------------------------------------------

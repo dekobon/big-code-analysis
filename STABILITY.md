@@ -551,7 +551,7 @@ As of `2.0`, flags are **scoped to the subcommand that consumes them**
 accepted in any position; every walk-, tuning-, preprocessor-, and
 output-specific flag (`--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,
 `--language`/`-l`, `--jobs`/`-j`, `--no-ignore`, `--exclude-tests`,
-`--no-cyclomatic-try`, `--no-config`, `--preproc-data`, `--color`,
+`--cyclomatic-count-try`, `--no-config`, `--preproc-data`, `--color`,
 `--no-skip-generated`, `--paths-from`, `--exclude-from`) must follow the
 subcommand (`bca metrics --paths src`, never `bca --paths src metrics`).
 A flag passed to a subcommand that never consumed it is a hard usage
@@ -800,10 +800,12 @@ Reserving `1` for tool errors lets CI distinguish "a function got too
 complex" from "the analyzer crashed". This 0/1/2 contract is the
 default and will not change within `1.x`.
 
-`--strict-exit-codes` (or `[check] exit_codes = "tiered"` in
-`bca.toml`, [#385](https://github.com/dekobon/big-code-analysis/issues/385))
-opts into a finer split of the violation case. It is **opt-in** — the
-default codes above are unaffected:
+`--exit-codes tiered` (or `[check] exit_codes = "tiered"` in
+`bca.toml`, [#385](https://github.com/dekobon/big-code-analysis/issues/385),
+[#666](https://github.com/dekobon/big-code-analysis/issues/666))
+opts into a finer split of the violation case. `--exit-codes` is
+value-taking (`<default|tiered>`); the CLI value overrides the manifest
+key in either direction. The default codes above are unaffected:
 
 | Exit | Meaning (tiered mode only) |
 |------|----------------------------|
@@ -812,7 +814,7 @@ default codes above are unaffected:
 | `2`  | new offenders only (no baseline entry matched) |
 | `3`  | baseline regressions only (a baselined offender worsened) |
 | `4`  | both new offenders and regressions |
-| `5`  | a `--tier=soft` violation that also breaches the hard limit |
+| `5`  | a `--tier soft` violation that also breaches the hard limit |
 
 Every fail-state stays non-zero, so existing `exit != 0 → fail`
 tooling is unaffected. Only consumers that test `$? -eq 2`
@@ -820,6 +822,30 @@ explicitly need to widen to `2`-`5` when they opt in. `--no-fail`
 still forces exit `0` in both modes. Code `5` is emitted only at the
 soft tier; at the hard tier every violation is a hard breach by
 definition, so the `2`/`3`/`4` split applies instead.
+
+The deprecated `--strict-exit-codes` flag remains a hidden one-cycle
+alias for `--exit-codes tiered` (warns; removed at the next major).
+
+### Threshold tiers and the soft ratio
+
+`bca check` gates against one of two tiers, selected by the
+value-taking `--tier <hard|soft|soft=RATIO>`
+([#688](https://github.com/dekobon/big-code-analysis/issues/688)):
+
+- `hard` (default) — flag a function only at/over its `[thresholds]`
+  limit.
+- `soft` — early-warning tier flagging a function at `RATIO` of any
+  limit (default `0.95`), before the hard gate trips. With a
+  `[thresholds.soft]` table present, its per-metric limits take
+  precedence over the blanket ratio.
+- `soft=0.90` — soft tier scaling every limit by `0.90`; `soft=1.0`
+  disables the blanket scale.
+
+A bare `--tier` means `soft`. The manifest `[check] headroom` key
+supplies the soft ratio for a bare `--tier soft`. The retired
+`--headroom <R>` flag is a hidden one-cycle alias for `--tier soft=<R>`
+(warns; removed at the next major) — it now promotes a hard run to the
+soft tier rather than being ignored at the hard tier.
 
 ### CLI / manifest list-merge semantics
 

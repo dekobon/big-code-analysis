@@ -89,21 +89,21 @@ hard config the first time anyone forgets to update both files.
 
 ## Two-tier thresholds
 
-`bca check --tier <hard|soft>` selects which tier to gate against.
-`hard` (the default) compares against `[thresholds]` verbatim. `soft`
-is the early-warning tier, resolved in this order:
+`bca check --tier <hard|soft|soft=RATIO>` selects which tier to gate
+against. `hard` (the default) compares against `[thresholds]` verbatim.
+`soft` is the early-warning tier, resolved in this order:
 
 1. Start from `[thresholds]` (manifest, merged with `--config`).
 2. If a `[thresholds.soft]` table exists, merge its overrides on top.
    Metrics absent from the soft table inherit their hard limit (no
-   soft band). When a soft table is present, `--headroom` is ignored
-   with a warning — explicit per-metric limits win over the scalar.
-3. Otherwise scale every limit by `--headroom` (default `0.95` when
-   unset, so `--tier=soft` is never a silent no-op; `--headroom 1.0`
-   disables scaling).
+   soft band). When a soft table is present, the blanket `RATIO` does
+   not apply — explicit per-metric limits win over the scalar.
+3. Otherwise scale every limit by the soft `RATIO` (default `0.95` for
+   a bare `soft`, so `--tier soft` is never a silent no-op;
+   `soft=1.0` disables scaling).
 4. Repeated `--threshold name=value` flags apply last, absolutely.
 
-A `--headroom` scalar is the zero-config entry point. A
+A bare `--tier soft` (ratio `0.95`) is the zero-config entry point. A
 `[thresholds.soft]` table is the surface a mature project grows into,
 because it expresses a different soft band per metric — and keeps that
 band recorded next to the hard limit instead of buried in a runtime
@@ -131,21 +131,22 @@ band that fires *before* the hard gate, never looser than it.
 
 Both tiers ratchet through the **same** `.bca-baseline.toml` (no
 separate soft baseline file). `bca check --print-effective-config
---tier=soft` prints the resolved limits — paste its `[thresholds]`
-output into `[thresholds.soft]` to migrate from a `--headroom` band
+--tier soft` prints the resolved limits — paste its `[thresholds]`
+output into `[thresholds.soft]` to migrate from a blanket-ratio band
 to explicit per-metric limits.
 
 ## Zero-config: the `bca.toml` manifest
 
 Rather than thread `--paths`, `--exclude-from`, `--jobs`,
-`--config`, `--baseline`, and `--headroom` through every recipe,
-drop a `bca.toml` at the repo root and let `bca check` discover it:
+`--config`, `--baseline`, and `--tier soft=<ratio>` through every
+recipe, drop a `bca.toml` at the repo root and let `bca check`
+discover it:
 
 ```toml
 # bca.toml — discovered automatically at (or above) the working dir.
 paths        = ["."]
 exclude_from = ".bcaignore"
-num_jobs     = "auto"          # or an integer
+jobs         = "auto"          # or an integer (was `num_jobs`)
 
 [check]
 baseline     = ".bca-baseline.toml"
@@ -161,10 +162,10 @@ abc          = 50
 wmc          = 60
 ```
 
-> `--headroom` is a **soft-tier dial**: it only takes effect under
-> `--tier=soft`, so a bare `bca check` (hard tier) stays the exact CI
-> mirror regardless of any `headroom` key. For per-metric soft limits,
-> prefer a `[thresholds.soft]` table (below) over the scalar — it
+> The `headroom` key is the **soft-tier scale ratio**: it only takes
+> effect under `--tier soft`, so a bare `bca check` (hard tier) stays the
+> exact CI mirror regardless of any `headroom` key. For per-metric soft
+> limits, prefer a `[thresholds.soft]` table (below) over the scalar — it
 > records the band you chose next to the hard limit instead of leaving
 > it to a runtime multiplier.
 
@@ -179,11 +180,11 @@ With that file in place the four recipes collapse to one flag each:
 self-scan:                          # hard tier (CI mirror)
 	bca check
 self-scan-headroom:                 # soft tier (early warning)
-	bca check --tier soft --headroom 0.95
+	bca check --tier soft=0.95
 self-scan-write-baseline:           # absorb hard-tier offenders
 	bca check --write-baseline
 self-scan-write-baseline-headroom:  # absorb soft-tier offenders
-	bca check --tier soft --headroom 0.95 --write-baseline
+	bca check --tier soft=0.95 --write-baseline
 ```
 
 <!-- rumdl-enable MD010 -->
@@ -196,7 +197,7 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   manifest's own directory, so a `bca.toml` above the current
   directory still points at the right files.
 - **Scalars and positive scope keys: CLI wins.** Any explicit
-  `--baseline`, `--headroom`, `--jobs`, etc. overrides the
+  `--baseline`, `--tier`, `--jobs`, etc. overrides the
   corresponding manifest key, and the *positive scope* list keys
   (`paths`, `include`) are **replaced** by any explicit CLI value
   (`bca check one.rs` with manifest `paths = ["src"]` checks just
@@ -204,9 +205,9 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `[thresholds]` table (config keys win on collision), and repeated
   `--threshold name=value` flags apply last as absolute limits. The
   full resolution order — `[thresholds]` → `--config` → tier
-  resolution (`[thresholds.soft]` or `--headroom` scaling, only under
-  `--tier=soft`) → `--threshold` overrides — is shared across all of
-  `--config` / `--headroom` / `--tier` / the manifest.
+  resolution (`[thresholds.soft]` or the soft `RATIO` scaling, only
+  under `--tier soft`) → `--threshold` overrides — is shared across all
+  of `--config` / `--tier` / the manifest.
 - **Negative filter keys: CLI unions with the manifest.** The
   *exclude* list keys (top-level `exclude`, `[check] exclude`) are
   **merged**, not replaced: a CLI `--exclude` / `--check-exclude` is
@@ -233,13 +234,13 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   at a `.gitignore`-style file of the same globs (both mirror the
   `--check-exclude` / `--check-exclude-from` flags). `exit_codes =
   "tiered"` opts into the finer-grained exit codes (mirrors
-  `--strict-exit-codes`; see [Exit codes](#exit-codes)); `"default"`
+  `--exit-codes tiered`; see [Exit codes](#exit-codes)); `"default"`
   (the implicit value) keeps the stable `0`/`1`/`2` contract. The
   baseline and headroom keys are gate-only too, so they live here:
   `baseline` (the file `bca check` reads and a bare `--write-baseline`
   writes), `baseline_line_tolerance`, `baseline_fuzzy_match`, and
-  `headroom` (the soft-tier scale dial; mirrors `--headroom`). The CLI
-  flag wins over the table value for each.
+  `headroom` (the soft-tier scale ratio; mirrors `--tier soft=<R>`). The
+  CLI value overrides the table value for each, in either direction.
 - These four keys used to sit at the top level; that spelling is
   **deprecated** (#599) and prints a one-time warning. It is honoured
   for one release cycle, then removed in the next major version. Move
@@ -252,7 +253,7 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   positive scope key, an explicit `--file-types` CLI flag **replaces** it
   (see [`bca vcs` file-type scope](../commands/vcs.md#file-type-scope)).
 - A `[thresholds.soft]` table sets per-metric soft-tier limits
-  (consumed by `--tier=soft`; see [Two-tier thresholds](#two-tier-thresholds)).
+  (consumed by `--tier soft`; see [Two-tier thresholds](#two-tier-thresholds)).
   Unrecognized keys are ignored with a one-line warning, so you can
   pre-adopt forthcoming schema additions without breaking older `bca`
   builds.
@@ -314,13 +315,13 @@ self-scan:
 # `self-scan-headroom: self-scan` is intentional: under `make -j` Make
 # would otherwise run both gates in parallel and the soft tier's scaled
 # error message could land before the true regression on the hard tier.
-# `--headroom $(BCA_HEADROOM)` scales every config limit before the
+# `--tier soft=$(BCA_HEADROOM)` scales every config limit before the
 # offender comparison — no helper script, no second TOML file.
 self-scan-headroom: self-scan
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$(BCA_HEADROOM))..."
 	@$(BCA) check $(BCA_BASE_ARGS) \
 	  --config $(BCA_THRESHOLDS) \
-	  --headroom $(BCA_HEADROOM) \
+	  --tier soft=$(BCA_HEADROOM) \
 	  --baseline $(BCA_BASELINE)
 
 self-scan-write-baseline:
@@ -339,15 +340,16 @@ self-scan-write-baseline-headroom:
 	@echo "Refreshing $(BCA_BASELINE) at soft thresholds (BCA_HEADROOM=$(BCA_HEADROOM))..."
 	@$(BCA) check $(BCA_BASE_ARGS) \
 	  --config $(BCA_THRESHOLDS) \
-	  --headroom $(BCA_HEADROOM) \
+	  --tier soft=$(BCA_HEADROOM) \
 	  --write-baseline $(BCA_BASELINE)
 ```
 
 <!-- rumdl-enable MD010 -->
 
-`bca check --headroom <ratio>` scales every limit from `--config`
-by the ratio (default `0.95`) before the offender comparison, then
-filters against the same `.bca-baseline.toml` the hard tier writes.
+`bca check --tier soft=<ratio>` scales every limit from `--config`
+by the ratio (default `0.95` for a bare `--tier soft`) before the
+offender comparison, then filters against the same
+`.bca-baseline.toml` the hard tier writes.
 Explicit `--threshold name=value` overrides are absolute and are
 not rescaled. There is no separate helper script or second TOML
 file to maintain — the soft tier is the hard-tier invocation plus
@@ -361,9 +363,9 @@ error**. The soft tier is a real gate — never wrap
 `make self-scan-headroom` in `|| true` thinking it's advisory; the
 non-zero exit is the whole point of the encroachment band.
 
-Pass `--strict-exit-codes` (or set `[check] exit_codes = "tiered"`)
+Pass `--exit-codes tiered` (or set `[check] exit_codes = "tiered"`)
 to split the single violation code `2` by severity: `2` new
-offenders only, `3` regressions only, `4` both, `5` a `--tier=soft`
+offenders only, `3` regressions only, `4` both, `5` a `--tier soft`
 violation that also breaches the hard limit. The tiered codes are
 opt-in; the default stays `0`/`1`/`2`, and every fail-state remains
 non-zero. Use them when CI needs to route "a new offender appeared"
@@ -472,7 +474,7 @@ self-scan:
 
 self-scan-headroom: self-scan
     {{bca}} check {{base_args}} \
-        --config {{thresholds}} --headroom {{headroom}} --baseline {{baseline}}
+        --config {{thresholds}} --tier soft={{headroom}} --baseline {{baseline}}
 
 self-scan-write-baseline:
     {{bca}} check {{base_args}} \
@@ -482,7 +484,7 @@ self-scan-write-baseline:
 # in parallel — they race on the same {{baseline}} file.
 self-scan-write-baseline-headroom:
     {{bca}} check {{base_args}} \
-        --config {{thresholds}} --headroom {{headroom}} --write-baseline {{baseline}}
+        --config {{thresholds}} --tier soft={{headroom}} --write-baseline {{baseline}}
 ```
 
 ## Skeleton: `package.json` scripts
@@ -498,9 +500,9 @@ when debugging:
 {
   "scripts": {
     "self-scan": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
+    "self-scan-headroom": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --tier soft=0.95 --baseline .bca-baseline.toml",
     "self-scan-write-baseline": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
+    "self-scan-write-baseline-headroom": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --tier soft=0.95 --write-baseline .bca-baseline.toml"
   }
 }
 ```

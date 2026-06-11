@@ -7,8 +7,8 @@
 //!
 //! Consolidates the flags every local-gate recipe used to thread
 //! through each invocation (`--paths`, `--exclude-from`, `--jobs`,
-//! `--config`, `--baseline`, `--headroom`) into one discoverable file
-//! at the repo root.
+//! `--config`, `--baseline`, `--tier soft=<ratio>`) into one
+//! discoverable file at the repo root.
 //!
 //! # Resolution order
 //!
@@ -16,7 +16,7 @@
 //!
 //! 1. Manifest `[thresholds]` is the base layer.
 //! 2. `--config <file>` merges on top (config keys win on collision).
-//! 3. `--headroom` scales the merged config-derived limits.
+//! 3. `--tier soft=<ratio>` scales the merged config-derived limits.
 //! 4. Repeated `--threshold name=value` CLI flags apply last, absolutely.
 //!
 //! For list-valued options the merge splits by *list meaning* (#539):
@@ -24,7 +24,7 @@
 //! CLI value, while negative filter keys (`exclude`, `[check] exclude`)
 //! UNION CLI values with the manifest list (so a CLI exclude never
 //! silently un-skips a directory the project deliberately excluded).
-//! Scalar / path options (`exclude_from`, `num_jobs`, `[check]
+//! Scalar / path options (`exclude_from`, `jobs`, `[check]
 //! baseline`, `[check] headroom`) fill from the manifest only when the
 //! CLI left them unset.
 //! `--no-config` bypasses discovery entirely, leaving CLI values alone.
@@ -65,6 +65,10 @@ const MANIFEST_FILE: &str = "bca.toml";
 const KNOWN_KEYS: &[&str] = &[
     "paths",
     "exclude_from",
+    "jobs",
+    // Deprecated one-cycle alias for `jobs` (issue #666). Listed here so
+    // it draws only the rename-deprecation notice, not the misleading
+    // "unrecognized key" warning.
     "num_jobs",
     "include",
     "exclude",
@@ -97,9 +101,13 @@ pub(crate) struct Manifest {
 struct RawManifest {
     paths: Option<Vec<PathBuf>>,
     exclude_from: Option<PathBuf>,
-    /// Accepted as either a string (`"auto"`) or an integer (`4`); the
-    /// conversion to [`NumJobs`] happens in [`Manifest::num_jobs`].
-    num_jobs: Option<toml::Value>,
+    /// Job count, matching the `--jobs` flag (issue #666). Accepted as
+    /// either a string (`"auto"`) or an integer (`4`); the conversion to
+    /// [`NumJobs`] happens in [`Manifest::num_jobs`]. The deprecated
+    /// `num_jobs` spelling (issue #604/#666) is accepted as a one-cycle
+    /// alias and warned about in [`warn_deprecated_renamed_keys`].
+    #[serde(rename = "jobs", alias = "num_jobs")]
+    jobs: Option<toml::Value>,
     include: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
     /// Deprecated top-level spelling of `[check] baseline` (#599). Read
@@ -114,9 +122,9 @@ struct RawManifest {
     baseline_fuzzy_match: Option<bool>,
     /// When `false`, Rust's `?` operator does not contribute to
     /// cyclomatic complexity (#409). Defaults to counting (the key
-    /// absent is equivalent to `true`). The `--no-cyclomatic-try` CLI
-    /// flag ORs on top: it can force opt-out but cannot force counting
-    /// back on, mirroring `--strict-exit-codes`.
+    /// absent is equivalent to `true`). Mirrors the value-taking
+    /// `--cyclomatic-count-try <bool>` flag (#666); the CLI value
+    /// overrides this key in either direction.
     cyclomatic_count_try: Option<bool>,
     /// Deprecated top-level spelling of `[check] headroom` (#599). See
     /// [`RawManifest::baseline`].
@@ -158,15 +166,17 @@ struct RawVcs {
 #[derive(Debug, Default, Deserialize)]
 struct RawReport {
     /// When `true`, the aggregated report includes functions silenced by
-    /// in-source suppression markers (the raw audit view). Mirrors
-    /// `--no-suppress`, which ORs on top (a bare CLI flag can only
-    /// enable, never disable). Absent / `false` honors markers — the
-    /// default that matches `bca check` and the SARIF emitter.
+    /// in-source suppression markers (the raw audit view). Mirrors the
+    /// value-taking `--no-suppress <bool>` flag (#683); the CLI value
+    /// overrides this key in either direction. Absent / `false` honors
+    /// markers — the default that matches `bca check` and the SARIF
+    /// emitter.
     no_suppress: Option<bool>,
 }
 
-/// Typed view of the `[check]` table (#378). Every key mirrors a CLI
-/// flag; the CLI value wins when both are present.
+/// Typed view of the `[check]` table (#378). Each key mirrors a CLI flag
+/// or its manifest spelling; the CLI value overrides the manifest in
+/// either direction.
 #[derive(Debug, Default, Deserialize)]
 struct RawCheck {
     /// Glob patterns whose matching files are exempt from the threshold
@@ -174,10 +184,10 @@ struct RawCheck {
     exclude: Option<Vec<String>>,
     /// Path to a `.gitignore`-style file of additional exclude globs.
     exclude_from: Option<PathBuf>,
-    /// Exit-code style (#385): `"default"` keeps the stable 0/1/2
-    /// contract; `"tiered"` opts into the 2-5 severity split. Mirrors
-    /// `--strict-exit-codes`, which ORs on top (the CLI flag can only
-    /// enable, never disable).
+    /// Exit-code style (#385/#666): `"default"` keeps the stable 0/1/2
+    /// contract; `"tiered"` opts into the 2-5 severity split. Mirrors the
+    /// value-taking `--exit-codes <default|tiered>` flag; the CLI value
+    /// overrides this key in either direction.
     exit_codes: Option<String>,
     /// Baseline file `bca check` reads (and a bare `--write-baseline`
     /// writes). Mirrors `--baseline`; the CLI value wins. Canonical
@@ -187,8 +197,9 @@ struct RawCheck {
     /// Mirrors `--baseline-line-tolerance`.
     baseline_line_tolerance: Option<usize>,
     /// When `true`, baseline entries match on metric shape rather than
-    /// exact line span (#599). Mirrors `--baseline-fuzzy-match`, which
-    /// ORs on top (a bare flag can only enable).
+    /// exact line span (#599). Mirrors the value-taking
+    /// `--baseline-fuzzy-match <bool>` flag (#683); the CLI value
+    /// overrides this key in either direction.
     baseline_fuzzy_match: Option<bool>,
     /// Soft-tier scale ratio in `(0, 1]` (#599). Mirrors `--headroom`;
     /// the CLI value wins. Validated by [`Manifest::headroom`].
@@ -225,7 +236,31 @@ pub(crate) fn discover_and_load() -> Option<Manifest> {
     // into a generic table lets us enumerate and warn about them.
     warn_unknown_keys(&text);
     warn_deprecated_top_level_check_keys(&raw);
+    warn_deprecated_renamed_keys(&text);
     Some(Manifest { dir, path, raw })
+}
+
+/// Manifest keys renamed in the 2.0 flag-alignment sweep (issue #666)
+/// that are still honored under their old spelling for one release
+/// cycle. The serde `alias` on each field accepts the legacy spelling
+/// silently; this warning is what makes the deprecation visible. Keyed
+/// off the raw `[top-level]` text so a `num_jobs` written in the file
+/// draws the rename notice (not the misleading "unrecognized key"
+/// warning, since the alias is on [`KNOWN_KEYS`]).
+fn warn_deprecated_renamed_keys(text: &str) {
+    // (legacy spelling, canonical spelling).
+    const RENAMED: &[(&str, &str)] = &[("num_jobs", "jobs")];
+    let Ok(table) = toml::from_str::<toml::Table>(text) else {
+        return;
+    };
+    for (old, new) in RENAMED {
+        if table.contains_key(*old) {
+            eprintln!(
+                "warning: bca.toml: key `{old}` is deprecated and has been renamed \
+                 to `{new}`; the old spelling will be removed in the next major release"
+            );
+        }
+    }
 }
 
 /// Keys that moved under `[check]` in #599 but are still honored at the
@@ -358,16 +393,17 @@ impl Manifest {
         if !num_jobs_from_cli && let Some(num_jobs) = self.num_jobs() {
             g.num_jobs = num_jobs;
         }
-        // `--no-cyclomatic-try` ORs on top: a CLI opt-out cannot be
-        // undone by the manifest, but the manifest can opt out when the
-        // flag is absent (#409).
-        if !g.no_cyclomatic_try && self.raw.cyclomatic_count_try == Some(false) {
-            g.no_cyclomatic_try = true;
-        }
+        // `--cyclomatic-count-try <bool>` is a full override (issue #666):
+        // an explicit CLI value wins in either direction; the manifest
+        // `cyclomatic_count_try` key fills in only when the CLI left it
+        // unset. The positive sense is carried end-to-end, so the
+        // downstream default (`?` counts) applies when both are absent.
+        g.count_cyclomatic_try = g.count_cyclomatic_try.or(self.raw.cyclomatic_count_try);
     }
 
     /// Merge check-only options (`baseline`, `baseline_line_tolerance`,
-    /// `baseline_fuzzy_match`, `headroom`) into `args`. CLI values win.
+    /// `baseline_fuzzy_match`, the soft-tier `headroom` ratio,
+    /// `exit_codes`) into `args`. CLI values win.
     pub(crate) fn merge_check(&self, args: &mut CheckArgs) {
         // bca: suppress(cyclomatic)
         // Flat field-by-field config merge (`if args.x.is_none() { … }` per
@@ -395,15 +431,26 @@ impl Manifest {
         if args.baseline_line_tolerance.is_none() {
             args.baseline_line_tolerance = self.baseline_line_tolerance();
         }
-        // A bare `--baseline-fuzzy-match` flag (clap `bool`) cannot
-        // represent "unset", so the manifest only *enables* fuzzy
-        // matching; it can never override an explicit CLI opt-out
-        // (there is no opt-out flag). OR the two sources together.
-        if self.baseline_fuzzy_match() == Some(true) {
-            args.baseline_fuzzy_match = true;
-        }
-        if args.headroom.is_none() {
-            args.headroom = self.headroom();
+        // `--baseline-fuzzy-match <bool>` is a full override (#683): an
+        // explicit CLI value wins in either direction; the manifest
+        // `baseline_fuzzy_match` key fills in only when the CLI left it
+        // unset. The downstream default (off) applies when both absent.
+        args.baseline_fuzzy_match = args.baseline_fuzzy_match.or(self.baseline_fuzzy_match());
+        // The `[check] headroom` key is the manifest spelling of the soft
+        // tier's scale ratio (issue #688). `self.headroom()` validates the
+        // range unconditionally — a malformed `headroom` must fail fast
+        // (exit 1) even at the hard tier, where it is otherwise ignored.
+        // Fold the validated ratio directly into the tier — `--tier soft`
+        // (a bare soft tier with no pinned ratio) inherits the manifest
+        // ratio — rather than into the CLI-only `--headroom` alias field,
+        // so it never trips that alias's deprecation-warning / both-set
+        // conflict path. An explicit CLI `--tier soft=<R>` or `--headroom
+        // <R>` wins (the manifest fills only the bare-`soft` gap).
+        if let Some(ratio) = self.headroom()
+            && matches!(args.tier, crate::TierSpec::Soft(None))
+            && args.headroom.is_none()
+        {
+            args.tier = crate::TierSpec::Soft(Some(ratio));
         }
         // `[check] exclude` / `exclude_from` (#378, #539). As a negative
         // filter key, `check_exclude` UNIONs CLI values with the manifest
@@ -419,19 +466,22 @@ impl Manifest {
         {
             args.check_exclude_from = Some(self.resolve(exclude_from));
         }
-        // `[check] exit_codes` (#385). A bare `--strict-exit-codes` flag
-        // cannot represent "off", so the manifest can only *enable* the
-        // tiered mode; it never overrides an explicit CLI opt-in. OR the
-        // two sources, mirroring `baseline_fuzzy_match`. An unrecognised
-        // value is a hard error rather than a silent default — a typo
-        // (`exit_codes = "teired"`) must not quietly fall back to the
-        // legacy contract.
-        match self.raw.check.exit_codes.as_deref() {
-            None | Some("default") => {}
-            Some("tiered") => args.strict_exit_codes = true,
-            Some(other) => die(format_args!(
-                "bca.toml: [check] exit_codes must be \"default\" or \"tiered\"; got {other:?}"
-            )),
+        // `[check] exit_codes` (#385/#666). The value-taking
+        // `--exit-codes <default|tiered>` flag is a full override: an
+        // explicit CLI value wins in either direction, so the manifest
+        // fills `args.exit_codes` only when the CLI left it unset. An
+        // unrecognised value is a hard error rather than a silent default
+        // — a typo (`exit_codes = "teired"`) must not quietly fall back
+        // to the legacy contract.
+        if args.exit_codes.is_none() {
+            args.exit_codes = match self.raw.check.exit_codes.as_deref() {
+                None => None,
+                Some("default") => Some(crate::ExitCodes::Default),
+                Some("tiered") => Some(crate::ExitCodes::Tiered),
+                Some(other) => die(format_args!(
+                    "bca.toml: [check] exit_codes must be \"default\" or \"tiered\"; got {other:?}"
+                )),
+            };
         }
     }
 
@@ -459,16 +509,13 @@ impl Manifest {
         }
     }
 
-    /// Merge `[report]` options into `args` (#501). A bare
-    /// `--no-suppress` flag (clap `bool`) cannot represent "unset", so
-    /// the manifest can only *enable* the audit view; it never overrides
-    /// an explicit CLI opt-in. OR the two sources, mirroring
-    /// `baseline_fuzzy_match` and `[check] exit_codes` in
-    /// [`Self::merge_check`].
+    /// Merge `[report]` options into `args` (#501/#683). The value-taking
+    /// `--no-suppress <bool>` flag is a full override: an explicit CLI
+    /// value wins in either direction, so the manifest `no_suppress` key
+    /// fills `args.no_suppress` only when the CLI left it unset. The
+    /// downstream default (honor markers) applies when both are absent.
     pub(crate) fn merge_report(&self, args: &mut ReportArgs) {
-        if self.raw.report.no_suppress == Some(true) {
-            args.no_suppress = true;
-        }
+        args.no_suppress = args.no_suppress.or(self.raw.report.no_suppress);
     }
 
     /// Merge `[vcs]` options into `args` (#576). `file_types` is a
@@ -546,7 +593,7 @@ impl Manifest {
     /// [`NumJobs`]. Dies (exit 1) on an out-of-range or wrong-typed
     /// value, reusing [`NumJobs::from_str`]'s diagnostics.
     fn num_jobs(&self) -> Option<NumJobs> {
-        let value = self.raw.num_jobs.as_ref()?;
+        let value = self.raw.jobs.as_ref()?;
         // Normalise every arm to `Result<_, String>` for the `die`
         // formatter: `NumJobs::from_str` now returns the typed
         // `ParseNumJobsError`, rendered via `Display` here.

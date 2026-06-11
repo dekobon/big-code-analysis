@@ -36,6 +36,7 @@
 )]
 mod baseline;
 mod baseline_diff;
+mod check_flags;
 mod check_format;
 mod commands;
 mod diff;
@@ -73,6 +74,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use baseline::Baseline;
+use check_flags::{CiDetect, ExitCodes, SummaryFile, Tier, TierSpec};
 use check_format::AggregatedFormat;
 use formats::{JitFormat, MetricsFormat, ReportFormat, TrendFormat, VcsFormat};
 use markdown_report::FunctionSummary;
@@ -122,13 +124,23 @@ pub(crate) const EXIT_TOOL_ERROR: i32 = 1;
 
 /// Process exit code for a metric-gate breach: `check` threshold
 /// violations (the stable contract; the tiered 3-5 variants under
-/// `--strict-exit-codes` are derived in the check outcome) and
+/// `--exit-codes tiered` are derived in the check outcome) and
 /// `vcs commit --fail-above`.
 pub(crate) const EXIT_GATE_BREACH: i32 = 2;
 
 fn die(msg: impl Display) -> ! {
     eprintln!("Error: {msg}");
     process::exit(EXIT_TOOL_ERROR);
+}
+
+/// Emit a one-line stderr deprecation notice when a retired flag is used
+/// in place of its replacement (issues #688/#666; the one-cycle alias
+/// horizon). Mirrors the bare `warning:` prefix the manifest's
+/// deprecated-key notices use, so all deprecation chatter reads alike.
+fn warn_deprecated_flag(old: &str, new: &str) {
+    eprintln!(
+        "warning: `{old}` is deprecated; use `{new}` instead (removed in the next major release)"
+    );
 }
 
 /// Die with `failed to <verb> <path>: <err>`. Centralizes the most common
@@ -332,17 +344,52 @@ struct WalkTuningArgs {
     /// flag.
     #[clap(long = "exclude-tests", help_heading = "Walker tuning")]
     exclude_tests: bool,
-    /// Stop Rust's `?` operator (the `try_expression` node) from
-    /// contributing to cyclomatic complexity (standard and modified).
-    /// By default `?` counts +1, matching upstream rust-code-analysis
-    /// and every published metric value. Pass this to treat `?` as
-    /// linear error propagation — useful when cyclomatic is used as a
-    /// maintainability gate that should not penalize fallible-but-
-    /// linear code. Rust-only: no other language emits the node, so
-    /// the flag is inert elsewhere. Mirrors the `cyclomatic_count_try`
-    /// manifest key (the CLI flag wins when both are set).
-    #[clap(long = "no-cyclomatic-try", help_heading = "Walker tuning")]
+    /// Whether Rust's `?` operator (the `try_expression` node)
+    /// contributes to cyclomatic complexity (standard and modified).
+    /// Defaults to `true` — `?` counts +1, matching upstream
+    /// rust-code-analysis and every published metric value. Pass
+    /// `--cyclomatic-count-try false` to treat `?` as linear error
+    /// propagation — useful when cyclomatic is used as a maintainability
+    /// gate that should not penalize fallible-but-linear code. Rust-only:
+    /// no other language emits the node, so the flag is inert elsewhere.
+    /// Mirrors the `cyclomatic_count_try` manifest key (issue #666); the
+    /// CLI value overrides the manifest in either direction.
+    #[clap(
+        long = "cyclomatic-count-try",
+        value_name = "BOOL",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set,
+        help_heading = "Walker tuning"
+    )]
+    cyclomatic_count_try: Option<bool>,
+    /// Deprecated alias for `--cyclomatic-count-try false` (issue #666).
+    /// Retained for one release cycle; pass `--cyclomatic-count-try
+    /// false` instead. Conflicts with the value-taking form.
+    #[clap(
+        long = "no-cyclomatic-try",
+        hide = true,
+        conflicts_with = "cyclomatic_count_try",
+        help_heading = "Walker tuning"
+    )]
     no_cyclomatic_try: bool,
+}
+
+impl WalkTuningArgs {
+    /// Resolve the effective "`?` counts toward cyclomatic" decision,
+    /// folding the deprecated `--no-cyclomatic-try` alias into the
+    /// positive `--cyclomatic-count-try <bool>` (issue #666). Returns
+    /// `None` when neither was set on the CLI, so the manifest
+    /// `cyclomatic_count_try` key can fill in; the CLI value otherwise
+    /// overrides the manifest in either direction. `clap`'s
+    /// `conflicts_with` already rejects passing both.
+    fn resolved_count_cyclomatic_try(&self) -> Option<bool> {
+        if self.no_cyclomatic_try {
+            warn_deprecated_flag("--no-cyclomatic-try", "--cyclomatic-count-try false");
+            return Some(false);
+        }
+        self.cyclomatic_count_try
+    }
 }
 
 /// Preprocessor flag (#597). Flattened only into the C/C++-consuming
@@ -396,7 +443,12 @@ struct GlobalOpts {
     exclude_from: Option<PathBuf>,
     no_ignore: bool,
     exclude_tests: bool,
-    no_cyclomatic_try: bool,
+    /// Whether Rust's `?` counts toward cyclomatic complexity, in the
+    /// positive sense (issue #666). `None` means the CLI set neither
+    /// `--cyclomatic-count-try` nor the deprecated `--no-cyclomatic-try`,
+    /// so the manifest `cyclomatic_count_try` key (or the built-in
+    /// `true` default) decides.
+    count_cyclomatic_try: Option<bool>,
     no_config: bool,
     color: ColorWhen,
 }
@@ -447,7 +499,7 @@ fn assemble_globals(
         exclude_from: selection.exclude_from.clone(),
         no_ignore: selection.no_ignore,
         exclude_tests: tuning.exclude_tests,
-        no_cyclomatic_try: tuning.no_cyclomatic_try,
+        count_cyclomatic_try: tuning.resolved_count_cyclomatic_try(),
         no_config: selection.no_config,
         color: output.color,
     }
@@ -981,8 +1033,18 @@ struct ReportArgs {
     /// omits a function from a metric's hotspot table when that metric is
     /// suppressed for it — matching `bca check` and the SARIF emitter.
     /// Pass this for the raw audit view that lists every offender.
-    #[clap(long = "no-suppress")]
-    no_suppress: bool,
+    /// Value-taking (issue #683): a bare `--no-suppress` means `true`;
+    /// `--no-suppress false` forces the marker-honoring default even when
+    /// the `[report] no_suppress` key in `bca.toml` enabled it. The CLI
+    /// value overrides the manifest in either direction.
+    #[clap(
+        long = "no-suppress",
+        value_name = "BOOL",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set
+    )]
+    no_suppress: Option<bool>,
     /// Append a "Change-history risk" section ranking files by VCS risk
     /// (churn, authorship, fix history) using default windows, mirroring
     /// `bca metrics --vcs`. Ignored (with a warning) outside a git
@@ -1389,23 +1451,37 @@ struct CheckArgs {
     /// workflow commands per violation so the GHA UI renders them as
     /// inline annotations on the file-diff view. Additive to the
     /// human-readable stderr stream — annotations ride on top, they
-    /// don't replace it. Auto-enabled when `$GITHUB_ACTIONS == "true"`.
-    /// Capped at 10 per metric (GitHub Actions surfaces at most 10
-    /// errors per step in the UI); overflow rolls up to one
-    /// `::error::N more <metric> violations not shown` line per
-    /// affected metric so the count is still visible.
-    #[clap(long = "github-annotations")]
-    github_annotations: bool,
-    /// File path to append a markdown digest of the violations to —
-    /// per-file rollup table, per-metric breakdown, and top-N
-    /// offenders by `value / limit` ratio. Mirrors the format
-    /// `bca report markdown` produces so a reader skimming the GHA
-    /// step-summary panel sees a familiar table layout. When this
-    /// flag is omitted, auto-detect via `$GITHUB_STEP_SUMMARY`. The
-    /// block is bracketed by HTML-comment markers so a retried step
-    /// replaces (not stacks) the previous digest.
-    #[clap(long = "summary-file", value_parser)]
-    summary_file: Option<PathBuf>,
+    /// don't replace it. Tri-state `<auto|always|never>` mirroring
+    /// `--color` (issue #683): `auto` (default) emits annotations when
+    /// `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never`
+    /// suppresses them even inside a GHA step (so a workflow that runs
+    /// `bca check` twice can annotate from only one run). A bare
+    /// `--github-annotations` means `always`. Capped at 10 per metric
+    /// (GitHub Actions surfaces at most 10 errors per step in the UI);
+    /// overflow rolls up to one `::error::N more <metric> violations not
+    /// shown` line per affected metric so the count is still visible.
+    #[clap(
+        long = "github-annotations",
+        value_name = "auto|always|never",
+        value_enum,
+        default_value_t = CiDetect::Auto,
+        num_args = 0..=1,
+        default_missing_value = "always"
+    )]
+    github_annotations: CiDetect,
+    /// Where to append a markdown digest of the violations — per-file
+    /// rollup table, per-metric breakdown, and top-N offenders by
+    /// `value / limit` ratio. Mirrors the format `bca report markdown`
+    /// produces so a reader skimming the GHA step-summary panel sees a
+    /// familiar table layout. Accepts a file path, or the keywords
+    /// `auto` / `never` (issue #683): `auto` (the default when the flag
+    /// is omitted) appends to `$GITHUB_STEP_SUMMARY` when that env var is
+    /// set; `never` suppresses the digest even inside a GHA step; a path
+    /// appends there unconditionally. The block is bracketed by
+    /// HTML-comment markers so a retried step replaces (not stacks) the
+    /// previous digest.
+    #[clap(long = "summary-file", value_name = "PATH|auto|never")]
+    summary_file: Option<SummaryFile>,
     /// Suppress the trailing "--- next steps ---" remediation block
     /// that names the artifact, prints a copy-paste-safe
     /// `--write-baseline` refresh invocation, and links to the
@@ -1432,51 +1508,50 @@ struct CheckArgs {
         conflicts_with = "write_baseline",
     )]
     print_effective_config: Option<PrintConfigFormat>,
-    /// Scale every threshold from `--config` (or `bca.toml`'s
-    /// `[thresholds]` table) by this ratio before comparing against
-    /// offenders. Accepts a value in `(0, 1]`: `1.0` is a no-op;
-    /// `0.95` trips the gate on functions that have reached 95% of
-    /// any limit — an early-warning "soft tier" that fires before the
-    /// hard 100% gate. Explicit `--threshold <metric>=<value>`
-    /// overrides are absolute: they are applied *after* scaling and
-    /// are NOT rescaled (the documented resolution order is config →
-    /// scale by `--headroom` → `--threshold` overrides). Stacks with
-    /// `--write-baseline`: the baseline then captures every offender
-    /// at the scaled limits (a superset of the hard-tier offenders).
-    /// Out-of-range values exit 1. `--headroom` applies only to the
-    /// soft tier (`--tier=soft`); at the hard tier it is ignored with a
-    /// note.
-    #[clap(long = "headroom", value_name = "RATIO")]
+    /// Which threshold tier to gate against (issue #688). Accepts
+    /// `hard`, `soft`, or `soft=<RATIO>`:
+    ///
+    /// - `hard` (default) — flag a function only when a metric is at or
+    ///   over its `[thresholds]` limit.
+    /// - `soft` — early-warning tier: flag a function when a metric
+    ///   reaches `RATIO` (default 0.95) of any limit, i.e. before the
+    ///   hard gate trips. With a `[thresholds.soft]` table present, the
+    ///   per-metric soft limits take precedence over the blanket ratio
+    ///   (metrics absent from it inherit their hard limit).
+    /// - `soft=0.90` — soft tier scaling every limit by 0.90; `soft=1.0`
+    ///   disables the blanket scale (a soft tier driven only by an
+    ///   explicit `[thresholds.soft]` table).
+    ///
+    /// Resolution order: `[thresholds]` (manifest + `--config`) →
+    /// `[thresholds.soft]` or the soft ratio → absolute
+    /// `--threshold name=value` overrides (applied last, never scaled).
+    /// Both tiers ratchet through the same `--baseline`. `RATIO` must
+    /// lie in `(0, 1]`; an out-of-range value is a usage error.
+    #[clap(
+        long = "tier",
+        value_name = "hard|soft|soft=RATIO",
+        default_value = "hard",
+        num_args = 0..=1,
+        default_missing_value = "soft"
+    )]
+    tier: TierSpec,
+    /// Deprecated alias for `--tier soft=<RATIO>` (issue #688). Retained
+    /// for one release cycle; pass `--tier soft=<RATIO>` instead. When
+    /// `--tier` is left at its `hard` default, `--headroom <R>` is
+    /// promoted to `--tier soft=<R>` with a deprecation warning; passing
+    /// both `--headroom` and an explicit `--tier soft=<R>` is a conflict.
+    #[clap(long = "headroom", value_name = "RATIO", hide = true)]
     headroom: Option<f64>,
-    /// Which threshold tier to gate against. `hard` (default) compares
-    /// against the `[thresholds]` table verbatim. `soft` is the
-    /// early-warning tier, resolved in this order:
-    ///
-    /// 1. Start from `[thresholds]` (manifest, merged with `--config`).
-    /// 2. If a `[thresholds.soft]` table exists, merge it on top
-    ///    (absolute or `"<ratio>x"` scale-relative limits); metrics
-    ///    absent from it inherit their hard limit. `--headroom` is then
-    ///    ignored (per-metric intent wins) with a stderr warning.
-    /// 3. Otherwise scale every `[thresholds]` limit by `--headroom`
-    ///    (default 0.95 when unset, so `--tier=soft` is never a silent
-    ///    no-op; `--headroom 1.0` disables scaling).
-    /// 4. Repeated `--threshold name=value` flags apply last, absolutely.
-    ///
-    /// Both tiers ratchet through the same `--baseline`.
-    #[clap(long = "tier", value_enum, default_value_t = Tier::Hard)]
-    tier: Tier,
-    /// Opt into tiered exit codes (issue #385). Default behaviour is the
-    /// stable 0/1/2 contract: `0` clean, `1` tool error, `2` on any
-    /// threshold violation. With this flag, exit `2` is split by
-    /// category so CI can branch on severity without parsing the
-    /// `[new]` / `[regr +N%]` stderr tags:
+    /// Exit-code style (issue #385/#666): `default` keeps the stable
+    /// 0/1/2 contract; `tiered` splits exit `2` by severity so CI can
+    /// branch without parsing the `[new]` / `[regr +N%]` stderr tags:
     ///
     /// - `0` — clean.
     /// - `1` — tool error (bad config, unknown metric, unreadable path).
     /// - `2` — new offenders only (no baseline entry matched).
     /// - `3` — regressions only (a baselined offender worsened).
     /// - `4` — both new offenders and regressions.
-    /// - `5` — at least one `--tier=soft` violation also breaches the
+    /// - `5` — at least one `--tier soft` violation also breaches the
     ///   hard limit (more urgent than soft-band encroachment). Only
     ///   emitted at the soft tier; at the hard tier every violation is a
     ///   hard breach by definition, so the 2/3/4 split is used instead.
@@ -1484,11 +1559,19 @@ struct CheckArgs {
     /// Every fail-state stays non-zero, so existing `exit != 0 → fail`
     /// tooling is unaffected; only consumers that test `$? -eq 2`
     /// explicitly need to widen to 2-5. `--no-fail` still forces exit
-    /// `0`. Mirrored by `[check] exit_codes = "tiered"` in `bca.toml`;
-    /// the flag can only enable the tiered mode (a bare flag cannot
-    /// represent "off"), so it ORs with the manifest key rather than
-    /// replacing it.
-    #[clap(long = "strict-exit-codes")]
+    /// `0`. Mirrors the `[check] exit_codes` key in `bca.toml`; the CLI
+    /// value overrides the manifest in either direction.
+    #[clap(
+        long = "exit-codes",
+        value_name = "default|tiered",
+        value_enum,
+        num_args = 0..=1,
+        default_missing_value = "tiered"
+    )]
+    exit_codes: Option<ExitCodes>,
+    /// Deprecated alias for `--exit-codes tiered` (issue #666). Retained
+    /// for one release cycle; pass `--exit-codes tiered` instead.
+    #[clap(long = "strict-exit-codes", hide = true, conflicts_with = "exit_codes")]
     strict_exit_codes: bool,
     /// Tolerance, in lines, for matching a `--baseline` entry whose
     /// qualified symbol is ambiguous (two methods with the same name on
@@ -1504,9 +1587,18 @@ struct CheckArgs {
     /// normalised body hash instead. Off by default. The hash is also
     /// written into the baseline by `--write-baseline` when this flag is
     /// set, so populate it once with a fuzzy write to enable fuzzy reads.
-    /// Mirrored by the `baseline_fuzzy_match` key in `bca.toml`.
-    #[clap(long = "baseline-fuzzy-match")]
-    baseline_fuzzy_match: bool,
+    /// Value-taking (issue #683): a bare `--baseline-fuzzy-match` means
+    /// `true`; `--baseline-fuzzy-match false` forces it off even when the
+    /// `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value
+    /// overrides the manifest in either direction.
+    #[clap(
+        long = "baseline-fuzzy-match",
+        value_name = "BOOL",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set
+    )]
+    baseline_fuzzy_match: Option<bool>,
     /// Glob for files to analyse and report but exempt from the
     /// threshold gate. Repeatable. Matching files are still walked,
     /// parsed, metric'd, and shown by `bca report`; `bca check` simply
@@ -1547,6 +1639,54 @@ impl CheckArgs {
             &OutputArgs::default(),
             universal,
         )
+    }
+
+    /// Resolve the effective [`TierSpec`], folding the deprecated
+    /// `--headroom <R>` alias into `--tier soft=<R>` (issue #688). When
+    /// `--tier` is left at its `hard` default and `--headroom` is given,
+    /// the headroom value promotes the gate to the soft tier with a
+    /// one-cycle deprecation warning. Passing both `--headroom` and an
+    /// explicit `--tier soft=<R>` is a usage error (clap can't express
+    /// the conflict because `--tier` always has a default, so it is
+    /// rejected here).
+    fn resolved_tier(&self) -> TierSpec {
+        let Some(ratio) = self.headroom else {
+            // No alias: the parsed (or manifest-folded) `--tier` wins.
+            return self.tier;
+        };
+        warn_deprecated_flag("--headroom <R>", "--tier soft=<R>");
+        // Range-validate the alias ratio here (exit 1, tool error) — clap
+        // does not parse `--headroom` through `TierSpec`, so the `(0, 1]`
+        // check the canonical form gets at parse time must be replicated.
+        if !crate::thresholds::is_valid_scale_ratio(ratio) {
+            die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
+        }
+        match self.tier {
+            // `--headroom` on its own, or alongside a bare `--tier soft`,
+            // resolves to `soft=<ratio>` — headroom IS the soft ratio.
+            TierSpec::Hard | TierSpec::Soft(None) => TierSpec::Soft(Some(ratio)),
+            // An explicit `--tier soft=<R>` AND `--headroom <R>` give two
+            // ratios for the same dial: ambiguous, so reject it.
+            TierSpec::Soft(Some(_)) => {
+                die("--headroom is the deprecated alias for `--tier soft=<R>`; \
+                 pass one or the other, not both")
+            }
+        }
+    }
+
+    /// Resolve the effective [`ExitCodes`] style after folding the
+    /// deprecated `--strict-exit-codes` alias into `--exit-codes tiered`
+    /// (issue #666). `clap`'s `conflicts_with` already rejects passing
+    /// both, so at most one is set. Returns `None` when neither was
+    /// given on the CLI, so the manifest `[check] exit_codes` value can
+    /// fill in (the CLI value otherwise overrides the manifest in either
+    /// direction).
+    fn resolved_exit_codes(&self) -> Option<ExitCodes> {
+        if self.strict_exit_codes {
+            warn_deprecated_flag("--strict-exit-codes", "--exit-codes tiered");
+            return Some(ExitCodes::Tiered);
+        }
+        self.exit_codes
     }
 }
 
@@ -1875,32 +2015,6 @@ enum PrintConfigFormat {
     Json,
 }
 
-/// Which threshold tier `bca check` gates against (issue #375).
-///
-/// `Hard` (the default) uses the `[thresholds]` table verbatim and
-/// ignores any `[thresholds.soft]` overrides. `Soft` is the
-/// early-warning tier: it merges `[thresholds.soft]` on top of
-/// `[thresholds]` (per-metric soft limits, absolute or `"<ratio>x"`
-/// scale-relative), and — when no soft table is configured — falls
-/// back to scaling every limit by `--headroom` (default 0.95). See the
-/// resolution order on [`CheckArgs::tier`].
-#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
-enum Tier {
-    #[default]
-    Hard,
-    Soft,
-}
-
-impl Tier {
-    /// Lowercase wire name, used by `--print-effective-config`.
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Hard => "hard",
-            Self::Soft => "soft",
-        }
-    }
-}
-
 #[derive(Args, Debug)]
 struct ListMetricsArgs {
     /// What to print: `names` (one per line) or `descriptions`
@@ -2052,7 +2166,8 @@ struct Config {
     /// complexity. Projected onto
     /// [`MetricsOptions::with_count_cyclomatic_try`] (negated). Defaults
     /// off, so `?` counts and numbers match the published default
-    /// (#409). Set by `--no-cyclomatic-try` or the `cyclomatic_count_try`
+    /// (#409). Set by `--cyclomatic-count-try false` (or the deprecated
+    /// `--no-cyclomatic-try` alias) or the `cyclomatic_count_try`
     /// manifest key.
     no_cyclomatic_try: bool,
     /// When true (`--baseline-fuzzy-match`), the check walk stamps each
@@ -2124,7 +2239,11 @@ impl Config {
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
             exclude_tests: globals.exclude_tests,
-            no_cyclomatic_try: globals.no_cyclomatic_try,
+            // `GlobalOpts` carries the positive sense (`?` counts) with
+            // `None` = "use the default"; the library option is the
+            // negated form, so default-true maps to `no_cyclomatic_try =
+            // false` and published numbers stay byte-identical (#666).
+            no_cyclomatic_try: !globals.count_cyclomatic_try.unwrap_or(true),
             // Defaults off; `run_check_walk` flips it on for the check
             // action when `--baseline-fuzzy-match` is set.
             fuzzy_baseline: false,

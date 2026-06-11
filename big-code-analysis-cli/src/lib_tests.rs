@@ -1402,3 +1402,196 @@ fn color_auto_resolves_to_never_when_stdout_is_not_a_terminal() {
         big_code_analysis::ColorMode::Never
     );
 }
+
+/// Extract the `CheckArgs` from a parsed `check` invocation, or panic.
+fn check_args(argv: &[&str]) -> Box<CheckArgs> {
+    match parse(argv).expect("check parses").command {
+        Command::Check(args) => args,
+        other => panic!("expected Command::Check, got {other:?}"),
+    }
+}
+
+// ─── #688: `--tier soft[=RATIO]` model ────────────────────────────────
+
+#[test]
+fn tier_spec_parses_hard_soft_and_ratio() {
+    assert_eq!(TierSpec::from_str("hard"), Ok(TierSpec::Hard));
+    assert_eq!(TierSpec::from_str("soft"), Ok(TierSpec::Soft(None)));
+    assert_eq!(
+        TierSpec::from_str("soft=0.9"),
+        Ok(TierSpec::Soft(Some(0.9)))
+    );
+    // `soft=1.0` is the documented no-blanket-scale form.
+    assert_eq!(
+        TierSpec::from_str("soft=1.0"),
+        Ok(TierSpec::Soft(Some(1.0)))
+    );
+}
+
+#[test]
+fn tier_spec_rejects_out_of_range_and_garbage() {
+    for bad in ["soft=2", "soft=0", "soft=-0.5"] {
+        assert!(
+            TierSpec::from_str(bad)
+                .unwrap_err()
+                .contains("soft ratio must be in (0, 1]"),
+            "{bad} should be a range error"
+        );
+    }
+    assert!(TierSpec::from_str("medium").is_err());
+    assert!(TierSpec::from_str("soft=abc").is_err());
+}
+
+#[test]
+fn check_tier_value_taking_and_bare_default() {
+    assert_eq!(
+        check_args(&["check", "--tier", "soft=0.9"]).tier,
+        TierSpec::Soft(Some(0.9))
+    );
+    // A bare `--tier` (no value) defaults to soft, mirroring `--color`.
+    assert_eq!(check_args(&["check", "--tier"]).tier, TierSpec::Soft(None));
+    // No `--tier` at all: the hard default.
+    assert_eq!(check_args(&["check"]).tier, TierSpec::Hard);
+}
+
+#[test]
+fn headroom_alias_promotes_to_soft_and_resolves() {
+    // `--headroom <R>` alone resolves to `soft=<R>` (the deprecated alias
+    // path); the warning fires at resolution time, exercised by the
+    // integration test, but the mapping itself is checked here.
+    let args = check_args(&["check", "--headroom", "0.8"]);
+    assert_eq!(args.resolved_tier(), TierSpec::Soft(Some(0.8)));
+    // A bare `--tier soft` plus `--headroom` is unambiguous and folds.
+    let args = check_args(&["check", "--tier", "soft", "--headroom", "0.7"]);
+    assert_eq!(args.resolved_tier(), TierSpec::Soft(Some(0.7)));
+}
+
+// ─── #666: value-taking `--exit-codes`, full override ─────────────────
+
+#[test]
+fn exit_codes_value_taking_and_alias() {
+    assert_eq!(
+        check_args(&["check", "--exit-codes", "tiered"]).resolved_exit_codes(),
+        Some(ExitCodes::Tiered)
+    );
+    assert_eq!(
+        check_args(&["check", "--exit-codes", "default"]).resolved_exit_codes(),
+        Some(ExitCodes::Default)
+    );
+    // Bare `--exit-codes` defaults to tiered.
+    assert_eq!(
+        check_args(&["check", "--exit-codes"]).resolved_exit_codes(),
+        Some(ExitCodes::Tiered)
+    );
+    // No flag: unset, so the manifest can fill in.
+    assert_eq!(check_args(&["check"]).resolved_exit_codes(), None);
+    // The deprecated `--strict-exit-codes` alias maps to tiered.
+    assert_eq!(
+        check_args(&["check", "--strict-exit-codes"]).resolved_exit_codes(),
+        Some(ExitCodes::Tiered)
+    );
+}
+
+#[test]
+fn strict_exit_codes_conflicts_with_value_form() {
+    assert!(parse(&["check", "--strict-exit-codes", "--exit-codes", "default"]).is_err());
+}
+
+#[test]
+fn cyclomatic_count_try_value_taking_and_alias() {
+    // The positive value flag, both directions.
+    let on = check_args(&["check", "--cyclomatic-count-try", "true"]);
+    assert_eq!(on.tuning.resolved_count_cyclomatic_try(), Some(true));
+    let off = check_args(&["check", "--cyclomatic-count-try", "false"]);
+    assert_eq!(off.tuning.resolved_count_cyclomatic_try(), Some(false));
+    // Bare flag means true.
+    let bare = check_args(&["check", "--cyclomatic-count-try"]);
+    assert_eq!(bare.tuning.resolved_count_cyclomatic_try(), Some(true));
+    // The deprecated `--no-cyclomatic-try` alias maps to false.
+    let alias = check_args(&["check", "--no-cyclomatic-try"]);
+    assert_eq!(alias.tuning.resolved_count_cyclomatic_try(), Some(false));
+    // Unset: None, so the manifest (or the default) decides.
+    assert_eq!(
+        check_args(&["check"])
+            .tuning
+            .resolved_count_cyclomatic_try(),
+        None
+    );
+}
+
+#[test]
+fn no_cyclomatic_try_conflicts_with_value_form() {
+    assert!(
+        parse(&[
+            "check",
+            "--no-cyclomatic-try",
+            "--cyclomatic-count-try",
+            "true"
+        ])
+        .is_err()
+    );
+}
+
+// ─── #683: tri-state CI flags + manifest-boolean off-switches ─────────
+
+#[test]
+fn github_annotations_tristate_resolves_like_color() {
+    assert!(CiDetect::Always.enabled_with(false));
+    assert!(!CiDetect::Never.enabled_with(true));
+    assert!(CiDetect::Auto.enabled_with(true));
+    assert!(!CiDetect::Auto.enabled_with(false));
+}
+
+#[test]
+fn check_github_annotations_parses_tristate_and_bare() {
+    assert_eq!(
+        check_args(&["check", "--github-annotations", "never"]).github_annotations,
+        CiDetect::Never
+    );
+    assert_eq!(
+        check_args(&["check", "--github-annotations", "always"]).github_annotations,
+        CiDetect::Always
+    );
+    // Bare flag means always (back-compat with bare-flag scripts).
+    assert_eq!(
+        check_args(&["check", "--github-annotations"]).github_annotations,
+        CiDetect::Always
+    );
+    // Default is auto.
+    assert_eq!(check_args(&["check"]).github_annotations, CiDetect::Auto);
+}
+
+#[test]
+fn summary_file_parses_keywords_and_path() {
+    assert_eq!(
+        check_args(&["check", "--summary-file", "never"]).summary_file,
+        Some(SummaryFile::Never)
+    );
+    assert_eq!(
+        check_args(&["check", "--summary-file", "auto"]).summary_file,
+        Some(SummaryFile::Auto)
+    );
+    assert_eq!(
+        check_args(&["check", "--summary-file", "out.md"]).summary_file,
+        Some(SummaryFile::Path(PathBuf::from("out.md")))
+    );
+    assert_eq!(check_args(&["check"]).summary_file, None);
+}
+
+#[test]
+fn baseline_fuzzy_match_value_taking_both_directions() {
+    assert_eq!(
+        check_args(&["check", "--baseline-fuzzy-match", "false"]).baseline_fuzzy_match,
+        Some(false)
+    );
+    assert_eq!(
+        check_args(&["check", "--baseline-fuzzy-match", "true"]).baseline_fuzzy_match,
+        Some(true)
+    );
+    // Bare flag means true.
+    assert_eq!(
+        check_args(&["check", "--baseline-fuzzy-match"]).baseline_fuzzy_match,
+        Some(true)
+    );
+    assert_eq!(check_args(&["check"]).baseline_fuzzy_match, None);
+}

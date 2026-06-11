@@ -269,9 +269,7 @@ fn strict_hard_breach_under_soft_tier_exits_five() {
             "--config",
             config.to_str().unwrap(),
             "--tier",
-            "soft",
-            "--headroom",
-            "0.5", // soft limit 5; value 12 breaches the hard 10
+            "soft=0.5", // soft limit 5; value 12 breaches the hard 10
             "--strict-exit-codes",
         ])
         .assert()
@@ -293,9 +291,7 @@ fn strict_soft_encroachment_exits_two_not_five() {
             "--config",
             config.to_str().unwrap(),
             "--tier",
-            "soft",
-            "--headroom",
-            "0.5",
+            "soft=0.5",
             "--strict-exit-codes",
         ])
         .assert()

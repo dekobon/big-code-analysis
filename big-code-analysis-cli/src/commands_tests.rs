@@ -339,15 +339,16 @@ fn base_check_args() -> CheckArgs {
         no_summary: false,
         since: None,
         changed_only: false,
-        github_annotations: false,
+        github_annotations: crate::CiDetect::Auto,
         summary_file: None,
         no_remediation: false,
         print_effective_config: None,
         headroom: None,
-        tier: crate::Tier::Hard,
+        tier: crate::TierSpec::Hard,
+        exit_codes: None,
         strict_exit_codes: false,
         baseline_line_tolerance: None,
-        baseline_fuzzy_match: false,
+        baseline_fuzzy_match: None,
         check_exclude: Vec::new(),
         check_exclude_from: None,
     }
@@ -671,7 +672,8 @@ fn effective_config_reflects_resolved_threshold_set() {
     };
     let args = check_args_for_remediation(None, None, false);
 
-    let effective = EffectiveConfig::from_resolved(&globals, &args, &set, None);
+    let effective =
+        EffectiveConfig::from_resolved(&globals, &args, &set, None, crate::TierSpec::Hard, false);
     assert_eq!(effective.thresholds.get("cyclomatic"), Some(&11.0));
     assert_eq!(effective.thresholds.get("cognitive"), Some(&13.0));
     assert_eq!(effective.check.paths, vec!["src/".to_owned()]);
@@ -1021,22 +1023,22 @@ fn provenance_warning_silent_when_baseline_absent() {
 fn resolve_provenance_maps_each_tier_branch() {
     // Hard tier: no scaling.
     assert_eq!(
-        resolve_provenance(Tier::Hard, false, Some(0.5)),
+        resolve_provenance(TierSpec::Hard, false),
         baseline::Provenance::hard()
     );
     // Soft with a `[thresholds.soft]` table: per-metric, no single ratio.
     assert_eq!(
-        resolve_provenance(Tier::Soft, true, Some(0.5)),
+        resolve_provenance(TierSpec::Soft(Some(0.5)), true),
         baseline::Provenance::soft_table()
     );
-    // Soft without a table: scaled by --headroom.
+    // Soft without a table: scaled by the spec's ratio.
     assert_eq!(
-        resolve_provenance(Tier::Soft, false, Some(0.90)),
+        resolve_provenance(TierSpec::Soft(Some(0.90)), false),
         baseline::Provenance::soft_headroom(0.90)
     );
-    // Soft without a table or --headroom: the default soft headroom.
+    // Soft without a table or a pinned ratio: the default soft headroom.
     assert_eq!(
-        resolve_provenance(Tier::Soft, false, None),
+        resolve_provenance(TierSpec::Soft(None), false),
         baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM)
     );
 }
