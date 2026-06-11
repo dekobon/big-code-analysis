@@ -130,11 +130,20 @@ fn first_parent_timeline(
 /// at that point). A scan (not a binary search) so out-of-order commit
 /// times from clock skew or history rewriting cannot misselect the tip.
 fn tip_at_or_before(timeline: &[(i64, gix::ObjectId)], at: i64) -> Option<gix::ObjectId> {
+    // Among commits sharing the greatest commit time at-or-before `at`
+    // (common with scripted setups, squash/rebase chains, and bot
+    // commits), the actual mainline tip is the *newest* in history — the
+    // smaller index in this newest-first timeline. `max_by_key` returns
+    // the last maximal element, which would pick the oldest equal-time
+    // commit (e.g. an empty init commit) and anchor the snapshot before
+    // any real content exists. Tie-break on `Reverse(index)` so equal
+    // times resolve to the newest commit instead.
     timeline
         .iter()
-        .filter(|&&(time, _)| time <= at)
-        .max_by_key(|&&(time, _)| time)
-        .map(|&(_, oid)| oid)
+        .enumerate()
+        .filter(|&(_, &(time, _))| time <= at)
+        .max_by_key(|&(index, &(time, _))| (time, std::cmp::Reverse(index)))
+        .map(|(_, &(_, oid))| oid)
 }
 
 #[cfg(test)]
