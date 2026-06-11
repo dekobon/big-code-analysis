@@ -22,7 +22,7 @@ use std::borrow::Cow;
 use big_code_analysis::{Metric, SuppressionPolicy};
 
 use super::{FunctionSummary, is_class_like, sort_by_metric_asc, sort_by_metric_desc, thousands};
-use crate::format_util::MetricScalar;
+use crate::format_util::{MetricScalar, thousands_round};
 
 /// Cell text alignment. Drives the Markdown separator (`--:`/`:--`) and the
 /// HTML `data-numeric` / `class="numeric"` attributes.
@@ -113,6 +113,11 @@ pub(crate) const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the c
 pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
 pub(crate) const SLOC_TOOLTIP: &str =
     "Source Lines Of Code: total physical lines, including blanks and comments.";
+pub(crate) const PLOC_TOOLTIP: &str =
+    "Physical Lines Of Code: source lines excluding blank lines and comments.";
+pub(crate) const COMMENTS_TOOLTIP: &str = "Comment lines (CLOC): lines that are entirely comment.";
+pub(crate) const COMMENT_RATIO_TOOLTIP: &str =
+    "Comment ratio: comment lines as a percentage of source lines (CLOC / SLOC).";
 pub(crate) const TOKENS_TOOLTIP: &str =
     "Total lexical tokens (AST leaves excluding comments) of the function or file.";
 pub(crate) const EFFORT_TOOLTIP: &str =
@@ -125,35 +130,107 @@ pub(crate) const EXITS_TOOLTIP: &str =
     "Number of exit points (returns, throws, breaks out of the function).";
 pub(crate) const ABC_TOOLTIP: &str =
     "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions.";
-pub(crate) const WMC_TOOLTIP: &str =
-    "Weighted Methods per Class: sum of cyclomatic complexity across the class's methods.";
+pub(crate) const WMC_TOOLTIP: &str = "Weighted Methods per Class: sum of cyclomatic complexity across a type's methods. \"Type\" covers all six kinds counted here: class, struct, trait, impl, interface, namespace.";
 pub(crate) const METHODS_TOOLTIP: &str = "Number of methods declared on the class.";
 pub(crate) const NPA_TOOLTIP: &str = "Number of Public Attributes declared on the class.";
 pub(crate) const NPM_TOOLTIP: &str = "Number of Public Methods declared on the class.";
 pub(crate) const ARGS_TOOLTIP: &str = "Number of declared parameters of the function.";
 
-/// A section title. Static for every section except the MI table, whose
-/// title interpolates `top_n`.
+/// Base URL of the hosted metric reference (the mdBook's metrics chapter),
+/// shared by the Markdown legend, the HTML legend, the HTML column headers,
+/// and the VCS legend so the link target cannot drift between formats (issue
+/// #675). The mdBook publishes stable per-metric anchors, so "latest" is the
+/// right target — no version pin or env override (YAGNI until a self-hosted /
+/// air-gapped need is concrete).
+pub(crate) const DOCS_BASE_URL: &str = "https://dekobon.github.io/big-code-analysis/metrics.html";
+
+/// The mdBook `metrics.md` anchor for a hotspot/header-stat column, keyed by
+/// the column header text. The anchors are exactly the slugs mdBook derives
+/// from the `## …` headings (see the chapter's own Index table); a test
+/// (`every_legend_header_has_a_doc_anchor`) asserts every legend header maps,
+/// and a book-side guard checks each anchor still exists, so a renamed
+/// heading fails CI rather than shipping a dead link (issue #675).
+///
+/// Several columns share one chapter: every Halstead-derived column points at
+/// `#halstead`, and every line-count stat at `#lines-of-code`.
+pub(crate) fn metric_doc_anchor(header: &str) -> Option<&'static str> {
+    let anchor = match header {
+        "CC" => "cyclomatic-complexity-cc",
+        "Cognitive" => "cognitive-complexity",
+        "MI" => "maintainability-index-mi",
+        "SLOC" | "PLOC" | "Comments" | "Comment ratio" => "lines-of-code",
+        "Tokens" => "tokens",
+        "Effort" | "Volume" | "Est. Bugs" => "halstead",
+        "Exits" => "nexits",
+        "ABC" => "abc",
+        "WMC" => "wmc",
+        "Methods" => "nom",
+        "NPA" => "npa",
+        "NPM" => "npm",
+        "Args" => "nargs",
+        _ => return None,
+    };
+    Some(anchor)
+}
+
+/// The full hosted-docs URL for a column header, or `None` when the header
+/// names no documented metric. `{DOCS_BASE_URL}#{anchor}`.
+pub(crate) fn metric_doc_url(header: &str) -> Option<String> {
+    metric_doc_anchor(header).map(|anchor| format!("{DOCS_BASE_URL}#{anchor}"))
+}
+
+/// A section title built from one sentence-case template,
+/// `"<Concept> hotspots (<truncation> by <column>)"` (issue #677). The
+/// `concept` names what the table ranks (e.g. `"Cyclomatic complexity"`,
+/// `"Type"`); `column` is the ranking column's header (`"CC"`, `"WMC"`);
+/// `dir` selects the wording of the truncation clause — `Desc` tables show
+/// the highest rows (`"top 20"`), `Asc` tables the lowest (`"lowest 20"`).
+///
+/// The truncation clause reflects the actual `--top` state: a capped table
+/// reads `(top 20 by CC)`, an uncapped one (`--top 0`) reads `(all, by CC)`
+/// so it does not falsely imply a top-N cut (issue #602). Internal metric
+/// IDs (`nexits`, `wmc`, `(NEXITS)`) live in the legend, never the title.
 #[derive(Clone, Copy)]
-pub(crate) enum HotspotTitle {
-    Static(&'static str),
-    MiLowest,
+pub(crate) struct HotspotTitle {
+    pub(crate) concept: &'static str,
+    pub(crate) column: &'static str,
+    pub(crate) dir: SortDir,
 }
 
 impl HotspotTitle {
-    /// The logical (unescaped) title; the MI variant fills in `top_n`. Each
-    /// renderer escapes the result for its format (HTML escapes the `>` in
-    /// the many-parameters title; Markdown emits it raw).
-    pub(crate) fn render(self, top_n: usize) -> Cow<'static, str> {
-        match self {
-            Self::Static(s) => Cow::Borrowed(s),
-            Self::MiLowest => {
-                // `--top 0` shows every file, so the title says "all" rather
-                // than the misleading "top-0" (issue #602).
-                let suffix = cap(top_n).map_or_else(|| "all".to_owned(), |n| format!("top-{n}"));
-                Cow::Owned(format!("Maintainability Index (lowest files, {suffix})"))
-            }
+    const fn new(concept: &'static str, column: &'static str, dir: SortDir) -> Self {
+        Self {
+            concept,
+            column,
+            dir,
         }
+    }
+
+    /// The stable id/anchor basis for this section: `"<Concept> hotspots"`,
+    /// deliberately excluding the `(top N by …)` truncation clause so the
+    /// HTML fragment (`#rust-cyclomatic-complexity-hotspots`) does not shift
+    /// with `--top` (issue #677). The HTML renderer slugifies this.
+    pub(crate) fn id_basis(self) -> String {
+        format!("{} hotspots", self.concept)
+    }
+
+    /// The logical (unescaped) title under the shared template. Each renderer
+    /// escapes the result for its format (HTML escapes any `>` in a `concept`;
+    /// Markdown emits it raw — though no current concept carries one).
+    pub(crate) fn render(self, top_n: usize) -> Cow<'static, str> {
+        // `--top 0` shows every row, so the clause says "all" rather than a
+        // misleading "top-0" / "lowest-0" (issue #602). The verb tracks the
+        // sort direction so an ascending (lowest-first) table never claims a
+        // "top" cut.
+        let verb = match self.dir {
+            SortDir::Desc => "top",
+            SortDir::Asc => "lowest",
+        };
+        let clause = match cap(top_n) {
+            Some(n) => format!("{verb} {n} by {}", self.column),
+            None => format!("all, by {}", self.column),
+        };
+        Cow::Owned(format!("{} hotspots ({clause})", self.concept))
     }
 }
 
@@ -223,14 +300,22 @@ const COL_TOKENS: Column = Column {
     tooltip: Some(TOKENS_TOOLTIP),
 };
 
+/// Inclusive floor below which a function does not enter the exit-points
+/// (NEXITS) hotspot table: only `nexits > 2` qualifies. Two is the point
+/// where multiple exits start signalling branching structure rather than the
+/// baseline single `return`; a lower floor fills the table with noise on a
+/// healthy codebase (issue #689). There is no manifest advisory threshold
+/// wired into `bca report` yet (#630), so this is the unconditional default.
+pub(crate) const NEXITS_HOTSPOT_FLOOR: usize = 2;
+
 /// The hotspot sections in canonical render order. Both renderers iterate
-/// this; the Actionable Summary is spliced just before
-/// [`ACTIONABLE_SUMMARY_INDEX`].
+/// this; the Actionable Summary leads each language section (after the
+/// per-language Summary, before any hotspot table — issue #678).
 pub(crate) const SPECS: &[HotspotSpec] = &[
     // 0 — Maintainability Index (lowest files). `keep` mirrors
     // `mi::Stats::inputs_are_empty` so a clamped-to-0 worst file still shows.
     HotspotSpec {
-        title: HotspotTitle::MiLowest,
+        title: HotspotTitle::new("Maintainability Index", "MI", SortDir::Asc),
         source: Source::Units,
         keep: |s| s.halstead_volume > 0.0 && s.sloc > 0,
         metric: |s| s.mi_visual_studio,
@@ -253,7 +338,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
     },
     // 1 — Cyclomatic Complexity (carries the summary note).
     HotspotSpec {
-        title: HotspotTitle::Static("Cyclomatic Complexity Hotspots"),
+        title: HotspotTitle::new("Cyclomatic complexity", "CC", SortDir::Desc),
         source: Source::Funcs,
         keep: |s| s.cyclomatic > 0.0,
         metric: |s| s.cyclomatic,
@@ -273,7 +358,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
     },
     // 2 — Cognitive Complexity.
     HotspotSpec {
-        title: HotspotTitle::Static("Cognitive Complexity Hotspots"),
+        title: HotspotTitle::new("Cognitive complexity", "Cognitive", SortDir::Desc),
         source: Source::Funcs,
         keep: |s| s.cognitive > 0.0,
         metric: |s| s.cognitive,
@@ -293,7 +378,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
     },
     // 3 — Halstead Effort.
     HotspotSpec {
-        title: HotspotTitle::Static("Halstead Effort Hotspots"),
+        title: HotspotTitle::new("Halstead effort", "Effort", SortDir::Desc),
         source: Source::Funcs,
         keep: |s| s.halstead_effort > 0.0,
         metric: |s| s.halstead_effort,
@@ -304,16 +389,20 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_FUNCTION,
             COL_FILE,
             COL_LINE,
+            // Effort/Volume render as rounded integers with thousands
+            // separators (issue #668) — heuristics, not measurements, so 15
+            // significant digits only wreck column scanability; JSON/CSV keep
+            // full precision. Matches the neighbouring SLOC/Tokens columns.
             Column {
                 header: "Effort",
                 align: Align::Right,
-                cell: |s| Cell::Num(MetricScalar(s.halstead_effort).to_string()),
+                cell: |s| Cell::Num(thousands_round(s.halstead_effort)),
                 tooltip: Some(EFFORT_TOOLTIP),
             },
             Column {
                 header: "Volume",
                 align: Align::Right,
-                cell: |s| Cell::Num(MetricScalar(s.halstead_volume).to_string()),
+                cell: |s| Cell::Num(thousands_round(s.halstead_volume)),
                 tooltip: Some(VOLUME_TOOLTIP),
             },
             Column {
@@ -329,7 +418,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
     },
     // 4 — Largest Functions by SLOC.
     HotspotSpec {
-        title: HotspotTitle::Static("Largest Functions by SLOC"),
+        title: HotspotTitle::new("Function size", "SLOC", SortDir::Desc),
         source: Source::Funcs,
         keep: |s| s.sloc > 0,
         metric: |s| s.sloc as f64,
@@ -347,10 +436,11 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         ],
         cc_note: false,
     },
-    // 5 — Functions With Many Parameters (>3). Title `>` is logical here;
-    // HTML escapes it to `&gt;`, Markdown writes it raw.
+    // 5 — Many parameters. The `>3` floor (the `keep` predicate below) is a
+    // legend/Args-column detail, not part of the title; the template names
+    // the ranking column "Args" instead.
     HotspotSpec {
-        title: HotspotTitle::Static("Functions With Many Parameters (>3)"),
+        title: HotspotTitle::new("Many parameters", "Args", SortDir::Desc),
         source: Source::Funcs,
         keep: |s| s.nargs > 3,
         metric: |s| s.nargs as f64,
@@ -372,11 +462,15 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         ],
         cc_note: false,
     },
-    // 6 — Class/Trait/Impl (WMC). Drawn from the FULL slice (`Source::All`),
-    // since class-likes are excluded from both the unit and function buckets.
-    // The Actionable Summary is emitted immediately before this section.
+    // 6 — Types (WMC). Drawn from the FULL slice (`Source::All`), since
+    // class-likes are excluded from both the unit and function buckets. The
+    // "Types" label (header `Type`, concept `Type`) covers all six kinds
+    // `is_class_like` matches — class, struct, trait, impl, interface,
+    // namespace — rather than underselling the predicate by naming only three
+    // (issue #687); the legend's WMC entry enumerates the full set. The
+    // Actionable Summary is emitted immediately before this section.
     HotspotSpec {
-        title: HotspotTitle::Static("Class/Trait/Impl Hotspots (WMC)"),
+        title: HotspotTitle::new("Type", "WMC", SortDir::Desc),
         source: Source::All,
         keep: |s| is_class_like(s.kind) && s.wmc > 0.0,
         metric: |s| s.wmc,
@@ -385,7 +479,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         rank_col: 3,
         columns: &[
             Column {
-                header: "Class",
+                header: "Type",
                 align: Align::Left,
                 cell: |s| Cell::Name(s.name.clone()),
                 tooltip: None,
@@ -421,13 +515,21 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         ],
         cc_note: false,
     },
-    // 7 — Functions with the most exit points (NEXITS). `Metric::Nexits`
-    // is the canonical spelling shared by suppression and the threshold
-    // engine (post-#555 unification).
+    // 7 — Exit points. The internal `(NEXITS)` ID is dropped from the title
+    // (it matched neither the `Exits` column nor the `nexits` JSON key — issue
+    // #677); the metric ID lives in the legend. `Metric::Nexits` is the
+    // canonical spelling shared by suppression and the threshold engine
+    // (post-#555 unification).
     HotspotSpec {
-        title: HotspotTitle::Static("Functions with the most exit points (NEXITS)"),
+        title: HotspotTitle::new("Exit points", "Exits", SortDir::Desc),
         source: Source::Funcs,
-        keep: |s| s.nexits > 0,
+        // A single `return` is the normal case, not a hotspot: a `nexits > 0`
+        // floor degenerates into 20 indistinguishable rows on a healthy
+        // codebase, training readers to skip report tables wholesale. Gate on
+        // `> NEXITS_HOTSPOT_FLOOR` (2) — the point where multiple exits start
+        // indicating branching structure; when nothing clears it the section
+        // is omitted silently (the existing empty no-op) — issue #689.
+        keep: |s| s.nexits > NEXITS_HOTSPOT_FLOOR,
         metric: |s| s.nexits as f64,
         dir: SortDir::Desc,
         metric_kind: Metric::Nexits,
@@ -450,7 +552,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
     },
     // 8 — ABC Magnitude.
     HotspotSpec {
-        title: HotspotTitle::Static("ABC Magnitude Hotspots"),
+        title: HotspotTitle::new("ABC magnitude", "ABC", SortDir::Desc),
         source: Source::Funcs,
         keep: |s| s.abc > 0.0,
         metric: |s| s.abc,
@@ -522,11 +624,6 @@ pub(crate) fn fully_suppressed_caption(metric_label: &str, count: usize) -> Stri
     format!("{metric_label} table omitted: all {count} matching functions suppressed.")
 }
 
-/// Index into [`SPECS`] before which the Actionable Summary is emitted
-/// (i.e. after Many-Parameters, before WMC), so both renderers interleave
-/// it identically.
-pub(crate) const ACTIONABLE_SUMMARY_INDEX: usize = 6;
-
 /// The deduplicated `(header, tooltip)` pairs for every metric column the
 /// hotspot tables render, in first-seen order across [`SPECS`]. Identity
 /// columns (`tooltip: None`) are skipped, and a header that recurs across
@@ -542,6 +639,16 @@ pub(crate) fn legend_entries() -> Vec<(&'static str, &'static str)> {
             .map(|col| (col.header, col.tooltip)),
     )
 }
+
+/// The global-header stat labels (`PLOC`, `Comments`, `Comment ratio`) that
+/// no hotspot column defines, so the legend can explain the very first
+/// numbers a reader sees (issue #679). Returned in header order. `SLOC` is
+/// omitted here because the hotspot legend already defines it.
+pub(crate) const HEADER_STAT_LEGEND: &[(&str, &str)] = &[
+    ("PLOC", PLOC_TOOLTIP),
+    ("Comments", COMMENTS_TOOLTIP),
+    ("Comment ratio", COMMENT_RATIO_TOOLTIP),
+];
 
 /// Collect `(header, tooltip)` legend entries from `pairs`, keeping the
 /// first tooltip seen per header and skipping tooltip-less (identity)
@@ -831,13 +938,10 @@ mod tests {
 
     // The canonical spec order both renderers depend on.
     #[test]
-    fn specs_count_and_actionable_splice() {
+    fn specs_count_and_order() {
         assert_eq!(SPECS.len(), 9);
         assert!(matches!(SPECS[5].metric_kind, Metric::Nargs)); // Many-Params
-        assert!(matches!(
-            SPECS[ACTIONABLE_SUMMARY_INDEX].metric_kind,
-            Metric::Wmc
-        ));
+        assert!(matches!(SPECS[6].metric_kind, Metric::Wmc)); // Types (WMC)
         assert!(
             SPECS[1].cc_note,
             "only the cyclomatic spec carries the note"
@@ -869,6 +973,14 @@ mod tests {
                 col.tooltip.is_some(),
                 "spec {i} rank_col points at identity column {:?}, not a metric",
                 col.header
+            );
+            // #677: the legacy internal-ID suffix (e.g. `(NEXITS)`) was dropped
+            // from every hotspot title; the sentence-case template cannot
+            // reintroduce it, so guard against a regression that hardcodes one.
+            let rendered = spec.title.render(5);
+            assert!(
+                !rendered.contains("(NEXITS)"),
+                "spec {i} title `{rendered}` still carries the dropped internal-ID suffix (#677)"
             );
         }
     }
@@ -1094,16 +1206,20 @@ mod tests {
     }
 
     #[test]
-    fn mi_title_says_all_when_uncapped() {
-        // `--top 0` renders "all", not the misleading "top-0".
+    fn title_template_tracks_truncation_and_direction() {
+        // The shared template (#677): a capped descending table reads
+        // "top N by <column>"; uncapped (`--top 0`) reads "all, by <column>"
+        // rather than a misleading "top-0" (issue #602). An ascending table
+        // (the MI section) says "lowest", never "top".
+        let cc = SPECS[1].title;
+        assert_eq!(cc.render(5), "Cyclomatic complexity hotspots (top 5 by CC)");
+        assert_eq!(cc.render(0), "Cyclomatic complexity hotspots (all, by CC)");
+        let mi = SPECS[0].title;
         assert_eq!(
-            HotspotTitle::MiLowest.render(0),
-            "Maintainability Index (lowest files, all)"
+            mi.render(5),
+            "Maintainability Index hotspots (lowest 5 by MI)"
         );
-        assert_eq!(
-            HotspotTitle::MiLowest.render(5),
-            "Maintainability Index (lowest files, top-5)"
-        );
+        assert_eq!(mi.render(0), "Maintainability Index hotspots (all, by MI)");
     }
 
     #[test]
@@ -1171,5 +1287,72 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].name, "high");
         assert_eq!(got[1].name, "mid");
+    }
+
+    /// Issue #675: every metric column the hotspot tables render, plus every
+    /// header-stat legend label, must map to a hosted-docs anchor — otherwise
+    /// that legend entry / `<th>` ships without the promised link.
+    #[test]
+    fn every_legend_header_has_a_doc_anchor() {
+        for (header, _) in legend_entries() {
+            assert!(
+                metric_doc_anchor(header).is_some(),
+                "legend header {header:?} has no metric_doc_anchor mapping"
+            );
+        }
+        for (header, _) in HEADER_STAT_LEGEND {
+            assert!(
+                metric_doc_anchor(header).is_some(),
+                "header-stat label {header:?} has no metric_doc_anchor mapping"
+            );
+        }
+    }
+
+    /// Issue #675: each anchor `metric_doc_anchor` hands out must name a real
+    /// heading in the published `metrics.md`, so a renamed book heading fails
+    /// CI here rather than shipping a dead link. The anchor is mdBook's
+    /// lowercase-hyphenated slug of a `## …` heading; this guard checks the
+    /// slug exists, derived the same way mdBook derives it (lowercase,
+    /// non-alphanumeric runs to a single `-`, trimmed).
+    #[test]
+    fn doc_anchors_resolve_to_book_headings() {
+        // Run relative to the CLI crate dir (cargo sets CWD there for tests).
+        let book = std::fs::read_to_string("../big-code-analysis-book/src/metrics.md")
+            .expect("read metrics.md");
+        let available: std::collections::BTreeSet<String> = book
+            .lines()
+            .filter_map(|l| l.strip_prefix("## "))
+            .map(mdbook_slug)
+            .collect();
+        // Every distinct anchor the map can emit.
+        let mut headers: Vec<&str> = legend_entries().into_iter().map(|(h, _)| h).collect();
+        headers.extend(HEADER_STAT_LEGEND.iter().map(|(h, _)| *h));
+        for header in headers {
+            let anchor = metric_doc_anchor(header).expect("mapped header");
+            assert!(
+                available.contains(anchor),
+                "anchor #{anchor} for header {header:?} names no `## ` heading in metrics.md; \
+                 available: {available:?}"
+            );
+        }
+    }
+
+    /// mdBook's heading-to-fragment slug: lowercase, every run of characters
+    /// outside `[a-z0-9]` collapsed to a single `-`, leading/trailing `-`
+    /// trimmed. Matches the published anchors in the chapter's own Index
+    /// (`## Cyclomatic Complexity (CC)` -> `cyclomatic-complexity-cc`).
+    fn mdbook_slug(heading: &str) -> String {
+        let mut slug = String::with_capacity(heading.len());
+        let mut prev_dash = false;
+        for ch in heading.chars() {
+            if ch.is_ascii_alphanumeric() {
+                slug.push(ch.to_ascii_lowercase());
+                prev_dash = false;
+            } else if !prev_dash {
+                slug.push('-');
+                prev_dash = true;
+            }
+        }
+        slug.trim_matches('-').to_owned()
     }
 }

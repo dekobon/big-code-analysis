@@ -369,6 +369,17 @@ pub(crate) fn write_table(
     }
 }
 
+/// The hotspot-column legend plus the global-header stat definitions
+/// (PLOC / Comments / Comment ratio), so the AST report's legend defines
+/// every number on the page — including the header stats no hotspot column
+/// covers (issue #679). Shared by the Markdown and HTML AST renderers so the
+/// two legends carry the same rows.
+pub(crate) fn legend_entries_with_header_stats() -> Vec<(&'static str, &'static str)> {
+    let mut entries = hotspot::legend_entries();
+    entries.extend_from_slice(hotspot::HEADER_STAT_LEGEND);
+    entries
+}
+
 /// Append a "Legend" subsection at the given heading `level` (number of
 /// leading `#`): a definition-list-style bullet per `(header, definition)`
 /// pair, so a Markdown reader (a PR comment, a pasted issue) can learn what
@@ -386,7 +397,17 @@ pub(crate) fn write_legend(out: &mut String, level: usize, entries: &[(&str, &st
     let hashes = "#".repeat(level);
     let _ = writeln!(out, "\n{hashes} Legend\n");
     for (header, definition) in entries {
-        let _ = writeln!(out, "- **{header}** — {}", escape_cell(definition));
+        // Link the header to its hosted metric chapter when one exists, so a
+        // one-line legend entry can hand the reader the full explanation
+        // (issue #675). VCS / identity headers have no anchor and render bare.
+        match hotspot::metric_doc_url(header) {
+            Some(url) => {
+                let _ = writeln!(out, "- **[{header}]({url})** — {}", escape_cell(definition));
+            }
+            None => {
+                let _ = writeln!(out, "- **{header}** — {}", escape_cell(definition));
+            }
+        }
     }
 }
 
@@ -598,21 +619,28 @@ pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
     v
 }
 
+/// Footer-free convenience wrapper used by the snapshot tests; the command
+/// path goes through [`generate_report_with_vcs`] with a provenance footer.
+#[cfg(test)]
 pub(crate) fn generate_report(
     summaries: &[FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
 ) -> String {
-    generate_report_with_vcs(summaries, top_n, policy, None)
+    generate_report_with_vcs(summaries, top_n, policy, None, None)
 }
 
 /// As [`generate_report`], optionally appending a "Change-history risk"
-/// section (`bca report --vcs`) rendered through [`crate::vcs_report`].
+/// section (`bca report --vcs`) rendered through [`crate::vcs_report`], and an
+/// optional provenance footer (issue #680). `prov` is `None` in the snapshot
+/// tests (the footer is provenance, separately tested in `crate::provenance`)
+/// and `Some` from the command path.
 pub(crate) fn generate_report_with_vcs(
     summaries: &[FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
     vcs: Option<&crate::vcs_command::Report>,
+    prov: Option<&crate::provenance::Provenance<'_>>,
 ) -> String {
     let mut out = String::new();
 
@@ -628,14 +656,22 @@ pub(crate) fn generate_report_with_vcs(
         for (&lang_name, lang_summaries) in &by_lang {
             write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
         }
-        // Footer legend: define every metric-column abbreviation the
-        // hotspot tables used, from the shared specs (issue #611).
-        // The AST sections render at `###`, so the legend matches at level 3.
-        write_legend(&mut out, 3, &hotspot::legend_entries());
+        // Footer legend at `##` so it gets its own TOC entry and stops
+        // nesting under the last language's `##` section, though it defines
+        // columns for every language (issue #679). Draws from the shared
+        // specs (issue #611), plus the global-header stats (PLOC / Comments /
+        // Comment ratio) so the legend defines everything on the page.
+        write_legend(&mut out, 2, &legend_entries_with_header_stats());
     }
 
     if let Some(report) = vcs {
         crate::vcs_report::push_markdown_section(&mut out, report);
+    }
+
+    // Provenance footer (version / date / paths / top / suppression state) so
+    // a detached artifact is self-describing (issue #680).
+    if let Some(prov) = prov {
+        crate::provenance::push_markdown_footer(&mut out, prov);
     }
 
     out
@@ -720,10 +756,10 @@ fn write_global_header(
         vec!["PLOC".to_string(), thousands(totals.ploc)],
         vec!["Comments".to_string(), thousands(totals.cloc)],
         vec!["Functions/methods".to_string(), thousands(totals.functions)],
-        vec![
-            "Classes/impls/traits".to_string(),
-            thousands(totals.classes),
-        ],
+        // "Types" covers all six kinds `is_class_like` counts (class,
+        // struct, trait, impl, interface, namespace) rather than naming
+        // three and underselling the rest (issue #687).
+        vec!["Types".to_string(), thousands(totals.classes)],
         vec!["Comment ratio".to_string(), format!("{comment_ratio:.1}%")],
     ];
 
@@ -829,15 +865,18 @@ fn write_language_section(
     let (units, funcs) = sections::split_units_and_functions(entries);
     sections::write_summary(out, &units);
 
+    // The Actionable Summary is the highest-altitude block (the
+    // "N functions with CC > 10"-style counts), so it leads the section —
+    // directly after `### Summary`, before any hotspot table — rather than
+    // being buried mid-stream where a reader who stops after one or two
+    // tables never sees it (issue #678).
+    sections::write_actionable_summary(out, &funcs, policy);
+
     // Drive every hotspot section from the shared `SPECS` table (the same
     // table the HTML report uses) so the two formats cannot diverge in
-    // membership/order/suppression. The Actionable Summary (raw,
-    // format-specific) splices in at its fixed index; WMC draws from the
-    // full slice, MI from units, the rest from functions.
-    for (i, spec) in hotspot::SPECS.iter().enumerate() {
-        if i == hotspot::ACTIONABLE_SUMMARY_INDEX {
-            sections::write_actionable_summary(out, &funcs, policy);
-        }
+    // membership/order/suppression. WMC draws from the full slice, MI from
+    // units, the rest from functions.
+    for spec in hotspot::SPECS {
         let base: &[&FunctionSummary] = match spec.source {
             hotspot::Source::Units => &units,
             hotspot::Source::Funcs => &funcs,
@@ -959,24 +998,41 @@ mod tests {
         insta::assert_snapshot!("markdown_report_rich", out);
     }
 
-    /// Issue #611: the Markdown report ends with a `### Legend` footnote
-    /// that defines every metric column the hotspot tables used, drawn
-    /// from the shared `hotspot::legend_entries` so it cannot drift from
-    /// the HTML tooltips. Identity columns (Function/File/Line/Class) carry
-    /// no definition and must stay out of the legend.
+    /// Issue #611/#679: the Markdown report ends with a `## Legend` section
+    /// (at `##` so it gets its own TOC entry and stops nesting under the last
+    /// language — #679) that defines every metric column the hotspot tables
+    /// used, plus the global-header stats, drawn from the shared
+    /// `legend_entries_with_header_stats` so it cannot drift from the HTML
+    /// tooltips. Identity columns (Function/File/Line/Type) carry no
+    /// definition and must stay out of the legend.
     #[test]
     fn markdown_report_renders_metric_legend() {
         let out = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
-        assert!(out.contains("### Legend"), "legend heading missing");
-        for (header, definition) in hotspot::legend_entries() {
+        assert!(out.contains("## Legend"), "legend heading missing");
+        assert!(
+            !out.contains("### Legend"),
+            "legend must be at ## scope, not ### (issue #679)"
+        );
+        for (header, definition) in legend_entries_with_header_stats() {
+            // Headers with a hosted-docs anchor link to it (issue #675); the
+            // rest render bare. Either way the definition follows.
+            let bullet = match hotspot::metric_doc_url(header) {
+                Some(url) => format!("- **[{header}]({url})** — {}", escape_cell(definition)),
+                None => format!("- **{header}** — {}", escape_cell(definition)),
+            };
+            assert!(out.contains(&bullet), "legend missing entry for {header:?}");
+        }
+        // The header-stat definitions PLOC / Comments / Comment ratio are
+        // now in the legend, each linking the Lines-of-Code chapter (#679/#675).
+        for header in ["PLOC", "Comments", "Comment ratio"] {
             assert!(
-                out.contains(&format!("- **{header}** — {}", escape_cell(definition))),
-                "legend missing entry for {header:?}"
+                out.contains(&format!("- **[{header}](")),
+                "legend missing header-stat entry {header:?}"
             );
         }
         // Identity columns describe the row, not a metric; they must not
         // appear as legend bullets.
-        for identity in ["Function", "File", "Line", "Class"] {
+        for identity in ["Function", "File", "Line", "Type"] {
             assert!(
                 !out.contains(&format!("- **{identity}**")),
                 "identity column {identity:?} should not be in the legend"
@@ -1068,47 +1124,21 @@ mod tests {
         let md = generate_report(&fixture, 5, SuppressionPolicy::Honor);
         let html = generate_html_report(&fixture, 5, SuppressionPolicy::Honor);
 
-        // (Markdown title, HTML title) — they differ only in `>` escaping.
-        let sections = [
-            (
-                "Maintainability Index (lowest files, top-5)",
-                "Maintainability Index (lowest files, top-5)",
-            ),
-            (
-                "Cyclomatic Complexity Hotspots",
-                "Cyclomatic Complexity Hotspots",
-            ),
-            (
-                "Cognitive Complexity Hotspots",
-                "Cognitive Complexity Hotspots",
-            ),
-            ("Halstead Effort Hotspots", "Halstead Effort Hotspots"),
-            ("Largest Functions by SLOC", "Largest Functions by SLOC"),
-            (
-                "Functions With Many Parameters (>3)",
-                "Functions With Many Parameters (&gt;3)",
-            ),
-            (
-                "Class/Trait/Impl Hotspots (WMC)",
-                "Class/Trait/Impl Hotspots (WMC)",
-            ),
-            (
-                "Functions with the most exit points (NEXITS)",
-                "Functions with the most exit points (NEXITS)",
-            ),
-            ("ABC Magnitude Hotspots", "ABC Magnitude Hotspots"),
-        ];
-
-        for (md_title, html_title) in sections {
-            let md_names = md_section_first_column(&md, md_title);
-            let html_names = html_section_first_column(&html, html_title);
+        // Titles come from the shared `#677` template, so both formats render
+        // the identical string for each section (no `>` left to escape).
+        // Deriving them from `SPECS` keeps the test in step with any future
+        // concept/column rename.
+        for spec in hotspot::SPECS {
+            let title = spec.title.render(5);
+            let md_names = md_section_first_column(&md, &title);
+            let html_names = html_section_first_column(&html, &title);
             assert_eq!(
                 md_names, html_names,
-                "section '{md_title}': Markdown and HTML must list identical rows in identical order"
+                "section '{title}': Markdown and HTML must list identical rows in identical order"
             );
             assert!(
                 !md_names.is_empty(),
-                "section '{md_title}' should be populated by the rich fixture"
+                "section '{title}' should be populated by the rich fixture"
             );
         }
     }
@@ -1323,7 +1353,7 @@ mod tests {
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
-            !report.contains("### Halstead Effort Hotspots"),
+            !report.contains("### Halstead effort hotspots"),
             "Halstead section should be omitted"
         );
     }
@@ -1355,20 +1385,25 @@ mod tests {
 
         // Count data rows (lines starting with "| `") in each section.
         let sections = [
-            "### Cyclomatic Complexity Hotspots",
-            "### Cognitive Complexity Hotspots",
-            "### Halstead Effort Hotspots",
-            "### Largest Functions by SLOC",
+            "### Cyclomatic complexity hotspots",
+            "### Cognitive complexity hotspots",
+            "### Halstead effort hotspots",
+            "### Function size hotspots",
         ];
         for section_hdr in sections {
             let section_start = report
                 .find(section_hdr)
                 .unwrap_or_else(|| panic!("missing section: {section_hdr}"));
             let section_text = &report[section_start..];
-            // Section ends at the next "###" or "##" or end of string.
-            let section_end = section_text[1..]
-                .find("\n## ")
-                .or_else(|| section_text[1..].find("\n### "))
+            // Section ends at the next "###" or "##" — whichever comes first —
+            // or end of string. (Take the minimum: the legend now sits at `##`
+            // after the per-language sections, so preferring `## ` over `### `
+            // would swallow every later subsection — issue #679.)
+            let rest = &section_text[1..];
+            let section_end = [rest.find("\n## "), rest.find("\n### ")]
+                .into_iter()
+                .flatten()
+                .min()
                 .map_or(section_text.len(), |p| p + 1);
             let section_body = &section_text[..section_end];
             let data_rows = section_body
@@ -1394,6 +1429,39 @@ mod tests {
         let a = generate_report(&summaries, 10, SuppressionPolicy::Honor);
         let b = generate_report(&summaries, 10, SuppressionPolicy::Honor);
         assert_eq!(a, b, "report must be byte-equal across runs");
+    }
+
+    /// Issue #680: with provenance supplied (the command path), the Markdown
+    /// report closes with a footer naming the version, date, paths, top-N, and
+    /// suppression state. Footer-free `generate_report` (the snapshot path)
+    /// emits no footer.
+    #[test]
+    fn provenance_footer_present_only_when_supplied() {
+        let summaries = vec![
+            make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust),
+            make_summary("f", "src/lib.rs", SpaceKind::Function, LANG::Rust),
+        ];
+        let prov = crate::provenance::Provenance {
+            version: "9.9.9",
+            date: "2026-06-11",
+            paths: "src/",
+            top: 10,
+            policy: SuppressionPolicy::Honor,
+        };
+        let with =
+            generate_report_with_vcs(&summaries, 10, SuppressionPolicy::Honor, None, Some(&prov));
+        assert!(
+            with.contains(
+                "Generated by bca 9.9.9 on 2026-06-11 over src/ \u{2014} top 10 per table, \
+                 suppression markers honored."
+            ),
+            "footer missing or malformed:\n{with}"
+        );
+        let without = generate_report(&summaries, 10, SuppressionPolicy::Honor);
+        assert!(
+            !without.contains("Generated by bca"),
+            "footer-free path must not emit a provenance line"
+        );
     }
 
     #[test]
@@ -1763,7 +1831,7 @@ mod tests {
         // keeps its place in the heading structure; only the table rows are
         // hidden, with the omission note as the body.
         assert!(
-            report.contains("### Functions With Many Parameters"),
+            report.contains("### Many parameters hotspots"),
             "a fully-suppressed table must still emit its heading:\n{report}"
         );
         assert!(
@@ -1797,7 +1865,7 @@ mod tests {
         // Issue #681: the CC section heading is still emitted; only its rows
         // are hidden, with the omission note as the body.
         assert!(
-            report.contains("### Cyclomatic Complexity Hotspots"),
+            report.contains("### Cyclomatic complexity hotspots"),
             "a fully-suppressed CC table must still emit its heading:\n{report}"
         );
         assert!(
@@ -1850,7 +1918,7 @@ mod tests {
 
         let report = generate_report(&[unit, cls, func], 20, SuppressionPolicy::Honor);
         assert!(
-            report.contains("### Class/Trait/Impl Hotspots (WMC)"),
+            report.contains("### Type hotspots"),
             "WMC section should be present when class-kind summaries exist"
         );
         // Verify the row renders the correct metric values. Padding may
@@ -1873,7 +1941,7 @@ mod tests {
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
-            !report.contains("### Class/Trait/Impl Hotspots (WMC)"),
+            !report.contains("### Type hotspots"),
             "WMC section should be absent when no class-kind summaries exist"
         );
     }
@@ -1888,7 +1956,7 @@ mod tests {
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
-            report.contains("### Functions with the most exit points (NEXITS)"),
+            report.contains("### Exit points hotspots"),
             "NEXITS section should be present when functions have exits > 0"
         );
         let normalized = collapse_spaces(&report);
@@ -1902,6 +1970,46 @@ mod tests {
         );
     }
 
+    /// Issue #689: a single `return` is the baseline, not a hotspot. The
+    /// exit-points table admits only functions whose `nexits` clears the
+    /// floor (`> 2`); a codebase whose worst function has `nexits == 2` omits
+    /// the section entirely rather than listing noise.
+    #[test]
+    fn nexits_floor_omits_baseline_and_keeps_only_over_floor() {
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        // At/under the floor (2): never a hotspot.
+        let mut baseline = make_summary("baseline", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        baseline.nexits = 2;
+        let report = generate_report(
+            &[
+                make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust),
+                baseline,
+            ],
+            20,
+            SuppressionPolicy::Honor,
+        );
+        assert!(
+            !report.contains("### Exit points hotspots"),
+            "a max-nexits-2 codebase must omit the exit-points section:\n{report}"
+        );
+
+        // One function over the floor, one at it: only the former is listed.
+        let mut hot = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        hot.nexits = 5;
+        let mut at_floor = make_summary("at_floor", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        at_floor.nexits = 2;
+        let report = generate_report(&[unit, hot, at_floor], 20, SuppressionPolicy::Honor);
+        let body = section_body(&report, "### Exit points hotspots");
+        assert!(
+            body.contains("`hot`"),
+            "over-floor function must be listed:\n{body}"
+        );
+        assert!(
+            !body.contains("`at_floor`"),
+            "at-floor function must not be listed:\n{body}"
+        );
+    }
+
     #[test]
     fn abc_section_present() {
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
@@ -1911,7 +2019,7 @@ mod tests {
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
-            report.contains("### ABC Magnitude Hotspots"),
+            report.contains("### ABC magnitude hotspots"),
             "ABC section should be present when functions have abc > 0"
         );
         let normalized = collapse_spaces(&report);
@@ -1962,18 +2070,22 @@ mod tests {
         let report = generate_report(&summaries, 3, SuppressionPolicy::Honor);
 
         let sections = [
-            "### Class/Trait/Impl Hotspots (WMC)",
-            "### Functions with the most exit points (NEXITS)",
-            "### ABC Magnitude Hotspots",
+            "### Type hotspots",
+            "### Exit points hotspots",
+            "### ABC magnitude hotspots",
         ];
         for section_hdr in sections {
             let section_start = report
                 .find(section_hdr)
                 .unwrap_or_else(|| panic!("missing section: {section_hdr}"));
             let section_text = &report[section_start..];
-            let section_end = section_text[1..]
-                .find("\n## ")
-                .or_else(|| section_text[1..].find("\n### "))
+            // Next `### `/`## ` heading, whichever comes first (#679 moved the
+            // legend to `##` after the per-language sections).
+            let rest = &section_text[1..];
+            let section_end = [rest.find("\n## "), rest.find("\n### ")]
+                .into_iter()
+                .flatten()
+                .min()
                 .map_or(section_text.len(), |p| p + 1);
             let section_body = &section_text[..section_end];
             let data_rows = section_body
@@ -1995,7 +2107,8 @@ mod tests {
         func.cognitive = 4.0;
         func.halstead_effort = 200.0;
         func.nargs = 4;
-        func.nexits = 2;
+        // > NEXITS_HOTSPOT_FLOOR (2) so the exit-points section renders (#689).
+        func.nexits = 3;
         func.abc = 8.0;
         func.tokens = 42;
         let mut cls = make_summary("Cls", "src/lib.rs", SpaceKind::Class, LANG::Rust);
@@ -2006,14 +2119,14 @@ mod tests {
 
         for header in [
             "### Maintainability Index",
-            "### Cyclomatic Complexity Hotspots",
-            "### Cognitive Complexity Hotspots",
-            "### Halstead Effort Hotspots",
-            "### Largest Functions by SLOC",
-            "### Functions With Many Parameters (>3)",
-            "### Class/Trait/Impl Hotspots (WMC)",
-            "### Functions with the most exit points (NEXITS)",
-            "### ABC Magnitude Hotspots",
+            "### Cyclomatic complexity hotspots",
+            "### Cognitive complexity hotspots",
+            "### Halstead effort hotspots",
+            "### Function size hotspots",
+            "### Many parameters hotspots",
+            "### Type hotspots",
+            "### Exit points hotspots",
+            "### ABC magnitude hotspots",
         ] {
             let start = report
                 .find(header)
@@ -2057,7 +2170,7 @@ mod tests {
         let md = generate_report(&fixture, 20, SuppressionPolicy::Honor);
         let html = generate_html_report(&fixture, 20, SuppressionPolicy::Honor);
 
-        for header in ["Halstead Effort Hotspots", "Functions With Many Parameters"] {
+        for header in ["Halstead effort hotspots", "Many parameters hotspots"] {
             // Markdown: the header row immediately after the section heading.
             let md_hdr = format!("### {header}");
             let start = md
@@ -2073,11 +2186,18 @@ mod tests {
             );
 
             // HTML: the section emits a `<th>Line</th>` in its header row.
-            // Headings carry a slug `id=` now (issue #622), so match the
-            // heading *text* after the tag-open rather than the bare tag.
-            let html_hdr = format!(">{header}");
+            // The section title now also appears as a TOC link (issue #685),
+            // so match the heading element's text-close (`>{header}…</h3>`),
+            // not a bare `>{header}` that would hit the nav `<a>` first.
+            let title_needle = format!(">{header}");
             let start = html
-                .find(&html_hdr)
+                .match_indices(&title_needle)
+                .map(|(i, _)| i)
+                .find(|&i| {
+                    html[i..]
+                        .find('<')
+                        .is_some_and(|lt| html[i + lt..].starts_with("</h3>"))
+                })
                 .unwrap_or_else(|| panic!("missing HTML section: {header}"));
             let table_slice = &html[start..];
             let body_start = table_slice.find("<tbody").unwrap_or(table_slice.len());
@@ -2097,16 +2217,17 @@ mod tests {
             SpaceKind::Function,
             LANG::Rust,
         );
-        func.nexits = 2;
+        // > NEXITS_HOTSPOT_FLOOR (2) so the exit-points section renders (#689).
+        func.nexits = 3;
         func.abc = 0.0;
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
-            report.contains("### Functions with the most exit points (NEXITS)"),
+            report.contains("### Exit points hotspots"),
             "NEXITS section should be present"
         );
         assert!(
-            !report.contains("### ABC Magnitude Hotspots"),
+            !report.contains("### ABC magnitude hotspots"),
             "ABC section should be absent when all abc values are 0"
         );
     }
@@ -2128,12 +2249,12 @@ mod tests {
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
 
-        let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
+        let cc = section_body(&report, "### Cyclomatic complexity hotspots");
         assert!(
             !cc.contains("`hot`"),
             "suppressed function must be omitted from the Cyclomatic table:\n{cc}"
         );
-        let cog = section_body(&report, "### Cognitive Complexity Hotspots");
+        let cog = section_body(&report, "### Cognitive complexity hotspots");
         assert!(
             cog.contains("`hot`"),
             "function suppressed only for cyclomatic must still appear in Cognitive:\n{cog}"
@@ -2150,7 +2271,7 @@ mod tests {
         func.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Ignore);
-        let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
+        let cc = section_body(&report, "### Cyclomatic complexity hotspots");
         assert!(
             cc.contains("`hot`"),
             "--no-suppress must include the suppressed function:\n{cc}"
@@ -2172,7 +2293,7 @@ mod tests {
         func.suppressed = SuppressionScope::All;
 
         let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
-        let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
+        let cc = section_body(&report, "### Cyclomatic complexity hotspots");
         assert!(
             !cc.contains("`hot`"),
             "file-scoped suppress-all must hide the function from every table:\n{cc}"
@@ -2180,7 +2301,7 @@ mod tests {
         // Issue #681: with the only function suppressed, the Cognitive
         // section still emits its heading; its body is the omission note and
         // no row is rendered.
-        let cog = section_body(&report, "### Cognitive Complexity Hotspots");
+        let cog = section_body(&report, "### Cognitive complexity hotspots");
         assert!(
             !cog.contains("`hot`"),
             "the suppressed function must not appear in the Cognitive section:\n{cog}"
@@ -2191,7 +2312,7 @@ mod tests {
         );
 
         let report_audit = generate_report(&[unit2(), func_all()], 20, SuppressionPolicy::Ignore);
-        let cc_audit = section_body(&report_audit, "### Cyclomatic Complexity Hotspots");
+        let cc_audit = section_body(&report_audit, "### Cyclomatic complexity hotspots");
         assert!(
             cc_audit.contains("`hot`"),
             "--no-suppress must include the file-suppressed function:\n{cc_audit}"
@@ -2204,7 +2325,7 @@ mod tests {
     /// the canonical `nexits` spelling — no `exit` alias).
     #[test]
     fn exit_suppression_drops_function_from_nexits_table() {
-        const NEXITS_HEADER: &str = "### Functions with the most exit points (NEXITS)";
+        const NEXITS_HEADER: &str = "### Exit points hotspots";
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
         let mut func = make_summary("multi_exit", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         func.nexits = 5;
@@ -2287,9 +2408,13 @@ mod tests {
             return "";
         };
         let rest = &report[start..];
-        let end = rest[1..]
-            .find("\n## ")
-            .or_else(|| rest[1..].find("\n### "))
+        let after = &rest[1..];
+        // First `### `/`## ` boundary, whichever is nearer (#679 placed the
+        // legend at `##` after the per-language sections).
+        let end = [after.find("\n## "), after.find("\n### ")]
+            .into_iter()
+            .flatten()
+            .min()
             .map_or(rest.len(), |p| p + 1);
         &rest[..end]
     }

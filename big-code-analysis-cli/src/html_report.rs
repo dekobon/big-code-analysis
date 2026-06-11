@@ -1,7 +1,9 @@
-// bca: suppress-file(halstead, loc, nargs, nom)
+// bca: suppress-file(halstead, loc, nargs, nexits, nom)
 // HTML report templating; thin per-language orchestrators delegating to small
-// write_* helpers. File-level halstead/loc and summed nargs/nom are
-// string-formatting-volume / many-fn aggregation artifacts.
+// write_* helpers. File-level halstead/loc and summed nargs/nom/nexits are
+// string-formatting-volume / many-fn aggregation artifacts — the many tiny
+// early-returning write helpers (and the in-file test module) inflate the
+// file-level nexits sum the same way they inflate the others.
 
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
@@ -40,9 +42,7 @@ use std::fmt::Write;
 
 use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
-use crate::markdown_report::hotspot::{
-    self, ACTIONABLE_SUMMARY_INDEX, Align, Cell, HotspotSpec, SPECS, Source,
-};
+use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS, Source};
 use crate::markdown_report::{
     FunctionSummary, is_class_like, language_display_name, mi_rating, thousands,
 };
@@ -101,20 +101,34 @@ fn slugify(basis: &str) -> String {
     }
 }
 
+/// One `h2` section in the table of contents plus the `h3` subsections
+/// nested under it (in document order). `(display_text, id)` for the
+/// section, then a child list of the same for each `h3` that followed it
+/// before the next `h2`.
+#[derive(Default)]
+struct TocSection {
+    text: String,
+    id: String,
+    children: Vec<(String, String)>,
+}
+
 /// Collects heading ids during body rendering: assigns a unique, slug-based
 /// `id` to every `h2`/`h3` (deduplicating collisions with a `-2`, `-3`, …
 /// suffix so two languages' "Summary" headings never share a fragment), and
-/// records the top-level (`h2`) headings for the table-of-contents `<nav>`.
+/// records the `h2` sections plus their nested `h3` subsections for the
+/// table-of-contents `<nav>`.
 ///
-/// The TOC lists only `h2` sections to stay compact (issue #622's "compact
-/// nav"); `h3` ids are still emitted so a reader can deep-link to an
-/// individual hotspot table, they just do not bloat the overview.
+/// The TOC nests each language's `h3` hotspot subsections under its `h2`
+/// entry as a collapsible list (issue #685), reusing the per-language-unique
+/// ids `unique_id` mints so a reader can jump straight to one hotspot table.
+/// (The original `h2`-only "compact nav" — issue #622 — abandoned a reader to
+/// scrolling once per-language sections grew this many subsections.)
 #[derive(Default)]
 pub(crate) struct Headings {
     /// Slug -> number of times already emitted, for `-N` de-duplication.
     seen: HashMap<String, usize>,
-    /// `(display_text, id)` for each `h2`, in document order.
-    toc: Vec<(String, String)>,
+    /// One entry per `h2`, in document order, each carrying its `h3` children.
+    toc: Vec<TocSection>,
 }
 
 impl Headings {
@@ -131,28 +145,44 @@ impl Headings {
         }
     }
 
-    /// Emit `<h2 id="…">text</h2>` and record the TOC entry. `id_basis` is
+    /// Record a TOC `h3` child under the most recent `h2`. A stray `h3` with
+    /// no preceding `h2` is dropped from the TOC (it cannot nest under
+    /// anything) — this never happens in practice, since every `h3` the
+    /// renderers emit sits inside a language `<section>` whose `h2` came
+    /// first.
+    fn push_child(&mut self, text: String, id: String) {
+        if let Some(section) = self.toc.last_mut() {
+            section.children.push((text, id));
+        }
+    }
+
+    /// Emit `<h2 id="…">text</h2>` and open a new TOC section. `id_basis` is
     /// the slug source (the raw language slug or a section title);
-    /// `display_text` is the already-`escape_html`-ed visible text. Returns
-    /// nothing — the caller has already escaped `display_text`.
+    /// `display_text` is the already-`escape_html`-ed visible text.
     pub(crate) fn emit_h2(&mut self, out: &mut String, id_basis: &str, display_text: &str) {
         let id = self.unique_id(id_basis);
         let _ = write!(out, "<h2 id=\"{id}\">{display_text}</h2>");
-        self.toc.push((display_text.to_owned(), id));
+        self.toc.push(TocSection {
+            text: display_text.to_owned(),
+            id,
+            children: Vec::new(),
+        });
     }
 
-    /// Emit `<h3 id="…">text</h3>`. `id_basis` is the slug source;
-    /// `display_text` is already `escape_html`-ed.
+    /// Emit `<h3 id="…">text</h3>` and nest it under the current `h2` in the
+    /// TOC. `id_basis` is the slug source; `display_text` is already
+    /// `escape_html`-ed.
     pub(crate) fn emit_h3(&mut self, out: &mut String, id_basis: &str, display_text: &str) {
         let id = self.unique_id(id_basis);
         let _ = writeln!(out, "<h3 id=\"{id}\">{display_text}</h3>");
+        self.push_child(display_text.to_owned(), id);
     }
 
     /// Emit `<hN id="…">text</hN>` at a caller-chosen `level` (used by the
     /// VCS report, whose bus-factor subsection sits at `h2` on the
-    /// standalone page and `h3` when embedded). Only level-2 headings are
-    /// recorded in the TOC, matching `emit_h2`. `display_text` is already
-    /// `escape_html`-ed.
+    /// standalone page and `h3` when embedded). A level-2 heading opens a new
+    /// TOC section; a level-3 heading nests under the current one, matching
+    /// `emit_h2`/`emit_h3`. `display_text` is already `escape_html`-ed.
     pub(crate) fn emit_heading(
         &mut self,
         out: &mut String,
@@ -163,23 +193,47 @@ impl Headings {
         let id = self.unique_id(id_basis);
         let _ = writeln!(out, "<h{level} id=\"{id}\">{display_text}</h{level}>");
         if level == 2 {
-            self.toc.push((display_text.to_owned(), id));
+            self.toc.push(TocSection {
+                text: display_text.to_owned(),
+                id,
+                children: Vec::new(),
+            });
+        } else if level == 3 {
+            self.push_child(display_text.to_owned(), id);
         }
     }
 }
 
-/// Emit the table-of-contents `<nav>` linking each collected `h2` section.
-/// Renders nothing when there are no sections (the empty-walk report). The
-/// link text reuses the heading's escaped text and the href is the
-/// slug-based id, so every entry resolves to a real anchor on the page.
-fn write_toc(out: &mut String, toc: &[(String, String)]) {
+/// Emit the table-of-contents `<nav>` linking each collected `h2` section,
+/// with its `h3` subsections nested in a collapsible `<details>` so a reader
+/// can jump straight to one hotspot table (issue #685). Renders nothing when
+/// there are no sections (the empty-walk report). All `text` is already
+/// `escape_html`-ed and every `id` is slug-safe ASCII, so each entry resolves
+/// to a real anchor on the page.
+fn write_toc(out: &mut String, toc: &[TocSection]) {
     if toc.is_empty() {
         return;
     }
     let _ = out.write_str("<nav class=\"toc\" aria-label=\"Sections\">\n<ul>\n");
-    for (text, id) in toc {
-        // `text` is already `escape_html`-ed and `id` is slug-safe ASCII.
-        let _ = writeln!(out, "<li><a href=\"#{id}\">{text}</a></li>");
+    for section in toc {
+        if section.children.is_empty() {
+            let _ = writeln!(
+                out,
+                "<li><a href=\"#{}\">{}</a></li>",
+                section.id, section.text
+            );
+        } else {
+            // A `<details>` keeps the nested list collapsed by default so the
+            // nav stays compact, yet expandable — robust across print, mobile,
+            // and narrow viewports (issue #685).
+            let _ = out.write_str("<li><details>\n<summary>");
+            let _ = write!(out, "<a href=\"#{}\">{}</a>", section.id, section.text);
+            let _ = out.write_str("</summary>\n<ul>\n");
+            for (text, id) in &section.children {
+                let _ = writeln!(out, "<li><a href=\"#{id}\">{text}</a></li>");
+            }
+            let _ = out.write_str("</ul>\n</details></li>\n");
+        }
     }
     let _ = out.write_str("</ul>\n</nav>\n");
 }
@@ -242,6 +296,12 @@ background:#fff;border:1px solid #e5e5e5;border-radius:4px;\
 box-shadow:0 1px 2px rgba(0,0,0,0.06)}\
 nav.toc ul{margin:0.2rem 0 0.2rem 1.2rem}\
 nav.toc li{font-size:0.9rem}\
+nav.toc details>summary{cursor:pointer;list-style:revert}\
+nav.toc details ul{margin-left:1rem}\
+div.global-actionable{margin:0.8rem 0}\
+div.global-actionable ul{margin:0.2rem 0 0.2rem 1.2rem}\
+footer.provenance{margin-top:2rem;padding-top:0.5rem;border-top:1px solid #ccc;\
+font-size:0.8rem;color:#666}\
 p.sort-hint{font-size:0.85rem;color:#555;margin:0.4rem 0;font-style:italic}\
 @media (prefers-color-scheme:dark){nav.toc{background:#1e1e1e;border-color:#333}}\
 details.legend{font-size:0.85rem;color:#444;margin:0.8rem 0}\
@@ -251,6 +311,7 @@ details.legend dt{font-weight:600;margin-top:0.3rem}\
 details.legend dd{margin:0 0 0 1rem;color:#555}\
 ul{margin:0.4rem 0 0.4rem 1.2rem;padding:0}\
 li{margin:0.15rem 0;font-size:0.9rem}\
+div.table-wrap{overflow-x:auto;margin-bottom:0.5rem}\
 table.hotspot{border-collapse:collapse;width:100%;font-size:0.85rem;\
 background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.06);margin-bottom:0.5rem}\
 table.hotspot th,table.hotspot td{padding:0.4rem 0.6rem;\
@@ -498,7 +559,11 @@ fn write_table_core<'t>(
     tooltip_for: impl Fn(usize, &str) -> Option<&'t str>,
 ) {
     debug_assert_eq!(headers.len(), aligns.len());
-    let _ = out.write_str("<table class=\"hotspot\">\n<thead><tr>");
+    // Wrap every table in an overflow-x scroll container so a wide table
+    // (the 21-column VCS table especially) scrolls horizontally instead of
+    // clipping its right-most metric columns past a narrow viewport (issue
+    // #686). `white-space:nowrap` cells stay; the wrapper handles overflow.
+    let _ = out.write_str("<div class=\"table-wrap\">\n<table class=\"hotspot\">\n<thead><tr>");
     for (i, (h, a)) in headers.iter().zip(aligns).enumerate() {
         let numeric_attr = if a.is_numeric() {
             " data-numeric=\"1\""
@@ -519,7 +584,23 @@ fn write_table_core<'t>(
         if let Some(tip) = tooltip_for(i, h) {
             let _ = write!(out, " title=\"{}\"", escape_html(tip));
         }
-        let _ = write!(out, ">{}</th>", escape_html(h));
+        // Link the header text to its hosted metric chapter when one exists
+        // (issue #675). The link sits inside the still-clickable `<th>`, so
+        // clicking the padding sorts and clicking the term opens the docs;
+        // non-metric headers (File, Rank, overview averages) render bare.
+        match hotspot::metric_doc_url(h) {
+            Some(url) => {
+                let _ = write!(
+                    out,
+                    "><a href=\"{}\">{}</a></th>",
+                    escape_html(&url),
+                    escape_html(h)
+                );
+            }
+            None => {
+                let _ = write!(out, ">{}</th>", escape_html(h));
+            }
+        }
     }
     let _ = out.write_str("</tr></thead>\n<tbody>\n");
     for (r, row) in rows.iter().enumerate() {
@@ -549,7 +630,7 @@ fn write_table_core<'t>(
         }
         let _ = out.write_str("</tr>\n");
     }
-    let _ = out.write_str("</tbody>\n</table>\n");
+    let _ = out.write_str("</tbody>\n</table>\n</div>\n");
 }
 
 /// Render a hotspot table from the shared [`Column`] descriptors. Builds the
@@ -666,6 +747,11 @@ impl GlobalTotals {
 pub(crate) fn write_html_head(out: &mut String, title: &str, heading: &str) {
     let _ = out.write_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     let _ = out.write_str("<meta charset=\"utf-8\">\n");
+    // Without a viewport meta, mobile browsers render the page at desktop
+    // width zoomed out to unreadable; the report is published to GitHub Pages
+    // where mobile and split-screen reading are normal (issue #686).
+    let _ =
+        out.write_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     let _ = writeln!(
         out,
         "<title>{} \u{2014} big-code-analysis</title>",
@@ -690,16 +776,22 @@ fn write_global_summary(out: &mut String, totals: &GlobalTotals, by_lang: &LangG
         escape_html(&thousands(totals.files)),
         escape_html(&languages_list),
     );
+    // PLOC / Comments carry hover tooltips (the legend defines them too —
+    // issue #679); SLOC's definition already rides the hotspot SLOC column.
     let _ = writeln!(
         out,
-        "<p><strong>Total SLOC:</strong> {} <strong>PLOC:</strong> {} <strong>Comments:</strong> {}</p>",
+        "<p><strong>Total SLOC:</strong> {} \
+         <strong title=\"{}\">PLOC:</strong> {} \
+         <strong title=\"{}\">Comments:</strong> {}</p>",
         escape_html(&thousands(totals.sloc)),
+        escape_html(hotspot::PLOC_TOOLTIP),
         escape_html(&thousands(totals.ploc)),
+        escape_html(hotspot::COMMENTS_TOOLTIP),
         escape_html(&thousands(totals.cloc)),
     );
     let _ = writeln!(
         out,
-        "<p><strong>Functions/methods:</strong> {} <strong>Classes/impls/traits:</strong> {}</p>",
+        "<p><strong>Functions/methods:</strong> {} <strong>Types:</strong> {}</p>",
         escape_html(&thousands(totals.functions)),
         escape_html(&thousands(totals.classes)),
     );
@@ -799,23 +891,28 @@ pub(crate) fn write_html_tail(out: &mut String) {
 
 /// Produce a self-contained HTML quality-metrics report from the
 /// collected summaries. `top_n` controls how many entries appear in
-/// each hotspot table.
+/// each hotspot table. Footer-free convenience wrapper used by the snapshot
+/// tests; the command path goes through [`generate_html_report_with_vcs`]
+/// with a provenance footer.
+#[cfg(test)]
 pub(crate) fn generate_html_report(
     summaries: &[FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
 ) -> String {
-    generate_html_report_with_vcs(summaries, top_n, policy, None)
+    generate_html_report_with_vcs(summaries, top_n, policy, None, None)
 }
 
 /// As [`generate_html_report`], optionally inserting a "Change-history
 /// risk" section (`bca report --vcs`) before the closing tail, rendered
-/// through [`crate::vcs_report`].
+/// through [`crate::vcs_report`], and an optional provenance footer (issue
+/// #680). `prov` is `None` in the snapshot tests and `Some` from the command.
 pub(crate) fn generate_html_report_with_vcs(
     summaries: &[FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
     vcs: Option<&crate::vcs_command::Report>,
+    prov: Option<&crate::provenance::Provenance<'_>>,
 ) -> String {
     // Each summary contributes at most one row across all hotspot
     // tables (sections × top_n is bounded), but the per-language
@@ -854,35 +951,101 @@ pub(crate) fn generate_html_report_with_vcs(
         }
         // A visible legend so the column definitions survive print, mobile,
         // and screen readers — the `title=` tooltips are hover-only and
-        // invisible to all three (issue #611).
-        write_legend_html(&mut body, &hotspot::legend_entries());
+        // invisible to all three (issue #611). Includes the global-header
+        // stat definitions (PLOC / Comments / Comment ratio) so the legend
+        // defines every number on the page (issue #679).
+        write_legend_html(
+            &mut body,
+            &crate::markdown_report::legend_entries_with_header_stats(),
+        );
     }
     if let Some(report) = vcs {
         crate::vcs_report::push_html_section(&mut body, &mut headings, report);
     }
+    // Provenance footer, inside the body so it precedes the closing tail and
+    // the document stays well-formed (issue #680).
+    if let Some(prov) = prov {
+        crate::provenance::push_html_footer(&mut body, prov);
+    }
 
     write_toc(&mut out, &headings.toc);
+    // A global cross-language roll-up of the Actionable Summary near the TOC,
+    // so a multi-language report gives one top-of-page signal before the
+    // per-language sections (issue #678).
+    if !by_lang.is_empty() {
+        write_global_actionable_summary(&mut out, summaries);
+    }
     out.push_str(&body);
     write_html_tail(&mut out);
     out
 }
 
-/// Emit a visible, `<details>`-collapsed legend listing each metric
-/// column's abbreviation and its one-line definition, drawn from the same
-/// `(header, tooltip)` pairs the hover tooltips use so the two cannot
-/// drift. Renders nothing when `entries` is empty.
+/// Render the global cross-language Actionable Summary near the TOC: the
+/// per-language counts summed over every function in the walk (issue #678).
+/// Suppression policy does not gate these counts — like the per-language
+/// Actionable Summary, this is a raw whole-codebase health signal, not a
+/// gate (issue #501). Renders the "no concerns" line when nothing clears a
+/// threshold, mirroring the per-language block.
+fn write_global_actionable_summary(out: &mut String, summaries: &[FunctionSummary]) {
+    let funcs: Vec<&FunctionSummary> = summaries
+        .iter()
+        .filter(|s| s.kind == SpaceKind::Function)
+        .collect();
+    let counts = ActionableCounts::from_funcs(&funcs);
+    let _ = out.write_str(
+        "<div class=\"summary global-actionable\">\n<p><strong>Actionable summary \
+         (all languages)</strong></p>\n",
+    );
+    if counts.all_clear() {
+        let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
+        let _ = out.write_str("</div>\n");
+        return;
+    }
+    let _ = out.write_str("<ul>\n");
+    for (count, label) in [
+        (counts.cc_gt10, "functions with CC &gt; 10"),
+        (
+            counts.cog_gt15,
+            "functions with cognitive complexity &gt; 15",
+        ),
+        (counts.sloc_gt100, "functions with SLOC &gt; 100"),
+        (counts.nargs_gt3, "functions with more than 3 parameters"),
+        (
+            counts.bugs_gt1,
+            "functions with estimated Halstead bugs &gt; 1.0",
+        ),
+    ] {
+        if count > 0 {
+            let _ = writeln!(out, "<li><strong>{count}</strong> {label}</li>");
+        }
+    }
+    let _ = out.write_str("</ul>\n</div>\n");
+}
+
+/// Emit a visible legend listing each metric column's abbreviation and its
+/// one-line definition, drawn from the same `(header, tooltip)` pairs the
+/// hover tooltips use so the two cannot drift. The `<details>` is rendered
+/// **open** — the legend's whole purpose is to survive print, mobile, and
+/// screen readers, all of which a collapsed `<details>` defeats just as the
+/// hover tooltips do (issue #679); the page bottom is cheap vertical space.
+/// Renders nothing when `entries` is empty.
 pub(crate) fn write_legend_html(out: &mut String, entries: &[(&str, &str)]) {
     if entries.is_empty() {
         return;
     }
-    let _ = out.write_str("<details class=\"legend\">\n<summary>Legend</summary>\n<dl>\n");
+    let _ = out.write_str("<details class=\"legend\" open>\n<summary>Legend</summary>\n<dl>\n");
     for (header, tip) in entries {
-        let _ = writeln!(
-            out,
-            "<dt>{}</dt><dd>{}</dd>",
-            escape_html(header),
-            escape_html(tip),
-        );
+        // Link the term to its hosted metric chapter when one exists (issue
+        // #675); VCS / identity headers have no anchor and render bare.
+        let term = match hotspot::metric_doc_url(header) {
+            Some(url) => format!(
+                "<a href=\"{}\">{}</a>",
+                escape_html(&url),
+                escape_html(header)
+            ),
+            None => escape_html(header).into_owned(),
+        };
+        let _ = writeln!(out, "<dt>{term}</dt><dd>{}</dd>", escape_html(tip));
     }
     let _ = out.write_str("</dl>\n</details>\n");
 }
@@ -999,10 +1162,15 @@ fn emit_html_section(
     rows: &[&FunctionSummary],
 ) {
     let title = spec.title.render(top_n);
-    // The id basis is the language slug plus the section title; the title
-    // is the slug source (not the display text), so a `>` in the
-    // many-parameters heading never reaches the fragment.
-    headings.emit_h3(out, &format!("{id_prefix}-{title}"), &escape_html(&title));
+    // The id basis is the language slug plus the section's *stable* basis
+    // ("<Concept> hotspots", without the `(top N by …)` clause), so the
+    // fragment (`#rust-cyclomatic-complexity-hotspots`) does not shift with
+    // `--top` (issue #677). The displayed text is the full rendered title.
+    headings.emit_h3(
+        out,
+        &format!("{id_prefix}-{}", spec.title.id_basis()),
+        &escape_html(&title),
+    );
     write_hotspot_table(out, spec, rows);
 }
 
@@ -1141,21 +1309,27 @@ fn emit_fully_suppressed_note_html(
     out: &mut String,
     headings: &mut Headings,
     id_prefix: &str,
-    title: &str,
+    spec: &HotspotSpec,
+    top_n: usize,
     count: usize,
 ) {
     if count == 0 {
         return;
     }
-    // Emit the section heading with the same id basis `emit_html_section`
-    // uses, so a fully-suppressed section keeps its place in the heading/id
-    // sequence and deep links resolve regardless of suppression state
-    // (issue #681). The omission note is the section body.
-    headings.emit_h3(out, &format!("{id_prefix}-{title}"), &escape_html(title));
+    let title = spec.title.render(top_n);
+    // Emit the section heading with the same stable id basis
+    // `emit_html_section` uses, so a fully-suppressed section keeps its place
+    // in the heading/id sequence and deep links resolve regardless of
+    // suppression state (issue #681). The omission note is the section body.
+    headings.emit_h3(
+        out,
+        &format!("{id_prefix}-{}", spec.title.id_basis()),
+        &escape_html(&title),
+    );
     let _ = writeln!(
         out,
         "<p class=\"note\">{}</p>",
-        escape_html(&hotspot::fully_suppressed_caption(title, count))
+        escape_html(&hotspot::fully_suppressed_caption(&title, count))
     );
 }
 
@@ -1175,15 +1349,15 @@ fn write_language_section(
     let (units, funcs) = partition_by_kind(entries);
     write_language_summary(out, headings, &id_prefix, &units);
 
+    // The Actionable Summary leads the section (directly after Summary,
+    // before any hotspot table) so a reader sees the highest-altitude counts
+    // first (issue #678).
+    write_actionable_summary(out, headings, &id_prefix, &funcs, policy);
+
     // Drive every hotspot section from the shared `SPECS` table so the HTML
     // and Markdown reports cannot diverge in membership/order/suppression.
-    // The Actionable Summary (raw, format-specific) splices in at its fixed
-    // index; WMC draws from the full slice, MI from units, the rest from
-    // functions.
-    for (i, spec) in SPECS.iter().enumerate() {
-        if i == ACTIONABLE_SUMMARY_INDEX {
-            write_actionable_summary(out, headings, &id_prefix, &funcs, policy);
-        }
+    // WMC draws from the full slice, MI from units, the rest from functions.
+    for spec in SPECS {
         let base: &[&FunctionSummary] = match spec.source {
             Source::Units => &units,
             Source::Funcs => &funcs,
@@ -1196,13 +1370,7 @@ fn write_language_section(
                 // suppression earns the same "table omitted" caption, or the
                 // Actionable Summary's raw CC bullets would dangle (#616).
                 let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
-                emit_fully_suppressed_note_html(
-                    out,
-                    headings,
-                    &id_prefix,
-                    &spec.title.render(top_n),
-                    suppressed,
-                );
+                emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
             } else {
                 emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
                 emit_cc_note_html(out, &stats, policy);
@@ -1214,13 +1382,7 @@ fn write_language_section(
                 // table whose every matching row was suppressed; only the
                 // latter earns a caption so a summary bullet never dangles.
                 let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
-                emit_fully_suppressed_note_html(
-                    out,
-                    headings,
-                    &id_prefix,
-                    &spec.title.render(top_n),
-                    suppressed,
-                );
+                emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
             } else {
                 emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
             }
@@ -1490,7 +1652,7 @@ mod tests {
 
         let out = generate_html_report(&summaries, 5, SuppressionPolicy::Honor);
         let cc_section = out
-            .split_once(">Cyclomatic Complexity Hotspots</h3>")
+            .split_once(">Cyclomatic complexity hotspots (top 5 by CC)</h3>")
             .expect("cyclomatic section present")
             .1;
         let cc_table = cc_section.split_once("</table>").expect("table closes").0;
@@ -1519,7 +1681,7 @@ mod tests {
         ];
         let out = generate_html_report(&entries, 20, SuppressionPolicy::Honor);
         let wmc_table = out
-            .split_once(">Class/Trait/Impl Hotspots (WMC)</h3>")
+            .split_once(">Type hotspots (top 20 by WMC)</h3>")
             .expect("WMC section present even with no functions")
             .1
             .split_once("</table>")
@@ -1538,6 +1700,37 @@ mod tests {
         let a = generate_html_report(&s, 20, SuppressionPolicy::Honor);
         let b = generate_html_report(&s, 20, SuppressionPolicy::Honor);
         assert_eq!(a, b, "renderer must be byte-deterministic across runs");
+    }
+
+    /// Issue #680: with provenance supplied (the command path), the HTML
+    /// report carries a `<footer class="provenance">` inside the body (before
+    /// the closing tail, so the document stays well-formed) naming the same
+    /// facts as the Markdown footer. The footer-free path emits none.
+    #[test]
+    fn provenance_footer_inside_body_when_supplied() {
+        let s = two_lang_fixture();
+        let prov = crate::provenance::Provenance {
+            version: "9.9.9",
+            date: "2026-06-11",
+            paths: "src/",
+            top: 0,
+            policy: SuppressionPolicy::Ignore,
+        };
+        let out =
+            generate_html_report_with_vcs(&s, 0, SuppressionPolicy::Ignore, None, Some(&prov));
+        assert!(out.contains("<footer class=\"provenance\">"));
+        assert!(out.contains(
+            "Generated by bca 9.9.9 on 2026-06-11 over src/ \u{2014} all entries per table, \
+             suppression markers ignored."
+        ));
+        // The footer precedes the closing tail (well-formed document).
+        let footer_at = out.find("<footer class=\"provenance\">").expect("footer");
+        let body_close = out.find("</body>").expect("</body>");
+        assert!(footer_at < body_close, "footer must sit inside <body>");
+        assert_html_well_formed(&out);
+
+        let plain = generate_html_report(&s, 20, SuppressionPolicy::Honor);
+        assert!(!plain.contains("<footer class=\"provenance\">"));
     }
 
     #[test]
@@ -1593,9 +1786,11 @@ mod tests {
             SpaceKind::Class,
             LANG::Rust,
         ));
-        // The "Args" table is gated on nargs > 3; bump one function so
-        // the section actually renders.
+        // The "Args" table is gated on nargs > 3 and the exit-points table on
+        // nexits > 2 (issue #689); bump one function so both sections (and
+        // thus their Args / Exits headers) actually render.
         summaries[1].nargs = 5;
+        summaries[1].nexits = 3;
         let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
 
         // Drive the loop from the shared sources so a new tooltip is
@@ -1609,7 +1804,18 @@ mod tests {
             .into_iter()
             .chain(AST_OVERVIEW_TOOLTIPS.iter().copied())
         {
-            let needle = format!(" title=\"{}\">{header}</th>", escape_html(tip));
+            // A metric header now links its hosted chapter (issue #675), so
+            // its text is wrapped in an `<a>`; a non-metric overview header
+            // (Avg CC, …) stays bare. Either way the `title=` tooltip
+            // precedes it.
+            let needle = match hotspot::metric_doc_url(header) {
+                Some(url) => format!(
+                    " title=\"{}\"><a href=\"{}\">{header}</a></th>",
+                    escape_html(tip),
+                    escape_html(&url)
+                ),
+                None => format!(" title=\"{}\">{header}</th>", escape_html(tip)),
+            };
             assert!(
                 out.contains(&needle),
                 "header {header:?} should render with title attribute; expected substring {needle:?}"
@@ -1618,7 +1824,7 @@ mod tests {
 
         // Non-metric labels must remain bare so click-to-sort UX is not
         // crowded with redundant tooltips for self-describing columns.
-        for plain in ["File", "Function", "Class", "Line", "Language"] {
+        for plain in ["File", "Function", "Type", "Line", "Language"] {
             assert!(
                 header_tooltip(plain).is_none(),
                 "header {plain:?} should not carry a tooltip"
@@ -1633,27 +1839,49 @@ mod tests {
 
     #[test]
     fn html_report_renders_visible_legend() {
-        // Issue #611: the `title=` tooltips are hover-only (invisible in
-        // print, on mobile, and to screen readers), so the report also
-        // emits a visible `<details>` legend. It draws from the same
-        // `hotspot::legend_entries` the tooltips use, so the definition a
-        // reader sees on hover and the one in the legend cannot diverge.
+        // Issue #611/#679: the `title=` tooltips are hover-only (invisible in
+        // print, on mobile, and to screen readers), so the report also emits
+        // a visible legend, rendered `<details ... open>` so it survives those
+        // same surfaces a collapsed block would defeat. It draws from the same
+        // `legend_entries_with_header_stats` the tooltips use, so the
+        // definition a reader sees on hover and the one in the legend cannot
+        // diverge.
         let summaries = rust_fixture();
         let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
         assert!(
-            out.contains("<details class=\"legend\">"),
-            "visible legend block missing"
+            out.contains("<details class=\"legend\" open>"),
+            "visible legend block must be present and open (issue #679)"
         );
+        // The header-stat definitions appear in the legend, each linking the
+        // Lines-of-Code chapter (issue #679/#675).
+        for header in ["PLOC", "Comments", "Comment ratio"] {
+            let url = hotspot::metric_doc_url(header).expect("header stat has a doc anchor");
+            assert!(
+                out.contains(&format!(
+                    "<dt><a href=\"{}\">{header}</a></dt>",
+                    escape_html(&url)
+                )),
+                "legend missing linked header-stat entry {header:?}"
+            );
+        }
         for (header, tip) in hotspot::legend_entries() {
             // Only assert entries whose column the fixture actually renders;
             // every metric column the rust fixture exercises must define
-            // itself in the legend.
-            let dt = format!(
-                "<dt>{}</dt><dd>{}</dd>",
-                escape_html(header),
-                escape_html(tip)
-            );
-            if out.contains(&format!(">{header}</th>")) {
+            // itself in the legend. Metric terms link their chapter (#675), so
+            // both the `<th>` render-check and the `<dt>` term carry the link.
+            let (th_needle, dt_term) = match hotspot::metric_doc_url(header) {
+                Some(url) => (
+                    format!("<a href=\"{}\">{header}</a></th>", escape_html(&url)),
+                    format!(
+                        "<a href=\"{}\">{}</a>",
+                        escape_html(&url),
+                        escape_html(header)
+                    ),
+                ),
+                None => (format!(">{header}</th>"), escape_html(header).into_owned()),
+            };
+            let dt = format!("<dt>{dt_term}</dt><dd>{}</dd>", escape_html(tip));
+            if out.contains(&th_needle) {
                 assert!(out.contains(&dt), "legend missing entry for {header:?}");
             }
         }
@@ -1824,19 +2052,22 @@ mod tests {
         );
         // The CC table must not list the suppressed function, but the
         // cognitive table (a different metric) still does.
-        let cc = html_section(&honored, "Cyclomatic Complexity Hotspots");
+        let cc = html_section(&honored, "Cyclomatic complexity hotspots (top 20 by CC)");
         assert!(
             !cc.contains(">hot<"),
             "suppressed function must be omitted from the CC table:\n{cc}"
         );
-        let cog = html_section(&honored, "Cognitive Complexity Hotspots");
+        let cog = html_section(
+            &honored,
+            "Cognitive complexity hotspots (top 20 by Cognitive)",
+        );
         assert!(
             cog.contains(">hot<"),
             "function suppressed only for cyclomatic stays in the Cognitive table:\n{cog}"
         );
 
         let audit = generate_html_report(&[unit, func], 20, SuppressionPolicy::Ignore);
-        let cc_audit = html_section(&audit, "Cyclomatic Complexity Hotspots");
+        let cc_audit = html_section(&audit, "Cyclomatic complexity hotspots (top 20 by CC)");
         assert!(
             cc_audit.contains(">hot<"),
             "--no-suppress must include the suppressed function:\n{cc_audit}"
@@ -1860,7 +2091,7 @@ mod tests {
         hot.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let honored = generate_html_report(&[unit, visible, hot], 20, SuppressionPolicy::Honor);
-        let cc = html_section(&honored, "Cyclomatic Complexity Hotspots");
+        let cc = html_section(&honored, "Cyclomatic complexity hotspots (top 20 by CC)");
 
         // The suppressed high-CC function is dropped from the table...
         assert!(
@@ -1923,12 +2154,12 @@ mod tests {
         // (the `hidden` function) are absent from this section's body.
         assert!(
             report.contains(
-                "<h3 id=\"rust-functions-with-many-parameters-3\">\
-                 Functions With Many Parameters (&gt;3)</h3>"
+                "<h3 id=\"rust-many-parameters-hotspots\">\
+                 Many parameters hotspots (top 20 by Args)</h3>"
             ),
             "a fully-suppressed many-parameters table must still emit its heading + id:\n{report}"
         );
-        let nargs_section = html_section(&report, "Functions With Many Parameters (&gt;3)");
+        let nargs_section = html_section(&report, "Many parameters hotspots (top 20 by Args)");
         assert!(
             !nargs_section.contains("<td>hidden</td>"),
             "the all-suppressed many-parameters section must not render a row:\n{nargs_section}"
@@ -1955,11 +2186,11 @@ mod tests {
         assert!(
             report.contains(
                 "<h3 id=\"rust-cyclomatic-complexity-hotspots\">\
-                 Cyclomatic Complexity Hotspots</h3>"
+                 Cyclomatic complexity hotspots (top 20 by CC)</h3>"
             ),
             "a fully-suppressed CC table must still emit its heading + id:\n{report}"
         );
-        let cc_section = html_section(&report, "Cyclomatic Complexity Hotspots");
+        let cc_section = html_section(&report, "Cyclomatic complexity hotspots (top 20 by CC)");
         assert!(
             !cc_section.contains("<td>hot</td>"),
             "the all-suppressed CC section must not render a table row:\n{cc_section}"
@@ -2122,11 +2353,46 @@ mod tests {
                 "TOC href #{frag} resolves to no id on the page; ids: {ids:?}"
             );
         }
-        // The TOC lists exactly the h2 sections (overview + both languages).
-        assert_eq!(
-            frags.len(),
-            3,
-            "TOC should list the three h2 sections, got {frags:?}"
+        // The TOC now nests each language's h3 subsections under its h2 entry
+        // (issue #685), so it links the three h2 sections plus every h3 below
+        // them. At minimum the three h2 anchors and the per-language hotspot
+        // h3 anchors must appear.
+        for expect in [
+            "per-language-overview",
+            "rust",
+            "python",
+            "rust-cyclomatic-complexity-hotspots",
+            "python-summary",
+        ] {
+            assert!(
+                frags.iter().any(|f| f == expect),
+                "TOC should link #{expect}, got {frags:?}"
+            );
+        }
+    }
+
+    /// Issue #685: each language's h3 hotspot subsections are nested under its
+    /// h2 entry in a collapsible `<details>` list, so a reader can jump
+    /// straight to one table rather than landing at the top of the section.
+    #[test]
+    fn toc_nests_h3_sections_under_each_language() {
+        let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
+        let nav = out
+            .split_once("<nav class=\"toc\"")
+            .expect("TOC present")
+            .1
+            .split_once("</nav>")
+            .expect("TOC closes")
+            .0;
+        // The nested lists are collapsible.
+        assert!(
+            nav.contains("<details>"),
+            "TOC must use a collapsible <details> for nested subsections:\n{nav}"
+        );
+        // A per-language h3 hotspot anchor must appear inside the nav.
+        assert!(
+            nav.contains("href=\"#rust-cyclomatic-complexity-hotspots\""),
+            "TOC must link the h3 hotspot subsections:\n{nav}"
         );
     }
 
@@ -2135,6 +2401,33 @@ mod tests {
         // No sections means no nav (and no dead links).
         let out = generate_html_report(&[], 20, SuppressionPolicy::Honor);
         assert!(!out.contains("<nav class=\"toc\""));
+        assert_html_well_formed(&out);
+    }
+
+    /// Issue #686: the head carries a viewport meta (so mobile renders at
+    /// device width) and every table is wrapped in an `overflow-x` scroll
+    /// container (so a wide table scrolls instead of clipping).
+    #[test]
+    fn viewport_meta_and_table_overflow_wrapper() {
+        let out = generate_html_report(&two_lang_fixture(), 20, SuppressionPolicy::Honor);
+        assert!(
+            out.contains(
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            ),
+            "viewport meta tag missing"
+        );
+        // The CSS defines the scroll container and every table is wrapped.
+        assert!(
+            out.contains("div.table-wrap{overflow-x:auto"),
+            "table-wrap overflow CSS missing"
+        );
+        let tables = out.matches("<table class=\"hotspot\">").count();
+        let wraps = out.matches("<div class=\"table-wrap\">").count();
+        assert!(tables > 0, "report must emit at least one table");
+        assert_eq!(
+            tables, wraps,
+            "every <table> must be wrapped in a .table-wrap div"
+        );
         assert_html_well_formed(&out);
     }
 
@@ -2152,7 +2445,7 @@ mod tests {
 
         // The CC table ranks by CC descending: the `aria-sort` must sit on
         // the CC `<th>`, not on Function/File/Line.
-        let cc = html_section(&out, "Cyclomatic Complexity Hotspots");
+        let cc = html_section(&out, "Cyclomatic complexity hotspots (top 5 by CC)");
         let header_row = cc.split_once("</thead>").expect("CC thead").0;
         assert_eq!(
             header_row.matches("aria-sort=").count(),
@@ -2165,7 +2458,7 @@ mod tests {
         );
 
         // The MI table ranks ascending (lowest MI first) on the MI column.
-        let mi = html_section(&out, "Maintainability Index (lowest files, top-5)");
+        let mi = html_section(&out, "Maintainability Index hotspots (lowest 5 by MI)");
         let mi_header = mi.split_once("</thead>").expect("MI thead").0;
         assert_eq!(mi_header.matches("aria-sort=").count(), 1);
         assert!(

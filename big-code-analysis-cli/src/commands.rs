@@ -37,9 +37,9 @@ use crate::format_util::MetricScalar;
 use crate::formats::{
     CBOR_STDOUT_ERROR, GenericFormat, MetricsDispatch, MetricsFormat, ReportFormat,
 };
-use crate::html_report::{generate_html_report, generate_html_report_with_vcs};
+use crate::html_report::generate_html_report_with_vcs;
 use crate::manifest::{self, Manifest};
-use crate::markdown_report::{FunctionSummary, generate_report, generate_report_with_vcs};
+use crate::markdown_report::{FunctionSummary, generate_report_with_vcs};
 use crate::metric_catalog::write_metrics;
 use crate::thresholds::{
     ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
@@ -1994,6 +1994,9 @@ fn run_command_report(
         validate_output_path(output, "report");
     }
     let format = args.resolved_format();
+    // Capture the provenance seed-path string before the walk consumes
+    // `args.strip_prefix` into the walker `Config` (issue #680).
+    let prov_paths = report_seed_paths_display(&args);
     // Build the change-history report (default windows, top = the same
     // per-table cap) before the AST walk consumes `globals`. `--vcs` is
     // additive: outside a git tree `build_default_report` warns and
@@ -2033,17 +2036,53 @@ fn run_command_report(
     }
     let vcs = vcs.map(|d| d.report);
     let top = args.top;
+
+    // Provenance footer facts (issue #680): version from the package, date
+    // (SOURCE_DATE_EPOCH-overridable) from `provenance`, the user's seed paths
+    // (what they asked to scan, not every walked file), the resolved `--top`,
+    // and whether suppression markers were honored.
+    let date = crate::provenance::resolved_date();
+    let prov = crate::provenance::Provenance {
+        version: env!("CARGO_PKG_VERSION"),
+        date: &date,
+        paths: &prov_paths,
+        top,
+        policy,
+    };
+
     let report = match (format, vcs.as_ref()) {
-        (ReportFormat::Markdown, None) => generate_report(&summaries, top, policy),
-        (ReportFormat::Markdown, Some(vcs)) => {
-            generate_report_with_vcs(&summaries, top, policy, Some(vcs))
+        (ReportFormat::Markdown, None) => {
+            generate_report_with_vcs(&summaries, top, policy, None, Some(&prov))
         }
-        (ReportFormat::Html, None) => generate_html_report(&summaries, top, policy),
+        (ReportFormat::Markdown, Some(vcs)) => {
+            generate_report_with_vcs(&summaries, top, policy, Some(vcs), Some(&prov))
+        }
+        (ReportFormat::Html, None) => {
+            generate_html_report_with_vcs(&summaries, top, policy, None, Some(&prov))
+        }
         (ReportFormat::Html, Some(vcs)) => {
-            generate_html_report_with_vcs(&summaries, top, policy, Some(vcs))
+            generate_html_report_with_vcs(&summaries, top, policy, Some(vcs), Some(&prov))
         }
     };
     write_output_or_stdout(args.output.as_deref(), "write report to", report.as_bytes());
+}
+
+/// The compact seed-path string the provenance footer reports: the `--paths`
+/// the user passed (after manifest merge), joined by `, `, or `.` when none
+/// were given (the implicit current-directory default). Non-UTF-8 path
+/// components fall back to their lossy form for display only — the footer is
+/// human-facing prose, never a map key (cf. the path-as-identifier rule).
+fn report_seed_paths_display(args: &ReportArgs) -> String {
+    let paths = args.seed_paths();
+    if paths.is_empty() {
+        ".".to_owned()
+    } else {
+        paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn run_command_find(globals: GlobalOpts, args: FindArgs, preproc: Option<Arc<PreprocResults>>) {

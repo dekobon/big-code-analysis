@@ -50,6 +50,7 @@ mod markdown_report;
 mod metric_alias;
 mod metric_catalog;
 mod metric_diff;
+mod provenance;
 mod threshold_suggestion;
 mod thresholds;
 mod vcs_command;
@@ -1074,6 +1075,15 @@ impl ReportArgs {
         self.format
             .or(self.format_positional)
             .unwrap_or(ReportFormat::Markdown)
+    }
+
+    /// The user's seed paths (the `--paths`/`-p` values, after any manifest
+    /// merge), for the provenance footer (issue #680). `report` has no
+    /// positional `[PATHS]` group (`to_globals` passes a default), so the
+    /// selection's `paths` are the whole seed set; an empty list means the
+    /// implicit current-directory default.
+    fn seed_paths(&self) -> &[PathBuf] {
+        &self.selection.paths
     }
 }
 

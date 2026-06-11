@@ -17,9 +17,9 @@ window (default `12mo` ≈ 365 days) and a **recent** window (default
 ```console
 $ bca vcs --paths src --top 20
 Change-history risk (long window 365d, recent 90d, formula v2)
- RANK      RISK  COMMITS r/l    CHURN r/l  AUTHORS  FILE
-    1       7.2        68/68  11634/11634        1  src/metrics/cyclomatic.rs
-    2       6.9        68/68    7299/7299        1  src/metrics/npa.rs
+ RANK      RISK  COMMITS rec/long  CHURN rec/long  AUTHORS long  FILE
+    1       7.2             68/68     11634/11634             1  src/metrics/cyclomatic.rs
+    2       6.9             68/68       7299/7299             1  src/metrics/npa.rs
     ...
 ```
 
