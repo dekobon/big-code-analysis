@@ -451,16 +451,20 @@ fn write_table(report: &Report) -> std::io::Result<()> {
         "Change-history risk (long window {}d, recent {}d, formula v{})",
         report.long_window_days, report.recent_window_days, report.risk_score_version
     )?;
+    // `r/l` spelled out to the recent/long vocabulary the rendered reports
+    // now use (issue #592): the two paired columns are the recent and long
+    // windows, matching the `*_recent` / `*_long` wire keys. The Authors
+    // column shows the long-window count.
     writeln!(
         out,
-        "{:>5}  {:>8}  {:>11}  {:>11}  {:>7}  FILE",
-        "RANK", "RISK", "COMMITS r/l", "CHURN r/l", "AUTHORS"
+        "{:>5}  {:>8}  {:>16}  {:>14}  {:>12}  FILE",
+        "RANK", "RISK", "COMMITS rec/long", "CHURN rec/long", "AUTHORS long"
     )?;
     for (rank, entry) in report.files.iter().enumerate() {
         let v = &entry.vcs;
         writeln!(
             out,
-            "{:>5}  {:>8.1}  {:>11}  {:>11}  {:>7}  {}",
+            "{:>5}  {:>8.1}  {:>16}  {:>14}  {:>12}  {}",
             rank + 1,
             v.risk_score,
             format!("{}/{}", v.commits_recent, v.commits_long),

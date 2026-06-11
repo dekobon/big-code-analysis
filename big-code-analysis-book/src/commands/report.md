@@ -111,37 +111,48 @@ alongside `SLOC` so two complementary size proxies are visible per row.
    count, SLOC, function count, average Maintainability Index (MI),
    average Cyclomatic Complexity (CC), and average Cognitive
    Complexity.
-3. **Per-language hotspot sections** (repeated for each language):
+3. **Per-language hotspot sections** (repeated for each language). Every
+   hotspot title follows one template, `<Concept> hotspots (top N by
+   <column>)` — the truncation clause states the actual `--top` state
+   (`top 20 by CC`, or `all, by CC` for `--top 0`):
    - *Summary* — file count, SLOC, PLOC, comment ratio, average MI
      with a GOOD / MODERATE / LOW rating.
-   - *Maintainability Index (lowest files)* — files sorted ascending
-     by MI.
-   - *Cyclomatic Complexity Hotspots* — functions sorted descending
-     by CC, with summary statistics (average, max, counts above 10 and
-     20).
-   - *Cognitive Complexity Hotspots* — functions sorted descending by
-     cognitive complexity.
-   - *Halstead Effort Hotspots* — functions sorted descending by
-     Halstead effort, including volume and estimated bugs.
-   - *Largest Functions by SLOC* — functions sorted descending by
-     source lines of code.
-   - *Functions With Many Parameters (>3)* — functions with more than
-     three parameters, sorted descending.
    - *Actionable Summary* — counts of functions exceeding common
      thresholds (CC > 10, cognitive > 15, SLOC > 100, args > 3,
-     Halstead bugs > 1). These are **raw** counts that ignore
-     suppression; the section is captioned to say so, naming how many
-     suppressed functions are folded in. When suppression empties a
-     hotspot table whose metric this summary still counts, the table is
-     replaced by a one-line "table omitted: all N matching functions
-     suppressed" note so a summary bullet never points at a missing
-     table.
-   - *Class/Trait/Impl Hotspots (WMC)* — classes sorted descending by
-     Weighted Methods per Class, with NOM, NPA, and NPM.
-   - *Functions with the most exit points (NEXITS)* — sorted
-     descending by exit count.
-   - *ABC Magnitude Hotspots* — functions sorted descending by ABC
-     metric magnitude.
+     Halstead bugs > 1). Emitted **first**, directly after the Summary
+     and before any hotspot table, so a reader who stops after a table
+     or two still sees the highest-altitude counts. These are **raw**
+     counts that ignore suppression; the section is captioned to say
+     so, naming how many suppressed functions are folded in. When
+     suppression empties a hotspot table whose metric this summary
+     still counts, the table is replaced by a one-line "table omitted:
+     all N matching functions suppressed" note so a summary bullet
+     never points at a missing table.
+   - *Maintainability Index hotspots (lowest N by MI)* — files sorted
+     ascending by MI.
+   - *Cyclomatic complexity hotspots (top N by CC)* — functions sorted
+     descending by CC, with summary statistics (average, max, counts
+     above 10 and 20).
+   - *Cognitive complexity hotspots (top N by Cognitive)* — functions
+     sorted descending by cognitive complexity.
+   - *Halstead effort hotspots (top N by Effort)* — functions sorted
+     descending by Halstead effort, including volume and estimated
+     bugs. Effort and Volume render as rounded integers with thousands
+     separators (`8,845`); full precision lives in JSON/CSV.
+   - *Function size hotspots (top N by SLOC)* — functions sorted
+     descending by source lines of code.
+   - *Many parameters hotspots (top N by Args)* — functions with more
+     than three parameters, sorted descending.
+   - *Type hotspots (top N by WMC)* — types sorted descending by
+     Weighted Methods per Class, with NOM, NPA, and NPM. "Type" covers
+     all six kinds the report counts: class, struct, trait, impl,
+     interface, namespace (the legend's WMC entry lists them).
+   - *Exit points hotspots (top N by Exits)* — functions with more than
+     two exit points, sorted descending. A single `return` is the
+     baseline, not a hotspot, so the table admits only `nexits > 2`;
+     when nothing clears the floor the section is omitted.
+   - *ABC magnitude hotspots (top N by ABC)* — functions sorted
+     descending by ABC metric magnitude.
 
 ## Format consistency
 
@@ -152,12 +163,27 @@ hotspot caption such as the cyclomatic Average / Max / CC > 10 note) is
 computed once and rendered by both, so a single run produces identical
 numbers whether you emit `--format markdown` or `--format html`.
 
-Both formats also close with a **Legend** that defines every metric
-column abbreviation (`CC`, `MI`, `ABC`, `WMC`, …) — a `### Legend`
-footnote in Markdown and a collapsible block in HTML — so a report
-pasted into a PR comment or issue is self-explanatory without the
-reader leaving the document. The definitions come from the same shared
-column specs the tooltips use, so the two formats cannot drift.
+Both formats also carry a **Legend** that defines every metric column
+abbreviation (`CC`, `MI`, `ABC`, `WMC`, …) plus the global-header stats
+(`PLOC`, `Comments`, `Comment ratio`) — a `## Legend` section in Markdown
+(its own outline entry, not nested under the last language) and an
+expanded (`<details open>`) block in HTML, so it survives print, mobile,
+and screen readers as well as a hover tooltip. Each entry links to its
+chapter in the [Supported Metrics](../metrics.md) reference, so a one-line
+definition can hand the reader the full explanation. The definitions come
+from the same shared column specs the tooltips use, so the two formats
+cannot drift.
+
+Both formats also close with a **provenance footer** stating the `bca`
+version, generation date, the seed paths scanned, the per-table `--top`
+value, and whether suppression markers were honored — so a detached
+artifact (a PR comment, a Pages deployment, a file on a ticket) records
+what it was generated from. The date honors `SOURCE_DATE_EPOCH` for
+reproducible builds. The HTML report additionally carries a
+`<meta name="viewport">` tag and wraps every table in a horizontal-scroll
+container so wide tables stay reachable on mobile and narrow windows, and
+its table of contents nests each language's hotspot subsections under a
+collapsible entry.
 
 Suppression is applied uniformly across **every** output, not just the
 reports. A function silenced for a metric — via an in-source marker or

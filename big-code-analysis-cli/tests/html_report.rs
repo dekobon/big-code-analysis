@@ -98,8 +98,8 @@ fn report_html_top_zero_shows_all() {
     );
     let body = String::from_utf8(output.stdout).expect("output is UTF-8");
     assert!(
-        body.contains("Maintainability Index (lowest files, all)"),
-        "uncapped MI title says 'all', not 'top-0'"
+        body.contains("Maintainability Index hotspots (all, by MI)"),
+        "uncapped MI title says 'all', not 'top-0' (issue #677): {body}"
     );
     assert_html_well_formed(&body);
 }
@@ -169,9 +169,16 @@ fn report_html_strip_prefix_removes_path_prefix() {
         body.contains("DeepSpeech/stats.py"),
         "stripped path should appear in HTML report"
     );
+    // `--strip-prefix` rewrites the per-file table paths only. The provenance
+    // footer (issue #680) deliberately records the literal seed path the user
+    // passed (what was scanned), which here is the full `fp`; exclude that
+    // footer from the "stripped everywhere" check.
+    let before_footer = body
+        .split_once("<footer class=\"provenance\">")
+        .map_or(body.as_str(), |(head, _)| head);
     assert!(
-        !body.contains(&fp),
-        "full unstripped path should not appear: {fp}"
+        !before_footer.contains(&fp),
+        "full unstripped path should not appear in the report body: {fp}"
     );
     assert_html_well_formed(&body);
 }

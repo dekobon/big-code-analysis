@@ -214,7 +214,14 @@ and the matching `bca.toml` `[vcs] file_types` key) and `bca metrics
 markdown|html --vcs` "Change-history risk" section (#573) are **one-way
 rendered projections** (like the AST `bca report` output): the page
 *structure* is stable within `1.x`, but the exact bytes are not a
-round-trip format — do not parse them. `bca vcs --output` names a single
+round-trip format — do not parse them. The 2.0 line restructured the AST
+report's presentation deliberately — hotspot section titles now follow one
+`<Concept> hotspots (top N by <column>)` template (#677), the WMC table is
+labelled "Types" (#687), and the HTML section anchors derive from a stable
+`<Concept> hotspots` slug independent of `--top`, so a deep link minted
+against a `1.x` report may need re-fragmenting. The VCS report's `(total)`
+column headers became `(long)` (#592). These are presentation changes only;
+no round-trip / wire shape moved. `bca vcs --output` names a single
 file (a whole-repo report is one document); as of 2.0 `bca metrics`/`bca
 ops --output` also names a single aggregate file, with the per-file
 *directory* tree now written by `--output-dir` (#669). The composite

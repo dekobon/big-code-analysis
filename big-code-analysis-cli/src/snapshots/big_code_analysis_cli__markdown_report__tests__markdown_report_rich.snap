@@ -4,16 +4,16 @@ expression: out
 ---
 # Code Quality Metrics Summary
 
-| Metric               |        Value |
-| -------------------- | -----------: |
-| Files analyzed       |            3 |
-| Languages            | Python, Rust |
-| Total SLOC           |          400 |
-| PLOC                 |          290 |
-| Comments             |           30 |
-| Functions/methods    |           10 |
-| Classes/impls/traits |            1 |
-| Comment ratio        |         7.5% |
+| Metric            |        Value |
+| ----------------- | -----------: |
+| Files analyzed    |            3 |
+| Languages         | Python, Rust |
+| Total SLOC        |          400 |
+| PLOC              |          290 |
+| Comments          |           30 |
+| Functions/methods |           10 |
+| Types             |            1 |
+| Comment ratio     |         7.5% |
 
 ## Per-language overview
 
@@ -34,13 +34,19 @@ expression: out
 | Comment ratio |        4.2% |
 | Average MI    | 28.0 (GOOD) |
 
-### Maintainability Index (lowest files, top-5)
+### Actionable Summary
+
+Raw counts across all functions, ignoring suppression markers.
+
+- **1** functions with more than 3 parameters
+
+### Maintainability Index hotspots (lowest 5 by MI)
 
 | File        |   MI | SLOC | Tokens |
 | ----------- | ---: | ---: | -----: |
 | src/main.py | 28.0 |  120 |    800 |
 
-### Cyclomatic Complexity Hotspots
+### Cyclomatic complexity hotspots (top 5 by CC)
 
 | Function    | File        | Line |  CC | Cognitive | SLOC | Tokens |
 | ----------- | ----------- | ---: | --: | --------: | ---: | -----: |
@@ -49,47 +55,34 @@ expression: out
 
 Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions (excluding suppressed functions)
 
-### Cognitive Complexity Hotspots
+### Cognitive complexity hotspots (top 5 by Cognitive)
 
 | Function    | File        | Line | Cognitive |  CC | SLOC | Tokens |
 | ----------- | ----------- | ---: | --------: | --: | ---: | -----: |
 | `main`      | src/main.py |   10 |        12 |  10 |   60 |    300 |
 | `load_data` | src/main.py |   40 |         6 |   7 |   35 |    180 |
 
-### Halstead Effort Hotspots
+### Halstead effort hotspots (top 5 by Effort)
 
 | Function    | File        | Line | Effort | Volume | Est. Bugs | SLOC | Tokens |
 | ----------- | ----------- | ---: | -----: | -----: | --------: | ---: | -----: |
-| `main`      | src/main.py |   10 |   2000 |   1000 |      0.33 |   60 |    300 |
-| `load_data` | src/main.py |   40 |   1200 |    600 |      0.23 |   35 |    180 |
+| `main`      | src/main.py |   10 |  2,000 |  1,000 |      0.33 |   60 |    300 |
+| `load_data` | src/main.py |   40 |  1,200 |    600 |      0.23 |   35 |    180 |
 
-### Largest Functions by SLOC
+### Function size hotspots (top 5 by SLOC)
 
 | Function    | File        | Line | SLOC | Tokens |  CC | Cognitive |
 | ----------- | ----------- | ---: | ---: | -----: | --: | --------: |
 | `main`      | src/main.py |   10 |   60 |    300 |  10 |        12 |
 | `load_data` | src/main.py |   40 |   35 |    180 |   7 |         6 |
 
-### Functions With Many Parameters (>3)
+### Many parameters hotspots (top 5 by Args)
 
 | Function    | File        | Line | Args | SLOC | Tokens |
 | ----------- | ----------- | ---: | ---: | ---: | -----: |
 | `load_data` | src/main.py |   40 |    4 |   35 |    180 |
 
-### Actionable Summary
-
-Raw counts across all functions, ignoring suppression markers.
-
-- **1** functions with more than 3 parameters
-
-### Functions with the most exit points (NEXITS)
-
-| Function    | File        | Line | Exits |  CC | SLOC | Tokens |
-| ----------- | ----------- | ---: | ----: | --: | ---: | -----: |
-| `main`      | src/main.py |   10 |     2 |  10 |   60 |    300 |
-| `load_data` | src/main.py |   40 |     2 |   7 |   35 |    180 |
-
-### ABC Magnitude Hotspots
+### ABC magnitude hotspots (top 5 by ABC)
 
 | Function    | File        | Line | ABC | SLOC | Tokens |
 | ----------- | ----------- | ---: | --: | ---: | -----: |
@@ -108,14 +101,24 @@ Raw counts across all functions, ignoring suppression markers.
 | Comment ratio |        8.9% |
 | Average MI    | 28.5 (GOOD) |
 
-### Maintainability Index (lowest files, top-5)
+### Actionable Summary
+
+Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.
+
+- **5** functions with CC > 10
+- **4** functions with cognitive complexity > 15
+- **3** functions with SLOC > 100
+- **4** functions with more than 3 parameters
+- **1** functions with estimated Halstead bugs > 1.0
+
+### Maintainability Index hotspots (lowest 5 by MI)
 
 | File        |   MI | SLOC | Tokens |
 | ----------- | ---: | ---: | -----: |
 | src/lib.rs  | 12.0 |  200 |  1,500 |
 | src/util.rs | 45.0 |   80 |    600 |
 
-### Cyclomatic Complexity Hotspots
+### Cyclomatic complexity hotspots (top 5 by CC)
 
 | Function          | File       | Line |  CC | Cognitive | SLOC | Tokens |
 | ----------------- | ---------- | ---: | --: | --------: | ---: | -----: |
@@ -127,7 +130,7 @@ Raw counts across all functions, ignoring suppression markers.
 
 Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (excluding suppressed functions)
 
-### Cognitive Complexity Hotspots
+### Cognitive complexity hotspots (top 5 by Cognitive)
 
 | Function          | File       | Line | Cognitive |  CC | SLOC | Tokens |
 | ----------------- | ---------- | ---: | --------: | --: | ---: | -----: |
@@ -137,17 +140,17 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 | `parse_config`    | src/lib.rs |   70 |        18 |  15 |   90 |    500 |
 | `handle_event`    | src/lib.rs |  100 |        14 |  12 |   70 |    400 |
 
-### Halstead Effort Hotspots
+### Halstead effort hotspots (top 5 by Effort)
 
 | Function          | File       | Line | Effort | Volume | Est. Bugs | SLOC | Tokens |
 | ----------------- | ---------- | ---: | -----: | -----: | --------: | ---: | -----: |
-| `secret_internal` | src/lib.rs |  220 |  20000 |  10000 |      3.30 |  300 |  2,000 |
-| `process_request` | src/lib.rs |   10 |   9000 |   4500 |      0.83 |  150 |    900 |
-| `validate_input`  | src/lib.rs |   40 |   7000 |   3500 |      0.67 |  120 |    700 |
-| `parse_config`    | src/lib.rs |   70 |   5000 |   2500 |      0.50 |   90 |    500 |
-| `handle_event`    | src/lib.rs |  100 |   3000 |   1500 |      0.40 |   70 |    400 |
+| `secret_internal` | src/lib.rs |  220 | 20,000 | 10,000 |      3.30 |  300 |  2,000 |
+| `process_request` | src/lib.rs |   10 |  9,000 |  4,500 |      0.83 |  150 |    900 |
+| `validate_input`  | src/lib.rs |   40 |  7,000 |  3,500 |      0.67 |  120 |    700 |
+| `parse_config`    | src/lib.rs |   70 |  5,000 |  2,500 |      0.50 |   90 |    500 |
+| `handle_event`    | src/lib.rs |  100 |  3,000 |  1,500 |      0.40 |   70 |    400 |
 
-### Largest Functions by SLOC
+### Function size hotspots (top 5 by SLOC)
 
 | Function          | File       | Line | SLOC | Tokens |  CC | Cognitive |
 | ----------------- | ---------- | ---: | ---: | -----: | --: | --------: |
@@ -157,7 +160,7 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 | `parse_config`    | src/lib.rs |   70 |   90 |    500 |  15 |        18 |
 | `handle_event`    | src/lib.rs |  100 |   70 |    400 |  12 |        14 |
 
-### Functions With Many Parameters (>3)
+### Many parameters hotspots (top 5 by Args)
 
 | Function          | File       | Line | Args | SLOC | Tokens |
 | ----------------- | ---------- | ---: | ---: | ---: | -----: |
@@ -166,23 +169,13 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 | `parse_config`    | src/lib.rs |   70 |    5 |   90 |    500 |
 | `compute_score`   | src/lib.rs |  130 |    4 |   40 |    200 |
 
-### Actionable Summary
+### Type hotspots (top 5 by WMC)
 
-Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.
-
-- **5** functions with CC > 10
-- **4** functions with cognitive complexity > 15
-- **3** functions with SLOC > 100
-- **4** functions with more than 3 parameters
-- **1** functions with estimated Halstead bugs > 1.0
-
-### Class/Trait/Impl Hotspots (WMC)
-
-| Class    | File       | Line | WMC | Methods | NPA | NPM | SLOC | Tokens |
+| Type     | File       | Line | WMC | Methods | NPA | NPM | SLOC | Tokens |
 | -------- | ---------- | ---: | --: | ------: | --: | --: | ---: | -----: |
 | `Widget` | src/lib.rs |  250 |  40 |       8 |   2 |   6 |  180 |  1,100 |
 
-### Functions with the most exit points (NEXITS)
+### Exit points hotspots (top 5 by Exits)
 
 | Function          | File       | Line | Exits |  CC | SLOC | Tokens |
 | ----------------- | ---------- | ---: | ----: | --: | ---: | -----: |
@@ -190,9 +183,8 @@ Raw counts across all functions; the hotspot tables hide suppressed rows (cyclom
 | `handle_event`    | src/lib.rs |  100 |     6 |  12 |   70 |    400 |
 | `process_request` | src/lib.rs |   10 |     4 |  25 |  150 |    900 |
 | `parse_config`    | src/lib.rs |   70 |     3 |  15 |   90 |    500 |
-| `validate_input`  | src/lib.rs |   40 |     2 |  20 |  120 |    700 |
 
-### ABC Magnitude Hotspots
+### ABC magnitude hotspots (top 5 by ABC)
 
 | Function          | File       | Line |  ABC | SLOC | Tokens |
 | ----------------- | ---------- | ---: | ---: | ---: | -----: |
@@ -202,20 +194,23 @@ Raw counts across all functions; the hotspot tables hide suppressed rows (cyclom
 | `parse_config`    | src/lib.rs |   70 | 14.0 |   90 |    500 |
 | `handle_event`    | src/lib.rs |  100 | 10.0 |   70 |    400 |
 
-### Legend
+## Legend
 
-- **MI** — Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.
-- **SLOC** — Source Lines Of Code: total physical lines, including blanks and comments.
-- **Tokens** — Total lexical tokens (AST leaves excluding comments) of the function or file.
-- **CC** — Cyclomatic Complexity: number of linearly independent control-flow paths through the function.
-- **Cognitive** — Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.
-- **Effort** — Halstead effort: estimated mental effort to (re)create the code.
-- **Volume** — Halstead volume: program length weighted by vocabulary size.
-- **Est. Bugs** — Halstead bugs: estimated defect count derived from program volume.
-- **Args** — Number of declared parameters of the function.
-- **WMC** — Weighted Methods per Class: sum of cyclomatic complexity across the class's methods.
-- **Methods** — Number of methods declared on the class.
-- **NPA** — Number of Public Attributes declared on the class.
-- **NPM** — Number of Public Methods declared on the class.
-- **Exits** — Number of exit points (returns, throws, breaks out of the function).
-- **ABC** — ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.
+- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.
+- **[SLOC](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Source Lines Of Code: total physical lines, including blanks and comments.
+- **[Tokens](https://dekobon.github.io/big-code-analysis/metrics.html#tokens)** — Total lexical tokens (AST leaves excluding comments) of the function or file.
+- **[CC](https://dekobon.github.io/big-code-analysis/metrics.html#cyclomatic-complexity-cc)** — Cyclomatic Complexity: number of linearly independent control-flow paths through the function.
+- **[Cognitive](https://dekobon.github.io/big-code-analysis/metrics.html#cognitive-complexity)** — Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.
+- **[Effort](https://dekobon.github.io/big-code-analysis/metrics.html#halstead)** — Halstead effort: estimated mental effort to (re)create the code.
+- **[Volume](https://dekobon.github.io/big-code-analysis/metrics.html#halstead)** — Halstead volume: program length weighted by vocabulary size.
+- **[Est. Bugs](https://dekobon.github.io/big-code-analysis/metrics.html#halstead)** — Halstead bugs: estimated defect count derived from program volume.
+- **[Args](https://dekobon.github.io/big-code-analysis/metrics.html#nargs)** — Number of declared parameters of the function.
+- **[WMC](https://dekobon.github.io/big-code-analysis/metrics.html#wmc)** — Weighted Methods per Class: sum of cyclomatic complexity across a type's methods. "Type" covers all six kinds counted here: class, struct, trait, impl, interface, namespace.
+- **[Methods](https://dekobon.github.io/big-code-analysis/metrics.html#nom)** — Number of methods declared on the class.
+- **[NPA](https://dekobon.github.io/big-code-analysis/metrics.html#npa)** — Number of Public Attributes declared on the class.
+- **[NPM](https://dekobon.github.io/big-code-analysis/metrics.html#npm)** — Number of Public Methods declared on the class.
+- **[Exits](https://dekobon.github.io/big-code-analysis/metrics.html#nexits)** — Number of exit points (returns, throws, breaks out of the function).
+- **[ABC](https://dekobon.github.io/big-code-analysis/metrics.html#abc)** — ABC magnitude: sqrt(A² + B² + C²) over Assignments, Branches, and Conditions.
+- **[PLOC](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Physical Lines Of Code: source lines excluding blank lines and comments.
+- **[Comments](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Comment lines (CLOC): lines that are entirely comment.
+- **[Comment ratio](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Comment ratio: comment lines as a percentage of source lines (CLOC / SLOC).

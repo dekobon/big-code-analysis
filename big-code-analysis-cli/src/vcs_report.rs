@@ -48,14 +48,22 @@ struct VcsColumn {
     tooltip: Option<&'static str>,
 }
 
-// Plain-English definitions for the change-history columns, defined once
-// and shared by the recent/total aliased pairs so the HTML tooltip and the
-// legend cannot drift. Moved here from `html_report::VCS_HEADER_TOOLTIPS`
-// (issue #611) to make `VCS_SPECS` the single source of truth.
+// Plain-English definitions for the change-history columns. Window-relevant
+// columns carry a distinct tooltip per window (recent / long) that states the
+// window duration (default 365d long / 90d recent, configurable via
+// `--long-window` / `--recent-window`) and the backing wire key (`*_long` /
+// `*_recent`), so a `(long)` / `(recent)` header is self-documenting and maps
+// straight back to the JSON/CSV field — replacing the doubly-wrong "(total)"
+// header that matched no key and misrepresented a one-year window as a total
+// (issue #592). Moved here from `html_report::VCS_HEADER_TOOLTIPS` (issue
+// #611) to make `VCS_SPECS` the single source of truth.
 const RISK_TOOLTIP: &str = "Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness. Ordinal: only relative ranks carry meaning, not the absolute value.";
-const COMMITS_TOOLTIP: &str = "Distinct commits that touched this file within the analysis window.";
-const CHURN_TOOLTIP: &str = "Lines added + deleted to this file within the analysis window.";
-const AUTHORS_TOOLTIP: &str = "Distinct authors who touched this file within the analysis window.";
+const COMMITS_RECENT_TOOLTIP: &str = "Distinct commits that touched this file in the recent window (default 90 days, set via --recent-window). Wire key: commits_recent.";
+const COMMITS_LONG_TOOLTIP: &str = "Distinct commits that touched this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: commits_long.";
+const CHURN_RECENT_TOOLTIP: &str = "Lines added + deleted to this file in the recent window (default 90 days, set via --recent-window). Wire key: churn_recent.";
+const CHURN_LONG_TOOLTIP: &str = "Lines added + deleted to this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: churn_long.";
+const AUTHORS_RECENT_TOOLTIP: &str = "Distinct authors who touched this file in the recent window (default 90 days, set via --recent-window). Wire key: authors_recent.";
+const AUTHORS_LONG_TOOLTIP: &str = "Distinct authors who touched this file in the long window (default 365 days, set via --long-window) \u{2014} not all history. Wire key: authors_long.";
 const OWNERSHIP_TOOLTIP: &str = "Top-author edit share (0\u{2013}1): fraction of edits by the single most active author; lower means more diluted ownership.";
 const BURST_TOOLTIP: &str =
     "Recency of change (0\u{2013}1): recent commits as a share of long-window commits.";
@@ -66,8 +74,10 @@ const REVERTS_TOOLTIP: &str = "Revert commits touching this file within the long
 const AGE_TOOLTIP: &str =
     "Days since the first in-window commit touching this file (capped at the long window).";
 const LAST_MOD_TOOLTIP: &str = "Days since the most recent in-window commit touching this file.";
-const CHANGE_ENTROPY_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.";
-const COCHANGE_ENTROPY_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.";
+const CHANGE_ENTROPY_RECENT_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the recent window (default 90 days, --recent-window). Higher means more diffuse, fault-prone change. Wire key: change_entropy_recent.";
+const CHANGE_ENTROPY_LONG_TOOLTIP: &str = "Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the long window (default 365 days, --long-window). Higher means more diffuse, fault-prone change. Wire key: change_entropy_long.";
+const COCHANGE_ENTROPY_RECENT_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files, over the recent window (default 90 days, --recent-window). Higher means coupling to many different partners. Wire key: cochange_entropy_recent.";
+const COCHANGE_ENTROPY_LONG_TOOLTIP: &str = "Co-change entropy (bits): how widely changes to this file ripple to other files, over the long window (default 365 days, --long-window). Higher means coupling to many different partners. Wire key: cochange_entropy_long.";
 const HOTSPOT_TOOLTIP: &str = "Complexity \u{D7} recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.";
 
 /// Format an integer count as a `Cell::Num` with comma thousands
@@ -107,37 +117,37 @@ const VCS_SPECS: &[VcsColumn] = &[
         header: "Commits (recent)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.commits_recent.into()),
-        tooltip: Some(COMMITS_TOOLTIP),
+        tooltip: Some(COMMITS_RECENT_TOOLTIP),
     },
     VcsColumn {
-        header: "Commits (total)",
+        header: "Commits (long)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.commits_long.into()),
-        tooltip: Some(COMMITS_TOOLTIP),
+        tooltip: Some(COMMITS_LONG_TOOLTIP),
     },
     VcsColumn {
         header: "Churn (recent)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.churn_recent),
-        tooltip: Some(CHURN_TOOLTIP),
+        tooltip: Some(CHURN_RECENT_TOOLTIP),
     },
     VcsColumn {
-        header: "Churn (total)",
+        header: "Churn (long)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.churn_long),
-        tooltip: Some(CHURN_TOOLTIP),
+        tooltip: Some(CHURN_LONG_TOOLTIP),
     },
     VcsColumn {
         header: "Authors (recent)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.authors_recent.into()),
-        tooltip: Some(AUTHORS_TOOLTIP),
+        tooltip: Some(AUTHORS_RECENT_TOOLTIP),
     },
     VcsColumn {
-        header: "Authors (total)",
+        header: "Authors (long)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.authors_long.into()),
-        tooltip: Some(AUTHORS_TOOLTIP),
+        tooltip: Some(AUTHORS_LONG_TOOLTIP),
     },
     VcsColumn {
         header: "Ownership",
@@ -185,25 +195,25 @@ const VCS_SPECS: &[VcsColumn] = &[
         header: "Change entropy (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_recent)),
-        tooltip: Some(CHANGE_ENTROPY_TOOLTIP),
+        tooltip: Some(CHANGE_ENTROPY_RECENT_TOOLTIP),
     },
     VcsColumn {
-        header: "Change entropy (total)",
+        header: "Change entropy (long)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_long)),
-        tooltip: Some(CHANGE_ENTROPY_TOOLTIP),
+        tooltip: Some(CHANGE_ENTROPY_LONG_TOOLTIP),
     },
     VcsColumn {
         header: "Co-change entropy (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_recent)),
-        tooltip: Some(COCHANGE_ENTROPY_TOOLTIP),
+        tooltip: Some(COCHANGE_ENTROPY_RECENT_TOOLTIP),
     },
     VcsColumn {
-        header: "Co-change entropy (total)",
+        header: "Co-change entropy (long)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_long)),
-        tooltip: Some(COCHANGE_ENTROPY_TOOLTIP),
+        tooltip: Some(COCHANGE_ENTROPY_LONG_TOOLTIP),
     },
     VcsColumn {
         header: HOTSPOT_HEADER,

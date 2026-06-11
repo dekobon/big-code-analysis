@@ -6,11 +6,11 @@ expression: md
 
 _Long window 365d, recent window 90d, risk formula v1. Risk is ordinal: only relative ranks carry meaning, not the absolute value._
 
-| Rank | File               | Risk | Commits (recent) | Commits (total) | Churn (recent) | Churn (total) | Authors (recent) | Authors (total) | Ownership | Burst | Bug fixes | Sec fixes | Reverts | Age (d) | Last mod (d) | Change entropy (recent) | Change entropy (total) | Co-change entropy (recent) | Co-change entropy (total) | Hotspot |
-| ---: | ------------------ | ---: | ---------------: | --------------: | -------------: | ------------: | ---------------: | --------------: | --------: | ----: | --------: | --------: | ------: | ------: | -----------: | ----------------------: | ---------------------: | -------------------------: | ------------------------: | ------: |
-|    1 | src/hot.rs         |  9.4 |               50 |              60 |          2,000 |         5,000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |   123.0 |
-|    2 | src/warm.rs        |  6.1 |               20 |              30 |            800 |         2,000 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
-|    3 | docs/with\|pipe.md |  2.0 |                1 |              11 |             40 |           100 |                2 |               3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                   2.50 |                       0.80 |                      1.20 |         |
+| Rank | File               | Risk | Commits (recent) | Commits (long) | Churn (recent) | Churn (long) | Authors (recent) | Authors (long) | Ownership | Burst | Bug fixes | Sec fixes | Reverts | Age (d) | Last mod (d) | Change entropy (recent) | Change entropy (long) | Co-change entropy (recent) | Co-change entropy (long) | Hotspot |
+| ---: | ------------------ | ---: | ---------------: | -------------: | -------------: | -----------: | ---------------: | -------------: | --------: | ----: | --------: | --------: | ------: | ------: | -----------: | ----------------------: | --------------------: | -------------------------: | -----------------------: | ------: |
+|    1 | src/hot.rs         |  9.4 |               50 |             60 |          2,000 |        5,000 |                2 |              3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                  2.50 |                       0.80 |                     1.20 |   123.0 |
+|    2 | src/warm.rs        |  6.1 |               20 |             30 |            800 |        2,000 |                2 |              3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                  2.50 |                       0.80 |                     1.20 |         |
+|    3 | docs/with\|pipe.md |  2.0 |                1 |             11 |             40 |          100 |                2 |              3 |      0.75 |  0.50 |         4 |         1 |       0 |     200 |            5 |                    1.50 |                  2.50 |                       0.80 |                     1.20 |         |
 
 ## Bus factor
 
@@ -26,12 +26,12 @@ _Bus factor: the number of authors whose departure would orphan more than half t
 ## Legend
 
 - **Risk** — Composite change-history risk score: recent churn and commit frequency dominate, raised by author dilution, bug-/security-fix history, and newness. Ordinal: only relative ranks carry meaning, not the absolute value.
-- **Commits (recent)** — Distinct commits that touched this file within the analysis window.
-- **Commits (total)** — Distinct commits that touched this file within the analysis window.
-- **Churn (recent)** — Lines added + deleted to this file within the analysis window.
-- **Churn (total)** — Lines added + deleted to this file within the analysis window.
-- **Authors (recent)** — Distinct authors who touched this file within the analysis window.
-- **Authors (total)** — Distinct authors who touched this file within the analysis window.
+- **Commits (recent)** — Distinct commits that touched this file in the recent window (default 90 days, set via --recent-window). Wire key: commits_recent.
+- **Commits (long)** — Distinct commits that touched this file in the long window (default 365 days, set via --long-window) — not all history. Wire key: commits_long.
+- **Churn (recent)** — Lines added + deleted to this file in the recent window (default 90 days, set via --recent-window). Wire key: churn_recent.
+- **Churn (long)** — Lines added + deleted to this file in the long window (default 365 days, set via --long-window) — not all history. Wire key: churn_long.
+- **Authors (recent)** — Distinct authors who touched this file in the recent window (default 90 days, set via --recent-window). Wire key: authors_recent.
+- **Authors (long)** — Distinct authors who touched this file in the long window (default 365 days, set via --long-window) — not all history. Wire key: authors_long.
 - **Ownership** — Top-author edit share (0–1): fraction of edits by the single most active author; lower means more diluted ownership.
 - **Burst** — Recency of change (0–1): recent commits as a share of long-window commits.
 - **Bug fixes** — Commits classified as bug fixes (by message) within the long window.
@@ -39,10 +39,10 @@ _Bus factor: the number of authors whose departure would orphan more than half t
 - **Reverts** — Revert commits touching this file within the long window.
 - **Age (d)** — Days since the first in-window commit touching this file (capped at the long window).
 - **Last mod (d)** — Days since the most recent in-window commit touching this file.
-- **Change entropy (recent)** — Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.
-- **Change entropy (total)** — Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009). Higher means more diffuse, fault-prone change.
-- **Co-change entropy (recent)** — Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.
-- **Co-change entropy (total)** — Co-change entropy (bits): how widely changes to this file ripple to other files. Higher means coupling to many different partners.
+- **Change entropy (recent)** — Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the recent window (default 90 days, --recent-window). Higher means more diffuse, fault-prone change. Wire key: change_entropy_recent.
+- **Change entropy (long)** — Change entropy (bits): how scattered the changes to this file are across commits (Hassan 2009), over the long window (default 365 days, --long-window). Higher means more diffuse, fault-prone change. Wire key: change_entropy_long.
+- **Co-change entropy (recent)** — Co-change entropy (bits): how widely changes to this file ripple to other files, over the recent window (default 90 days, --recent-window). Higher means coupling to many different partners. Wire key: cochange_entropy_recent.
+- **Co-change entropy (long)** — Co-change entropy (bits): how widely changes to this file ripple to other files, over the long window (default 365 days, --long-window). Higher means coupling to many different partners. Wire key: cochange_entropy_long.
 - **Hotspot** — Complexity × recent churn: high-complexity files that also change often. Shown only when AST metrics are joined (e.g. report --vcs); omitted by plain bca vcs.
 - **Bus factor** — Number of authors whose departure would orphan more than half the files (by Avelino Degree-of-Authorship); lower is riskier.
 - **Files** — Files in this directory contributing to its bus factor.
