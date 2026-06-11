@@ -1472,15 +1472,106 @@ async fn test_web_wrong_method_on_known_endpoint_yields_405() {
     // error, not a content-type error: the default service must return
     // 405, distinguishable from the 415 a wrong/missing Content-Type
     // gets and the 404 an unknown URL gets.
-    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let req = test::TestRequest::default()
+        .method(http::Method::PUT)
+        .uri("/metrics")
+        .to_request();
 
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    // RFC 9110 §15.5.6: a 405 MUST advertise the supported methods (#655).
+    assert_eq!(
+        resp.headers().get(http::header::ALLOW).unwrap(),
+        "POST, OPTIONS",
+        "405 must carry an Allow header naming the supported methods"
+    );
     let body = test::read_body(resp).await;
     assert!(
         String::from_utf8_lossy(&body).contains("POST"),
         "405 body should name the accepted method"
     );
+}
+
+#[actix_rt::test]
+async fn test_web_options_on_post_endpoint_yields_204_with_allow() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // OPTIONS is the method-discovery verb: a POST-only resource answers
+    // 204 No Content advertising its methods so clients can discover them
+    // without triggering a 405 (#655).
+    let req = test::TestRequest::default()
+        .method(http::Method::OPTIONS)
+        .uri("/metrics")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        resp.headers().get(http::header::ALLOW).unwrap(),
+        "POST, OPTIONS",
+        "OPTIONS must advertise the resource's supported methods"
+    );
+    let body = test::read_body(resp).await;
+    assert!(body.is_empty(), "204 response must have no body");
+}
+
+#[actix_rt::test]
+async fn test_web_wrong_method_on_get_endpoint_yields_405_with_allow() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // A non-GET method on a GET-only resource is a 405 that MUST advertise
+    // the supported methods, including the HEAD served alongside GET (#655).
+    let req = test::TestRequest::post().uri("/v1/ping").to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(
+        resp.headers().get(http::header::ALLOW).unwrap(),
+        "GET, HEAD, OPTIONS",
+        "405 on a GET-only resource must advertise GET, HEAD, OPTIONS"
+    );
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("GET"),
+        "405 body should name the accepted method"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_options_on_get_endpoint_yields_204_with_allow() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+
+    // OPTIONS on a GET-only resource answers 204 advertising the full
+    // method set (GET, HEAD, OPTIONS) for client method discovery (#655).
+    let req = test::TestRequest::default()
+        .method(http::Method::OPTIONS)
+        .uri("/v1/ping")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        resp.headers().get(http::header::ALLOW).unwrap(),
+        "GET, HEAD, OPTIONS",
+        "OPTIONS on a GET-only resource must advertise GET, HEAD, OPTIONS"
+    );
+    let body = test::read_body(resp).await;
+    assert!(body.is_empty(), "204 response must have no body");
 }
 
 #[actix_rt::test]
