@@ -45,7 +45,7 @@ def run(
 
     # 1. analyze() on a missing path raises a typed OSError subclass.
     try:
-        bca.analyze(str(missing_path))
+        bca.analyze(missing_path)
     except FileNotFoundError as err:
         report["file_not_found"] = True
         print(f"file_not_found: errno={err.errno} filename={err.filename}")
@@ -57,7 +57,7 @@ def run(
     unknown = fixtures / "hello.unknown_extension"
     try:
         unknown.write_text("noop", encoding="utf-8")
-        bca.analyze(str(unknown))
+        bca.analyze(unknown)
     except bca.UnsupportedLanguageError as err:
         report["unsupported"] = True
         print(f"unsupported_language: {err}")
@@ -65,7 +65,7 @@ def run(
         unknown.unlink(missing_ok=True)
 
     # 3. analyze_batch() returns AnalysisFailure, never raises per-file.
-    paths = [str(fixtures / "hello.rs"), str(missing_path)]
+    paths = [fixtures / "hello.rs", missing_path]
     for slot in bca.analyze_batch(paths):
         if isinstance(slot, bca.AnalysisFailure):
             report["batch_errors"] += 1

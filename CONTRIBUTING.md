@@ -135,7 +135,7 @@ Each new snapshot assertion must carry one of:
   @r###"…"###)`.
 - A positive `assert_eq!` on the headline value(s) immediately above
   the snapshot call, using integer-valued accessors (`branches()`,
-  `class_nargs_sum()`, `u_operators()`, …). Float magnitudes,
+  `class_npm_sum()`, `unique_operators()`, …). Float magnitudes,
   averages, and Halstead volume/difficulty/effort are bit-brittle and
   not safe for exact equality.
 - A `// expected: <derivation>` comment explaining what the values

@@ -11,7 +11,10 @@ through HTTP requests.
 - **Function Spans**: Retrieves the start and end lines of functions in the given source code.
 - **Metrics Calculation**: Computes static analysis metrics for the source code.
 
-Refer to the REST API documentation for detailed information about the available endpoints and parameters.
+Refer to the [REST API documentation][rest-api] for detailed
+information about the available endpoints and parameters.
+
+[rest-api]: https://dekobon.github.io/big-code-analysis/commands/rest.html
 
 ## Installation
 
@@ -59,6 +62,9 @@ bca-web [OPTIONS]
   the `bca` CLI's `--num-jobs`.
 - `--host <HOST>`: IP address where the server should run (default is 127.0.0.1).
 - `--port <PORT>`: Port to be used by the server (default is 8080).
+- `--parse-timeout-secs <SECS>`: Per-parse timeout in seconds (default
+  is 30). `0` disables the timeout. A request whose parse exceeds this
+  deadline returns `504 Gateway Timeout`.
 - `-h, --help`: Show help information.
 - `-v, --version`: Show version information.
 

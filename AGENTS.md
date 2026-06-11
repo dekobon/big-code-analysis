@@ -41,7 +41,7 @@ and `cargo run -p big-code-analysis-web --`.
   bug in one language module typically exists in several — fix all
   affected siblings together.
 - `src/metrics/` — individual metric implementations: `abc.rs`,
-  `cognitive.rs`, `cyclomatic.rs`, `exit.rs`, `halstead.rs`, `loc.rs`,
+  `cognitive.rs`, `cyclomatic.rs`, `nexits.rs`, `halstead.rs`, `loc.rs`,
   `mi.rs`, `nargs.rs`, `nom.rs`, `npa.rs`, `npm.rs`, `tokens.rs`,
   `wmc.rs`.
 - `src/output/` — JSON / YAML / TOML / CBOR serializers for metric output.
@@ -180,10 +180,27 @@ gate trips; `make self-scan-write-baseline-headroom` refreshes
 `self-scan-headroom` gate re-fires on untouched files), and the
 Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
-`pytest` stages for `big-code-analysis-py` (each Python stage is
-skipped with a clear "X not found" message when the corresponding
-tool is absent). `make ci` runs the same checks without auto-fix,
-mirroring CI behaviour.
+`pytest` / `mypy stubtest` stages for `big-code-analysis-py` (each
+Python stage is skipped with a clear "X not found" message when the
+corresponding tool is absent). `make ci` runs the same checks without
+auto-fix, mirroring CI behaviour.
+
+**`_native.pyi` is stubtest-gated (#673).** The hand-written PyO3 stub
+`big-code-analysis-py/python/big_code_analysis/_native.pyi` is no
+longer "kept in lockstep by hand" on trust alone: `make py-stubtest`
+runs `python -m mypy.stubtest big_code_analysis._native` against the
+freshly `maturin develop`-built extension, diffing names, signatures,
+and **defaults** — catching the `#[pyo3(signature = …)]`-vs-stub drift
+that the usage-only `make py-typecheck` (mypy/pyright over call sites)
+cannot see (#583 shipped one such drift). It is wired into `make
+pre-commit` and `make ci` (chained after `py-test`, sharing its
+`maturin develop` build) and skips cleanly when the venv / maturin /
+stubtest are absent. When you change a PyO3 signature or default
+(`src/lib.rs`, `src/batch.rs`, `src/analysis.rs`, the `vcs` module),
+update `_native.pyi` to match and re-run `make py-stubtest`; the
+deliberate facade differences (the `vcs` submodule, runtime `__all__`)
+live in `big-code-analysis-py/stubtest-allowlist.txt` — keep that list
+minimal so it never masks real drift.
 
 **Baseline-refresh discipline.** Any change that moves a *baselined*
 metric past its recorded `.bca-baseline.toml` value must refresh the
@@ -245,7 +262,7 @@ carry one of:
 - An inline expected block: `insta::assert_json_snapshot!(metric.X, @r###"…"###)`.
 - A positive `assert_eq!` on the headline value(s) immediately above
   the snapshot call, using integer-valued accessors (`branches()`,
-  `class_nargs_sum()`, `u_operators()`, …) — float magnitude / volume /
+  `class_npm_sum()`, `unique_operators()`, …) — float magnitude / volume /
   difficulty / effort / `*_average` are bit-brittle and not safe for
   exact equality.
 - A `// expected: <derivation>` comment explaining what the values

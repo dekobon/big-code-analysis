@@ -30,7 +30,7 @@
 
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
-/// `fn_args` file-level sum for the single function in `source`.
+/// `function_args` file-level sum for the single function in `source`.
 fn fn_args_sum(lang: LANG, source: &str, ext: &str) -> f64 {
     let name = format!("parity.{ext}");
     let space = analyze(

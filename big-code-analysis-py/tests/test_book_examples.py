@@ -427,6 +427,47 @@ def test_pipeline_db(tmp_path: Path) -> None:
     assert db_path.exists()
 
 
+def test_pipeline_db_batch_branch_analyses_generated_file(tmp_path: Path) -> None:
+    """Regression (#660): the ``skip_generated=False`` batch branch must
+    analyse generated files, not crash on them.
+
+    The batch branch ``zip(inputs, batch, strict=True)``s the inputs
+    against ``analyze_batch``'s results. With ``skip_generated=False``
+    every input — generated or not — yields exactly one result element,
+    so the strict zip holds. The pre-fix code called ``analyze_batch``
+    *without* ``skip_generated=False``: under the 2.0 default a
+    ``@generated`` input is dropped from the result list, the lengths
+    diverge, and the strict zip raises ``ValueError`` — defeating the
+    branch's "every file, generated or not" promise.
+
+    Threads the ``generated.rs`` fixture (first line carries
+    ``@generated`` / ``DO NOT EDIT``) through ``extra_paths`` so it is
+    among the inputs.
+    """
+    mod = _load("pipeline_db")
+    db_path = tmp_path / "metrics.db"
+    generated = FIXTURES_DIR / "generated.rs"
+    # `analyze` would skip this under the default; the batch branch
+    # must not. (Confirms the fixture really is generated, so the test
+    # is not vacuous.)
+    assert bca.analyze(generated) is None, "fixture must be detected as generated"
+
+    summary = mod.run(
+        FIXTURES_DIR,
+        db_path,
+        extra_paths=[generated],
+        top_n=3,
+        skip_generated=False,
+    )
+
+    # Reaching here at all proves the strict zip did not raise. The
+    # generated file is analysed (not skipped), so it lands in the
+    # analyzed bucket and contributes rows.
+    assert summary["analyzed"] > 0
+    assert summary["rows"] > 0
+    assert db_path.exists()
+
+
 def test_pipeline_db_all_errors_does_not_raise(tmp_path: Path) -> None:
     """Regression: ``run()`` must not raise when every input errors.
 

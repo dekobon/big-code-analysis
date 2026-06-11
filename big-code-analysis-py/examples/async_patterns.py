@@ -19,7 +19,7 @@ from big_code_analysis import FuncSpaceDict
 
 async def analyze_async(path: Path) -> FuncSpaceDict | None:
     """Run ``bca.analyze(path)`` on the default thread executor."""
-    return await asyncio.to_thread(bca.analyze, str(path))
+    return await asyncio.to_thread(bca.analyze, path)
 
 
 async def analyze_all(

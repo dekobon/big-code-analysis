@@ -21,7 +21,7 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
     Returns a small summary dict (`ok`, `errors`, `total`) so the
     accompanying test can assert on it without re-parsing.
     """
-    materialised = [str(p) for p in paths]
+    materialised = list(paths)
     results = bca.analyze_batch(materialised)
 
     ok = 0
@@ -47,7 +47,7 @@ def run_parallel(paths: Iterable[Path], *, workers: int = 4) -> list[FuncSpaceDi
     """
 
     def _analyze(p: Path) -> FuncSpaceDict | None:
-        return bca.analyze(str(p))
+        return bca.analyze(p)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(_analyze, paths))
