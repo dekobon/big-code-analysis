@@ -1,5 +1,5 @@
 ---
-source: src/metrics/exit.rs
+source: src/metrics/nexits.rs
 expression: metric.nexits
 ---
 {

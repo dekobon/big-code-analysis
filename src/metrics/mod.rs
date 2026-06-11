@@ -10,8 +10,6 @@ pub mod abc;
 pub mod cognitive;
 /// Cyclomatic complexity.
 pub mod cyclomatic;
-/// Exit-point counting.
-pub mod exit;
 /// Halstead suite (operators, operands, volume, difficulty, effort).
 pub mod halstead;
 /// Lines-of-code variants (SLOC, PLOC, LLOC, CLOC, blank).
@@ -20,6 +18,8 @@ pub mod loc;
 pub mod mi;
 /// Number of arguments per function.
 pub mod nargs;
+/// Exit-point counting.
+pub mod nexits;
 /// Number of methods (functions + closures).
 pub mod nom;
 /// Number of public attributes.

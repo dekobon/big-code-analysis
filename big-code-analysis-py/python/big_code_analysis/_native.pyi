@@ -25,10 +25,9 @@ __version__: str
 #:
 #: Each entry corresponds to one variant of the upstream
 #: ``big_code_analysis::Metric`` enum and to the metric's JSON output
-#: key (``"nexits"`` for the exit-point metric, etc.); the parsing
-#: layer also accepts the alias ``"exit"`` for backwards-compatibility
-#: with the ``Metric`` Display spelling, but ``METRIC_NAMES`` itself
-#: advertises only the canonical JSON-key spelling. The tuple is
+#: key (``"nexits"`` for the exit-point metric, etc.). The legacy
+#: ``"exit"`` parse alias was retired at 2.0, so ``METRIC_NAMES``
+#: now lists the only accepted spelling for each metric. The tuple is
 #: immutable and alphabetically sorted; callers can ``assert name in
 #: bca.METRIC_NAMES`` to validate user input client-side.
 METRIC_NAMES: tuple[str, ...]
@@ -248,10 +247,9 @@ def analyze(
       ``"halstead"``.
     * ``"wmc"`` → also computes ``"cyclomatic"``, ``"nom"``.
 
-    The ``"exit"`` Metric-Display spelling is accepted as an alias
-    for the canonical JSON key ``"nexits"``; both produce a
-    ``"nexits"`` key in the result. Duplicates are silently
-    collapsed.
+    The number-of-exit-points metric is spelled ``"nexits"`` (its
+    canonical JSON key); the legacy ``"exit"`` alias was retired at
+    2.0. Duplicates are silently collapsed.
 
     Parity with ``bca metrics --output-format json`` is now exact
     at the ``FuncSpace`` boundary in the default configuration:
@@ -576,7 +574,7 @@ def analyze_batch(
     selects which metrics to compute for every file in the batch
     (#268); see :func:`analyze` for the full contract on canonical
     names, dependency closure (``"mi"`` / ``"wmc"`` auto-pull
-    inputs), and the ``"exit"`` / ``"nexits"`` alias. Unrequested
+    inputs), and the canonical ``"nexits"`` spelling. Unrequested
     metrics are absent from each result dict.
 
     ``exclude_tests``, ``allow_lossy_path``, and ``skip_generated``

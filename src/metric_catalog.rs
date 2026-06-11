@@ -78,7 +78,7 @@ pub struct MetricInfo {
     /// per-space findings the CLI never produces.
     ///
     /// The flag is **not** derivable from the JSON path string: `nexits`
-    /// also serialises a `sum` field, but its CLI accessor (`exit_sum()`)
+    /// also serialises a `sum` field, but its CLI accessor (`nexits_sum()`)
     /// reads that same aggregate, so it does not diverge and is `false`.
     /// The divergence is between the JSON field and the CLI accessor,
     /// which only this registry now records once for both front-ends to

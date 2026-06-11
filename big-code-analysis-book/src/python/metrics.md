@@ -42,9 +42,8 @@ Names are case-sensitive lowercase; passing an unknown name
 raises `ValueError` with the canonical list in the message. The
 canonical spelling for the exit-point metric is `"nexits"`
 everywhere (the enum `Display`, `METRIC_NAMES`, and the JSON output
-key). The legacy `"exit"` spelling is still accepted as a hidden
-back-compat alias for one release cycle (it is *not* listed in
-`METRIC_NAMES`); both produce a `"nexits"` key in the output.
+key). The legacy `"exit"` alias was retired at 2.0 and now raises
+`ValueError` like any other unknown name.
 Duplicates are silently collapsed.
 
 | Metric | JSON key | Dependencies pulled in |
@@ -58,7 +57,7 @@ Duplicates are silently collapsed.
 | `nom` | `nom` | — |
 | `npa` | `npa` | — |
 | `npm` | `npm` | — |
-| `nexits` (hidden alias `exit`) | `nexits` | — |
+| `nexits` | `nexits` | — |
 | `tokens` | `tokens` | — |
 | Maintainability Index | `mi` | `loc`, `cyclomatic`, `halstead` |
 | Weighted Methods per Class | `wmc` | `cyclomatic`, `nom` |

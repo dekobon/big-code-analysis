@@ -107,23 +107,23 @@ const EXTRACTORS: &[MetricExtractor] = &[
     },
     MetricExtractor {
         name: "nexits",
-        extract: |m| m.nexits.exit_sum() as f64,
+        extract: |m| m.nexits.nexits_sum() as f64,
     },
     MetricExtractor {
         name: "nargs",
-        extract: |m| m.nargs.nargs_total() as f64,
+        extract: |m| m.nargs.total() as f64,
     },
     MetricExtractor {
         name: "mi.original",
-        extract: |m| m.mi.mi_original(),
+        extract: |m| m.mi.original(),
     },
     MetricExtractor {
         name: "mi.sei",
-        extract: |m| m.mi.mi_sei(),
+        extract: |m| m.mi.sei(),
     },
     MetricExtractor {
         name: "mi.visual_studio",
-        extract: |m| m.mi.mi_visual_studio(),
+        extract: |m| m.mi.visual_studio(),
     },
     MetricExtractor {
         name: "abc",

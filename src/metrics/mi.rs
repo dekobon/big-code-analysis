@@ -36,7 +36,7 @@ pub struct Stats {
     cyclomatic: f64,
     sloc: f64,
     /// Comment lines as a percentage in [0, 100] (not a ratio in [0, 1]).
-    /// Only `mi_sei` consumes this — the SEI MI formula uses `perCM` on
+    /// Only `sei` consumes this — the SEI MI formula uses `perCM` on
     /// the percentage scale; see issue #241.
     comments_percentage: f64,
 }
@@ -46,9 +46,9 @@ impl fmt::Display for Stats {
         write!(
             f,
             "original: {}, sei: {}, visual_studio: {}",
-            self.mi_original(),
-            self.mi_sei(),
-            self.mi_visual_studio()
+            self.original(),
+            self.sei(),
+            self.visual_studio()
         )
     }
 }
@@ -72,7 +72,7 @@ impl Stats {
     /// Its value can be negative.
     #[inline]
     #[must_use]
-    pub fn mi_original(&self) -> f64 {
+    pub fn original(&self) -> f64 {
         if self.inputs_are_empty() {
             return 0.0;
         }
@@ -86,7 +86,7 @@ impl Stats {
     /// Its value can be negative.
     #[inline]
     #[must_use]
-    pub fn mi_sei(&self) -> f64 {
+    pub fn sei(&self) -> f64 {
         if self.inputs_are_empty() {
             return 0.0;
         }
@@ -99,7 +99,7 @@ impl Stats {
     /// employed by Microsoft Visual Studio.
     #[inline]
     #[must_use]
-    pub fn mi_visual_studio(&self) -> f64 {
+    pub fn visual_studio(&self) -> f64 {
         if self.inputs_are_empty() {
             return 0.0;
         }
@@ -142,7 +142,7 @@ where
             // source lines and cannot exceed 100%. The SEI term
             // `50·sin(√(2.4·CM))` has no clamp of its own, so an
             // out-of-range CM (e.g. cloc > sloc) would distort
-            // `mi_sei` by tens of points (issue #461).
+            // `sei` by tens of points (issue #461).
             (loc.cloc() as f64 / stats.sloc * 100.0).clamp(0.0, 100.0)
         };
     }
@@ -200,9 +200,9 @@ mod tests {
     fn mi_empty_file() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
             let mi = &metric.mi;
-            assert_eq!(mi.mi_original(), 0.0);
-            assert_eq!(mi.mi_sei(), 0.0);
-            assert_eq!(mi.mi_visual_studio(), 0.0);
+            assert_eq!(mi.original(), 0.0);
+            assert_eq!(mi.sei(), 0.0);
+            assert_eq!(mi.visual_studio(), 0.0);
         });
     }
 
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn mi_sei_uses_comments_as_percentage() {
         // Regression test for #241. `Stats::comments_percentage` is stored
-        // as a percentage in [0, 100], so `mi_sei` plugs it directly into
+        // as a percentage in [0, 100], so `sei` plugs it directly into
         // `50·sin(√(2.4·CM))`. Constructing `Stats` directly isolates the
         // formula from the parsing pipeline and pins the scale the SEI
         // formula expects: `perCM` is a percentage, not a ratio. With
@@ -258,10 +258,10 @@ mod tests {
             - 0.23 * stats.cyclomatic
             - 16.2 * stats.sloc.log2()
             + 50.0 * (2.4_f64 * 50.0).sqrt().sin();
-        let actual = stats.mi_sei();
+        let actual = stats.sei();
         assert!(
             (actual - expected).abs() < 1e-9,
-            "mi_sei = {actual}, expected {expected}",
+            "sei = {actual}, expected {expected}",
         );
         // Sanity check against the pre-fix (ratio) behaviour: ensure
         // the value is nowhere near the ratio-scaled answer.
@@ -277,7 +277,7 @@ mod tests {
         // threshold.
         assert!(
             (actual - buggy).abs() > 50.0,
-            "mi_sei should differ from the ratio-scaled value by >50; got actual={actual}, buggy={buggy}",
+            "sei should differ from the ratio-scaled value by >50; got actual={actual}, buggy={buggy}",
         );
     }
 
@@ -296,9 +296,9 @@ mod tests {
             // three MI variants — these numbers are produced by the
             // populated Rust trios. Pinning them anchors the snapshot
             // against accidental drift in the cascade.
-            assert!(mi.mi_original() > 0.0);
-            assert!(mi.mi_sei() > 0.0);
-            assert!(mi.mi_visual_studio() > 0.0);
+            assert!(mi.original() > 0.0);
+            assert!(mi.sei() > 0.0);
+            assert!(mi.visual_studio() > 0.0);
         });
     }
 
@@ -312,9 +312,9 @@ mod tests {
             "foo.go",
             |metric| {
                 let mi = &metric.mi;
-                assert!(mi.mi_original() > 0.0);
-                assert!(mi.mi_sei() > 0.0);
-                assert!(mi.mi_visual_studio() > 0.0);
+                assert!(mi.original() > 0.0);
+                assert!(mi.sei() > 0.0);
+                assert!(mi.visual_studio() > 0.0);
             },
         );
     }
@@ -329,9 +329,9 @@ mod tests {
             "foo.ex",
             |metric| {
                 let mi = &metric.mi;
-                assert!(mi.mi_original() > 0.0);
-                assert!(mi.mi_sei() > 0.0);
-                assert!(mi.mi_visual_studio() > 0.0);
+                assert!(mi.original() > 0.0);
+                assert!(mi.sei() > 0.0);
+                assert!(mi.visual_studio() > 0.0);
             },
         );
     }
@@ -347,9 +347,9 @@ mod tests {
             "foo.cpp",
             |metric| {
                 let mi = &metric.mi;
-                assert!(mi.mi_original() > 0.0);
-                assert!(mi.mi_sei() > 0.0);
-                assert!(mi.mi_visual_studio() > 0.0);
+                assert!(mi.original() > 0.0);
+                assert!(mi.sei() > 0.0);
+                assert!(mi.visual_studio() > 0.0);
             },
         );
     }
@@ -364,9 +364,9 @@ mod tests {
             "foo.js",
             |metric| {
                 let mi = &metric.mi;
-                assert!(mi.mi_original() > 0.0);
-                assert!(mi.mi_sei() > 0.0);
-                assert!(mi.mi_visual_studio() > 0.0);
+                assert!(mi.original() > 0.0);
+                assert!(mi.sei() > 0.0);
+                assert!(mi.visual_studio() > 0.0);
             },
         );
     }
@@ -379,9 +379,9 @@ mod tests {
             "foo.js",
             |metric| {
                 let mi = &metric.mi;
-                assert!(mi.mi_original() > 0.0);
-                assert!(mi.mi_sei() > 0.0);
-                assert!(mi.mi_visual_studio() > 0.0);
+                assert!(mi.original() > 0.0);
+                assert!(mi.sei() > 0.0);
+                assert!(mi.visual_studio() > 0.0);
             },
         );
     }

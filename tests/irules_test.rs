@@ -95,8 +95,12 @@ fn irules_end_to_end_funcspace_tree() {
         .iter()
         .find(|s| s.name.as_deref() == Some("rewrite_path"))
         .expect("rewrite_path proc must be a function space");
-    assert_eq!(proc.metrics.nargs.fn_args_sum(), 2, "proc has two params");
-    assert_eq!(proc.metrics.nexits.exit_sum(), 1, "proc has one return");
+    assert_eq!(
+        proc.metrics.nargs.function_args_sum(),
+        2,
+        "proc has two params"
+    );
+    assert_eq!(proc.metrics.nexits.nexits_sum(), 1, "proc has one return");
     assert_eq!(
         proc.metrics.cyclomatic.cyclomatic_sum(),
         1,
@@ -114,9 +118,9 @@ fn irules_end_to_end_funcspace_tree() {
         .expect("the HTTP_REQUEST handler should have cyclomatic 7");
     assert_eq!(complex.kind, SpaceKind::Function);
     assert_eq!(complex.metrics.cognitive.cognitive_sum(), 9);
-    assert_eq!(complex.metrics.nexits.exit_sum(), 1);
+    assert_eq!(complex.metrics.nexits.nexits_sum(), 1);
     assert_eq!(
-        complex.metrics.nargs.fn_args_sum(),
+        complex.metrics.nargs.function_args_sum(),
         0,
         "handlers take no formal parameters",
     );
@@ -131,11 +135,11 @@ fn irules_end_to_end_funcspace_tree() {
         })
         .expect("the CLIENT_ACCEPTED handler should have cyclomatic 1");
     assert_eq!(simple.metrics.cognitive.cognitive_sum(), 0);
-    assert_eq!(simple.metrics.nexits.exit_sum(), 0);
+    assert_eq!(simple.metrics.nexits.nexits_sum(), 0);
 
     // File-level rollups sum across every space.
     assert_eq!(unit.metrics.cyclomatic.cyclomatic_sum(), 10);
     assert_eq!(unit.metrics.cognitive.cognitive_sum(), 9);
-    assert_eq!(unit.metrics.nexits.exit_sum(), 2);
-    assert_eq!(unit.metrics.nargs.nargs_total(), 2);
+    assert_eq!(unit.metrics.nexits.nexits_sum(), 2);
+    assert_eq!(unit.metrics.nargs.total(), 2);
 }

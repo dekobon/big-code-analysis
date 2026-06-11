@@ -243,7 +243,8 @@ mod tests {
     #[test]
     fn python_tokens_distinct_from_halstead() {
         check_metrics::<PythonParser>("def foo(x): return (x + 1)", "foo.py", |metric| {
-            let halstead_total = metric.halstead.operators() + metric.halstead.operands();
+            let halstead_total =
+                metric.halstead.total_operators() + metric.halstead.total_operands();
             assert!(
                 metric.tokens.tokens_sum() > halstead_total,
                 "expected tokens ({}) > halstead N1+N2 ({}); punctuation \
@@ -322,7 +323,7 @@ mod tests {
     #[test]
     fn cpp_tokens_distinct_from_halstead() {
         check_metrics::<CppParser>("int foo(int x) { return (x + 1); }", "foo.cpp", |m| {
-            let halstead_total = m.halstead.operators() + m.halstead.operands();
+            let halstead_total = m.halstead.total_operators() + m.halstead.total_operands();
             assert!(
                 m.tokens.tokens_sum() > halstead_total,
                 "expected tokens ({}) > halstead N1+N2 ({}); punctuation like \

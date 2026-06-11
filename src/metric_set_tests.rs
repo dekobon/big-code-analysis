@@ -24,7 +24,7 @@ fn all_contains_every_variant() {
         Metric::Loc,
         Metric::Nom,
         Metric::Tokens,
-        Metric::NArgs,
+        Metric::Nargs,
         Metric::Nexits,
         Metric::Abc,
         Metric::Npm,
@@ -66,7 +66,7 @@ fn with_dependencies_pulls_in_wmc_inputs() {
 // (which produced inf/NaN averages).
 #[test]
 fn with_dependencies_pulls_in_nom_for_averaging_metrics() {
-    for m in [Metric::Cognitive, Metric::Nexits, Metric::NArgs] {
+    for m in [Metric::Cognitive, Metric::Nexits, Metric::Nargs] {
         let set = MetricSet::from_slice_with_deps(&[m]);
         assert!(set.contains(m));
         assert!(
@@ -121,7 +121,7 @@ const ALL_VARIANTS: &[Metric] = &[
     Metric::Loc,
     Metric::Nom,
     Metric::Tokens,
-    Metric::NArgs,
+    Metric::Nargs,
     Metric::Nexits,
     Metric::Abc,
     Metric::Npm,
@@ -157,7 +157,7 @@ fn _all_variants_exhaustive_guard(m: Metric) {
         | Metric::Loc
         | Metric::Nom
         | Metric::Tokens
-        | Metric::NArgs
+        | Metric::Nargs
         | Metric::Nexits
         | Metric::Abc
         | Metric::Npm
@@ -182,19 +182,18 @@ fn from_str_round_trips_every_variant_display_name() {
 }
 
 #[test]
-fn from_str_accepts_hidden_exit_alias() {
-    // Post-#536 the canonical spelling is "nexits" (Display, NAMES,
-    // JSON key). The pre-#536 "exit" spelling is kept as a hidden
-    // back-compat alias for one release cycle; both must still parse
-    // to `Metric::Nexits`.
+fn from_str_rejects_retired_exit_alias() {
+    // `nexits` is the only accepted spelling. The pre-#536 `exit`
+    // alias was retired in the 2.0 accessor-vocabulary alignment
+    // (#588); it must no longer parse.
     assert_eq!("nexits".parse::<Metric>().unwrap(), Metric::Nexits);
-    assert_eq!("exit".parse::<Metric>().unwrap(), Metric::Nexits);
+    assert!("exit".parse::<Metric>().is_err());
 }
 
 #[test]
 fn nexits_canonical_spelling_is_consistent() {
     // The canonical `nexits` spelling round-trips through Display and
-    // appears in NAMES; the hidden `exit` alias does not appear in
+    // appears in NAMES; the retired `exit` alias does not appear in
     // NAMES (so it stays out of help / error listings).
     assert_eq!(Metric::Nexits.to_string(), "nexits");
     assert!(Metric::NAMES.contains(&"nexits"));
@@ -207,7 +206,7 @@ fn serde_uses_canonical_display_spelling() {
     // spelling, NOT serde's `rename_all = "snake_case"` form (which
     // would yield `n_args` / `n_exits`). `nargs` and `nexits` are the
     // exact pair that distinguishes the two.
-    assert_eq!(serde_json::to_string(&Metric::NArgs).unwrap(), "\"nargs\"",);
+    assert_eq!(serde_json::to_string(&Metric::Nargs).unwrap(), "\"nargs\"",);
     assert_eq!(
         serde_json::to_string(&Metric::Nexits).unwrap(),
         "\"nexits\"",
@@ -215,7 +214,7 @@ fn serde_uses_canonical_display_spelling() {
     // Deserialize back to the same variant.
     assert_eq!(
         serde_json::from_str::<Metric>("\"nargs\"").unwrap(),
-        Metric::NArgs,
+        Metric::Nargs,
     );
     assert_eq!(
         serde_json::from_str::<Metric>("\"nexits\"").unwrap(),
@@ -250,13 +249,11 @@ fn serde_round_trips_every_variant_through_non_borrowing_format() {
 }
 
 #[test]
-fn deserialize_accepts_legacy_exit_alias() {
-    // Reading a pre-#536 serialized scope that spelled the metric
-    // `exit` must still resolve to `Metric::Nexits` for back-compat.
-    assert_eq!(
-        serde_json::from_str::<Metric>("\"exit\"").unwrap(),
-        Metric::Nexits,
-    );
+fn deserialize_rejects_retired_exit_alias() {
+    // The pre-#536 `exit` alias was retired in #588; deserializing a
+    // payload that still spells the metric `exit` must now fail rather
+    // than silently resolving to `Metric::Nexits`.
+    assert!(serde_json::from_str::<Metric>("\"exit\"").is_err());
 }
 
 #[test]
@@ -311,9 +308,7 @@ fn from_str_rejects_uppercase() {
 
 // Drift guard: every entry in `Metric::NAMES` must parse via
 // `FromStr`, and every variant must have at least one entry
-// in the table that parses to it (the `"exit"`/`"nexits"`
-// alias means `Exit` is reached via the canonical `"nexits"`
-// spelling, not via the Display arm). Adding a `Metric`
+// in the table that parses to it. Adding a `Metric`
 // variant without a `NAMES` entry — or vice versa — fails
 // here before any pytest run.
 #[test]

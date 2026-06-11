@@ -1,9 +1,9 @@
 ---
-source: src/metrics/exit.rs
+source: src/metrics/nexits.rs
 expression: metric.nexits
 ---
 {
-  "sum": 2,
+  "sum": 1,
   "average": 1.0,
   "min": 0,
   "max": 1
