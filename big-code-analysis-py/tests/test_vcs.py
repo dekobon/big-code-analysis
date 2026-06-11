@@ -481,7 +481,13 @@ def test_vcs_metrics_file_types_sequence_matches_comma_string(tmp_path: Path) ->
         ["git", "commit", "-q", "-m", "add py"],
         cwd=repo,
         check=True,
-        env={**os.environ},
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Ada",
+            "GIT_AUTHOR_EMAIL": "ada@example.com",
+            "GIT_COMMITTER_NAME": "Ada",
+            "GIT_COMMITTER_EMAIL": "ada@example.com",
+        },
     )
     from_seq = bca.vcs_metrics(repo, file_types=["rs", "py"])
     from_str = bca.vcs_metrics(repo, file_types="rs,py")
