@@ -379,7 +379,7 @@ def test_nexits_canonical_spelling() -> None:
     assert via_json_key is not None
     assert "nexits" in via_json_key["metrics"]
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unknown metric"):
         bca.analyze(FIXTURES / "hello.py", metrics=["exit"])
 
 

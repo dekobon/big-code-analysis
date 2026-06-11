@@ -6,7 +6,7 @@ The bindings split errors into two domains:
   `TypeError` for the wrong type, `OSError` and its subclasses
   for filesystem failures.
 * **Per-file analysis errors** in a batch are *returned* as
-  `bca.AnalysisError` values inside the result list. They are
+  `bca.AnalysisFailure` values inside the result list. They are
   not exceptions and never raise.
 
 The single-file `bca.analyze` walks the first path; the batch
@@ -62,12 +62,12 @@ the typed catches when you want to differentiate.
 
 ## Batch errors
 
-`bca.analyze_batch` returns `bca.AnalysisError` values instead of
+`bca.analyze_batch` returns `bca.AnalysisFailure` values instead of
 raising, so a single bad file does not break the whole batch.
 
 ```python
 for slot in bca.analyze_batch(paths):
-    if isinstance(slot, bca.AnalysisError):
+    if isinstance(slot, bca.AnalysisFailure):
         log.warning("%s (%s): %s", slot.path, slot.error_kind, slot.error)
     else:
         process(slot)
@@ -130,7 +130,7 @@ log = logging.getLogger(__name__)
 
 def report(paths: list[str]) -> None:
     for path, slot in zip(paths, bca.analyze_batch(paths)):
-        if isinstance(slot, bca.AnalysisError):
+        if isinstance(slot, bca.AnalysisFailure):
             log.warning(
                 "skip %s (%s): %s", path, slot.error_kind, slot.error
             )
@@ -144,7 +144,7 @@ def report(paths: list[str]) -> None:
 ## See also
 
 * [Batch processing](batch.md) — the never-raise contract that
-  routes per-file failures into `AnalysisError` slots.
+  routes per-file failures into `AnalysisFailure` slots.
 * [Async patterns](async.md) — `asyncio.gather(...,
   return_exceptions=True)` is the async-side equivalent of the
   batch contract: per-task exceptions land in the result list

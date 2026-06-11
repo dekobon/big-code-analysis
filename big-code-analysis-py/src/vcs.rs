@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, nexits)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // File-level halstead/nargs/exit are many-fn aggregation artifacts (the
 // option-builder + report/inject `?` error maps and the many-field
 // report assembly), not per-function logic complexity
@@ -12,18 +12,17 @@
 //! `conversion::json_string_to_py` boundary as the AST entry points, so
 //! the Python side sees ordinary dicts.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use pyo3::PyErr;
 use pyo3::exceptions::PyValueError;
-use serde::Serialize;
 use serde_json::Value;
 
 use big_code_analysis::vcs::{
     self, CacheConfig, Options, build_history_index_cached, build_trend, hotspot, parse_timestamp,
-    parse_window, score_commit, score_diff,
+    parse_window, score_commit, score_diff, workdir_root,
 };
-use big_code_analysis::wire;
+use big_code_analysis::wire::{self, VcsReport, VcsReportFile};
 
 /// Knobs accepted from Python, all optional (Python defaults map here).
 // The booleans mirror independent `bca vcs` CLI toggles; a flags
@@ -64,27 +63,6 @@ impl VcsParams {
         config.dir.clone_from(&self.cache_dir);
         config
     }
-}
-
-/// One ranked file: repo-relative path plus the VCS block, nested under a
-/// `vcs` key like every other metric group (issue #684).
-#[derive(Serialize)]
-struct FileEntry {
-    path: String,
-    vcs: wire::Vcs,
-}
-
-/// The serialized report shape (matches the CLI / web report).
-#[derive(Serialize)]
-struct Report {
-    long_window_days: u32,
-    recent_window_days: u32,
-    risk_score_version: u32,
-    vcs_schema_version: u32,
-    truncated_shallow_clone: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vcs_aggregate: Option<vcs::VcsAggregate>,
-    files: Vec<FileEntry>,
 }
 
 /// Build [`Options`] from Python params, surfacing a `ValueError` on a
@@ -139,10 +117,10 @@ pub(crate) fn vcs_report_json(repo_path: &Path, params: &VcsParams) -> Result<St
     let index = build_history_index_cached(repo_path, &options, &params.cache_config())
         .map_err(vcs_error_to_py)?;
 
-    let mut files: Vec<FileEntry> = index
+    let mut files: Vec<VcsReportFile> = index
         .iter()
         .filter_map(|(rel, stat)| {
-            rel.to_str().map(|path| FileEntry {
+            rel.to_str().map(|path| VcsReportFile {
                 path: path.to_owned(),
                 vcs: wire::Vcs::from(stat),
             })
@@ -152,7 +130,7 @@ pub(crate) fn vcs_report_json(repo_path: &Path, params: &VcsParams) -> Result<St
         (e.path.as_str(), e.vcs.risk_score)
     });
 
-    let report = Report {
+    let report = VcsReport {
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
         risk_score_version: vcs::score::RISK_SCORE_VERSION,
@@ -229,37 +207,46 @@ impl JitParams {
     }
 }
 
-/// Score a single commit (issue #331), or — when `diff` is supplied — an
-/// arbitrary unified diff (issue #580), returning the JIT report as a JSON
-/// string for [`crate::conversion::json_string_to_py`].
+/// Score a single commit for just-in-time risk (issue #331), returning the
+/// commit JIT report as a JSON string for
+/// [`crate::conversion::json_string_to_py`]. Backs `vcs.commit()` (#612 /
+/// #667).
 ///
-/// In diff mode only the size and diffusion groups are computable, so the
-/// returned report's `source` is `"diff"` and its `partial_risk_score` is
-/// **not comparable** to a commit score. `repo_path` / `commit` / the window
-/// knobs are ignored in diff mode.
+/// `source` is `"commit"`; the report carries all five feature groups
+/// (size / diffusion / history / experience / purpose) and a `risk_score`
+/// comparable across commits.
 ///
 /// # Errors
 ///
-/// `ValueError` for a bad option, a non-repository `repo_path`, an
-/// unresolvable commit, or a malformed diff.
-pub(crate) fn vcs_jit_json(
-    repo_path: Option<&Path>,
+/// `ValueError` for a bad option, a non-repository `repo_path`, or an
+/// unresolvable commit.
+pub(crate) fn vcs_commit_json(
+    repo_path: &Path,
     commit: &str,
-    diff: Option<&str>,
     params: &JitParams,
 ) -> Result<String, PyErr> {
-    if let Some(diff) = diff {
-        let report = score_diff(diff).map_err(vcs_error_to_py)?;
-        return serde_json::to_string(&report)
-            .map_err(|e| PyValueError::new_err(format!("serializing jit diff report: {e}")));
-    }
-    let root = repo_path.ok_or_else(|| {
-        PyValueError::new_err("vcs_jit requires repo_path when no diff is supplied")
-    })?;
     let options = params.options()?;
-    let report = score_commit(root, commit, &options).map_err(vcs_error_to_py)?;
+    let report = score_commit(repo_path, commit, &options).map_err(vcs_error_to_py)?;
     serde_json::to_string(&report)
         .map_err(|e| PyValueError::new_err(format!("serializing jit report: {e}")))
+}
+
+/// Score an arbitrary unified diff for partial just-in-time risk (issue
+/// #580), returning the diff JIT report as a JSON string for
+/// [`crate::conversion::json_string_to_py`]. Backs `vcs.score_diff()`
+/// (#612 / #667).
+///
+/// A bare diff has no author / parent / history, so only the size and
+/// diffusion groups are computable: `source` is `"diff"` and
+/// `partial_risk_score` is **not comparable** to a commit `risk_score`.
+///
+/// # Errors
+///
+/// `ValueError` for a malformed diff.
+pub(crate) fn vcs_score_diff_json(diff: &str) -> Result<String, PyErr> {
+    let report = score_diff(diff).map_err(vcs_error_to_py)?;
+    serde_json::to_string(&report)
+        .map_err(|e| PyValueError::new_err(format!("serializing jit diff report: {e}")))
 }
 
 /// The directory to discover the repository from for `file_path`: its
@@ -267,11 +254,36 @@ pub(crate) fn vcs_jit_json(
 /// returns `Some("")` (an empty path) — not `None` — for `"foo.rs"`, so an
 /// `unwrap_or(".")` alone would discover from an empty path and silently
 /// find no repository; map that empty parent to `.`.
-fn repo_root_for(file_path: &Path) -> &Path {
+pub(crate) fn repo_root_for(file_path: &Path) -> &Path {
     match file_path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     }
+}
+
+/// Resolve the repository work-tree root that contains `file_path`, for
+/// the batch VCS cache key (#670). Files in different subdirectories of one
+/// checkout resolve to the **same** root, so the batch cache builds one
+/// index / blame engine per repository rather than one per directory.
+/// Returns `None` when `file_path` is not inside a repository, so the cache
+/// falls back to the file's parent directory and degrades gracefully.
+pub(crate) fn workdir_root_for(file_path: &Path) -> Option<PathBuf> {
+    workdir_root(file_path)
+}
+
+/// Build a default-options [`HistoryIndex`] for the repository containing
+/// `root`, for the batch `vcs=True` path (#670). Returns `None` (rather
+/// than an error) when `root` is not inside a repository, so a batch over
+/// a mix of in-repo and out-of-repo files degrades gracefully per file.
+pub(crate) fn build_index_for(root: &Path) -> Option<vcs::HistoryIndex> {
+    build_history_index_cached(root, &Options::default(), &CacheConfig::default()).ok()
+}
+
+/// Open a default-options [`PerFunctionBlame`] engine for the repository
+/// containing `root`, for the batch `vcs_per_function=True` path (#670).
+/// Returns `None` when `root` is not inside a repository.
+pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::PerFunctionBlame> {
+    vcs::PerFunctionBlame::open(root, Options::default()).ok()
 }
 
 /// Inject a `vcs` block into a single file's metrics JSON for
@@ -288,6 +300,21 @@ pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<Str
     else {
         return Ok(funcspace_json);
     };
+    inject_vcs_with_index(funcspace_json, file_path, &index)
+}
+
+/// Inject a file-level `vcs` block using a pre-built [`HistoryIndex`].
+///
+/// The index-building primitive split out of [`inject_vcs`] so the batch
+/// entry point (#670) can build one index per containing repository and
+/// reuse it across every file in that repo, rather than one one-shot walk
+/// per file. A file with no index entry (untracked / binary) is returned
+/// unchanged, the same graceful degradation as the single-file path.
+pub(crate) fn inject_vcs_with_index(
+    funcspace_json: String,
+    file_path: &Path,
+    index: &vcs::HistoryIndex,
+) -> Result<String, PyErr> {
     let canonical = file_path
         .canonicalize()
         .unwrap_or_else(|_| file_path.to_path_buf());
@@ -353,7 +380,23 @@ pub(crate) fn inject_vcs_per_function(
     let Ok(blame) = vcs::PerFunctionBlame::open(root, Options::default()) else {
         return Ok(funcspace_json);
     };
+    inject_vcs_per_function_with_blame(funcspace_json, file_path, &blame)
+}
 
+/// Inject per-function `vcs` blocks using a pre-built [`PerFunctionBlame`]
+/// engine.
+///
+/// The blame-opening primitive split out of [`inject_vcs_per_function`] so
+/// the batch entry point (#670) can open one blame engine per containing
+/// repository and reuse it across every file in that repo. The file is
+/// still blamed once (the engine caches nothing across files); a blame
+/// failure on one file leaves its per-function blocks unset, the same
+/// graceful degradation as the single-file path.
+pub(crate) fn inject_vcs_per_function_with_blame(
+    funcspace_json: String,
+    file_path: &Path,
+    blame: &vcs::PerFunctionBlame,
+) -> Result<String, PyErr> {
     let mut doc: Value = serde_json::from_str(&funcspace_json)
         .map_err(|e| PyValueError::new_err(format!("parsing metrics JSON: {e}")))?;
 

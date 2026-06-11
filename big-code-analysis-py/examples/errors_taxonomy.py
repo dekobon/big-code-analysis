@@ -6,7 +6,7 @@ Tied to the book's ``python/errors.md`` page. Demonstrates:
   raised from ``analyze`` for an unknown extension.
 * ``FileNotFoundError`` (subclass of ``OSError``) — typed
   dispatch from ``analyze`` for a missing path.
-* ``bca.AnalysisError`` — returned, never raised, by
+* ``bca.AnalysisFailure`` — returned, never raised, by
   ``analyze_batch``.
 
 Other paths in the closed taxonomy — ``bca.ParseError``, raw
@@ -64,10 +64,10 @@ def run(
     finally:
         unknown.unlink(missing_ok=True)
 
-    # 3. analyze_batch() returns AnalysisError, never raises per-file.
+    # 3. analyze_batch() returns AnalysisFailure, never raises per-file.
     paths = [str(fixtures / "hello.rs"), str(missing_path)]
     for slot in bca.analyze_batch(paths):
-        if isinstance(slot, bca.AnalysisError):
+        if isinstance(slot, bca.AnalysisFailure):
             report["batch_errors"] += 1
             print(f"batch_error: ({slot.error_kind}) {slot.error}")
 

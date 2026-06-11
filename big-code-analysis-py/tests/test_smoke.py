@@ -46,17 +46,14 @@ def _workspace_version() -> str:
 def _cli_metrics(bca_path: str, path: Path, *, exclude_tests: bool = False) -> Any:
     """Run ``bca metrics --output-format json`` on ``path`` and parse.
 
-    ``--exclude-tests`` is the CLI's global flag (declared on
-    ``GlobalOpts`` in ``big-code-analysis-cli/src/lib.rs``); clap
-    accepts it either before the subcommand or after it. We place
-    it before ``metrics`` to match the documented invocation form
-    in the README, which is what users will type to reach for the
-    Python kwarg via the bindings.
+    ``--exclude-tests`` is scoped to the ``metrics`` subcommand (#597
+    moved the former global flags onto their subcommands), so it is
+    placed *after* ``metrics`` — ``bca metrics --exclude-tests …``.
     """
-    argv = [bca_path]
+    argv = [bca_path, "metrics"]
     if exclude_tests:
         argv.append("--exclude-tests")
-    argv.extend(["metrics", "--output-format", "json", "--paths", str(path)])
+    argv.extend(["--output-format", "json", "--paths", str(path)])
     result = subprocess.run(
         argv,
         check=True,

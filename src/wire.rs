@@ -733,6 +733,53 @@ impl From<&crate::vcs::Stats> for Vcs {
     }
 }
 
+/// Wire form of one ranked file in a [`VcsReport`]: its repository-
+/// relative path plus the always-slim [`Vcs`] block, nested under a
+/// `vcs` key like every other metric group (issue #684).
+// Serialize-only (no `Deserialize`): `VcsAggregate` and its bus-factor
+// family are serialize-only upstream, so `VcsReport` cannot round-trip
+// through `Deserialize` the way [`Vcs`] / [`VcsTrend`] do. The only
+// consumer (`bca vcs` / `POST /vcs` / Python `vcs.rank()`) serializes
+// outward; nothing reads a report back in.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct VcsReportFile {
+    /// Repository-relative path.
+    pub path: String,
+    /// The file's change-history metrics.
+    pub vcs: Vcs,
+}
+
+/// Wire form of the file-ranking change-history report (issue #328) —
+/// the single serialized shape shared by `bca vcs`, `POST /vcs`, and the
+/// Python `vcs.rank()` (#664).
+///
+/// The four constant stamps (`long_window_days`, `recent_window_days`,
+/// `risk_score_version`, `vcs_schema_version`) sit once at the top level
+/// rather than per row (issue #635); each `files` row carries only the
+/// per-file metrics under a nested `vcs` key (issue #684). `vcs_aggregate`
+/// is the directory-/repo-level bus-factor summary, omitted when not
+/// computed.
+#[cfg(feature = "vcs-git")]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct VcsReport {
+    /// Long window length, in days (constant across rows).
+    pub long_window_days: u32,
+    /// Recent window length, in days (constant across rows).
+    pub recent_window_days: u32,
+    /// Composite-formula version.
+    pub risk_score_version: u32,
+    /// Per-row metric-block shape version.
+    pub vcs_schema_version: u32,
+    /// Whether the history came from a shallow clone.
+    pub truncated_shallow_clone: bool,
+    /// Directory-/repo-level bus-factor aggregate, when computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcs_aggregate: Option<crate::vcs::VcsAggregate>,
+    /// Files ranked by descending `vcs.risk_score`.
+    pub files: Vec<VcsReportFile>,
+}
+
 /// Wire form of one sampled point in a historical metric trend (issue
 /// #333): the sample timestamp plus the file's VCS block at that moment.
 /// `as_of` leads; the metrics sit under a nested `vcs` key (issue #684),

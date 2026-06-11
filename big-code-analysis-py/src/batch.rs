@@ -1,14 +1,19 @@
-// bca: suppress-file(halstead, nargs, nexits)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // PyO3 batch analysis + error type; nexits is never-raise error-folding /
 // FFI-repr boilerplate and the rest are many-fn aggregation artifacts, not
 // per-function logic complexity (cognitive/cyclomatic stay enforced).
 
-//! Batch entry point and the structured `AnalysisError` Python class.
+//! Batch entry point and the structured `AnalysisFailure` Python class.
 //!
 //! Where [`crate::analysis`] raises a Python exception per failing
 //! file, this module's [`analyze_batch`] sweeps an iterable of paths
 //! and folds per-file failures into [`PyAnalysisError`] values
-//! interleaved with successful result dicts. The contract is
+//! (exposed to Python as `AnalysisFailure`) interleaved with
+//! successful result dicts. The Rust type keeps the historical
+//! `PyAnalysisError` spelling; only the Python-visible class name
+//! changed to `AnalysisFailure` at 2.0 (#614) — it is a returned
+//! value, never raised, so the `…Error` suffix that PEP 8 reserves
+//! for exceptions misled readers. The contract is
 //! *never-raise on per-file errors* so pipeline / workflow callers
 //! can keep going past a missing file, an unknown extension, or a
 //! parser failure without a `try` / `except` per path. Programmer
@@ -31,6 +36,7 @@
 //!   failure since we cannot honour it without violating the
 //!   identifier-path rule from AGENTS.md).
 
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -38,14 +44,19 @@ use std::str::FromStr;
 use pyo3::Bound;
 use pyo3::Py;
 use pyo3::PyAny;
+use pyo3::PyErr;
 use pyo3::PyResult;
 use pyo3::Python;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyType;
+use pyo3::types::{PyTuple, PyType};
+
+use big_code_analysis::vcs::{HistoryIndex, PerFunctionBlame};
 
 use crate::analysis::{self, AnalysisError, AnalyzeOptions};
 use crate::conversion;
+use crate::vcs as vcs_bridge;
+use crate::walk::{WalkFilters, walk_paths};
 
 /// Closed taxonomy for [`PyAnalysisError::error_kind`].
 ///
@@ -109,11 +120,12 @@ impl FromStr for ErrorKind {
 /// [`ErrorKind`] variants (`"UnsupportedLanguage"`, `"ParseError"`,
 /// `"IoError"`). The class itself is **not** an exception subclass —
 /// instances appear in the return list of [`analyze_batch`], they
-/// are never raised — so `isinstance(r, AnalysisError)` is the
-/// canonical discriminator.
+/// are never raised — so `isinstance(r, AnalysisFailure)` is the
+/// canonical discriminator. (`AnalysisFailure` is the Python-visible
+/// name; this Rust type is `PyAnalysisError` internally.)
 #[pyclass(
     frozen,
-    name = "AnalysisError",
+    name = "AnalysisFailure",
     module = "big_code_analysis._native",
     eq,
     hash,
@@ -137,7 +149,7 @@ pub(crate) struct PyAnalysisError {
 
 #[pymethods]
 impl PyAnalysisError {
-    /// Build an `AnalysisError` directly. Useful for tests and for
+    /// Build an `AnalysisFailure` directly. Useful for tests and for
     /// callers that want to deduplicate batch errors into a `set`
     /// — equality / hashing covers `(path, error, error_kind)` (all
     /// three fields), so two failures of the same kind on the same
@@ -173,7 +185,7 @@ impl PyAnalysisError {
         let error_r: String = repr_fn.call1((&self.error,))?.extract()?;
         let kind_r: String = repr_fn.call1((&self.error_kind,))?.extract()?;
         Ok(format!(
-            "AnalysisError(path={path_r}, error={error_r}, error_kind={kind_r})"
+            "AnalysisFailure(path={path_r}, error={error_r}, error_kind={kind_r})"
         ))
     }
 
@@ -347,12 +359,18 @@ const _: fn() = || {
 /// always" behaviour (every position produces a `dict` or an
 /// `AnalysisError`).
 #[pyfunction]
-#[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None))]
+#[pyo3(signature = (paths, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
 // `metrics: Option<Vec<String>>` is taken by value to match the PyO3
 // keyword-argument FFI shape (the macro materialises an owned `Vec`
 // out of the Python list); clippy's `needless_pass_by_value` lint
 // can't see across the macro boundary, so silence it here.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::fn_params_excessive_bools,
+    // Six keyword-only kwargs mirroring `analyze`'s documented surface;
+    // a params struct would only obscure the FFI signature CPython binds.
+    clippy::too_many_arguments
+)]
 pub(crate) fn analyze_batch<'py>(
     py: Python<'py>,
     paths: &Bound<'py, PyAny>,
@@ -360,6 +378,8 @@ pub(crate) fn analyze_batch<'py>(
     allow_lossy_path: bool,
     skip_generated: bool,
     metrics: Option<Vec<String>>,
+    vcs: bool,
+    vcs_per_function: bool,
 ) -> PyResult<Vec<Py<PyAny>>> {
     // Resolve `metrics=` *before* `paths.try_iter()` so a bad name
     // (empty list, unknown metric) aborts before any iteration side
@@ -390,56 +410,254 @@ pub(crate) fn analyze_batch<'py>(
         Err(e) => return Err(e),
     };
     let mut results: Vec<Py<PyAny>> = Vec::with_capacity(cap);
+    // One shared VCS index / blame engine per containing repository (#670):
+    // a comprehension over `analyze(p, vcs=True)` walks the same history
+    // once per file, whereas batch amortises the walk across every file in
+    // the repo. Keyed by the repo root each file resolves to.
+    let mut vcs_repos = VcsRepoCache::new(vcs, vcs_per_function);
     for item in iter {
         let item = item?;
         let path: PathBuf = item.extract()?;
-        // Release the GIL across the file read and tree-sitter
-        // parse so other Python threads can run during the
-        // sequential sweep. `analyze_path` touches no Python
-        // objects (`Source`, `MetricsOptions`, `FuncSpace`,
-        // `serde_json::to_string` all live on the Rust side), so
-        // `py.detach` is sound; the GIL is re-acquired before
-        // `json_string_to_py` builds the Python `dict`. (PyO3
-        // 0.28 renamed `allow_threads` → `detach`.)
-        let outcome = py.detach(|| analysis::analyze_path(&path, opts));
-        match outcome {
-            Ok(Some(json)) => match conversion::json_string_to_py(py, &json) {
+        push_one_result(py, &path, opts, &mut vcs_repos, &mut results)?;
+    }
+    Ok(results)
+}
+
+/// Analyse `path` and push its result (a dict or an `AnalysisFailure`)
+/// onto `results`, attaching shared-index VCS blocks when requested.
+/// Shared by [`analyze_batch`] and [`analyze_paths`].
+fn push_one_result(
+    py: Python<'_>,
+    path: &Path,
+    opts: AnalyzeOptions,
+    vcs_repos: &mut VcsRepoCache,
+    results: &mut Vec<Py<PyAny>>,
+) -> PyResult<()> {
+    // Release the GIL across the file read and tree-sitter parse so
+    // other Python threads can run during the sequential sweep.
+    // `analyze_path` touches no Python objects, so `py.detach` is sound;
+    // the GIL is re-acquired before `json_string_to_py` builds the dict.
+    let outcome = py.detach(|| analysis::analyze_path(path, opts));
+    match outcome {
+        Ok(Some(json)) => {
+            // Attach VCS blocks (file-level and/or per-function) using the
+            // shared per-repo index / blame engine. A VCS failure leaves
+            // the AST metrics intact (graceful degradation) and never turns
+            // the result into an `AnalysisFailure` (#670).
+            let json = vcs_repos.attach(py, json, path)?;
+            match conversion::json_string_to_py(py, &json) {
                 Ok(dict) => results.push(dict.unbind()),
                 Err(err) => {
-                    // Fold internal JSON-to-Python conversion
-                    // failures into the per-file error stream so
-                    // the never-raise contract holds even on the
-                    // success arm. In practice `json.loads`
-                    // cannot fail on a string `serde_json::to_string`
-                    // produced — the fallback exists for the
-                    // unreachable-today case where a future
-                    // `FuncSpace` field serialises to something
-                    // `json.loads` rejects, exactly the failure
-                    // mode `AnalysisError::Serialization` already
-                    // anticipates on the Rust side.
+                    // Fold internal JSON-to-Python conversion failures into
+                    // the per-file error stream so the never-raise contract
+                    // holds even on the success arm.
                     let py_err = PyAnalysisError::synthetic_internal(
-                        &path,
+                        path,
                         format!("internal: JSON-to-Python conversion failed: {err}"),
                         ErrorKind::ParseError,
                     );
                     results.push(Py::new(py, py_err)?.into_any());
                 }
-            },
-            // `Ok(None)` means `analyze_path` skipped the file — with
-            // the #542 default `skip_generated=true` this is the
-            // generated-file case, and the contract (matching
-            // `analyze`) is to omit it from the output entirely. The
-            // result list is therefore shorter than the input when any
-            // path is skipped; callers who need strict 1:1 positional
-            // alignment pass `skip_generated=false`.
-            Ok(None) => {}
-            Err(err) => {
-                let py_err = PyAnalysisError::from_internal(err, &path);
-                results.push(Py::new(py, py_err)?.into_any());
             }
         }
+        // `Ok(None)` means `analyze_path` skipped the file — with the #542
+        // default `skip_generated=true` this is the generated-file case,
+        // omitted from the output entirely (matching `analyze`).
+        Ok(None) => {}
+        Err(err) => {
+            let py_err = PyAnalysisError::from_internal(err, path);
+            results.push(Py::new(py, py_err)?.into_any());
+        }
+    }
+    Ok(())
+}
+
+/// Per-repository VCS index / blame cache for the batch entry points
+/// (#670).
+///
+/// `analyze(p, vcs=True)` walks a repository's history once **per file**;
+/// the batch path instead builds one [`HistoryIndex`] (and/or one
+/// [`PerFunctionBlame`] engine) per **containing repository** and reuses it
+/// across every file in that repo — the amortisation win the CLI walker
+/// already gets. The cache is keyed by the discovered work-tree root
+/// (`vcs::workdir_root`), so two files in different subdirectories of one
+/// checkout (`src/a.rs` and `tests/b.rs`) share a single index rather than
+/// building it once per directory. A file outside any repository falls back
+/// to its parent directory as the key; a repo that fails to open is cached
+/// as absent (`None`) so the batch degrades gracefully per file without
+/// re-attempting the failed open.
+struct VcsRepoCache {
+    vcs: bool,
+    vcs_per_function: bool,
+    // Memoised work-tree-root discovery, keyed by the file's parent
+    // directory: every file in one directory shares a discovery result, so
+    // we run `gix::discover` at most once per directory rather than per
+    // file. The value is the resolved repository root (or the parent dir
+    // itself when not in a repo).
+    roots: HashMap<PathBuf, PathBuf>,
+    // Keyed by the resolved repository work-tree root. `None` means
+    // "discovery/open already failed here" — cached so a whole out-of-repo
+    // tree is probed at most once.
+    indexes: HashMap<PathBuf, Option<HistoryIndex>>,
+    blames: HashMap<PathBuf, Option<PerFunctionBlame>>,
+}
+
+impl VcsRepoCache {
+    fn new(vcs: bool, vcs_per_function: bool) -> Self {
+        Self {
+            vcs,
+            vcs_per_function,
+            roots: HashMap::new(),
+            indexes: HashMap::new(),
+            blames: HashMap::new(),
+        }
+    }
+
+    /// Resolve the repository work-tree root for `path`, memoising the
+    /// (relatively expensive) `gix::discover` per containing directory. The
+    /// discovery root is the file's parent directory, so every file in one
+    /// directory shares a single discovery. Falls back to that parent
+    /// directory when `path` is not inside a repository, preserving the
+    /// graceful per-file degradation.
+    fn resolve_root(&mut self, py: Python<'_>, path: &Path) -> PathBuf {
+        let parent = vcs_bridge::repo_root_for(path).to_path_buf();
+        if let Some(root) = self.roots.get(&parent) {
+            return root.clone();
+        }
+        let resolved = py
+            .detach(|| vcs_bridge::workdir_root_for(path))
+            .unwrap_or_else(|| parent.clone());
+        self.roots.insert(parent, resolved.clone());
+        resolved
+    }
+
+    /// Attach the requested VCS blocks to `json` for `path`, building (and
+    /// caching) the per-repo index / blame engine on first use. Returns the
+    /// rewritten JSON; a VCS failure leaves the AST metrics intact.
+    fn attach(&mut self, py: Python<'_>, json: String, path: &Path) -> PyResult<String> {
+        if !self.vcs && !self.vcs_per_function {
+            return Ok(json);
+        }
+        let root = self.resolve_root(py, path);
+        let mut json = json;
+        if self.vcs {
+            // Build the index off-GIL (the history walk is the expensive
+            // part, #620); cache it under the repo root for reuse.
+            let entry = if let Some(slot) = self.indexes.get(&root) {
+                slot.as_ref()
+            } else {
+                let built = py.detach(|| vcs_bridge::build_index_for(&root));
+                self.indexes.entry(root.clone()).or_insert(built).as_ref()
+            };
+            if let Some(index) = entry {
+                json = vcs_bridge::inject_vcs_with_index(json, path, index)?;
+            }
+        }
+        if self.vcs_per_function {
+            let opened = if self.blames.contains_key(&root) {
+                self.blames.get(&root)
+            } else {
+                let built = py.detach(|| vcs_bridge::open_blame_for(&root));
+                self.blames.insert(root.clone(), built);
+                self.blames.get(&root)
+            };
+            if let Some(Some(blame)) = opened {
+                json = vcs_bridge::inject_vcs_per_function_with_blame(json, path, blame)?;
+            }
+        }
+        Ok(json)
+    }
+}
+
+/// Walk one or more path seeds and analyse every discovered file, returning
+/// the [`analyze_batch`] result shape (issue #658).
+///
+/// Each positional `path` may be a file or a directory; directories are
+/// walked with `.gitignore` awareness (the same [`ignore`](crate::walk)
+/// crate the CLI walker uses), honouring the `include` / `exclude` globs.
+/// The walk is the discovery step `analyze_batch` lacks; per-file analysis,
+/// the never-raise contract (failures become `AnalysisFailure` elements),
+/// the generated-file filter, and language inference are identical to
+/// `analyze_batch`. The kwarg surface mirrors `analyze` / `analyze_batch`
+/// (`exclude_tests` / `allow_lossy_path` / `skip_generated` / `metrics` /
+/// `vcs` / `vcs_per_function`), so a directory walk threads VCS attachment
+/// through the same shared-per-repo index (#670).
+#[pyfunction]
+#[pyo3(signature = (*paths, include = None, exclude = None, respect_gitignore = true, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None, vcs = false, vcs_per_function = false))]
+#[allow(
+    clippy::needless_pass_by_value,
+    clippy::fn_params_excessive_bools,
+    clippy::too_many_arguments
+)]
+pub(crate) fn analyze_paths<'py>(
+    py: Python<'py>,
+    paths: &Bound<'py, PyTuple>,
+    include: Option<StrOrSeq>,
+    exclude: Option<StrOrSeq>,
+    respect_gitignore: bool,
+    exclude_tests: bool,
+    allow_lossy_path: bool,
+    skip_generated: bool,
+    metrics: Option<Vec<String>>,
+    vcs: bool,
+    vcs_per_function: bool,
+) -> PyResult<Vec<Py<PyAny>>> {
+    // Resolve `metrics=` first (matching `analyze_batch`'s #268 ordering)
+    // so a bad selection aborts before any filesystem walk.
+    let metric_set = crate::resolve_metric_set(metrics)?;
+    let seeds: Vec<PathBuf> = paths
+        .iter()
+        .map(|p| p.extract::<PathBuf>())
+        .collect::<PyResult<_>>()?;
+    let filters = WalkFilters::compile(
+        include.map(StrOrSeq::into_vec).unwrap_or_default(),
+        exclude.map(StrOrSeq::into_vec).unwrap_or_default(),
+    )?;
+    // Discover the corpus off-GIL — the walk is pure filesystem traversal
+    // touching no Python objects.
+    let discovered = py.detach(|| walk_paths(&seeds, &filters, respect_gitignore));
+
+    let opts = AnalyzeOptions {
+        exclude_tests,
+        allow_lossy_path,
+        skip_generated,
+        metrics: metric_set,
+    };
+    let mut vcs_repos = VcsRepoCache::new(vcs, vcs_per_function);
+    let mut results: Vec<Py<PyAny>> = Vec::with_capacity(discovered.len());
+    for path in &discovered {
+        push_one_result(py, path, opts, &mut vcs_repos, &mut results)?;
     }
     Ok(results)
+}
+
+/// Either a single glob string or a sequence of them, for the `include` /
+/// `exclude` kwargs on [`analyze_paths`] (mirrors the #619-widened
+/// `Sequence[str] | str` accepted elsewhere). A bare `str` is matched
+/// before the generic sequence extraction because a `str` is itself an
+/// iterable of one-character strings.
+pub(crate) struct StrOrSeq(Vec<String>);
+
+impl StrOrSeq {
+    fn into_vec(self) -> Vec<String> {
+        self.0
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for StrOrSeq {
+    type Error = PyErr;
+
+    fn extract(value: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(s) = value.cast::<pyo3::types::PyString>() {
+            return Ok(Self(vec![s.to_str()?.to_owned()]));
+        }
+        let globs: Vec<String> = value.extract().map_err(|_| {
+            PyValueError::new_err(
+                "include / exclude must be a str glob or a sequence of glob strings",
+            )
+        })?;
+        Ok(Self(globs))
+    }
 }
 
 #[cfg(test)]

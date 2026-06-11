@@ -1,6 +1,6 @@
 """Batch analysis with the never-raise ``analyze_batch`` entry point.
 
-Shows the ``AnalysisError`` discriminator pattern and a
+Shows the ``AnalysisFailure`` discriminator pattern and a
 ``ThreadPoolExecutor`` parallelism recipe. Tied to the book's
 ``python/batch.md`` page.
 """
@@ -27,7 +27,7 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
     ok = 0
     errors = 0
     for path, result in zip(materialised, results, strict=True):
-        if isinstance(result, bca.AnalysisError):
+        if isinstance(result, bca.AnalysisFailure):
             errors += 1
             print(f"  skip {path}: ({result.error_kind}) {result.error}")
         else:
@@ -43,7 +43,7 @@ def run_parallel(paths: Iterable[Path], *, workers: int = 4) -> list[FuncSpaceDi
 
     PyO3 releases the GIL across each file's read + parse, so a
     thread pool actually parallelises the heavy work. Use this when
-    you need per-file exceptions instead of ``AnalysisError`` slots.
+    you need per-file exceptions instead of ``AnalysisFailure`` slots.
     """
 
     def _analyze(p: Path) -> FuncSpaceDict | None:

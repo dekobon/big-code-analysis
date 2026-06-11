@@ -1,3 +1,10 @@
+// bca: suppress-file(halstead, loc, abc)
+// A flat catalogue of `DictSpec` / `Field` literals (one per metric and
+// container) plus the drift tests — the same volume / field-count shape
+// as `src/wire.rs`, which carries the same marker. File-level
+// halstead.effort / loc.sloc are volume artifacts, not per-function
+// logic complexity (cognitive/cyclomatic stay enforced).
+
 //! Deterministic generator for the checked-in `_types.py` module —
 //! `TypedDict` mirrors of the analysis-result wire shapes (issue #623).
 //!
@@ -17,11 +24,15 @@
 //! shifts the serialized keys and fails that test, so the spec below cannot
 //! silently drift from `src/wire.rs`.
 //!
-//! Scope: the `FuncSpace` metric tree (the only return whose shape is a
-//! single `wire` struct). The VCS *report* top-level dicts (`vcs_metrics`
-//! / `vcs_trend` / `vcs_jit`) are assembled outside `wire.rs` from several
-//! schema-versioned pieces, so they stay `dict[str, Any]` rather than being
-//! pinned to a shape this module cannot single-source.
+//! Scope: the `FuncSpace` metric tree plus the change-history report
+//! shapes. The VCS *report* / *trend* envelopes were single-sourced into
+//! `big_code_analysis::wire` and the jit shapes mirrored from
+//! `src/vcs/jit.rs` (#664), so `vcs.rank` / `vcs.trend` / `vcs.commit` /
+//! `vcs.score_diff` now carry typed dicts (`VcsReportDict` / `VcsTrendDict`
+//! / `JitCommitReportDict` / `JitDiffReportDict`) instead of the former
+//! `dict[str, Any]`. The `vcs_and_jit_specs_match_wire_json_keys` test
+//! pins those specs against the live serialized JSON the same way
+//! `spec_matches_wire_json_keys` pins the metric tree.
 
 use std::fmt::Write as _;
 
@@ -33,7 +44,7 @@ pub(crate) const TYPES_MODULE_PATH: &str = "python/big_code_analysis/_types.py";
 /// `null`, so every `f64` wire field is `float | None` on the Python side.
 #[derive(Clone, Copy)]
 enum FieldType {
-    /// A `u64` / `u32` / `usize` count — always a JSON integer.
+    /// A `u64` / `u32` / `usize` / `i64` count or timestamp — JSON integer.
     Int,
     /// An `f64` derived value — JSON number or `null` (non-finite, #531).
     Float,
@@ -41,12 +52,25 @@ enum FieldType {
     Str,
     /// An `Option<String>` — JSON string or `null`.
     OptStr,
+    /// A `bool` — JSON `true` / `false`.
+    Bool,
+    /// A `serde(rename_all = "lowercase")` enum serialized as a string
+    /// literal — emits a `Literal["…"]` annotation pinning the value
+    /// (e.g. the JIT `source` discriminator, `"commit"` / `"diff"`).
+    LitStr(&'static str),
     /// A reference to another generated `TypedDict` (by class name).
     Dict(&'static str),
     /// A `list[<TypedDict>]` of another generated class.
     ListDict(&'static str),
     /// `list[str]`.
     ListStr,
+    /// `list[int]` (e.g. the trend's `as_of_points`).
+    ListInt,
+    /// The trend `files` map: repository-relative path → a point series
+    /// aligned to `as_of_points`, each element a `<TypedDict>` or `None`
+    /// (the file was absent at that point). Emits
+    /// `dict[str, list[<TypedDict> | None]]`.
+    PointSeriesMap(&'static str),
 }
 
 impl FieldType {
@@ -60,9 +84,13 @@ impl FieldType {
             FieldType::Float => "float | None".to_owned(),
             FieldType::Str => "str".to_owned(),
             FieldType::OptStr => "str | None".to_owned(),
+            FieldType::Bool => "bool".to_owned(),
+            FieldType::LitStr(value) => format!("Literal[\"{value}\"]"),
             FieldType::Dict(name) => name.to_owned(),
             FieldType::ListDict(name) => format!("list[{name}]"),
             FieldType::ListStr => "list[str]".to_owned(),
+            FieldType::ListInt => "list[int]".to_owned(),
+            FieldType::PointSeriesMap(name) => format!("dict[str, list[{name} | None]]"),
         }
     }
 }
@@ -102,7 +130,9 @@ struct DictSpec {
     fields: &'static [Field],
 }
 
-use FieldType::{Dict, Float, Int, ListDict, ListStr, OptStr, Str};
+use FieldType::{
+    Bool, Dict, Float, Int, ListDict, ListInt, ListStr, LitStr, OptStr, PointSeriesMap, Str,
+};
 
 /// The full spec, in dependency order (a class referencing another must
 /// appear after it, except the recursive `FuncSpaceDict.spaces`
@@ -316,7 +346,7 @@ const SPECS: &[DictSpec] = &[
         doc: "Change-history (VCS) metric block; present only under \
               `vcs=True` / `vcs_per_function=True`. Always-slim (issue \
               #635): the constant `*_version` / `*_window_days` stamps live \
-              once on the `vcs_metrics()` / `vcs_trend()` envelope, not on \
+              once on the `vcs.rank` / `vcs.trend` envelope, not on \
               each block. `hotspot_score` and `author_ids` are elided when \
               unavailable.",
         fields: &[
@@ -340,6 +370,242 @@ const SPECS: &[DictSpec] = &[
             req("risk_score", Float),
             opt("hotspot_score", Float),
             opt("author_ids", ListStr),
+        ],
+    },
+    DictSpec {
+        class: "GroupBusFactorDict",
+        doc: "Bus-factor numbers for one author group (the repo, or one \
+              directory). `key_author_ids` is present only under \
+              `emit_author_details=True`.",
+        fields: &[
+            req("bus_factor", Int),
+            req("files", Int),
+            req("authors", Int),
+            opt("key_author_ids", ListStr),
+        ],
+    },
+    DictSpec {
+        class: "DirectoryBusFactorDict",
+        doc: "Per-directory bus factor: a directory path plus its \
+              `GroupBusFactorDict` fields (flattened inline in the wire \
+              shape).",
+        fields: &[
+            req("directory", Str),
+            req("bus_factor", Int),
+            req("files", Int),
+            req("authors", Int),
+            opt("key_author_ids", ListStr),
+        ],
+    },
+    DictSpec {
+        class: "BusFactorDict",
+        doc: "Directory-/repo-level bus-factor aggregate (Avelino DoA, \
+              issue #332).",
+        fields: &[
+            req("bus_factor_schema_version", Int),
+            req("coverage_threshold", Float),
+            req("doa_threshold", Float),
+            req("repo", Dict("GroupBusFactorDict")),
+            req("by_directory", ListDict("DirectoryBusFactorDict")),
+        ],
+    },
+    DictSpec {
+        class: "VcsAggregateDict",
+        doc: "Top-level change-history aggregate object wrapping the \
+              bus-factor summary.",
+        fields: &[req("bus_factor", Dict("BusFactorDict"))],
+    },
+    DictSpec {
+        class: "VcsReportFileDict",
+        doc: "One ranked file in a `VcsReportDict`: its repository-relative \
+              path plus the always-slim `vcs` block (issue #684).",
+        fields: &[req("path", Str), req("vcs", Dict("VcsDict"))],
+    },
+    DictSpec {
+        class: "VcsReportDict",
+        doc: "Return type of `big_code_analysis.vcs.rank()` — the \
+              file-ranking change-history report (issue #328 / #664). The \
+              four constant stamps sit once at the top level (issue #635); \
+              `files` is ranked by descending `vcs.risk_score`. \
+              `vcs_aggregate` is present only when the bus factor was \
+              computed.",
+        fields: &[
+            req("long_window_days", Int),
+            req("recent_window_days", Int),
+            req("risk_score_version", Int),
+            req("vcs_schema_version", Int),
+            req("truncated_shallow_clone", Bool),
+            opt("vcs_aggregate", Dict("VcsAggregateDict")),
+            req("files", ListDict("VcsReportFileDict")),
+        ],
+    },
+    DictSpec {
+        class: "VcsTrendPointDict",
+        doc: "One sampled point in a `VcsTrendDict`: the sample timestamp \
+              plus the file's `vcs` block at that moment (issue #333 / \
+              #684).",
+        fields: &[req("as_of", Int), req("vcs", Dict("VcsDict"))],
+    },
+    DictSpec {
+        class: "VcsTrendDeltaDict",
+        doc: "One file's risk-score movement across the trend.",
+        fields: &[
+            req("path", Str),
+            req("first_as_of", Int),
+            req("last_as_of", Int),
+            req("first_risk_score", Float),
+            req("last_risk_score", Float),
+            req("delta", Float),
+        ],
+    },
+    DictSpec {
+        class: "VcsTrendDeltasDict",
+        doc: "The improving / regressing delta summary.",
+        fields: &[
+            req("improved", ListDict("VcsTrendDeltaDict")),
+            req("regressed", ListDict("VcsTrendDeltaDict")),
+        ],
+    },
+    DictSpec {
+        class: "VcsTrendDict",
+        doc: "Return type of `big_code_analysis.vcs.trend()` — a historical \
+              metric trend (issue #333 / #664). `as_of_points` lists the \
+              sample timestamps oldest-first; every file's series in \
+              `files` aligns to it 1:1, with a `None` element where the \
+              file did not exist.",
+        fields: &[
+            req("trend_schema_version", Int),
+            req("vcs_schema_version", Int),
+            req("risk_score_version", Int),
+            req("long_window_days", Int),
+            req("recent_window_days", Int),
+            req("truncated_shallow_clone", Bool),
+            req("as_of_points", ListInt),
+            req("files", PointSeriesMap("VcsTrendPointDict")),
+            req("deltas", Dict("VcsTrendDeltasDict")),
+        ],
+    },
+    DictSpec {
+        class: "JitSizeDict",
+        doc: "Commit / diff size features.",
+        fields: &[
+            req("lines_added", Int),
+            req("lines_deleted", Int),
+            req("files_touched", Int),
+            req("hunks", Int),
+        ],
+    },
+    DictSpec {
+        class: "JitDiffusionDict",
+        doc: "Change-diffusion features (subsystem / directory spread).",
+        fields: &[
+            req("subsystems", Int),
+            req("directories", Int),
+            req("entropy", Float),
+        ],
+    },
+    DictSpec {
+        class: "JitHistoryDict",
+        doc: "Prior-change history features (commit mode only).",
+        fields: &[
+            req("prior_changes", Int),
+            req("prior_distinct_authors", Int),
+            req("prior_bug_fix_commits", Int),
+            req("prior_security_fix_commits", Int),
+            req("file_risk_max", Float),
+            req("file_risk_mean", Float),
+            req("new_files", Int),
+        ],
+    },
+    DictSpec {
+        class: "JitExperienceDict",
+        doc: "Author-experience features (commit mode only).",
+        fields: &[
+            req("author_prior_commits", Int),
+            req("author_recent_commits", Int),
+        ],
+    },
+    DictSpec {
+        class: "JitPurposeDict",
+        doc: "Commit-purpose flags derived from the message.",
+        fields: &[
+            req("is_fix", Bool),
+            req("is_security_fix", Bool),
+            req("is_revert", Bool),
+        ],
+    },
+    DictSpec {
+        class: "JitFeaturesDict",
+        doc: "The four feature groups computed for a commit score.",
+        fields: &[
+            req("size", Dict("JitSizeDict")),
+            req("diffusion", Dict("JitDiffusionDict")),
+            req("history", Dict("JitHistoryDict")),
+            req("experience", Dict("JitExperienceDict")),
+        ],
+    },
+    DictSpec {
+        class: "JitContributionsDict",
+        doc: "Per-group contributions to a commit `risk_score`.",
+        fields: &[
+            req("size", Float),
+            req("diffusion", Float),
+            req("history", Float),
+            req("purpose", Float),
+            req("experience", Float),
+        ],
+    },
+    DictSpec {
+        class: "JitCommitDict",
+        doc: "The scored commit's identity and purpose flags.",
+        fields: &[
+            req("id", Str),
+            req("parent_count", Int),
+            req("is_merge", Bool),
+            req("purpose", Dict("JitPurposeDict")),
+        ],
+    },
+    DictSpec {
+        class: "JitCommitReportDict",
+        doc: "Return type of `big_code_analysis.vcs.commit()` — the \
+              commit just-in-time risk report (issue #331 / #664). \
+              `source` is the literal `\"commit\"`; all five feature \
+              groups are present and `risk_score` is comparable across \
+              commits.",
+        fields: &[
+            req("jit_schema_version", Int),
+            req("jit_score_version", Int),
+            req("source", LitStr("commit")),
+            req("long_window_days", Int),
+            req("recent_window_days", Int),
+            req("risk_score", Float),
+            req("commit", Dict("JitCommitDict")),
+            req("features", Dict("JitFeaturesDict")),
+            req("contributions", Dict("JitContributionsDict")),
+        ],
+    },
+    DictSpec {
+        class: "JitDiffContributionsDict",
+        doc: "Per-group contributions to a diff `partial_risk_score` (only \
+              size + diffusion are computable for a bare diff).",
+        fields: &[req("size", Float), req("diffusion", Float)],
+    },
+    DictSpec {
+        class: "JitDiffReportDict",
+        doc: "Return type of `big_code_analysis.vcs.score_diff()` — the \
+              partial just-in-time risk report for a bare diff (issue #580 \
+              / #664). `source` is the literal `\"diff\"`; only size and \
+              diffusion are computable, so `partial_risk_score` is **not \
+              comparable** to a commit `risk_score` and the history / \
+              experience / purpose groups are absent.",
+        fields: &[
+            req("jit_schema_version", Int),
+            req("jit_score_version", Int),
+            req("source", LitStr("diff")),
+            req("partial_risk_score", Float),
+            req("size", Dict("JitSizeDict")),
+            req("diffusion", Dict("JitDiffusionDict")),
+            req("contributions", Dict("JitDiffContributionsDict")),
         ],
     },
     DictSpec {
@@ -484,7 +750,7 @@ pub(crate) fn render_types_module() -> String {
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 __all__ = [\n";
 
@@ -743,6 +1009,143 @@ mod tests {
                 "VcsDict spec missing NotRequired field {optional}"
             );
         }
+    }
+
+    /// The VCS report / trend / JIT envelope specs (#664) match the live
+    /// serialized wire / jit JSON keys. Builds default-constructed structs
+    /// (no git repo needed) so a field add / remove / rename in the wire or
+    /// jit structs shifts the keys and fails here, forcing the spec — and
+    /// the regenerated `_types.py` — to follow, exactly as
+    /// `spec_matches_wire_json_keys` does for the metric tree.
+    #[test]
+    // Many small assertions, one per generated dict — a params struct or
+    // split would only scatter the single-source check across helpers.
+    #[allow(clippy::too_many_lines)]
+    fn vcs_and_jit_specs_match_wire_json_keys() {
+        use big_code_analysis::vcs::{
+            JitCommit, JitContributions, JitDiffContributions, JitDiffReport, JitDiffusion,
+            JitFeatures, JitReport, JitSize, JitSource,
+        };
+        use big_code_analysis::wire::{
+            Vcs, VcsReport, VcsReportFile, VcsTrend, VcsTrendDelta, VcsTrendDeltas, VcsTrendPoint,
+        };
+
+        // VcsReportFileDict / VcsReportDict. `vcs_aggregate` is None here
+        // (NotRequired in the spec), so the required keys are exactly the
+        // stamps + files.
+        let report = VcsReport {
+            long_window_days: 365,
+            recent_window_days: 30,
+            risk_score_version: 1,
+            vcs_schema_version: 1,
+            truncated_shallow_clone: false,
+            vcs_aggregate: None,
+            files: vec![VcsReportFile {
+                path: "src/a.rs".to_owned(),
+                vcs: Vcs::default(),
+            }],
+        };
+        let report_value = serde_json::to_value(&report).expect("serialize report");
+        assert_keys_match("VcsReportDict", &report_value);
+        assert_keys_match("VcsReportFileDict", &report_value["files"][0]);
+
+        // VcsTrendPointDict / VcsTrendDeltaDict / VcsTrendDeltasDict /
+        // VcsTrendDict.
+        let point = VcsTrendPoint {
+            as_of: 1_700_000_000,
+            vcs: Vcs::default(),
+        };
+        assert_keys_match(
+            "VcsTrendPointDict",
+            &serde_json::to_value(&point).expect("serialize point"),
+        );
+        let delta = VcsTrendDelta {
+            path: "src/a.rs".to_owned(),
+            first_as_of: 1,
+            last_as_of: 2,
+            first_risk_score: 0.0,
+            last_risk_score: 1.0,
+            delta: 1.0,
+        };
+        assert_keys_match(
+            "VcsTrendDeltaDict",
+            &serde_json::to_value(&delta).expect("serialize delta"),
+        );
+        assert_keys_match(
+            "VcsTrendDeltasDict",
+            &serde_json::to_value(VcsTrendDeltas::default()).expect("serialize deltas"),
+        );
+        let trend = VcsTrend {
+            trend_schema_version: 1,
+            vcs_schema_version: 1,
+            risk_score_version: 1,
+            long_window_days: 365,
+            recent_window_days: 30,
+            truncated_shallow_clone: false,
+            as_of_points: vec![1],
+            files: std::collections::BTreeMap::new(),
+            deltas: VcsTrendDeltas::default(),
+        };
+        assert_keys_match(
+            "VcsTrendDict",
+            &serde_json::to_value(&trend).expect("serialize trend"),
+        );
+
+        // JitCommitReportDict and its nested feature / contribution groups.
+        // `JitReport` / `JitDiffReport` lack `Default` (the nested groups
+        // have it), so build them explicitly from defaulted groups.
+        let commit = JitReport {
+            jit_schema_version: 1,
+            jit_score_version: 1,
+            source: JitSource::Commit,
+            long_window_days: 365,
+            recent_window_days: 30,
+            risk_score: 0.0,
+            commit: JitCommit::default(),
+            features: JitFeatures::default(),
+            contributions: JitContributions::default(),
+        };
+        let commit_value = serde_json::to_value(&commit).expect("serialize jit report");
+        assert_keys_match("JitCommitReportDict", &commit_value);
+        assert_keys_match("JitCommitDict", &commit_value["commit"]);
+        assert_keys_match("JitPurposeDict", &commit_value["commit"]["purpose"]);
+        assert_keys_match("JitFeaturesDict", &commit_value["features"]);
+        assert_keys_match("JitSizeDict", &commit_value["features"]["size"]);
+        assert_keys_match("JitDiffusionDict", &commit_value["features"]["diffusion"]);
+        assert_keys_match("JitHistoryDict", &commit_value["features"]["history"]);
+        assert_keys_match("JitExperienceDict", &commit_value["features"]["experience"]);
+        assert_keys_match(
+            "JitContributionsDict",
+            &serde_json::to_value(JitContributions::default()).expect("serialize contributions"),
+        );
+        assert_eq!(
+            commit_value["source"],
+            serde_json::json!("commit"),
+            "JIT commit report source discriminator changed",
+        );
+
+        // JitDiffReportDict.
+        let diff = JitDiffReport {
+            jit_schema_version: 1,
+            jit_score_version: 1,
+            source: JitSource::Diff,
+            partial_risk_score: 0.0,
+            size: JitSize::default(),
+            diffusion: JitDiffusion::default(),
+            contributions: JitDiffContributions::default(),
+        };
+        let diff_value = serde_json::to_value(&diff).expect("serialize jit diff report");
+        assert_keys_match("JitDiffReportDict", &diff_value);
+        assert_keys_match(
+            "JitDiffContributionsDict",
+            &serde_json::to_value(JitDiffContributions::default())
+                .expect("serialize diff contributions"),
+        );
+        assert_eq!(
+            diff_value["source"],
+            serde_json::json!("diff"),
+            "JIT diff report source discriminator changed",
+        );
     }
 
     /// The `suppressed` field's tagged-enum shape: `{"kind": "all"}` and

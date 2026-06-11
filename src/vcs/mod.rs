@@ -342,6 +342,32 @@ pub fn rank_by_risk<T>(entries: &mut Vec<T>, top: usize, key: impl Fn(&T) -> (&s
     }
 }
 
+/// Discover the working-tree root of the repository containing `path`.
+///
+/// Returns the canonicalised work-tree directory of the repository that
+/// encloses `path` (a file or directory), or `None` when `path` is not
+/// inside a repository or the repository is bare (no work tree). Repository
+/// discovery walks upward from `path` the same way `git` itself does.
+///
+/// Front ends use this to coalesce a batch of files onto the repository
+/// each belongs to — two files in different subdirectories of the same
+/// checkout resolve to the **same** root, so a per-repo [`HistoryIndex`]
+/// (or [`PerFunctionBlame`] engine) can be built once and shared across
+/// them rather than rebuilt per directory (issue #670).
+///
+/// ```no_run
+/// use std::path::Path;
+/// // Two files in the same checkout share one work-tree root.
+/// let a = big_code_analysis::vcs::workdir_root(Path::new("repo/src/a.rs"));
+/// let b = big_code_analysis::vcs::workdir_root(Path::new("repo/tests/b.rs"));
+/// assert_eq!(a, b);
+/// ```
+#[cfg(feature = "vcs-git")]
+#[must_use]
+pub fn workdir_root(path: &Path) -> Option<PathBuf> {
+    git::workdir_root(path)
+}
+
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;

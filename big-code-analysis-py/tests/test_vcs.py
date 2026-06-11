@@ -17,6 +17,7 @@ from typing import Any, cast
 import big_code_analysis as bca
 import pytest
 from big_code_analysis import FuncSpaceDict
+from big_code_analysis import vcs as bca_vcs
 
 
 def _build_repo(root: Path) -> Path:
@@ -46,7 +47,7 @@ def _build_repo(root: Path) -> Path:
 
 def test_vcs_metrics_ranks_the_tracked_file(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
-    report = bca.vcs_metrics(repo)
+    report = bca_vcs.rank(repo)
     # The four constant stamps live once on the envelope, never per row
     # (#635).
     assert report["long_window_days"] == 365
@@ -85,7 +86,7 @@ def test_vcs_metrics_top_limits_results(tmp_path: Path) -> None:
             "GIT_COMMITTER_EMAIL": "ada@example.com",
         },
     )
-    report = bca.vcs_metrics(repo, top=1)
+    report = bca_vcs.rank(repo, top=1)
     assert len(report["files"]) == 1
 
 
@@ -114,7 +115,7 @@ def test_vcs_metrics_outside_repo_raises(tmp_path: Path) -> None:
     # The typed not-a-repo exception (#624) is the variant a caller
     # branches on; it stays catchable as a plain ValueError.
     with pytest.raises(bca.NotARepositoryError, match="version-control") as exc:
-        bca.vcs_metrics(tmp_path)
+        bca_vcs.rank(tmp_path)
     assert isinstance(exc.value, bca.VcsError)
     assert isinstance(exc.value, ValueError)
 
@@ -125,7 +126,7 @@ def test_vcs_metrics_bad_window_raises(tmp_path: Path) -> None:
     # subclasses, so it surfaces as the VcsError base (#624) — still a
     # ValueError, and NOT a NotARepositoryError.
     with pytest.raises(bca.VcsError, match="time window") as exc:
-        bca.vcs_metrics(repo, long_window="nonsense")
+        bca_vcs.rank(repo, options=bca_vcs.Options(long_window="nonsense"))
     assert isinstance(exc.value, ValueError)
     assert not isinstance(exc.value, bca.NotARepositoryError)
 
@@ -332,7 +333,7 @@ def _build_staged_repo(root: Path) -> Path:
 
 def test_vcs_trend_shape(tmp_path: Path) -> None:
     repo = _build_staged_repo(tmp_path)
-    trend = bca.vcs_trend(repo, points=3, span="300d", as_of="@1700000000")
+    trend = bca_vcs.trend(repo, options=bca_vcs.Options(as_of="@1700000000"), points=3, span="300d")
     assert trend["trend_schema_version"] == 1
     assert len(trend["as_of_points"]) == 3
     assert trend["as_of_points"][2] == 1_700_000_000
@@ -362,12 +363,12 @@ def test_vcs_trend_shape(tmp_path: Path) -> None:
 def test_vcs_trend_too_few_points_raises(tmp_path: Path) -> None:
     repo = _build_staged_repo(tmp_path)
     with pytest.raises(ValueError, match="at least 2 points"):
-        bca.vcs_trend(repo, points=1, span="300d")
+        bca_vcs.trend(repo, points=1, span="300d")
 
 
 def test_vcs_trend_outside_repo_raises(tmp_path: Path) -> None:
     with pytest.raises(bca.NotARepositoryError, match="version-control") as exc:
-        bca.vcs_trend(tmp_path, points=3, span="300d")
+        bca_vcs.trend(tmp_path, points=3, span="300d")
     assert isinstance(exc.value, ValueError)
 
 
@@ -378,10 +379,14 @@ def test_vcs_metrics_cache_dir_replays_identically(tmp_path: Path) -> None:
     repo = _build_repo(repo_dir)
     cache_dir = tmp_path / "cache"
 
-    first = bca.vcs_metrics(repo, as_of="@1700000000", cache_dir=str(cache_dir))
+    first = bca_vcs.rank(
+        repo, options=bca_vcs.Options(as_of="@1700000000"), cache_dir=str(cache_dir)
+    )
     # An entry was persisted under the cache directory.
     assert any(cache_dir.rglob("*.json"))
-    second = bca.vcs_metrics(repo, as_of="@1700000000", cache_dir=str(cache_dir))
+    second = bca_vcs.rank(
+        repo, options=bca_vcs.Options(as_of="@1700000000"), cache_dir=str(cache_dir)
+    )
     assert first == second
 
 
@@ -390,7 +395,7 @@ def test_vcs_metrics_no_cache_writes_nothing(tmp_path: Path) -> None:
     repo_dir.mkdir()
     repo = _build_repo(repo_dir)
     cache_dir = tmp_path / "cache"
-    bca.vcs_metrics(repo, no_cache=True, cache_dir=str(cache_dir))
+    bca_vcs.rank(repo, no_cache=True, cache_dir=str(cache_dir))
     assert not any(cache_dir.rglob("*.json"))
 
 
@@ -399,7 +404,7 @@ def test_vcs_jit_commit_returns_report(tmp_path: Path) -> None:
     #331). The commit-mode report carries the score plus every feature
     group, mirroring ``bca vcs jit``."""
     repo = _build_repo(tmp_path)
-    report = bca.vcs_jit(repo, commit="HEAD")
+    report = bca_vcs.commit(repo, commit="HEAD")
     assert report["jit_schema_version"] == 3
     assert report["jit_score_version"] == 1
     # Commit-mode reports self-identify via ``source`` (issue #642).
@@ -435,7 +440,7 @@ def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
     diffusion are computable, so the report is marked ``source == "diff"``
     and the unavailable groups are ABSENT (not present as zero) — a consumer
     cannot read a missing group as "low risk"."""
-    report = bca.vcs_jit(diff=_SAMPLE_DIFF)
+    report = bca_vcs.score_diff(_SAMPLE_DIFF)
     assert report["source"] == "diff"
     assert isinstance(report["partial_risk_score"], (int, float))
     assert report["size"]["files_touched"] == 2
@@ -448,14 +453,14 @@ def test_vcs_jit_diff_mode_marks_unavailable_groups() -> None:
 
 def test_vcs_jit_malformed_diff_raises() -> None:
     with pytest.raises(bca.InvalidDiffError, match="diff") as exc:
-        bca.vcs_jit(diff="diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n")
+        bca_vcs.score_diff("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ garbage @@\n")
     assert isinstance(exc.value, bca.VcsError)
     assert isinstance(exc.value, ValueError)
 
 
 def test_vcs_jit_outside_repo_raises(tmp_path: Path) -> None:
     with pytest.raises(bca.NotARepositoryError, match="version-control") as exc:
-        bca.vcs_jit(tmp_path, commit="HEAD")
+        bca_vcs.commit(tmp_path, commit="HEAD")
     assert isinstance(exc.value, ValueError)
 
 
@@ -465,7 +470,7 @@ def test_vcs_jit_unresolvable_commit_raises(tmp_path: Path) -> None:
     diff cases."""
     repo = _build_repo(tmp_path)
     with pytest.raises(bca.InvalidRevisionError, match="resolve") as exc:
-        bca.vcs_jit(repo, commit="no-such-rev-xyzzy")
+        bca_vcs.commit(repo, commit="no-such-rev-xyzzy")
     assert isinstance(exc.value, bca.VcsError)
     assert isinstance(exc.value, ValueError)
     assert not isinstance(exc.value, bca.NotARepositoryError)
@@ -514,8 +519,8 @@ def test_vcs_metrics_file_types_sequence_matches_comma_string(tmp_path: Path) ->
             "GIT_COMMITTER_EMAIL": "ada@example.com",
         },
     )
-    from_seq = bca.vcs_metrics(repo, file_types=["rs", "py"])
-    from_str = bca.vcs_metrics(repo, file_types="rs,py")
+    from_seq = bca_vcs.rank(repo, options=bca_vcs.Options(file_types=["rs", "py"]))
+    from_str = bca_vcs.rank(repo, options=bca_vcs.Options(file_types="rs,py"))
     assert from_seq == from_str
     paths = {f["path"] for f in from_seq["files"]}
     assert {"work.rs", "note.py"} <= paths
@@ -524,7 +529,7 @@ def test_vcs_metrics_file_types_sequence_matches_comma_string(tmp_path: Path) ->
 def test_vcs_metrics_file_types_keyword_string_still_works(tmp_path: Path) -> None:
     """The ``"metrics"`` / ``"all"`` literal strings keep their meaning."""
     repo = _build_repo(tmp_path)
-    metrics_scope = bca.vcs_metrics(repo, file_types="metrics")
+    metrics_scope = bca_vcs.rank(repo, options=bca_vcs.Options(file_types="metrics"))
     assert any(f["path"] == "work.rs" for f in metrics_scope["files"])
 
 
@@ -533,22 +538,22 @@ def test_vcs_metrics_file_types_empty_sequence_raises(tmp_path: Path) -> None:
     exactly as the equivalent empty comma-string does (#624 taxonomy)."""
     repo = _build_repo(tmp_path)
     with pytest.raises(bca.VcsError):
-        bca.vcs_metrics(repo, file_types=[])
+        bca_vcs.rank(repo, options=bca_vcs.Options(file_types=[]))
 
 
 def test_vcs_metrics_file_types_invalid_type_raises(tmp_path: Path) -> None:
     """A non-str / non-sequence value is rejected up front."""
     repo = _build_repo(tmp_path)
     with pytest.raises((TypeError, ValueError)):
-        bca.vcs_metrics(repo, file_types=42)  # type: ignore[arg-type]
+        bca_vcs.rank(repo, options=bca_vcs.Options(file_types=42))  # type: ignore[arg-type]
 
 
 def test_vcs_metrics_as_of_datetime_matches_epoch_string(tmp_path: Path) -> None:
     """An aware ``datetime`` pins the same "now" as its ``@unix`` string."""
     repo = _build_repo(tmp_path)
     aware = datetime.fromtimestamp(_FIXED_EPOCH, tz=UTC)
-    from_dt = bca.vcs_metrics(repo, as_of=aware)
-    from_str = bca.vcs_metrics(repo, as_of=f"@{_FIXED_EPOCH}")
+    from_dt = bca_vcs.rank(repo, options=bca_vcs.Options(as_of=aware))
+    from_str = bca_vcs.rank(repo, options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}"))
     assert from_dt == from_str
 
 
@@ -557,14 +562,14 @@ def test_vcs_metrics_as_of_naive_datetime_accepted(tmp_path: Path) -> None:
     passing that bare ISO string), and returns a normal report."""
     repo = _build_repo(tmp_path)
     naive = datetime(2023, 11, 14, 22, 13, 20)
-    report = bca.vcs_metrics(repo, as_of=naive)
+    report = bca_vcs.rank(repo, options=bca_vcs.Options(as_of=naive))
     assert report["long_window_days"] == 365
 
 
 def test_vcs_metrics_as_of_invalid_type_raises(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     with pytest.raises((TypeError, ValueError)):
-        bca.vcs_metrics(repo, as_of=object())  # type: ignore[arg-type]
+        bca_vcs.rank(repo, options=bca_vcs.Options(as_of=object()))  # type: ignore[arg-type]
 
 
 def test_vcs_metrics_cache_dir_path_matches_str(tmp_path: Path) -> None:
@@ -575,8 +580,12 @@ def test_vcs_metrics_cache_dir_path_matches_str(tmp_path: Path) -> None:
     path_cache = tmp_path / "by_path"
     str_cache = tmp_path / "by_str"
 
-    via_path = bca.vcs_metrics(repo, as_of=f"@{_FIXED_EPOCH}", cache_dir=path_cache)
-    via_str = bca.vcs_metrics(repo, as_of=f"@{_FIXED_EPOCH}", cache_dir=str(str_cache))
+    via_path = bca_vcs.rank(
+        repo, options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}"), cache_dir=path_cache
+    )
+    via_str = bca_vcs.rank(
+        repo, options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}"), cache_dir=str(str_cache)
+    )
     assert via_path == via_str
     assert any(path_cache.rglob("*.json"))
 
@@ -584,14 +593,210 @@ def test_vcs_metrics_cache_dir_path_matches_str(tmp_path: Path) -> None:
 def test_vcs_trend_as_of_datetime_matches_epoch_string(tmp_path: Path) -> None:
     repo = _build_staged_repo(tmp_path)
     aware = datetime.fromtimestamp(_FIXED_EPOCH, tz=UTC)
-    from_dt = bca.vcs_trend(repo, points=3, span="300d", as_of=aware)
-    from_str = bca.vcs_trend(repo, points=3, span="300d", as_of=f"@{_FIXED_EPOCH}")
+    from_dt = bca_vcs.trend(repo, options=bca_vcs.Options(as_of=aware), points=3, span="300d")
+    from_str = bca_vcs.trend(
+        repo, options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}"), points=3, span="300d"
+    )
     assert from_dt == from_str
 
 
 def test_vcs_jit_as_of_datetime_matches_epoch_string(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     aware = datetime.fromtimestamp(_FIXED_EPOCH, tz=UTC)
-    from_dt = bca.vcs_jit(repo, commit="HEAD", as_of=aware)
-    from_str = bca.vcs_jit(repo, commit="HEAD", as_of=f"@{_FIXED_EPOCH}")
+    from_dt = bca_vcs.commit(repo, commit="HEAD", options=bca_vcs.Options(as_of=aware))
+    from_str = bca_vcs.commit(
+        repo, commit="HEAD", options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}")
+    )
     assert from_dt == from_str
+
+
+# ── #612 / #667: namespaced vcs surface ─────────────────────────────
+
+
+def test_vcs_namespace_exposes_entry_points() -> None:
+    """#612: the surface is namespaced under ``big_code_analysis.vcs`` —
+    ``rank`` / ``trend`` / ``commit`` / ``score_diff`` + ``Options`` — and
+    the old flat ``vcs_metrics`` / ``vcs_trend`` / ``vcs_jit`` names are
+    gone from the package.
+    """
+    for name in ("rank", "trend", "commit", "score_diff", "Options"):
+        assert hasattr(bca_vcs, name), f"vcs.{name} missing"
+    for gone in ("vcs_metrics", "vcs_trend", "vcs_jit"):
+        assert not hasattr(bca, gone), f"flat {gone} must be removed at 2.0"
+
+
+def test_vcs_shared_options_accepted_by_rank_trend_commit(tmp_path: Path) -> None:
+    """#612: one shared ``Options`` object drives rank / trend / commit —
+    the 15-parameter duplication is replaced by a single options type all
+    three entry points accept.
+    """
+    repo = _build_staged_repo(tmp_path)
+    opts = bca_vcs.Options(long_window="2y", recent_window="90d")
+    rank = bca_vcs.rank(repo, options=opts)
+    assert rank["long_window_days"] == 730
+    trend = bca_vcs.trend(repo, options=opts, points=2, span="300d")
+    assert trend["long_window_days"] == 730
+    commit = bca_vcs.commit(repo, options=opts)
+    assert commit["source"] == "commit"
+    assert commit["long_window_days"] == 730
+
+
+def test_vcs_commit_rejects_diff_kwarg(tmp_path: Path) -> None:
+    """#667: ``vcs.commit`` no longer accepts a ``diff`` kwarg — the
+    dual-mode footgun (a ``diff`` silently discarding the named ``commit``)
+    is gone structurally. Passing it is an unknown-argument ``TypeError``.
+    """
+    repo = _build_repo(tmp_path)
+    with pytest.raises(TypeError):
+        bca_vcs.commit(repo, commit="HEAD", diff="whatever")  # type: ignore[call-arg]
+
+
+def test_vcs_score_diff_takes_diff_positionally() -> None:
+    """#667: ``vcs.score_diff(diff)`` takes the diff positionally and
+    returns the partial-score shape — the diff half of the former dual-mode
+    ``vcs_jit``, now a standalone single-mode function.
+    """
+    report = bca_vcs.score_diff(_SAMPLE_DIFF)
+    assert report["source"] == "diff"
+    assert "partial_risk_score" in report
+    assert "risk_score" not in report
+
+
+# ── #670: analyze_batch vcs / vcs_per_function kwargs ────────────────
+
+
+def test_analyze_batch_vcs_matches_per_file_analyze(tmp_path: Path) -> None:
+    """#670: ``analyze_batch(paths, vcs=True)`` attaches the same file-level
+    ``vcs`` block per-file ``analyze(p, vcs=True)`` does, built from a single
+    shared per-repo history index rather than N one-shot walks.
+    """
+    repo = _build_repo(tmp_path)
+    work = repo / "work.rs"
+    [batch_result] = bca.analyze_batch([work], vcs=True)
+    assert not isinstance(batch_result, bca.AnalysisFailure)
+    single = bca.analyze(work, vcs=True)
+    assert single is not None
+    assert batch_result["metrics"]["vcs"] == single["metrics"]["vcs"]
+
+
+def test_analyze_batch_without_vcs_has_no_block(tmp_path: Path) -> None:
+    """#670: the kwarg is opt-in — the default leaves no ``vcs`` block, so
+    migrating a plain comprehension stays behaviour-preserving."""
+    repo = _build_repo(tmp_path)
+    [result] = bca.analyze_batch([repo / "work.rs"])
+    assert not isinstance(result, bca.AnalysisFailure)
+    assert "vcs" not in result["metrics"]
+
+
+def test_analyze_batch_vcs_per_function_attaches_nested_blocks(
+    tmp_path: Path,
+) -> None:
+    """#670: ``vcs_per_function=True`` attaches a ``vcs`` block to each
+    nested space across the batch, mirroring single-file ``analyze``."""
+    repo = _build_multifn_repo(tmp_path)
+    [result] = bca.analyze_batch([repo / "work.rs"], vcs_per_function=True)
+    assert not isinstance(result, bca.AnalysisFailure)
+    spaces = _func_spaces(result)
+    assert len(spaces) == 2
+    for space in spaces:
+        assert "vcs" in space["metrics"]
+
+
+def test_analyze_batch_vcs_file_outside_repo_degrades(tmp_path: Path) -> None:
+    """#670: a file outside any repository simply gets no ``vcs`` block —
+    a VCS failure never turns the result into an ``AnalysisFailure``."""
+    loose = tmp_path / "loose.rs"
+    loose.write_text("fn solo() {}\n")
+    [result] = bca.analyze_batch([loose], vcs=True)
+    assert not isinstance(result, bca.AnalysisFailure)
+    assert "vcs" not in result["metrics"]
+
+
+def _build_subdir_repo(root: Path) -> Path:
+    """Init a repo with files in two *different* subdirectories
+    (``src/`` and ``tests/``) so the batch VCS cache is exercised across
+    directory boundaries — the regression case the parent-dir keying bug
+    masked (every prior test put files at the repo root)."""
+    now = int(time.time())
+    date = f"@{now - 5 * 86_400} +0000"
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Ada",
+        "GIT_AUTHOR_EMAIL": "ada@example.com",
+        "GIT_AUTHOR_DATE": date,
+        "GIT_COMMITTER_NAME": "Ada",
+        "GIT_COMMITTER_EMAIL": "ada@example.com",
+        "GIT_COMMITTER_DATE": date,
+    }
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=root, env=env, check=True)
+
+    git("init", "-q", "-b", "main")
+    git("config", "commit.gpgsign", "false")
+    (root / "src").mkdir()
+    (root / "tests").mkdir()
+    (root / "src" / "a.rs").write_text("fn a() {}\n")
+    (root / "tests" / "b.rs").write_text("fn b() {}\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "fix bug across two dirs")
+    return root
+
+
+def test_analyze_batch_vcs_spans_two_subdirectories(tmp_path: Path) -> None:
+    """#670: two files in *different* subdirectories of one checkout
+    (``src/a.rs``, ``tests/b.rs``) must BOTH get correct, non-empty ``vcs``
+    data. The pre-fix cache keyed on the file's parent directory, so the two
+    directories built (and used) separate indexes; each index is keyed by
+    work-tree-relative path, so a per-directory index would still resolve
+    both files — but the amortisation was lost. Keying on the discovered
+    work-tree root coalesces them onto one index."""
+    repo = _build_subdir_repo(tmp_path)
+    a = repo / "src" / "a.rs"
+    b = repo / "tests" / "b.rs"
+    results = bca.analyze_batch([a, b], vcs=True)
+    assert len(results) == 2
+    for result in results:
+        assert not isinstance(result, bca.AnalysisFailure)
+        vcs = result["metrics"]["vcs"]
+        assert vcs["commits_long"] == 1
+        assert vcs["bug_fix_commits"] == 1
+
+
+def test_analyze_batch_vcs_per_function_spans_two_subdirectories(
+    tmp_path: Path,
+) -> None:
+    """#670: the per-function path must likewise coalesce two subdirectories
+    onto one shared blame engine and attach a nested ``vcs`` block to every
+    space in both files."""
+    repo = _build_subdir_repo(tmp_path)
+    a = repo / "src" / "a.rs"
+    b = repo / "tests" / "b.rs"
+    results = bca.analyze_batch([a, b], vcs_per_function=True)
+    assert len(results) == 2
+    for result in results:
+        assert not isinstance(result, bca.AnalysisFailure)
+        spaces = _func_spaces(result)
+        assert spaces, "each file has at least one function space"
+        assert all("vcs" in space["metrics"] for space in spaces)
+
+
+def test_analyze_batch_vcs_distinguishes_separate_repos(tmp_path: Path) -> None:
+    """#670: two files from two *separate* repositories in one batch each
+    get their own repo's data — the cache must not conflate them under a
+    shared key."""
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    one = _build_repo(tmp_path / "one")
+    two = _build_repo(tmp_path / "two")
+    work_one = one / "work.rs"
+    work_two = two / "work.rs"
+    results = bca.analyze_batch([work_one, work_two], vcs=True)
+    assert len(results) == 2
+    for result in results:
+        assert not isinstance(result, bca.AnalysisFailure)
+        # Each file is tracked in exactly its own single-file repo, so the
+        # block is present and reflects that repo's one bug-fix commit.
+        vcs = result["metrics"]["vcs"]
+        assert vcs["commits_long"] == 1
+        assert vcs["bug_fix_commits"] == 1

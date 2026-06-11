@@ -1,4 +1,4 @@
-// bca: suppress-file(halstead, nargs, nexits)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // PyO3 module registration + thin analyze wrappers; `_native`'s nexits is one
 // `?` per `m.add(...)` registration line (boilerplate), and the rest are many-fn
 // aggregation artifacts, not per-function logic complexity.
@@ -38,6 +38,7 @@ mod sarif;
 #[cfg(test)]
 mod types_codegen;
 mod vcs;
+mod walk;
 
 use std::path::PathBuf;
 
@@ -55,7 +56,7 @@ use pyo3::wrap_pyfunction;
 use big_code_analysis::{Metric, MetricSet};
 
 use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
-use crate::batch::{PyAnalysisError, analyze_batch};
+use crate::batch::{PyAnalysisError, analyze_batch, analyze_paths};
 use crate::sarif::to_sarif;
 
 // Python exception types. Both subclass `ValueError` per the API
@@ -429,17 +430,39 @@ fn extract_source_bytes(value: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
 /// extension-less shebang scripts (#318) — at the cost of
 /// promoting the function from pure path inspection to a real read.
 #[pyfunction]
-#[pyo3(signature = (path, /))]
+#[pyo3(signature = (path, /, *, read = true))]
 #[allow(clippy::needless_pass_by_value)]
 // `PathBuf` (not `&Path`) is required by PyO3's path conversion —
 // see the comment on `analyze` above.
-fn language_for_file(py: Python<'_>, path: PathBuf) -> PyResult<Option<&'static str>> {
+fn language_for_file(py: Python<'_>, path: PathBuf, read: bool) -> PyResult<Option<&'static str>> {
+    // `read=False` (#682): extension-only, filesystem-free, never raises —
+    // resolves paths that do not exist yet (archive listings, git trees,
+    // candidate filtering). Delegates to the same extension table the
+    // `read=True` path consults first.
+    if !read {
+        return Ok(language::language_for_path_extension(&path));
+    }
     // Release the GIL across the file read so other Python threads
     // wrapping the call (the documented parallelism pattern around
     // `analyze`) actually make progress. `language::language_for_file`
     // touches no Python objects, so the detach is sound.
     py.detach(|| language::language_for_file(&path))
         .map_err(analysis_error_to_py)
+}
+
+/// Resolve a bare file extension to the language name `analyze` would
+/// dispatch for a file with that extension — filesystem-free (issue #682).
+///
+/// Accepts both `"py"` and `".py"` (the leading dot is normalised away);
+/// matching is case-insensitive. Returns `None` for an unknown extension —
+/// a pure table lookup that reads no file and never raises, the inverse of
+/// [`language_extensions`]. This is the cheap "which language is `.tsx`?"
+/// primitive that the README and `examples/pipeline_db.py` previously had
+/// to rebuild by hand by inverting the per-language extension table.
+#[pyfunction]
+#[pyo3(signature = (ext, /))]
+fn language_for_extension(ext: &str) -> Option<&'static str> {
+    language::language_for_extension(ext)
 }
 
 /// Return the supported language names, in declaration order.
@@ -520,192 +543,274 @@ fn extract_as_of(value: &Bound<'_, PyAny>) -> PyResult<String> {
     ))
 }
 
-/// Rank the files in a git repository by change-history (VCS) risk
-/// (issue #328).
+/// Shared change-history (VCS) options object accepted by `vcs.rank`,
+/// `vcs.trend`, and `vcs.commit` (issue #612).
 ///
-/// `repo_path` is any path inside the working tree. Returns a dict with
-/// the window lengths, version stamps, a `truncated_shallow_clone`
-/// flag, a `vcs_aggregate` object carrying the directory- / repo-level
-/// `bus_factor` (Avelino `DoA`, issue #332), and a `files` list ranked by
-/// descending `risk_score` — the programmatic analogue of `bca vcs`.
-/// `bus_factor_threshold` (default `0.5`) sets the coverage/abandonment
-/// fraction. Raises `ValueError` for a malformed window / timestamp /
-/// formula / bus-factor threshold, or when `repo_path` is not a git
-/// working tree.
+/// Defined once in Rust and exposed to Python as `big_code_analysis.vcs.Options`,
+/// it collects the knobs every entry point shares — windows, risk formula,
+/// bot / merge / rename / history toggles, the `as_of` snapshot pin, the
+/// file-type scope, and the bus-factor threshold — so the three functions no
+/// longer repeat a 15-parameter signature each (the drift that #583 patched
+/// once already). Each entry point keeps only its genuinely distinct
+/// parameters (`top`, `points` / `span` / `top_deltas`, `no_cache` /
+/// `cache_dir`).
 ///
-/// The history walk holds the GIL; for per-file AST + VCS in one pass
-/// use `analyze(path, vcs=True)`.
-#[pyfunction]
-#[pyo3(signature = (repo_path, /, *, long_window = None, recent_window = None, top = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None, no_cache = false, cache_dir = None))]
-#[allow(
-    clippy::needless_pass_by_value,
-    clippy::too_many_arguments,
-    clippy::fn_params_excessive_bools
-)]
-fn vcs_metrics<'py>(
-    py: Python<'py>,
-    repo_path: PathBuf,
+/// Mirrors the library-side #584 `Options` resolution: every field is
+/// optional and defaults match the dedicated `bca vcs` CLI flags, so an
+/// `Options()` with no arguments reproduces the default ranking.
+// `from_py_object`: `Options` flows *into* the VCS functions as an
+// `options=` argument, so the `Clone`-derived `FromPyObject` is needed to
+// extract it by value. Opting in explicitly silences the 0.28 deprecation
+// about the implicit derive (which becomes opt-in upstream).
+#[pyclass(name = "Options", module = "big_code_analysis.vcs", from_py_object)]
+#[derive(Clone, Default)]
+#[allow(clippy::struct_excessive_bools)]
+struct PyVcsOptions {
     long_window: Option<String>,
     recent_window: Option<String>,
-    top: Option<usize>,
     reference: Option<String>,
     risk_formula: Option<String>,
-    file_types: Option<FileTypes>,
+    file_types: Option<String>,
     full_history: bool,
     include_merges: bool,
     follow_renames: bool,
     exclude_bots: bool,
     bot_pattern: Option<String>,
-    as_of: Option<Bound<'py, PyAny>>,
+    as_of: Option<String>,
     emit_author_details: bool,
     include_deleted: bool,
     bus_factor_threshold: Option<f64>,
+}
+
+#[pymethods]
+impl PyVcsOptions {
+    #[new]
+    #[pyo3(signature = (*, long_window = None, recent_window = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::fn_params_excessive_bools,
+        // `as_of: Option<Bound<PyAny>>` is the PyO3 keyword-argument FFI
+        // shape; `extract_as_of` borrows it. Same pattern as the former
+        // `vcs_metrics` entry point.
+        clippy::needless_pass_by_value
+    )]
+    fn py_new(
+        long_window: Option<String>,
+        recent_window: Option<String>,
+        reference: Option<String>,
+        risk_formula: Option<String>,
+        file_types: Option<FileTypes>,
+        full_history: bool,
+        include_merges: bool,
+        follow_renames: bool,
+        exclude_bots: bool,
+        bot_pattern: Option<String>,
+        as_of: Option<Bound<'_, PyAny>>,
+        emit_author_details: bool,
+        include_deleted: bool,
+        bus_factor_threshold: Option<f64>,
+    ) -> PyResult<Self> {
+        let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
+        Ok(Self {
+            long_window,
+            recent_window,
+            reference,
+            risk_formula,
+            file_types: file_types.map(FileTypes::into_scope),
+            full_history,
+            include_merges,
+            follow_renames,
+            exclude_bots,
+            bot_pattern,
+            as_of,
+            emit_author_details,
+            include_deleted,
+            bus_factor_threshold,
+        })
+    }
+}
+
+impl PyVcsOptions {
+    /// Materialise the shared knobs into a [`vcs::VcsParams`], filling the
+    /// per-call-distinct fields (`top`, cache) from the caller.
+    fn to_params(
+        &self,
+        top: Option<usize>,
+        no_cache: bool,
+        cache_dir: Option<PathBuf>,
+    ) -> vcs::VcsParams {
+        vcs::VcsParams {
+            long_window: self.long_window.clone(),
+            recent_window: self.recent_window.clone(),
+            top,
+            reference: self.reference.clone(),
+            risk_formula: self.risk_formula.clone(),
+            file_types: self.file_types.clone(),
+            full_history: self.full_history,
+            include_merges: self.include_merges,
+            follow_renames: self.follow_renames,
+            exclude_bots: self.exclude_bots,
+            bot_pattern: self.bot_pattern.clone(),
+            as_of: self.as_of.clone(),
+            emit_author_details: self.emit_author_details,
+            include_deleted: self.include_deleted,
+            bus_factor_threshold: self.bus_factor_threshold,
+            no_cache,
+            cache_dir,
+        }
+    }
+
+    /// Materialise the windows / history / rename / as-of knobs that a
+    /// commit score honors (the full ranking-knob set does not apply).
+    fn to_jit_params(&self) -> vcs::JitParams {
+        vcs::JitParams {
+            long_window: self.long_window.clone(),
+            recent_window: self.recent_window.clone(),
+            full_history: self.full_history,
+            include_merges: self.include_merges,
+            follow_renames: self.follow_renames,
+            as_of: self.as_of.clone(),
+        }
+    }
+}
+
+/// Resolve the `options=` kwarg, defaulting to `Options()` when omitted.
+fn resolve_vcs_options(options: Option<PyVcsOptions>) -> PyVcsOptions {
+    options.unwrap_or_default()
+}
+
+/// Rank the files in a git repository by change-history (VCS) risk
+/// (issue #328). The programmatic analogue of `bca vcs`; lives under
+/// `big_code_analysis.vcs.rank`.
+///
+/// `repo_path` is any path inside the working tree. `options` is a shared
+/// `vcs.Options` object (default `Options()`); `top` caps how many files
+/// the ranking keeps (`0` / `None` keeps all). Returns a dict with the
+/// window lengths, version stamps, a `truncated_shallow_clone` flag, a
+/// `vcs_aggregate` object carrying the directory- / repo-level `bus_factor`
+/// (Avelino `DoA`, issue #332), and a `files` list ranked by descending
+/// `vcs.risk_score`. Raises `ValueError` for a malformed window / timestamp
+/// / formula / bus-factor threshold, or when `repo_path` is not a git
+/// working tree.
+///
+/// The GIL is released across the history walk (issue #620), so a
+/// `ThreadPoolExecutor` over several repos parallelises the walks.
+#[pyfunction]
+#[pyo3(name = "rank")]
+#[pyo3(signature = (repo_path, /, *, options = None, top = None, no_cache = false, cache_dir = None))]
+#[allow(clippy::needless_pass_by_value)]
+fn vcs_rank(
+    py: Python<'_>,
+    repo_path: PathBuf,
+    options: Option<PyVcsOptions>,
+    top: Option<usize>,
     no_cache: bool,
     cache_dir: Option<PathBuf>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
-    let params = vcs::VcsParams {
-        long_window,
-        recent_window,
-        top,
-        reference,
-        risk_formula,
-        file_types: file_types.map(FileTypes::into_scope),
-        full_history,
-        include_merges,
-        follow_renames,
-        exclude_bots,
-        bot_pattern,
-        as_of,
-        emit_author_details,
-        include_deleted,
-        bus_factor_threshold,
-        no_cache,
-        cache_dir,
-    };
-    let json = vcs::vcs_report_json(&repo_path, &params)?;
+) -> PyResult<Bound<'_, PyAny>> {
+    let params = resolve_vcs_options(options).to_params(top, no_cache, cache_dir);
+    // Release the GIL across the history walk; `vcs_report_json` builds the
+    // JSON string with no Python objects, so the detach is sound. The
+    // closure returns the `PyErr` directly (it is `Send`) and we propagate
+    // after re-attach.
+    let json = py.detach(|| vcs::vcs_report_json(&repo_path, &params))?;
     conversion::json_string_to_py(py, &json)
 }
 
 /// Sample the change-history metrics at several points in time and return
-/// the per-file historical trend (issue #333).
+/// the per-file historical trend (issue #333). The programmatic analogue
+/// of `bca vcs trend`; lives under `big_code_analysis.vcs.trend`.
 ///
 /// `repo_path` is any path inside the working tree. `points` (>= 2) and
 /// `span` (default `12mo`) define the evenly-spaced sampling grid, ending
-/// at `as_of` (or wall-clock now). Returns a dict with `as_of_points`
-/// (the sample timestamps, oldest-first), a `files` map from
+/// at `options.as_of` (or wall-clock now). Returns a dict with
+/// `as_of_points` (the sample timestamps, oldest-first), a `files` map from
 /// repository-relative path to a point array aligned to `as_of_points`
 /// (a `None` element marks a point where the file did not exist), and an
-/// improving / regressing `deltas` summary — the programmatic analogue of
-/// `bca vcs trend`. `top` caps how many files the series keeps (by
-/// most-recent risk); `top_deltas` trims each delta list. Raises
-/// `ValueError` for a malformed option, an out-of-range point count, or
-/// when `repo_path` is not a git working tree.
+/// improving / regressing `deltas` summary. `top` caps how many files the
+/// series keeps (by most-recent risk); `top_deltas` trims each delta list.
+/// Raises `ValueError` for a malformed option, an out-of-range point count,
+/// or when `repo_path` is not a git working tree.
 ///
 /// Each point re-anchors at the mainline tip of that moment, so the result
-/// is a faithful historical snapshot; the repeated walks hold the GIL.
+/// is a faithful historical snapshot. The GIL is released across the
+/// repeated walks (issue #620).
 #[pyfunction]
-#[pyo3(signature = (repo_path, /, *, points = 12, span = None, top = None, top_deltas = None, long_window = None, recent_window = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
-#[allow(
-    clippy::needless_pass_by_value,
-    clippy::too_many_arguments,
-    clippy::fn_params_excessive_bools
-)]
-fn vcs_trend<'py>(
-    py: Python<'py>,
+#[pyo3(name = "trend")]
+#[pyo3(signature = (repo_path, /, *, options = None, points = 12, span = None, top = None, top_deltas = None))]
+#[allow(clippy::needless_pass_by_value)]
+fn vcs_trend(
+    py: Python<'_>,
     repo_path: PathBuf,
+    options: Option<PyVcsOptions>,
     points: usize,
     span: Option<String>,
     top: Option<usize>,
     top_deltas: Option<usize>,
-    long_window: Option<String>,
-    recent_window: Option<String>,
-    reference: Option<String>,
-    risk_formula: Option<String>,
-    file_types: Option<FileTypes>,
-    full_history: bool,
-    include_merges: bool,
-    follow_renames: bool,
-    exclude_bots: bool,
-    bot_pattern: Option<String>,
-    as_of: Option<Bound<'py, PyAny>>,
-    emit_author_details: bool,
-    include_deleted: bool,
-    bus_factor_threshold: Option<f64>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
-    let params = vcs::VcsParams {
-        long_window,
-        recent_window,
-        top,
-        reference,
-        risk_formula,
-        file_types: file_types.map(FileTypes::into_scope),
-        full_history,
-        include_merges,
-        follow_renames,
-        exclude_bots,
-        bot_pattern,
-        as_of,
-        emit_author_details,
-        include_deleted,
-        bus_factor_threshold,
-        // Trend resolves a fresh historical tip per point; the file-level
-        // history cache does not apply, so it is left disabled.
-        no_cache: true,
-        cache_dir: None,
-    };
-    let json = vcs::vcs_trend_json(&repo_path, &params, points, span.as_deref(), top_deltas)?;
+) -> PyResult<Bound<'_, PyAny>> {
+    // Trend resolves a fresh historical tip per point; the file-level
+    // history cache does not apply, so it is forced disabled.
+    let params = resolve_vcs_options(options).to_params(top, true, None);
+    let json = py
+        .detach(|| vcs::vcs_trend_json(&repo_path, &params, points, span.as_deref(), top_deltas))?;
     conversion::json_string_to_py(py, &json)
 }
 
 /// Score a single commit for just-in-time (commit-level) defect-induction
-/// risk (issue #331), or — when `diff` is supplied — an arbitrary unified
-/// diff (issue #580).
+/// risk (issue #331). The programmatic analogue of `bca vcs commit`; lives
+/// under `big_code_analysis.vcs.commit`.
 ///
 /// `repo_path` is any path inside the working tree; `commit` is any git
 /// revision spelling (default `HEAD`), scored against its first parent.
-/// Returns a dict with the size / diffusion / history / experience features,
-/// their per-group contributions, the ordinal composite `risk_score`, and the
-/// `commit` block; the programmatic analogue of `bca vcs jit`.
+/// `options` is a shared `vcs.Options` object (only its window / history /
+/// rename / as-of knobs apply to a single commit). Returns a dict with
+/// `source == "commit"`, the size / diffusion / history / experience
+/// features, their per-group contributions, the ordinal composite
+/// `risk_score`, and the `commit` block. Raises `ValueError` for a
+/// malformed option, an unresolvable commit, or when `repo_path` is not a
+/// git working tree.
 ///
-/// Pass `diff` (a unified diff string) to score a bare diff instead. A
-/// bare diff has no author / parent / history, so only the size and
-/// diffusion groups are computable: the returned dict has `source ==
-/// "diff"`, a `partial_risk_score` that is **not comparable** to a commit score,
-/// and no history / experience / purpose groups (they are absent, not
-/// zero). In diff mode `repo_path` / `commit` / the window knobs are
-/// ignored. Raises `ValueError` for a malformed option, an unresolvable
-/// commit, a malformed diff, or when `repo_path` is not a git working tree.
+/// To score an arbitrary unified diff (no repo, no commit) use
+/// [`vcs.score_diff`](vcs_score_diff). Splitting the two modes apart
+/// (issue #667) means each returns one well-defined shape, so a caller can
+/// never pass a `diff` that silently discards a named `commit`.
 #[pyfunction]
-#[pyo3(signature = (repo_path = None, /, *, commit = "HEAD".to_owned(), diff = None, long_window = None, recent_window = None, full_history = false, include_merges = false, follow_renames = true, as_of = None))]
-#[allow(
-    clippy::needless_pass_by_value,
-    clippy::too_many_arguments,
-    clippy::fn_params_excessive_bools
-)]
-fn vcs_jit<'py>(
-    py: Python<'py>,
-    repo_path: Option<PathBuf>,
+#[pyo3(name = "commit")]
+#[pyo3(signature = (repo_path, /, *, commit = "HEAD".to_owned(), options = None))]
+#[allow(clippy::needless_pass_by_value)]
+fn vcs_commit(
+    py: Python<'_>,
+    repo_path: PathBuf,
     commit: String,
-    diff: Option<String>,
-    long_window: Option<String>,
-    recent_window: Option<String>,
-    full_history: bool,
-    include_merges: bool,
-    follow_renames: bool,
-    as_of: Option<Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let as_of = as_of.as_ref().map(extract_as_of).transpose()?;
-    let params = vcs::JitParams {
-        long_window,
-        recent_window,
-        full_history,
-        include_merges,
-        follow_renames,
-        as_of,
-    };
-    let json = vcs::vcs_jit_json(repo_path.as_deref(), &commit, diff.as_deref(), &params)?;
+    options: Option<PyVcsOptions>,
+) -> PyResult<Bound<'_, PyAny>> {
+    let params = resolve_vcs_options(options).to_jit_params();
+    let json = py.detach(|| vcs::vcs_commit_json(&repo_path, &commit, &params))?;
+    conversion::json_string_to_py(py, &json)
+}
+
+/// Score an arbitrary unified diff for partial just-in-time risk (issue
+/// #580). The programmatic analogue of `bca vcs jit --diff`; lives under
+/// `big_code_analysis.vcs.score_diff`.
+///
+/// `diff` is a unified diff string. A bare diff has no author / parent /
+/// history, so only the size and diffusion groups are computable: the
+/// returned dict has `source == "diff"`, a `partial_risk_score` that is
+/// **not comparable** to a commit `risk_score`, and no history / experience
+/// / purpose groups (they are absent, not zero, so an unavailable group can
+/// never be misread as "low risk"). Raises `ValueError` for a malformed
+/// diff.
+///
+/// This is the diff half of the former dual-mode `vcs_jit` (issue #667):
+/// the commit half is [`vcs.commit`](vcs_commit).
+#[pyfunction]
+#[pyo3(name = "score_diff")]
+#[pyo3(signature = (diff, /))]
+// The named `'py` is load-bearing: the return `Bound<'py>` is tied to the
+// GIL token, not to `diff` — eliding both borrows to `'_` would
+// wrongly let the compiler infer the result borrows `diff`.
+#[allow(clippy::elidable_lifetime_names)]
+fn vcs_score_diff<'py>(py: Python<'py>, diff: &str) -> PyResult<Bound<'py, PyAny>> {
+    let json = vcs::vcs_score_diff_json(diff)?;
     conversion::json_string_to_py(py, &json)
 }
 
@@ -747,15 +852,50 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add_class::<PyAnalysisError>()?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
-    m.add_function(wrap_pyfunction!(vcs_metrics, m)?)?;
-    m.add_function(wrap_pyfunction!(vcs_trend, m)?)?;
-    m.add_function(wrap_pyfunction!(vcs_jit, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(analyze_paths, m)?)?;
     m.add_function(wrap_pyfunction!(language_for_file, m)?)?;
+    m.add_function(wrap_pyfunction!(language_for_extension, m)?)?;
     m.add_function(wrap_pyfunction!(supported_languages, m)?)?;
     m.add_function(wrap_pyfunction!(language_extensions, m)?)?;
     m.add_function(wrap_pyfunction!(to_sarif, m)?)?;
+    register_vcs_submodule(m)?;
+    Ok(())
+}
+
+/// Register the `big_code_analysis._native.vcs` submodule (issue #612).
+///
+/// The change-history surface is namespaced under `vcs` rather than the
+/// former flat `vcs_metrics` / `vcs_trend` / `vcs_jit` prefix family:
+/// `vcs.rank` / `vcs.trend` / `vcs.commit` / `vcs.score_diff` plus the
+/// shared `vcs.Options` object. The entry-point names mirror the `bca vcs`
+/// CLI subcommands (`bca vcs` → `rank`, `vcs trend` → `trend`,
+/// `vcs commit` → `commit`, `vcs jit --diff` → `score_diff`).
+///
+/// The submodule is registered with the dotted `module` path on each item
+/// so `repr()` / pickling report `big_code_analysis.vcs.*`, and inserted
+/// into `sys.modules` so `from big_code_analysis.vcs import rank` resolves
+/// for static analysers and `import`-time consumers.
+fn register_vcs_submodule(parent: &Bound<'_, PyModule>) -> PyResult<()> {
+    let py = parent.py();
+    let vcs_mod = PyModule::new(py, "vcs")?;
+    vcs_mod.add_class::<PyVcsOptions>()?;
+    vcs_mod.add_function(wrap_pyfunction!(vcs_rank, &vcs_mod)?)?;
+    vcs_mod.add_function(wrap_pyfunction!(vcs_trend, &vcs_mod)?)?;
+    vcs_mod.add_function(wrap_pyfunction!(vcs_commit, &vcs_mod)?)?;
+    vcs_mod.add_function(wrap_pyfunction!(vcs_score_diff, &vcs_mod)?)?;
+    parent.add_submodule(&vcs_mod)?;
+    // Insert into `sys.modules` under the extension's own dotted name so
+    // `from big_code_analysis._native.vcs import rank` resolves (a bare
+    // `add_submodule` makes the attribute reachable but not importable).
+    // The *public* `big_code_analysis.vcs` is a pure-Python facade
+    // (`big_code_analysis/vcs.py`) that re-exports from here with full
+    // type annotations — the same facade pattern `__init__` uses for the
+    // top-level surface.
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("big_code_analysis._native.vcs", &vcs_mod)?;
     Ok(())
 }
 
