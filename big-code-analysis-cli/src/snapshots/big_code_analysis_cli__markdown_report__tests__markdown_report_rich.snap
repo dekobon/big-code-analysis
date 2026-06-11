@@ -4,10 +4,16 @@ expression: out
 ---
 # Code Quality Metrics Summary
 
-**Files analyzed:** 3    **Languages:** Python, Rust
-**Total SLOC:** 400  **PLOC:** 290  **Comments:** 30
-**Functions/methods:** 10    **Classes/impls/traits:** 1
-**Comment ratio:** 7.5%
+| Metric               |        Value |
+| -------------------- | -----------: |
+| Files analyzed       |            3 |
+| Languages            | Python, Rust |
+| Total SLOC           |          400 |
+| PLOC                 |          290 |
+| Comments             |           30 |
+| Functions/methods    |           10 |
+| Classes/impls/traits |            1 |
+| Comment ratio        |         7.5% |
 
 ## Per-language overview
 
@@ -20,8 +26,13 @@ expression: out
 
 ### Summary
 
-Files: 1 | SLOC: 120 | PLOC: 25 | Comment ratio: 4.2%
-Average MI: 28.0 (GOOD)
+| Metric        |       Value |
+| ------------- | ----------: |
+| Files         |           1 |
+| SLOC          |         120 |
+| PLOC          |          25 |
+| Comment ratio |        4.2% |
+| Average MI    | 28.0 (GOOD) |
 
 ### Maintainability Index (lowest files, top-5)
 
@@ -89,8 +100,13 @@ Raw counts across all functions, ignoring suppression markers.
 
 ### Summary
 
-Files: 2 | SLOC: 280 | PLOC: 265 | Comment ratio: 8.9%
-Average MI: 28.5 (GOOD)
+| Metric        |       Value |
+| ------------- | ----------: |
+| Files         |           2 |
+| SLOC          |         280 |
+| PLOC          |         265 |
+| Comment ratio |        8.9% |
+| Average MI    | 28.5 (GOOD) |
 
 ### Maintainability Index (lowest files, top-5)
 

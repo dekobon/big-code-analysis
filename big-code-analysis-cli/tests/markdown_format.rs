@@ -120,7 +120,10 @@ fn report_markdown_to_stdout() {
         .assert()
         .success()
         .stdout(predicate::str::contains("# Code Quality Metrics Summary"))
-        .stdout(predicate::str::contains("**Files analyzed:** 1"));
+        // Global header is a two-column table (issue #671); the label cell is
+        // left-aligned so it starts right after the `| ` regardless of padding.
+        .stdout(predicate::str::contains("| Metric "))
+        .stdout(predicate::str::contains("| Files analyzed"));
 }
 
 #[test]
@@ -145,8 +148,8 @@ fn report_markdown_to_file() {
         "expected markdown report header in file output",
     );
     assert!(
-        content.contains("**Files analyzed:** 1"),
-        "expected file count in report",
+        content.contains("| Files analyzed"),
+        "expected file-count row in global header table",
     );
     assert!(
         content.contains("## Python"),
@@ -156,13 +159,30 @@ fn report_markdown_to_file() {
 
 #[test]
 fn report_collects_nonzero_summaries() {
-    cli()
+    let output = cli()
         .args(["--paths", &fixture_path(), "report", "markdown"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("**Functions/methods:** 0").not())
-        .stdout(predicate::str::contains("**Functions/methods:**"))
-        .stdout(predicate::str::contains("## Per-language overview"));
+        .output()
+        .expect("run bca report");
+    assert!(output.status.success(), "report should succeed");
+    let stdout = String::from_utf8(output.stdout).expect("utf-8 stdout");
+    assert!(
+        stdout.contains("## Per-language overview"),
+        "expected per-language overview section",
+    );
+    // Global header is a two-column table (issue #671). The Functions/methods
+    // row must exist and carry a non-zero value (right-aligned `| N |`).
+    let func_row = stdout
+        .lines()
+        .find(|l| l.contains("Functions/methods"))
+        .expect("Functions/methods row present in global header table");
+    // Cells are `| label | value |`; the value is the second pipe-delimited
+    // field, padded by alignment, so trim it before comparing.
+    let value = func_row
+        .split('|')
+        .nth(2)
+        .map(str::trim)
+        .expect("Functions/methods row has a value cell");
+    assert_ne!(value, "0", "Functions/methods value should be non-zero");
 }
 
 #[test]
@@ -183,7 +203,8 @@ fn report_with_no_matching_files_produces_empty_summary() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("**Files analyzed:** 0"));
+        // Global header is a two-column table (issue #671).
+        .stdout(predicate::str::contains("| Files analyzed"));
 }
 
 #[test]

@@ -43,15 +43,24 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
     };
     let rating = mi_rating(avg_mi);
 
+    // A two-column (metric | value) table renders identically in every GFM
+    // dialect; the earlier `|`-joined single-newline lines collapsed to a
+    // run-on paragraph in spec-conformant GFM (issue #671).
+    let rows: Vec<Vec<String>> = vec![
+        vec!["Files".to_string(), thousands(files)],
+        vec!["SLOC".to_string(), thousands(sloc)],
+        vec!["PLOC".to_string(), thousands(ploc)],
+        vec!["Comment ratio".to_string(), format!("{cr:.1}%")],
+        vec!["Average MI".to_string(), format!("{avg_mi:.1} ({rating})")],
+    ];
+
     let _ = writeln!(out, "### Summary\n");
-    let _ = writeln!(
+    write_table(
         out,
-        "Files: {} | SLOC: {} | PLOC: {} | Comment ratio: {cr:.1}%",
-        thousands(files),
-        thousands(sloc),
-        thousands(ploc),
+        &["Metric", "Value"],
+        &[Align::Left, Align::Right],
+        &rows,
     );
-    let _ = writeln!(out, "Average MI: {avg_mi:.1} ({rating})");
 }
 
 /// Render one hotspot section: a `### {title}` heading + GFM table from a
