@@ -158,6 +158,36 @@ fn consumer_processes_jobs_then_terminates_on_poison_pill() {
     );
 }
 
+// ── Per-file error diagnostics (#665) ────────────────────────────
+//
+// The consumer must swallow `BrokenPipe` silently (the routine
+// `| head`/`| less` case, matching the CLI's `write_stdout_or_die`)
+// and `Display`-format every other error so internal Debug struct
+// shape (`Os { code, kind, .. }`) never leaks into diagnostics.
+
+#[test]
+fn per_file_error_swallows_broken_pipe() {
+    let err = std::io::Error::new(ErrorKind::BrokenPipe, "broken pipe");
+    assert_eq!(
+        per_file_error_message(Path::new("ok.rs"), &err),
+        None,
+        "BrokenPipe must be swallowed silently",
+    );
+}
+
+#[test]
+fn per_file_error_display_formats_other_errors() {
+    let err = std::io::Error::new(ErrorKind::PermissionDenied, "permission denied");
+    let message = per_file_error_message(Path::new("locked.rs"), &err)
+        .expect("a non-BrokenPipe error must produce a diagnostic");
+    assert_eq!(message, "error processing locked.rs: permission denied");
+    // Guard against the regression: no Debug struct shape may leak.
+    assert!(
+        !message.contains("kind:") && !message.contains("Os {") && !message.contains('{'),
+        "diagnostic must be Display-formatted, not a Debug struct: {message}",
+    );
+}
+
 // ── Terminal file-list dispatch (post-#495) ──────────────────────
 //
 // The runner no longer walks directories or filters globs: `paths` is
