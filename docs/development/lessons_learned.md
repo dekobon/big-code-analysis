@@ -432,6 +432,22 @@ implementation passed. The fix renamed it to
 `markdown_strip_prefix_removes_path_prefix` and added two checks:
 the stripped path must appear, and the full path must not.
 
+**Section-absence assertions that pin the bug** (#681, `296e304a`).
+A fully-suppressed hotspot table previously rendered only its
+omission note with no `###` / `<h3>` heading. Several tests across
+the Markdown and HTML renderers asserted
+`!report.contains("### Functions With Many Parameters …")` — they
+passed *because* the heading was missing, encoding the buggy output
+as the contract. The fix (emit the heading, note as the body) turned
+all five red. The trap is the reflex to "update the test to match"
+when a fix breaks a passing assertion — here that would re-assert the
+bug. The correct move flips each to a positive assertion: the heading
+and its `id` anchor are present, the suppressed row is absent, and the
+note is the section body. A bare `!contains(<structural marker>)` is
+strictly weaker than the positive form and silently inverts into a
+bug-lock the moment the absence it asserts *is* the symptom — the
+mirror image of the section-presence-with-no-value case above.
+
 **Lesson:** Hold tests to the same standard as production: every
 test asserts a specific value or specific failure, never just
 `is_ok()` or "the section rendered." When fixing a bug, write the
