@@ -1411,7 +1411,7 @@ fn check_args(argv: &[&str]) -> Box<CheckArgs> {
     }
 }
 
-// ─── #688: `--tier soft[=RATIO]` model ────────────────────────────────
+// ─── #688: `--tier=soft[=RATIO]` model ────────────────────────────────
 
 #[test]
 fn tier_spec_parses_hard_soft_and_ratio() {
@@ -1445,7 +1445,7 @@ fn tier_spec_rejects_out_of_range_and_garbage() {
 #[test]
 fn check_tier_value_taking_and_bare_default() {
     assert_eq!(
-        check_args(&["check", "--tier", "soft=0.9"]).tier,
+        check_args(&["check", "--tier=soft=0.9"]).tier,
         TierSpec::Soft(Some(0.9))
     );
     // A bare `--tier` (no value) defaults to soft, mirroring `--color`.
@@ -1461,8 +1461,8 @@ fn headroom_alias_promotes_to_soft_and_resolves() {
     // integration test, but the mapping itself is checked here.
     let args = check_args(&["check", "--headroom", "0.8"]);
     assert_eq!(args.resolved_tier(), TierSpec::Soft(Some(0.8)));
-    // A bare `--tier soft` plus `--headroom` is unambiguous and folds.
-    let args = check_args(&["check", "--tier", "soft", "--headroom", "0.7"]);
+    // A bare `--tier=soft` plus `--headroom` is unambiguous and folds.
+    let args = check_args(&["check", "--tier=soft", "--headroom", "0.7"]);
     assert_eq!(args.resolved_tier(), TierSpec::Soft(Some(0.7)));
 }
 
@@ -1471,11 +1471,11 @@ fn headroom_alias_promotes_to_soft_and_resolves() {
 #[test]
 fn exit_codes_value_taking_and_alias() {
     assert_eq!(
-        check_args(&["check", "--exit-codes", "tiered"]).resolved_exit_codes(),
+        check_args(&["check", "--exit-codes=tiered"]).resolved_exit_codes(),
         Some(ExitCodes::Tiered)
     );
     assert_eq!(
-        check_args(&["check", "--exit-codes", "default"]).resolved_exit_codes(),
+        check_args(&["check", "--exit-codes=default"]).resolved_exit_codes(),
         Some(ExitCodes::Default)
     );
     // Bare `--exit-codes` defaults to tiered.
@@ -1494,15 +1494,15 @@ fn exit_codes_value_taking_and_alias() {
 
 #[test]
 fn strict_exit_codes_conflicts_with_value_form() {
-    assert!(parse(&["check", "--strict-exit-codes", "--exit-codes", "default"]).is_err());
+    assert!(parse(&["check", "--strict-exit-codes", "--exit-codes=default"]).is_err());
 }
 
 #[test]
 fn cyclomatic_count_try_value_taking_and_alias() {
     // The positive value flag, both directions.
-    let on = check_args(&["check", "--cyclomatic-count-try", "true"]);
+    let on = check_args(&["check", "--cyclomatic-count-try=true"]);
     assert_eq!(on.tuning.resolved_count_cyclomatic_try(), Some(true));
-    let off = check_args(&["check", "--cyclomatic-count-try", "false"]);
+    let off = check_args(&["check", "--cyclomatic-count-try=false"]);
     assert_eq!(off.tuning.resolved_count_cyclomatic_try(), Some(false));
     // Bare flag means true.
     let bare = check_args(&["check", "--cyclomatic-count-try"]);
@@ -1525,8 +1525,7 @@ fn no_cyclomatic_try_conflicts_with_value_form() {
         parse(&[
             "check",
             "--no-cyclomatic-try",
-            "--cyclomatic-count-try",
-            "true"
+            "--cyclomatic-count-try=true"
         ])
         .is_err()
     );
@@ -1545,11 +1544,11 @@ fn github_annotations_tristate_resolves_like_color() {
 #[test]
 fn check_github_annotations_parses_tristate_and_bare() {
     assert_eq!(
-        check_args(&["check", "--github-annotations", "never"]).github_annotations,
+        check_args(&["check", "--github-annotations=never"]).github_annotations,
         CiDetect::Never
     );
     assert_eq!(
-        check_args(&["check", "--github-annotations", "always"]).github_annotations,
+        check_args(&["check", "--github-annotations=always"]).github_annotations,
         CiDetect::Always
     );
     // Bare flag means always (back-compat with bare-flag scripts).
@@ -1581,11 +1580,11 @@ fn summary_file_parses_keywords_and_path() {
 #[test]
 fn baseline_fuzzy_match_value_taking_both_directions() {
     assert_eq!(
-        check_args(&["check", "--baseline-fuzzy-match", "false"]).baseline_fuzzy_match,
+        check_args(&["check", "--baseline-fuzzy-match=false"]).baseline_fuzzy_match,
         Some(false)
     );
     assert_eq!(
-        check_args(&["check", "--baseline-fuzzy-match", "true"]).baseline_fuzzy_match,
+        check_args(&["check", "--baseline-fuzzy-match=true"]).baseline_fuzzy_match,
         Some(true)
     );
     // Bare flag means true.

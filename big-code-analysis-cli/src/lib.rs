@@ -124,7 +124,7 @@ pub(crate) const EXIT_TOOL_ERROR: i32 = 1;
 
 /// Process exit code for a metric-gate breach: `check` threshold
 /// violations (the stable contract; the tiered 3-5 variants under
-/// `--exit-codes tiered` are derived in the check outcome) and
+/// `--exit-codes=tiered` are derived in the check outcome) and
 /// `vcs commit --fail-above`.
 pub(crate) const EXIT_GATE_BREACH: i32 = 2;
 
@@ -348,7 +348,7 @@ struct WalkTuningArgs {
     /// contributes to cyclomatic complexity (standard and modified).
     /// Defaults to `true` — `?` counts +1, matching upstream
     /// rust-code-analysis and every published metric value. Pass
-    /// `--cyclomatic-count-try false` to treat `?` as linear error
+    /// `--cyclomatic-count-try=false` to treat `?` as linear error
     /// propagation — useful when cyclomatic is used as a maintainability
     /// gate that should not penalize fallible-but-linear code. Rust-only:
     /// no other language emits the node, so the flag is inert elsewhere.
@@ -358,12 +358,13 @@ struct WalkTuningArgs {
         long = "cyclomatic-count-try",
         value_name = "BOOL",
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "true",
         action = clap::ArgAction::Set,
         help_heading = "Walker tuning"
     )]
     cyclomatic_count_try: Option<bool>,
-    /// Deprecated alias for `--cyclomatic-count-try false` (issue #666).
+    /// Deprecated alias for `--cyclomatic-count-try=false` (issue #666).
     /// Retained for one release cycle; pass `--cyclomatic-count-try
     /// false` instead. Conflicts with the value-taking form.
     #[clap(
@@ -385,7 +386,7 @@ impl WalkTuningArgs {
     /// `conflicts_with` already rejects passing both.
     fn resolved_count_cyclomatic_try(&self) -> Option<bool> {
         if self.no_cyclomatic_try {
-            warn_deprecated_flag("--no-cyclomatic-try", "--cyclomatic-count-try false");
+            warn_deprecated_flag("--no-cyclomatic-try", "--cyclomatic-count-try=false");
             return Some(false);
         }
         self.cyclomatic_count_try
@@ -1034,13 +1035,14 @@ struct ReportArgs {
     /// suppressed for it — matching `bca check` and the SARIF emitter.
     /// Pass this for the raw audit view that lists every offender.
     /// Value-taking (issue #683): a bare `--no-suppress` means `true`;
-    /// `--no-suppress false` forces the marker-honoring default even when
+    /// `--no-suppress=false` forces the marker-honoring default even when
     /// the `[report] no_suppress` key in `bca.toml` enabled it. The CLI
     /// value overrides the manifest in either direction.
     #[clap(
         long = "no-suppress",
         value_name = "BOOL",
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "true",
         action = clap::ArgAction::Set
     )]
@@ -1466,6 +1468,7 @@ struct CheckArgs {
         value_enum,
         default_value_t = CiDetect::Auto,
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "always"
     )]
     github_annotations: CiDetect,
@@ -1532,14 +1535,15 @@ struct CheckArgs {
         value_name = "hard|soft|soft=RATIO",
         default_value = "hard",
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "soft"
     )]
     tier: TierSpec,
-    /// Deprecated alias for `--tier soft=<RATIO>` (issue #688). Retained
-    /// for one release cycle; pass `--tier soft=<RATIO>` instead. When
+    /// Deprecated alias for `--tier=soft=<RATIO>` (issue #688). Retained
+    /// for one release cycle; pass `--tier=soft=<RATIO>` instead. When
     /// `--tier` is left at its `hard` default, `--headroom <R>` is
-    /// promoted to `--tier soft=<R>` with a deprecation warning; passing
-    /// both `--headroom` and an explicit `--tier soft=<R>` is a conflict.
+    /// promoted to `--tier=soft=<R>` with a deprecation warning; passing
+    /// both `--headroom` and an explicit `--tier=soft=<R>` is a conflict.
     #[clap(long = "headroom", value_name = "RATIO", hide = true)]
     headroom: Option<f64>,
     /// Exit-code style (issue #385/#666): `default` keeps the stable
@@ -1551,7 +1555,7 @@ struct CheckArgs {
     /// - `2` — new offenders only (no baseline entry matched).
     /// - `3` — regressions only (a baselined offender worsened).
     /// - `4` — both new offenders and regressions.
-    /// - `5` — at least one `--tier soft` violation also breaches the
+    /// - `5` — at least one `--tier=soft` violation also breaches the
     ///   hard limit (more urgent than soft-band encroachment). Only
     ///   emitted at the soft tier; at the hard tier every violation is a
     ///   hard breach by definition, so the 2/3/4 split is used instead.
@@ -1566,11 +1570,12 @@ struct CheckArgs {
         value_name = "default|tiered",
         value_enum,
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "tiered"
     )]
     exit_codes: Option<ExitCodes>,
-    /// Deprecated alias for `--exit-codes tiered` (issue #666). Retained
-    /// for one release cycle; pass `--exit-codes tiered` instead.
+    /// Deprecated alias for `--exit-codes=tiered` (issue #666). Retained
+    /// for one release cycle; pass `--exit-codes=tiered` instead.
     #[clap(long = "strict-exit-codes", hide = true, conflicts_with = "exit_codes")]
     strict_exit_codes: bool,
     /// Tolerance, in lines, for matching a `--baseline` entry whose
@@ -1588,13 +1593,14 @@ struct CheckArgs {
     /// written into the baseline by `--write-baseline` when this flag is
     /// set, so populate it once with a fuzzy write to enable fuzzy reads.
     /// Value-taking (issue #683): a bare `--baseline-fuzzy-match` means
-    /// `true`; `--baseline-fuzzy-match false` forces it off even when the
+    /// `true`; `--baseline-fuzzy-match=false` forces it off even when the
     /// `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value
     /// overrides the manifest in either direction.
     #[clap(
         long = "baseline-fuzzy-match",
         value_name = "BOOL",
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "true",
         action = clap::ArgAction::Set
     )]
@@ -1642,11 +1648,11 @@ impl CheckArgs {
     }
 
     /// Resolve the effective [`TierSpec`], folding the deprecated
-    /// `--headroom <R>` alias into `--tier soft=<R>` (issue #688). When
+    /// `--headroom <R>` alias into `--tier=soft=<R>` (issue #688). When
     /// `--tier` is left at its `hard` default and `--headroom` is given,
     /// the headroom value promotes the gate to the soft tier with a
     /// one-cycle deprecation warning. Passing both `--headroom` and an
-    /// explicit `--tier soft=<R>` is a usage error (clap can't express
+    /// explicit `--tier=soft=<R>` is a usage error (clap can't express
     /// the conflict because `--tier` always has a default, so it is
     /// rejected here).
     fn resolved_tier(&self) -> TierSpec {
@@ -1654,7 +1660,7 @@ impl CheckArgs {
             // No alias: the parsed (or manifest-folded) `--tier` wins.
             return self.tier;
         };
-        warn_deprecated_flag("--headroom <R>", "--tier soft=<R>");
+        warn_deprecated_flag("--headroom <R>", "--tier=soft=<R>");
         // Range-validate the alias ratio here (exit 1, tool error) — clap
         // does not parse `--headroom` through `TierSpec`, so the `(0, 1]`
         // check the canonical form gets at parse time must be replicated.
@@ -1662,20 +1668,20 @@ impl CheckArgs {
             die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
         }
         match self.tier {
-            // `--headroom` on its own, or alongside a bare `--tier soft`,
+            // `--headroom` on its own, or alongside a bare `--tier=soft`,
             // resolves to `soft=<ratio>` — headroom IS the soft ratio.
             TierSpec::Hard | TierSpec::Soft(None) => TierSpec::Soft(Some(ratio)),
-            // An explicit `--tier soft=<R>` AND `--headroom <R>` give two
+            // An explicit `--tier=soft=<R>` AND `--headroom <R>` give two
             // ratios for the same dial: ambiguous, so reject it.
             TierSpec::Soft(Some(_)) => {
-                die("--headroom is the deprecated alias for `--tier soft=<R>`; \
+                die("--headroom is the deprecated alias for `--tier=soft=<R>`; \
                  pass one or the other, not both")
             }
         }
     }
 
     /// Resolve the effective [`ExitCodes`] style after folding the
-    /// deprecated `--strict-exit-codes` alias into `--exit-codes tiered`
+    /// deprecated `--strict-exit-codes` alias into `--exit-codes=tiered`
     /// (issue #666). `clap`'s `conflicts_with` already rejects passing
     /// both, so at most one is set. Returns `None` when neither was
     /// given on the CLI, so the manifest `[check] exit_codes` value can
@@ -1683,7 +1689,7 @@ impl CheckArgs {
     /// direction).
     fn resolved_exit_codes(&self) -> Option<ExitCodes> {
         if self.strict_exit_codes {
-            warn_deprecated_flag("--strict-exit-codes", "--exit-codes tiered");
+            warn_deprecated_flag("--strict-exit-codes", "--exit-codes=tiered");
             return Some(ExitCodes::Tiered);
         }
         self.exit_codes
@@ -2166,7 +2172,7 @@ struct Config {
     /// complexity. Projected onto
     /// [`MetricsOptions::with_count_cyclomatic_try`] (negated). Defaults
     /// off, so `?` counts and numbers match the published default
-    /// (#409). Set by `--cyclomatic-count-try false` (or the deprecated
+    /// (#409). Set by `--cyclomatic-count-try=false` (or the deprecated
     /// `--no-cyclomatic-try` alias) or the `cyclomatic_count_try`
     /// manifest key.
     no_cyclomatic_try: bool,

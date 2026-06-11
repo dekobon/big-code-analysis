@@ -12,6 +12,13 @@ tier = "soft"
 headroom = 0.95
 
 [[entry]]
+path = "big-code-analysis-cli/src/baseline_diff.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nom"
+value = 29.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/format_util.rs"
 qualified = "<file>"
 start_line = 1
@@ -40,11 +47,18 @@ metric = "loc.sloc"
 value = 1175.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/metric_alias.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nexits"
+value = 5.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 865.0
+value = 864.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
@@ -58,7 +72,7 @@ path = "big-code-analysis-cli/src/vcs_report.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1295.0
+value = 1291.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/walk_seed.rs"
@@ -107,21 +121,21 @@ path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 start_line = 1
 metric = "abc"
-value = 177.0
+value = 173.0
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1959797.4116801189
+value = 1939573.1077937789
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 777.0
+value = 776.0
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"

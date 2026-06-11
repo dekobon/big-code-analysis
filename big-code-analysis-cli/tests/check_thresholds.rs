@@ -1114,8 +1114,7 @@ fn check_headroom_scales_config_limit_into_offender() {
             &path,
             "--config",
             &cfg,
-            "--tier",
-            "soft=0.01",
+            "--tier=soft=0.01",
         ])
         .assert()
         .code(2)
@@ -1125,7 +1124,7 @@ fn check_headroom_scales_config_limit_into_offender() {
 }
 
 /// The deprecated `--headroom <R>` alias now promotes the gate to
-/// `--tier soft=<R>` (issue #688): headroom IS the soft tier's ratio,
+/// `--tier=soft=<R>` (issue #688): headroom IS the soft tier's ratio,
 /// not a separate hard-tier dial. A value that trips the soft gate now
 /// trips, and a one-cycle deprecation warning points at the new form.
 #[test]
@@ -1147,7 +1146,7 @@ fn check_headroom_alias_promotes_to_soft_tier() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains(
-            "`--headroom <R>` is deprecated; use `--tier soft=<R>`",
+            "`--headroom <R>` is deprecated; use `--tier=soft=<R>`",
         ))
         .stderr(predicate::str::contains("cyclomatic"))
         .stderr(predicate::str::contains("(limit 1)"));
@@ -1167,7 +1166,12 @@ fn check_headroom_one_is_noop() {
 
     cli(dir.path())
         .args([
-            "check", "--paths", &path, "--config", &cfg, "--tier", "soft=1.0",
+            "check",
+            "--paths",
+            &path,
+            "--config",
+            &cfg,
+            "--tier=soft=1.0",
         ])
         .assert()
         .success()
@@ -1218,8 +1222,7 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
             &path,
             "--config",
             &cfg,
-            "--tier",
-            "soft=0.5",
+            "--tier=soft=0.5",
             "--threshold",
             "cyclomatic=8",
         ])
@@ -1246,15 +1249,14 @@ fn check_soft_tier_without_config_warns_and_noops() {
             "--no-config",
             "--paths",
             &path,
-            "--tier",
-            "soft=0.5",
+            "--tier=soft=0.5",
             "--threshold",
             "cyclomatic=100",
         ])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "--tier soft has no effect without configured thresholds",
+            "--tier=soft has no effect without configured thresholds",
         ));
 }
 
@@ -1277,8 +1279,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
             &path,
             "--config",
             &cfg,
-            "--tier",
-            "soft=0.01",
+            "--tier=soft=0.01",
             "--write-baseline",
             baseline_str,
         ])
@@ -1298,8 +1299,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
             &path,
             "--config",
             &cfg,
-            "--tier",
-            "soft=0.01",
+            "--tier=soft=0.01",
             "--baseline",
             baseline_str,
         ])
@@ -1320,8 +1320,7 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
             "check",
             "--config",
             &cfg,
-            "--tier",
-            "soft=0.5",
+            "--tier=soft=0.5",
             "--print-effective-config",
         ])
         .assert()
@@ -1359,9 +1358,7 @@ fn check_soft_table_absolute_override_trips_at_soft_tier() {
 
     // Soft tier: limit 3, classify (5) trips.
     cli(dir.path())
-        .args([
-            "check", "--paths", &path, "--config", &cfg, "--tier", "soft",
-        ])
+        .args(["check", "--paths", &path, "--config", &cfg, "--tier=soft"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("cyclomatic = 5 (limit 3)"));
@@ -1381,9 +1378,7 @@ fn check_soft_table_scale_relative_resolves_against_hard() {
     );
 
     cli(dir.path())
-        .args([
-            "check", "--paths", &path, "--config", &cfg, "--tier", "soft",
-        ])
+        .args(["check", "--paths", &path, "--config", &cfg, "--tier=soft"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("cyclomatic = 5 (limit 4)"));
@@ -1406,8 +1401,7 @@ fn check_soft_table_unspecified_metric_inherits_hard_limit() {
             "check",
             "--config",
             &cfg,
-            "--tier",
-            "soft",
+            "--tier=soft",
             "--print-effective-config",
         ])
         .assert()
@@ -1419,7 +1413,7 @@ fn check_soft_table_unspecified_metric_inherits_hard_limit() {
 }
 
 /// When a `[thresholds.soft]` table is present, the blanket
-/// `--tier soft=<R>` ratio does not apply — per-metric intent wins over
+/// `--tier=soft=<R>` ratio does not apply — per-metric intent wins over
 /// the scalar (issue #688: the soft table takes precedence silently).
 #[test]
 fn check_soft_table_overrides_blanket_ratio() {
@@ -1435,8 +1429,7 @@ fn check_soft_table_overrides_blanket_ratio() {
             "check",
             "--config",
             &cfg,
-            "--tier",
-            "soft=0.5",
+            "--tier=soft=0.5",
             "--print-effective-config",
         ])
         .assert()
@@ -1470,8 +1463,7 @@ fn check_soft_table_scale_without_hard_base_errors() {
             &path,
             "--config",
             &cfg,
-            "--tier",
-            "soft",
+            "--tier=soft",
         ])
         .assert()
         .code(1)
@@ -1481,7 +1473,7 @@ fn check_soft_table_scale_without_hard_base_errors() {
 
 // ─── #683: tri-state CI flags ─────────────────────────────────────────
 
-/// `--github-annotations never` suppresses the `::error` annotations
+/// `--github-annotations=never` suppresses the `::error` annotations
 /// even when `$GITHUB_ACTIONS == "true"` — the opt-out that the bare
 /// on-only flag could not express (#683).
 #[test]
@@ -1497,15 +1489,14 @@ fn github_annotations_never_suppresses_under_gha() {
             &path,
             "--threshold",
             "cyclomatic=1",
-            "--github-annotations",
-            "never",
+            "--github-annotations=never",
         ])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("::error file=").not());
 }
 
-/// `--github-annotations always` forces the annotations on even outside
+/// `--github-annotations=always` forces the annotations on even outside
 /// a GHA step (no `$GITHUB_ACTIONS`).
 #[test]
 fn github_annotations_always_forces_on_outside_gha() {
@@ -1519,8 +1510,7 @@ fn github_annotations_always_forces_on_outside_gha() {
             &path,
             "--threshold",
             "cyclomatic=1",
-            "--github-annotations",
-            "always",
+            "--github-annotations=always",
         ])
         .assert()
         .code(2)
@@ -1561,7 +1551,7 @@ fn summary_file_never_skips_append_under_gha() {
 // ─── #666/#688: deprecated-alias warn-but-honor ───────────────────────
 
 /// `--strict-exit-codes` still works for one cycle but warns, pointing
-/// at the canonical `--exit-codes tiered` (#666).
+/// at the canonical `--exit-codes=tiered` (#666).
 #[test]
 fn strict_exit_codes_alias_warns_but_honors() {
     let dir = TempDir::new().unwrap();
@@ -1582,12 +1572,12 @@ fn strict_exit_codes_alias_warns_but_honors() {
         // here, but the alias is honored, not rejected).
         .code(2)
         .stderr(predicate::str::contains(
-            "`--strict-exit-codes` is deprecated; use `--exit-codes tiered`",
+            "`--strict-exit-codes` is deprecated; use `--exit-codes=tiered`",
         ));
 }
 
 /// `--no-cyclomatic-try` still works for one cycle but warns, pointing
-/// at the canonical `--cyclomatic-count-try false` (#666).
+/// at the canonical `--cyclomatic-count-try=false` (#666).
 #[test]
 fn no_cyclomatic_try_alias_warns_but_honors() {
     let dir = TempDir::new().unwrap();
@@ -1606,6 +1596,6 @@ fn no_cyclomatic_try_alias_warns_but_honors() {
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "`--no-cyclomatic-try` is deprecated; use `--cyclomatic-count-try false`",
+            "`--no-cyclomatic-try` is deprecated; use `--cyclomatic-count-try=false`",
         ));
 }

@@ -7,7 +7,7 @@
 //!
 //! Consolidates the flags every local-gate recipe used to thread
 //! through each invocation (`--paths`, `--exclude-from`, `--jobs`,
-//! `--config`, `--baseline`, `--tier soft=<ratio>`) into one
+//! `--config`, `--baseline`, `--tier=soft=<ratio>`) into one
 //! discoverable file at the repo root.
 //!
 //! # Resolution order
@@ -16,7 +16,7 @@
 //!
 //! 1. Manifest `[thresholds]` is the base layer.
 //! 2. `--config <file>` merges on top (config keys win on collision).
-//! 3. `--tier soft=<ratio>` scales the merged config-derived limits.
+//! 3. `--tier=soft=<ratio>` scales the merged config-derived limits.
 //! 4. Repeated `--threshold name=value` CLI flags apply last, absolutely.
 //!
 //! For list-valued options the merge splits by *list meaning* (#539):
@@ -440,11 +440,11 @@ impl Manifest {
         // tier's scale ratio (issue #688). `self.headroom()` validates the
         // range unconditionally — a malformed `headroom` must fail fast
         // (exit 1) even at the hard tier, where it is otherwise ignored.
-        // Fold the validated ratio directly into the tier — `--tier soft`
+        // Fold the validated ratio directly into the tier — `--tier=soft`
         // (a bare soft tier with no pinned ratio) inherits the manifest
         // ratio — rather than into the CLI-only `--headroom` alias field,
         // so it never trips that alias's deprecation-warning / both-set
-        // conflict path. An explicit CLI `--tier soft=<R>` or `--headroom
+        // conflict path. An explicit CLI `--tier=soft=<R>` or `--headroom
         // <R>` wins (the manifest fills only the bare-`soft` gap).
         if let Some(ratio) = self.headroom()
             && matches!(args.tier, crate::TierSpec::Soft(None))
