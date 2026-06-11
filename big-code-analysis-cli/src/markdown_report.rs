@@ -245,7 +245,7 @@ pub(super) fn title_case(s: &str) -> String {
 
 /// Maps a language's canonical lowercase slug (`LANG::name()`, e.g. `"cpp"`,
 /// `"csharp"`) to the human-readable name shown in report headings and the
-/// `**Languages:**` line (`"C++"`, `"C#"`).
+/// global header's `Languages` row (`"C++"`, `"C#"`).
 ///
 /// Slugs stay machine-readable by design (#540 bans `/` and `#`), so they make
 /// poor headings — a reader unfamiliar with the convention can mistake
@@ -707,28 +707,33 @@ fn write_global_header(
         .collect::<Vec<_>>()
         .join(", ");
 
-    let _ = writeln!(out, "# Code Quality Metrics Summary\n");
-    let _ = writeln!(
-        out,
-        "**Files analyzed:** {}    **Languages:** {}",
-        thousands(totals.files),
-        languages_list,
-    );
-    let _ = writeln!(
-        out,
-        "**Total SLOC:** {}  **PLOC:** {}  **Comments:** {}",
-        thousands(totals.sloc),
-        thousands(totals.ploc),
-        thousands(totals.cloc),
-    );
-    let _ = writeln!(
-        out,
-        "**Functions/methods:** {}    **Classes/impls/traits:** {}",
-        thousands(totals.functions),
-        thousands(totals.classes),
-    );
     let comment_ratio = totals.comment_ratio();
-    let _ = writeln!(out, "**Comment ratio:** {comment_ratio:.1}%");
+
+    // A two-column (metric | value) table renders identically in every GFM
+    // dialect and in raw text. The earlier space-aligned single-newline layout
+    // collapsed to a run-on paragraph in spec-conformant GFM, where a single
+    // newline is a soft break and runs of spaces collapse to one (issue #671).
+    let rows: Vec<Vec<String>> = vec![
+        vec!["Files analyzed".to_string(), thousands(totals.files)],
+        vec!["Languages".to_string(), languages_list],
+        vec!["Total SLOC".to_string(), thousands(totals.sloc)],
+        vec!["PLOC".to_string(), thousands(totals.ploc)],
+        vec!["Comments".to_string(), thousands(totals.cloc)],
+        vec!["Functions/methods".to_string(), thousands(totals.functions)],
+        vec![
+            "Classes/impls/traits".to_string(),
+            thousands(totals.classes),
+        ],
+        vec!["Comment ratio".to_string(), format!("{comment_ratio:.1}%")],
+    ];
+
+    let _ = writeln!(out, "# Code Quality Metrics Summary\n");
+    write_table(
+        out,
+        &["Metric", "Value"],
+        &[Align::Left, Align::Right],
+        &rows,
+    );
 }
 
 fn write_per_language_overview(out: &mut String, by_lang: &BTreeMap<&str, Vec<&FunctionSummary>>) {
@@ -1284,9 +1289,27 @@ mod tests {
             "missing Python overview row in:\n{report}"
         );
 
-        // Global header reflects correct totals.
-        assert!(report.contains("**Files analyzed:** 2"));
-        assert!(report.contains("**Functions/methods:** 2"));
+        // Global header is a two-column table; totals are their own rows
+        // (issue #671). Padding can vary, so collapse spaces before matching.
+        assert!(
+            normalized.contains("| Files analyzed | 2 |"),
+            "missing Files analyzed header row in:\n{report}"
+        );
+        assert!(
+            normalized.contains("| Functions/methods | 2 |"),
+            "missing Functions/methods header row in:\n{report}"
+        );
+        assert!(
+            normalized.contains("| Metric | Value |"),
+            "global header table missing its column headers in:\n{report}"
+        );
+        // The right-aligned value column emits a `---:` GFM delimiter; its run
+        // of dashes is layout-dependent, but the trailing `:` and closing pipe
+        // are not, so match on that anchor.
+        assert!(
+            normalized.contains("-: |"),
+            "global header table missing its GFM delimiter row in:\n{report}"
+        );
     }
 
     #[test]
@@ -1455,8 +1478,10 @@ mod tests {
     #[test]
     fn empty_input() {
         let report = generate_report(&[], 20, SuppressionPolicy::Honor);
-        assert!(report.contains("**Files analyzed:** 0"));
-        assert!(report.contains("**Functions/methods:** 0"));
+        // Global header is a two-column table; collapse padding before matching.
+        let normalized = collapse_spaces(&report);
+        assert!(normalized.contains("| Files analyzed | 0 |"));
+        assert!(normalized.contains("| Functions/methods | 0 |"));
         // No per-language sections.
         assert!(!report.contains("## Per-language overview"));
     }
