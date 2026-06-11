@@ -1734,8 +1734,15 @@ mod tests {
         wide.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::NArgs]));
 
         let report = generate_report(&[unit, wide], 20, SuppressionPolicy::Honor);
+        // Issue #681: the section heading is still emitted so the section
+        // keeps its place in the heading structure; only the table rows are
+        // hidden, with the omission note as the body.
         assert!(
-            !report.contains("### Functions With Many Parameters"),
+            report.contains("### Functions With Many Parameters"),
+            "a fully-suppressed table must still emit its heading:\n{report}"
+        );
+        assert!(
+            !report.contains("| wide "),
             "the all-suppressed table must not render its rows:\n{report}"
         );
         assert!(
@@ -1762,8 +1769,14 @@ mod tests {
         hot.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let report = generate_report(&[unit, hot], 20, SuppressionPolicy::Honor);
+        // Issue #681: the CC section heading is still emitted; only its rows
+        // are hidden, with the omission note as the body.
         assert!(
-            !report.contains("### Cyclomatic Complexity Hotspots"),
+            report.contains("### Cyclomatic Complexity Hotspots"),
+            "a fully-suppressed CC table must still emit its heading:\n{report}"
+        );
+        assert!(
+            !report.contains("| hot "),
             "the all-suppressed CC table must not render its rows:\n{report}"
         );
         assert!(
@@ -2139,9 +2152,17 @@ mod tests {
             !cc.contains("`hot`"),
             "file-scoped suppress-all must hide the function from every table:\n{cc}"
         );
+        // Issue #681: with the only function suppressed, the Cognitive
+        // section still emits its heading; its body is the omission note and
+        // no row is rendered.
+        let cog = section_body(&report, "### Cognitive Complexity Hotspots");
         assert!(
-            !report.contains("### Cognitive Complexity Hotspots"),
-            "with the only function suppressed, the Cognitive section is empty/absent"
+            !cog.contains("`hot`"),
+            "the suppressed function must not appear in the Cognitive section:\n{cog}"
+        );
+        assert!(
+            cog.contains("table omitted: all 1 matching functions suppressed"),
+            "the fully-suppressed Cognitive section's body is the omission note:\n{cog}"
         );
 
         let report_audit = generate_report(&[unit2(), func_all()], 20, SuppressionPolicy::Ignore);
@@ -2171,9 +2192,16 @@ mod tests {
         let summaries = vec![unit, func];
 
         let honored = generate_report(&summaries, 20, SuppressionPolicy::Honor);
+        // Issue #681: the NEXITS heading is still emitted; the suppressed
+        // function is absent from the body and the omission note is the body.
+        let nexits = section_body(&honored, NEXITS_HEADER);
         assert!(
-            !honored.contains(NEXITS_HEADER),
-            "exit-suppressed function must be omitted from the NEXITS table:\n{honored}"
+            !nexits.contains("`multi_exit`"),
+            "exit-suppressed function must be omitted from the NEXITS table:\n{nexits}"
+        );
+        assert!(
+            nexits.contains("table omitted: all 1 matching functions suppressed"),
+            "the fully-suppressed NEXITS section's body is the omission note:\n{nexits}"
         );
 
         // Positive control: the only thing keeping the table empty is the

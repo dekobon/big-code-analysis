@@ -181,19 +181,26 @@ pub(super) fn write_actionable_summary(
     }
 }
 
-/// Emit the "table omitted: all N matching functions suppressed" caption in
-/// place of a hotspot table that was rendered empty *solely because*
-/// suppression hid every matching row (`count > 0`). Keeps an
-/// Actionable-Summary bullet from pointing at a table absent from the
-/// document (issue #616). A no-op when `count == 0` (the metric was genuinely
-/// absent, so silence is correct).
+/// Emit the section heading followed by the "table omitted: all N matching
+/// functions suppressed" caption, in place of a hotspot table that was
+/// rendered empty *solely because* suppression hid every matching row
+/// (`count > 0`). The heading is emitted exactly as the non-suppressed path
+/// does so anchors and heading structure stay stable across suppression
+/// states (issue #681). Keeps an Actionable-Summary bullet from pointing at a
+/// table absent from the document (issue #616). A no-op when `count == 0`
+/// (the metric was genuinely absent, so silence is correct).
 pub(super) fn emit_fully_suppressed_note_md(out: &mut String, title: &str, count: usize) {
     if count == 0 {
         return;
     }
+    // Emit the section heading exactly as `emit_section_md` does, so a
+    // fully-suppressed section keeps its place in the heading structure and
+    // its anchor stays stable across suppression states (issue #681). The
+    // omission note is the section body.
+    let _ = writeln!(out, "\n### {title}\n");
     let _ = writeln!(
         out,
-        "\n_{}_",
+        "_{}_",
         super::hotspot::fully_suppressed_caption(title, count)
     );
 }
