@@ -4,7 +4,7 @@
 .SH NAME
 bca\-metrics \- Compute per\-file metrics and emit them in a structured format
 .SH SYNOPSIS
-\fBbca\-metrics\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-metrics\fR] [\fB\-\-vcs\fR] [\fB\-\-vcs\-per\-function\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
+\fBbca\-metrics\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-output\-dir\fR] [\fB\-\-pretty\fR] [\fB\-\-metrics\fR] [\fB\-\-vcs\fR] [\fB\-\-vcs\-per\-function\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
 .SH DESCRIPTION
 Compute per\-file metrics and emit them in a structured format
 .SH OPTIONS
@@ -31,7 +31,10 @@ yaml
 .RE
 .TP
 \fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
-Output directory. Filenames mirror input paths plus the format extension. Stdout if omitted (CBOR requires this flag)
+Output file. Writes one aggregate document (a top\-level array of the per\-file results; TOML wraps it under a `files` key) for the whole run. Stdout if omitted (CBOR requires this flag). Use `\-\-output\-dir` for the per\-file directory tree; passing both is an error
+.TP
+\fB\-\-output\-dir\fR \fI<OUTPUT_DIR>\fR
+Output directory. Writes one document per input file, named by the input path plus the format extension. Mutually exclusive with `\-\-output` (which writes a single aggregate file)
 .TP
 \fB\-\-pretty\fR
 Pretty\-print JSON / TOML output

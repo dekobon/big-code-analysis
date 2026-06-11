@@ -221,6 +221,72 @@ pub(crate) fn dump_csv(
     })
 }
 
+/// Serialize the whole `items` slice as ONE aggregate document to the
+/// single file `output` (#669). `--output <FILE>` on `metrics` / `ops`
+/// means a single file everywhere: the per-file-tree mode moved to
+/// `--output-dir`. The aggregate shape is a top-level array of the same
+/// per-file documents the directory mode emits, reusing the existing
+/// `T: Serialize` serializers.
+pub(crate) fn dump_aggregate<T: Serialize>(
+    format: GenericFormat,
+    items: &[T],
+    output: &Path,
+    pretty: bool,
+) -> std::io::Result<()> {
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        create_dir_all(parent)?;
+    }
+    let mut file = File::create(output)?;
+    match format {
+        GenericFormat::Json => {
+            if pretty {
+                serde_json::to_writer_pretty(&mut file, &items).map_err(ser_err)
+            } else {
+                serde_json::to_writer(&mut file, &items).map_err(ser_err)
+            }
+        }
+        GenericFormat::Toml => {
+            // TOML has no top-level array; wrap under a `files` key so the
+            // aggregate is a valid TOML document.
+            #[derive(Serialize)]
+            struct TomlAggregate<'a, T> {
+                files: &'a [T],
+            }
+            let wrapped = TomlAggregate { files: items };
+            let text = if pretty {
+                toml::to_string_pretty(&wrapped).map_err(ser_err)?
+            } else {
+                toml::to_string(&wrapped).map_err(ser_err)?
+            };
+            file.write_all(text.as_bytes())
+        }
+        GenericFormat::Yaml => serde_yaml::to_writer(&mut file, &items).map_err(ser_err),
+        GenericFormat::Cbor => ciborium::into_writer(&items, &mut file).map_err(ser_err),
+    }
+}
+
+/// Write every space's CSV rows into ONE aggregate `--output <FILE>`
+/// (#669). The per-file CSV columns are shared, so concatenating each
+/// file's rows under a single header-bearing document is the natural
+/// aggregate: `write_csv` writes a self-describing block per space.
+pub(crate) fn dump_csv_aggregate(
+    spaces: &[(FuncSpace, PathBuf)],
+    output: &Path,
+) -> std::io::Result<()> {
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        create_dir_all(parent)?;
+    }
+    let mut file = File::create(output)?;
+    for (space, path) in spaces {
+        write_csv(space, path, &mut file)?;
+    }
+    Ok(())
+}
+
 #[inline]
 fn print_on_stdout(content: String) -> std::io::Result<()> {
     writeln!(std::io::stdout().lock(), "{content}")

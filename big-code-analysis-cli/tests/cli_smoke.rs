@@ -37,7 +37,7 @@ fn metrics_writes_per_file_json_to_output_dir() {
             &fixture_path(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             dir.path().to_str().unwrap(),
         ])
         .assert()
@@ -69,7 +69,7 @@ fn metrics_pretty_emits_indented_json() {
             "-O",
             "json",
             "--pretty",
-            "-o",
+            "--output-dir",
             dir.path().to_str().unwrap(),
         ])
         .assert()
@@ -92,7 +92,7 @@ fn ops_writes_per_file_json_to_output_dir() {
             &fixture_path(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             dir.path().to_str().unwrap(),
         ])
         .assert()

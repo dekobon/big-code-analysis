@@ -67,15 +67,15 @@ bca \
 # OLD
 big-code-analysis-cli --metrics --paths ./src --output-format json --output ./out/
 
-# NEW
-bca metrics --paths ./src -O json --output ./out/
+# NEW (per-file tree: --output became --output-dir in 2.0)
+bca metrics --paths ./src -O json --output-dir ./out/
 ```
 
 ### Per-file ops extraction
 
 ```bash
 # OLD: big-code-analysis-cli --ops --paths ./src -O json -o ./out/
-# NEW: bca ops --paths ./src -O json -o ./out/
+# NEW: bca ops --paths ./src -O json --output-dir ./out/
 ```
 
 ### AST dump
@@ -132,7 +132,7 @@ big-code-analysis-cli --metrics --preproc /tmp/p.json \
 
 # NEW
 bca metrics --paths ./src --preproc-data /tmp/p.json \
-    -O json -o ./out/
+    -O json --output-dir ./out/
 ```
 
 ### List metrics

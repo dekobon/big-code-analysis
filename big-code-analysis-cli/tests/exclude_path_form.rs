@@ -93,7 +93,7 @@ fn walked_with_seed(fixture: &Path, cwd: &Path, seed: &str) -> Vec<String> {
             fixture.join(".bcaignore").to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.path().to_str().unwrap(),
         ])
         .assert()
@@ -115,7 +115,13 @@ fn walked_via_manifest(fixture: &Path) -> Vec<String> {
     let out = TempDir::new().unwrap();
     cli(fixture)
         .current_dir(fixture)
-        .args(["metrics", "-O", "json", "-o", out.path().to_str().unwrap()])
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
     let names = emitted_json(out.path());
@@ -177,7 +183,13 @@ fn walked_via_manifest_from(fixture: &Path, run_from: &Path) -> Vec<String> {
     let out = TempDir::new().unwrap();
     cli(fixture)
         .current_dir(run_from)
-        .args(["metrics", "-O", "json", "-o", out.path().to_str().unwrap()])
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
     let names = emitted_json(out.path());
@@ -243,7 +255,13 @@ fn walked_via_manifest_include_from(fixture: &Path, run_from: &Path, include: &s
     let out = TempDir::new().unwrap();
     cli(fixture)
         .current_dir(run_from)
-        .args(["metrics", "-O", "json", "-o", out.path().to_str().unwrap()])
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
     let names = emitted_json(out.path());

@@ -153,7 +153,7 @@ diff, not the whole tree:
 
 ```bash
 git diff --name-only --diff-filter=AM origin/main...HEAD \
-    | bca metrics --paths-from - -O json -o ./out
+    | bca metrics --paths-from - -O json --output-dir ./out
 ```
 
 - `--diff-filter=AM` keeps Added and Modified files and drops

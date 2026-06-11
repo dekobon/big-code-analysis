@@ -72,7 +72,7 @@ fn gitignore_skips_excluded_file_when_walking_dir() {
             dir.path().to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -104,7 +104,7 @@ fn gitignore_explicit_path_bypasses_ignore() {
             skip.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -133,7 +133,7 @@ fn no_ignore_flag_includes_gitignored_file() {
             dir.path().to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -167,7 +167,7 @@ fn paths_from_file_reads_paths() {
             listfile.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -202,7 +202,7 @@ fn paths_from_stdin_reads_paths() {
             "-",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .write_stdin(stdin)
@@ -239,7 +239,7 @@ fn paths_from_and_paths_union_both() {
             listfile.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -275,7 +275,7 @@ fn paths_from_file_trims_whitespace() {
             listfile.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -339,7 +339,7 @@ fn paths_from_strips_utf8_bom_on_first_line() {
             listfile.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -370,7 +370,7 @@ fn no_paths_defaults_to_current_directory() {
             "--no-config",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -455,7 +455,7 @@ fn empty_match_emits_stderr_notice() {
             "**/*.nonesuch",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()

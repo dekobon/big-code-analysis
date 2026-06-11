@@ -133,7 +133,23 @@ fn validate_and_resolve_file(
     }
 
     let Some(language) = cfg.language.or_else(|| guess_language(&source, &path).0) else {
-        if cfg.warning {
+        // An explicitly-named file (not a directory-walk product) whose
+        // language is unrecognized is a user error, parallel to the #596
+        // nonexistent-explicit-path rule: the user named one file and got
+        // nothing back. Warn unconditionally (not gated behind `-w`) and
+        // tally it so a run that produced no output at all can exit 1
+        // (#663). A directory-expanded file stays silently skipped unless
+        // `-w` is set — a tree of READMEs/configs must not be noisy.
+        if cfg.explicit_seeds.contains(&path) {
+            eprintln!(
+                "warning: skipping explicitly-named file with unrecognized \
+                 language: {} (pass --language to force a parser)",
+                path.display()
+            );
+            if let Some(counter) = &cfg.explicit_unrecognized {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+        } else if cfg.warning {
             eprintln!(
                 "warning: skipping file with unrecognized language: {}",
                 path.display()
@@ -141,6 +157,13 @@ fn validate_and_resolve_file(
         }
         return Ok(None);
     };
+
+    // The file resolved to a recognized language and is about to be
+    // dispatched: count it as analyzable output for the #663 zero-output
+    // exit-1 check.
+    if let Some(counter) = &cfg.output_produced {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
 
     Ok(Some((path, source, language)))
 }
@@ -191,12 +214,23 @@ fn dispatch_metrics(
                     crate::vcs_command::inject_per_function(&mut space, &path, blame);
                 }
             }
+            // Single-file aggregate mode (`--output <FILE>`, #669): stream
+            // the space to the post-walk collector instead of writing a
+            // per-file document. The format is applied once, to the whole
+            // collected set, by the command runner.
+            if let Some(tx) = &cfg.aggregate_tx {
+                if let Ok(sender) = tx.lock() {
+                    let _ = sender.send(crate::AggregateItem::Metrics(Box::new(space), path));
+                }
+                return Ok(());
+            }
+            // Per-file directory mode (`--output-dir <DIR>`) or stdout.
             match fmt.dispatch() {
                 MetricsDispatch::Generic(g) => {
-                    g.dump(space, path, cfg.output.as_ref(), pretty)?;
+                    g.dump(space, path, cfg.output_dir.as_ref(), pretty)?;
                 }
                 MetricsDispatch::Csv => {
-                    dump_csv(&space, path, cfg.output.as_ref())?;
+                    dump_csv(&space, path, cfg.output_dir.as_ref())?;
                 }
             }
         }
@@ -226,13 +260,21 @@ fn dispatch_ops(
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
         if let Ok(ops) = parse_ast(language, source, &path, pr).and_then(|ast| ast.ops()) {
+            // Single-file aggregate mode (`--output <FILE>`, #669): stream
+            // the ops tree to the post-walk collector.
+            if let Some(tx) = &cfg.aggregate_tx {
+                if let Ok(sender) = tx.lock() {
+                    let _ = sender.send(crate::AggregateItem::Ops(Box::new(ops)));
+                }
+                return Ok(());
+            }
             // CSV is rejected upstream in `run()` for the Ops command,
             // so the dispatch here is always Generic. The match is
             // still exhaustive to keep the compiler honest if that
             // upstream guard ever drifts.
             match fmt.dispatch() {
                 MetricsDispatch::Generic(g) => {
-                    g.dump(ops, path, cfg.output.as_ref(), pretty)?;
+                    g.dump(ops, path, cfg.output_dir.as_ref(), pretty)?;
                 }
                 MetricsDispatch::Csv => {}
             }
@@ -575,7 +617,8 @@ mod tests {
     fn preproc_test_config(preproc_lock: Option<Arc<Mutex<PreprocResults>>>) -> Config {
         Config {
             action: Action::PreprocProduce,
-            output: None,
+            output_dir: None,
+            aggregate_tx: None,
             language: None,
             line_start: None,
             line_end: None,
@@ -589,6 +632,9 @@ mod tests {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
+            explicit_seeds: Arc::new(std::collections::HashSet::new()),
+            explicit_unrecognized: None,
+            output_produced: None,
             suppression_policy: SuppressionPolicy::Honor,
             report_suppressed: false,
             warning: false,

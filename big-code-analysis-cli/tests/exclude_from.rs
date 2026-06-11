@@ -71,7 +71,7 @@ fn exclude_from_file_drops_listed_patterns() {
             bcaignore.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -109,7 +109,7 @@ fn exclude_from_unions_with_exclude_flag() {
             "--exclude=**/drop_b.py",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -160,7 +160,7 @@ fn exclude_from_skips_blank_and_comment_lines() {
             bcaignore.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -246,7 +246,7 @@ fn exclude_from_stdin_reads_patterns() {
             "-",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .write_stdin(stdin)
@@ -290,7 +290,7 @@ fn exclude_from_empty_file_leaves_inline_excludes_intact() {
             "--exclude=**/drop_a.py",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()
@@ -331,7 +331,7 @@ fn exclude_from_strips_utf8_bom_on_first_line() {
             bcaignore.to_str().unwrap(),
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.to_str().unwrap(),
         ])
         .assert()

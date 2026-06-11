@@ -23,7 +23,7 @@ runnable example.
 | Merge-request widget (GitLab Code Quality)      | `bca check … --format code-climate --no-fail`                                                         |
 | Jenkins / SonarQube ingestion                   | `bca check … --format checkstyle`                                                                     |
 | Human-readable PR/MR comment or downloadable    | `bca report markdown --top 20 --strip-prefix "$PWD/"`                                                        |
-| Machine-readable artifact for dashboards        | `bca metrics --format json --output ./out`                                                            |
+| Machine-readable artifact for dashboards        | `bca metrics --format json --output-dir ./out`                                                            |
 
 *(‡) Recommended adoption path when introducing thresholds on a
 codebase with existing offenders. See the
