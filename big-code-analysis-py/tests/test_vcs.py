@@ -47,12 +47,26 @@ def _build_repo(root: Path) -> Path:
 def test_vcs_metrics_ranks_the_tracked_file(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     report = bca.vcs_metrics(repo)
+    # The four constant stamps live once on the envelope, never per row
+    # (#635).
     assert report["long_window_days"] == 365
     assert report["recent_window_days"] == 90
+    assert "vcs_schema_version" in report
+    assert "risk_score_version" in report
     files = {f["path"]: f for f in report["files"]}
     assert "work.rs" in files
-    assert files["work.rs"]["commits_long"] == 1
-    assert files["work.rs"]["bug_fix_commits"] == 1
+    # Per-file metrics nest under a `vcs` key (#684).
+    work = files["work.rs"]
+    assert work["vcs"]["commits_long"] == 1
+    assert work["vcs"]["bug_fix_commits"] == 1
+    for constant in (
+        "vcs_schema_version",
+        "risk_score_version",
+        "long_window_days",
+        "recent_window_days",
+    ):
+        assert constant not in work
+        assert constant not in work["vcs"]
 
 
 def test_vcs_metrics_top_limits_results(tmp_path: Path) -> None:
@@ -212,18 +226,16 @@ def test_analyze_vcs_per_function_attaches_block_to_each_space(
     )
 
 
-# Fields the per-function and file-level blocks must agree on: the
-# output-shape / formula versions and window lengths are repo-config
-# constants, and in a single-commit fixture every function shares the
-# file's commit/author totals. Churn and the hotspot score deliberately
+# Fields the per-function and file-level blocks must agree on: in a
+# single-commit fixture every function shares the file's commit/author
+# totals. The output-shape / formula versions and window lengths used to
+# live here too, but #635 made the per-row block always-slim — those
+# constants now ride the envelope once, not each block — so they are no
+# longer present to compare. Churn and the hotspot score deliberately
 # differ per function (see the distinctiveness test above), so they are
 # excluded from this parity check. Comparing this required-key subset is
 # robust to the optional ``hotspot_score`` key dropping out.
 _SHARED_VCS_FIELDS = (
-    "vcs_schema_version",
-    "risk_score_version",
-    "long_window_days",
-    "recent_window_days",
     "commits_long",
     "authors_long",
 )
@@ -330,6 +342,19 @@ def test_vcs_trend_shape(tmp_path: Path) -> None:
     assert late[0] is None
     assert isinstance(late[2], dict)
     assert late[2]["as_of"] == 1_700_000_000
+    # A present point nests its metrics under `vcs` (#684); the constant
+    # stamps ride the envelope once, never per point (#635).
+    point = cast("dict[str, Any]", late[2])
+    assert isinstance(point["vcs"], dict)
+    assert isinstance(point["vcs"]["risk_score"], (int, float))
+    for constant in (
+        "vcs_schema_version",
+        "risk_score_version",
+        "long_window_days",
+        "recent_window_days",
+    ):
+        assert constant not in point
+        assert constant not in point["vcs"]
     assert isinstance(trend["deltas"]["improved"], list)
     assert isinstance(trend["deltas"]["regressed"], list)
 

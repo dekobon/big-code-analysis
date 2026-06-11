@@ -3,8 +3,8 @@ source: src/metrics/npm.rs
 expression: metric.npm
 ---
 {
-  "classes": 6,
-  "interfaces": 0,
+  "class_npm_sum": 6,
+  "interface_npm_sum": 0,
   "class_methods": 8,
   "interface_methods": 0,
   "class_coa": 0.75,

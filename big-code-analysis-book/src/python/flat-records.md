@@ -55,9 +55,10 @@ writer, with a couple of intentional deltas:
   `space_name` / `space_kind`. Flat records also add
   `parent_name` / `depth`; the CSV writer omits those.
 * `tokens.*` flattens to the JSON shape (`tokens.tokens`,
-  `tokens.tokens_average`, …), while CSV renames those to
-  `tokens.sum` / `.average` / `.min` / `.max`. Rename in the
-  consumer if you need exact CSV alignment.
+  `tokens.average`, `tokens.min`, `tokens.max`). Only the sum leaf
+  differs from CSV, which spells it `tokens.sum`; the
+  `average` / `min` / `max` leaves now match (#590). Rename the sum
+  leaf in the consumer if you need exact CSV alignment.
 
 Anonymous spaces (Rust closures, JavaScript function expressions /
 arrows) keep their `name == "<anonymous>"` marker verbatim —

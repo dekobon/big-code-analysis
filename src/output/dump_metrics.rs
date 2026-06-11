@@ -1,31 +1,42 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// Terminal per-metric dump serializer; the offenders are mechanical-writer
-// aggregation artifacts, not per-function logic complexity.
-
-// `dump_value` takes `f64`; integral `u64` metric accessors are widened with
-// `as f64` at the call sites (#530). Each cast is bounded by its count.
-#![allow(clippy::cast_precision_loss)]
+//! Terminal per-metric dump serializer.
+//!
+//! The dump tree is driven by [`wire::CodeMetrics`] — the serialized
+//! metric shape — rather than hand-picking a per-metric subset of stats
+//! (issue #674). Projecting the compute metrics through the wire form and
+//! walking the resulting JSON object guarantees the dump's field set is
+//! *uniform by construction*: every leaf the JSON output carries appears
+//! here under the same key, and a new metric field shows up automatically
+//! with no edit to this file.
+//!
+//! Field *order* in this text view is serde_json's default sorted-key order
+//! (`Value::Object` is a `BTreeMap` because `preserve_order` is deliberately
+//! not enabled — see the root `Cargo.toml`), which is deterministic and
+//! differs from the JSON serializer's struct-field order. The uniform field
+//! *set* is what #674 requires; matching JSON's order would mean enabling
+//! `preserve_order` workspace-wide, which would perturb the frozen
+//! code-climate / SARIF fingerprint contracts (#559).
+//!
+//! The other deliberate divergence from JSON is presentation: float values
+//! render rounded to [`TEXT_FLOAT_DECIMALS`] decimals in this text view,
+//! whereas JSON keeps full precision. Non-finite floats (which serialize
+//! to JSON `null`) render as `NaN`, matching the prior dump and the
+//! human-readable `numfmt` arm.
 
 use termcolor::{Color, StandardStream, WriteColor};
 
-use crate::abc;
-use crate::cognitive;
-use crate::cyclomatic;
-use crate::halstead;
-use crate::loc;
-use crate::mi;
-use crate::nargs;
-use crate::nexits;
-use crate::nom;
-use crate::npa;
-use crate::npm;
-use crate::tokens;
-use crate::wmc;
+use serde_json::Value;
 
 use crate::output::ColorMode;
+use crate::output::numfmt::F64_SAFE_INT_BOUND;
 use crate::spaces::{CodeMetrics, FuncSpace};
+use crate::wire;
 
 use crate::tools::{color, intense_color};
+
+/// Decimal places used when rendering a non-integer float in the text
+/// dump. JSON output keeps full precision; the terminal view trades the
+/// trailing noise for legibility (issue #674).
+const TEXT_FLOAT_DECIMALS: usize = 2;
 
 /// Dumps the metrics of a code.
 ///
@@ -124,444 +135,74 @@ fn dump_metrics(
     intense_color(stdout, Color::Yellow)?;
     writeln!(stdout, "metrics")?;
 
-    let prefix = format!("{prefix}{pref_child}");
-    dump_cognitive(&metrics.cognitive, &prefix, false, stdout)?;
-    dump_cyclomatic(&metrics.cyclomatic, &prefix, false, stdout)?;
-    dump_nargs(&metrics.nargs, &prefix, false, stdout)?;
-    dump_nexits(&metrics.nexits, &prefix, false, stdout)?;
-    dump_halstead(&metrics.halstead, &prefix, false, stdout)?;
-    dump_loc(&metrics.loc, &prefix, false, stdout)?;
-    dump_nom(&metrics.nom, &prefix, false, stdout)?;
-    dump_tokens(&metrics.tokens, &prefix, false, stdout)?;
-    dump_mi(&metrics.mi, &prefix, false, stdout)?;
-    dump_abc(&metrics.abc, &prefix, false, stdout)?;
-    dump_wmc(&metrics.wmc, &prefix, false, stdout)?;
-    dump_npm(&metrics.npm, &prefix, false, stdout)?;
-    dump_npa(&metrics.npa, &prefix, true, stdout)
-}
-
-fn dump_cognitive(
-    stats: &cognitive::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "cognitive")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-
-    dump_value("sum", stats.cognitive_sum() as f64, &prefix, false, stdout)?;
-    dump_value("average", stats.cognitive_average(), &prefix, true, stdout)
-}
-
-fn dump_cyclomatic(
-    stats: &cyclomatic::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "cyclomatic")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-
-    dump_value("sum", stats.cyclomatic_sum() as f64, &prefix, false, stdout)?;
-    dump_value("average", stats.cyclomatic_average(), &prefix, true, stdout)
-}
-
-fn dump_halstead(
-    stats: &halstead::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "halstead")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-
-    dump_value(
-        "unique_operators",
-        stats.unique_operators() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "total_operators",
-        stats.total_operators() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "unique_operands",
-        stats.unique_operands() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "total_operands",
-        stats.total_operands() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-
-    dump_value("length", stats.length() as f64, &prefix, false, stdout)?;
-    dump_value(
-        "estimated_program_length",
-        stats.estimated_program_length(),
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("purity_ratio", stats.purity_ratio(), &prefix, false, stdout)?;
-    dump_value(
-        "vocabulary",
-        stats.vocabulary() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("volume", stats.volume(), &prefix, false, stdout)?;
-    dump_value("difficulty", stats.difficulty(), &prefix, false, stdout)?;
-    dump_value("level", stats.level(), &prefix, false, stdout)?;
-    dump_value("effort", stats.effort(), &prefix, false, stdout)?;
-    dump_value("time", stats.time(), &prefix, false, stdout)?;
-    dump_value("bugs", stats.bugs(), &prefix, true, stdout)
-}
-
-fn dump_loc(
-    stats: &loc::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "loc")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-    dump_value("sloc", stats.sloc() as f64, &prefix, false, stdout)?;
-    dump_value("ploc", stats.ploc() as f64, &prefix, false, stdout)?;
-    dump_value("lloc", stats.lloc() as f64, &prefix, false, stdout)?;
-    dump_value("cloc", stats.cloc() as f64, &prefix, false, stdout)?;
-    dump_value("blank", stats.blank() as f64, &prefix, true, stdout)
-}
-
-fn dump_nom(
-    stats: &nom::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "nom")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-    // Use the subtree-aggregate counts (`*_sum`), matching the JSON
-    // serializer and `Display`. `functions()`/`closures()` are this
-    // space's *immediate* counts, which would not sum to the aggregate
-    // `total()` at any parent space (e.g. a Rust file whose functions all
-    // live inside `impl`/`mod` would print `functions: 0, total: N`).
-    dump_value(
-        "functions",
-        stats.functions_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "closures",
-        stats.closures_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("total", stats.total() as f64, &prefix, true, stdout)
-}
-
-fn dump_tokens(
-    stats: &tokens::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "tokens")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-    dump_value("sum", stats.tokens_sum() as f64, &prefix, false, stdout)?;
-    dump_value("average", stats.tokens_average(), &prefix, false, stdout)?;
-    dump_value("min", stats.tokens_min() as f64, &prefix, false, stdout)?;
-    dump_value("max", stats.tokens_max() as f64, &prefix, true, stdout)
-}
-
-fn dump_mi(
-    stats: &mi::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "mi")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-    dump_value("original", stats.original(), &prefix, false, stdout)?;
-    dump_value("sei", stats.sei(), &prefix, false, stdout)?;
-    dump_value(
-        "visual_studio",
-        stats.visual_studio(),
-        &prefix,
-        true,
-        stdout,
-    )
-}
-
-fn dump_nargs(
-    stats: &nargs::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "nargs")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-    // Subtree-aggregate counts (`*_sum`), matching the JSON serializer:
-    // `total`/`average` are already aggregates, so the per-space
-    // `function_args()`/`closure_args()` would not sum to `total` at a parent.
-    dump_value(
-        "function_args",
-        stats.function_args_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "closure_args",
-        stats.closure_args_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("total", stats.total() as f64, &prefix, false, stdout)?;
-    dump_value("average", stats.average(), &prefix, true, stdout)
-}
-
-fn dump_nexits(
-    stats: &nexits::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let pref = if last { "`- " } else { "|- " };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    write!(stdout, "nexits: ")?;
-
-    color(stdout, Color::White)?;
-    writeln!(stdout, "{}", stats.nexits())
-}
-
-fn dump_abc(
-    stats: &abc::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "abc")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-
-    dump_value(
-        "assignments",
-        stats.assignments_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "branches",
-        stats.branches_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "conditions",
-        stats.conditions_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("magnitude", stats.magnitude_sum(), &prefix, true, stdout)
-}
-
-fn dump_wmc(
-    stats: &wmc::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    if stats.is_disabled() {
+    // Project the compute metrics through the wire shape and walk the
+    // serialized object so the dump's field set is the JSON field set
+    // exactly (issue #674). Disabled class-only metrics (`wmc`/`npm`/`npa`
+    // on a non-class language) are already elided by the `From` impl, so
+    // they never appear in the object and need no per-metric guard here.
+    let wire_metrics = wire::CodeMetrics::from(metrics);
+    let Value::Object(groups) = serde_json::to_value(&wire_metrics).unwrap_or(Value::Null) else {
         return Ok(());
-    }
-
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "wmc")?;
+    };
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value(
-        "classes",
-        stats.class_wmc_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "interfaces",
-        stats.interface_wmc_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("total", stats.total_wmc() as f64, &prefix, true, stdout)
+    let last_index = groups.len().saturating_sub(1);
+    for (index, (name, value)) in groups.iter().enumerate() {
+        dump_group(name, value, &prefix, index == last_index, stdout)?;
+    }
+    Ok(())
 }
 
-fn dump_npm(
-    stats: &npm::Stats,
+/// Render one metric group (`cognitive`, `loc`, …) as a green-labelled
+/// subtree, then walk its leaves. A nested object leaf (e.g.
+/// `cyclomatic.modified`) recurses as its own subtree, so the rendered
+/// shape always mirrors the JSON nesting.
+fn dump_group(
+    name: &str,
+    value: &Value,
     prefix: &str,
     last: bool,
     stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
-    if stats.is_disabled() {
-        return Ok(());
-    }
-
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
     color(stdout, Color::Blue)?;
     write!(stdout, "{prefix}{pref}")?;
 
     intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "npm")?;
+    writeln!(stdout, "{name}")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value(
-        "classes",
-        stats.class_npm_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "interfaces",
-        stats.interface_npm_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("total", stats.total_npm() as f64, &prefix, false, stdout)?;
-    dump_value("coa", stats.total_coa(), &prefix, true, stdout)
+    dump_object(value, &prefix, stdout)
 }
 
-fn dump_npa(
-    stats: &npa::Stats,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    if stats.is_disabled() {
+/// Walk the leaves of a metric object, emitting one `name: value` line
+/// per scalar and recursing into any nested object (rendered as a green
+/// subtree, matching the JSON nesting). A non-object value is ignored
+/// (the wire metric groups are always objects).
+fn dump_object(value: &Value, prefix: &str, stdout: &mut dyn WriteColor) -> std::io::Result<()> {
+    let Value::Object(fields) = value else {
         return Ok(());
+    };
+    let last_index = fields.len().saturating_sub(1);
+    for (index, (name, leaf)) in fields.iter().enumerate() {
+        let last = index == last_index;
+        if leaf.is_object() {
+            dump_group(name, leaf, prefix, last, stdout)?;
+        } else {
+            dump_value(name, leaf, prefix, last, stdout)?;
+        }
     }
-
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
-
-    intense_color(stdout, Color::Green)?;
-    writeln!(stdout, "npa")?;
-
-    let prefix = format!("{prefix}{pref_child}");
-    dump_value(
-        "classes",
-        stats.class_npa_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value(
-        "interfaces",
-        stats.interface_npa_sum() as f64,
-        &prefix,
-        false,
-        stdout,
-    )?;
-    dump_value("total", stats.total_npa() as f64, &prefix, false, stdout)?;
-    dump_value("cda", stats.total_cda(), &prefix, true, stdout)
+    Ok(())
 }
 
+/// Emit a single `name: value` leaf. Floats render rounded to
+/// [`TEXT_FLOAT_DECIMALS`] decimals (text view only — JSON keeps full
+/// precision); integers print verbatim; a JSON `null` (a non-finite
+/// metric) renders as `NaN`, matching the prior dump.
 fn dump_value(
     name: &str,
-    val: f64,
+    value: &Value,
     prefix: &str,
     last: bool,
     stdout: &mut dyn WriteColor,
@@ -575,7 +216,43 @@ fn dump_value(
     write!(stdout, "{name}: ")?;
 
     color(stdout, Color::White)?;
-    writeln!(stdout, "{val}")
+    writeln!(stdout, "{}", format_leaf(value))
+}
+
+/// Format a scalar wire leaf for the text view. Integral numbers print
+/// without a decimal point; non-integral floats round to
+/// [`TEXT_FLOAT_DECIMALS`] places; `null` (a non-finite metric) becomes
+/// `NaN`.
+fn format_leaf(value: &Value) -> String {
+    match value {
+        Value::Null => "NaN".to_owned(),
+        Value::Number(n) => format_number(n),
+        // The wire metric leaves are only numbers or null; render anything
+        // else verbatim rather than panicking on an unexpected shape.
+        other => other.to_string(),
+    }
+}
+
+/// Render a JSON number: an integer prints without a decimal point; a
+/// float rounds to [`TEXT_FLOAT_DECIMALS`] places, after which a trailing
+/// `.00` is dropped so a whole-valued average reads like a count.
+fn format_number(n: &serde_json::Number) -> String {
+    if let Some(int) = n.as_u64() {
+        return int.to_string();
+    }
+    if let Some(int) = n.as_i64() {
+        return int.to_string();
+    }
+    let Some(float) = n.as_f64() else {
+        return n.to_string();
+    };
+    // A safe-integer-valued float (e.g. an exact `2.0` average) prints as
+    // an integer, matching the JSON serializer's trailing-`.0` elision.
+    if float.fract() == 0.0 && float.abs() < F64_SAFE_INT_BOUND {
+        #[allow(clippy::cast_possible_truncation)]
+        return (float as i64).to_string();
+    }
+    format!("{float:.TEXT_FLOAT_DECIMALS$}")
 }
 
 #[cfg(test)]

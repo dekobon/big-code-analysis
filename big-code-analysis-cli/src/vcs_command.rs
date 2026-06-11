@@ -32,12 +32,12 @@ use big_code_analysis::wire;
 use crate::formats::{CBOR_STDOUT_ERROR, VcsFormat};
 use crate::{GlobalOpts, VcsArgs, die};
 
-/// One ranked file in the report: its repo-relative path plus the flat
-/// VCS metric block.
+/// One ranked file in the report: its repo-relative path plus the VCS
+/// metric block, nested under a `vcs` key like every other metric group
+/// (issue #684).
 #[derive(Debug, Serialize)]
 pub(crate) struct FileEntry {
     pub(crate) path: String,
-    #[serde(flatten)]
     pub(crate) vcs: wire::Vcs,
 }
 
@@ -740,10 +740,6 @@ mod tests {
         FileEntry {
             path: path.to_owned(),
             vcs: wire::Vcs {
-                vcs_schema_version: 1,
-                risk_score_version: 1,
-                long_window_days: 365,
-                recent_window_days: 90,
                 commits_long: 5,
                 commits_recent: 2,
                 churn_long: churn_recent * 3,

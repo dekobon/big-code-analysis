@@ -508,10 +508,10 @@ impl From<&nom::Stats> for Nom {
 /// Wire form of the `Npa` (number-of-public-attributes) metric.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Npa {
-    /// Sum of public attributes in classes.
-    pub classes: u64,
-    /// Sum of public attributes in interfaces.
-    pub interfaces: u64,
+    /// Sum of public attributes across classes.
+    pub class_npa_sum: u64,
+    /// Sum of public attributes across interfaces.
+    pub interface_npa_sum: u64,
     /// Sum of all class attributes.
     pub class_attributes: u64,
     /// Sum of all interface attributes.
@@ -534,8 +534,8 @@ pub struct Npa {
 impl From<&npa::Stats> for Npa {
     fn from(s: &npa::Stats) -> Self {
         Self {
-            classes: s.class_npa_sum(),
-            interfaces: s.interface_npa_sum(),
+            class_npa_sum: s.class_npa_sum(),
+            interface_npa_sum: s.interface_npa_sum(),
             class_attributes: s.class_na_sum(),
             interface_attributes: s.interface_na_sum(),
             class_cda: s.class_cda(),
@@ -550,10 +550,10 @@ impl From<&npa::Stats> for Npa {
 /// Wire form of the `Npm` (number-of-public-methods) metric.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Npm {
-    /// Sum of public methods in classes.
-    pub classes: u64,
-    /// Sum of public methods in interfaces.
-    pub interfaces: u64,
+    /// Sum of public methods across classes.
+    pub class_npm_sum: u64,
+    /// Sum of public methods across interfaces.
+    pub interface_npm_sum: u64,
     /// Sum of all class methods.
     pub class_methods: u64,
     /// Sum of all interface methods.
@@ -576,8 +576,8 @@ pub struct Npm {
 impl From<&npm::Stats> for Npm {
     fn from(s: &npm::Stats) -> Self {
         Self {
-            classes: s.class_npm_sum(),
-            interfaces: s.interface_npm_sum(),
+            class_npm_sum: s.class_npm_sum(),
+            interface_npm_sum: s.interface_npm_sum(),
             class_methods: s.class_nm_sum(),
             interface_methods: s.interface_nm_sum(),
             class_coa: s.class_coa(),
@@ -596,20 +596,20 @@ pub struct Tokens {
     pub tokens: u64,
     /// Average tokens per space.
     #[serde(default = "nan_default", with = "non_finite")]
-    pub tokens_average: f64,
+    pub average: f64,
     /// Minimum tokens in a single space.
-    pub tokens_min: u64,
+    pub min: u64,
     /// Maximum tokens in a single space.
-    pub tokens_max: u64,
+    pub max: u64,
 }
 
 impl From<&tokens::Stats> for Tokens {
     fn from(s: &tokens::Stats) -> Self {
         Self {
             tokens: s.tokens_sum(),
-            tokens_average: s.tokens_average(),
-            tokens_min: s.tokens_min(),
-            tokens_max: s.tokens_max(),
+            average: s.tokens_average(),
+            min: s.tokens_min(),
+            max: s.tokens_max(),
         }
     }
 }
@@ -618,9 +618,9 @@ impl From<&tokens::Stats> for Tokens {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Wmc {
     /// Sum of weighted methods across classes.
-    pub classes: u64,
+    pub class_wmc_sum: u64,
     /// Sum of weighted methods across interfaces.
-    pub interfaces: u64,
+    pub interface_wmc_sum: u64,
     /// Total weighted methods.
     pub total: u64,
 }
@@ -628,8 +628,8 @@ pub struct Wmc {
 impl From<&wmc::Stats> for Wmc {
     fn from(s: &wmc::Stats) -> Self {
         Self {
-            classes: s.class_wmc_sum(),
-            interfaces: s.interface_wmc_sum(),
+            class_wmc_sum: s.class_wmc_sum(),
+            interface_wmc_sum: s.interface_wmc_sum(),
             total: s.total_wmc(),
         }
     }
@@ -641,21 +641,21 @@ impl From<&wmc::Stats> for Wmc {
 
 /// Wire form of [`crate::vcs::Stats`] — per-file change-history metrics.
 ///
-/// Flat by design: the field names are the JSON output keys verbatim.
-/// All scores are ordinal. `hotspot_score` and `author_ids` are elided
-/// when absent (no AST metrics alongside, and `--emit-author-details`
-/// off, respectively). Gated behind the `vcs-git` backend feature.
+/// Always-slim by design (issue #635): the row carries only the metrics
+/// that vary per file. The four constant stamps that hold across every
+/// row of a single response — `vcs_schema_version`, `risk_score_version`,
+/// `long_window_days`, `recent_window_days` — live exactly once in the
+/// enclosing envelope (`bca vcs`'s `Report`, `POST /vcs`'s response, and
+/// the `/vcs/trend` document), never repeated per row or per trend point.
+///
+/// The remaining field names are the nested `vcs` object's output keys
+/// verbatim (issue #684). All scores are ordinal. `hotspot_score` and
+/// `author_ids` are elided when absent (no AST metrics alongside, and
+/// `--emit-author-details` off, respectively). Gated behind the
+/// `vcs-git` backend feature.
 #[cfg(feature = "vcs-git")]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Vcs {
-    /// Output-shape version.
-    pub vcs_schema_version: u32,
-    /// Composite-formula version.
-    pub risk_score_version: u32,
-    /// Long window length, in days.
-    pub long_window_days: u32,
-    /// Recent window length, in days.
-    pub recent_window_days: u32,
     /// Distinct commits in the long window.
     pub commits_long: u32,
     /// Distinct commits in the recent window.
@@ -709,10 +709,6 @@ pub struct Vcs {
 impl From<&crate::vcs::Stats> for Vcs {
     fn from(s: &crate::vcs::Stats) -> Self {
         Self {
-            vcs_schema_version: s.vcs_schema_version,
-            risk_score_version: s.risk_score_version,
-            long_window_days: s.long_window_days,
-            recent_window_days: s.recent_window_days,
             commits_long: s.commits_long,
             commits_recent: s.commits_recent,
             churn_long: s.churn_long,
@@ -738,16 +734,17 @@ impl From<&crate::vcs::Stats> for Vcs {
 }
 
 /// Wire form of one sampled point in a historical metric trend (issue
-/// #333): the sample timestamp plus the file's full VCS block at that
-/// moment. `as_of` leads; the flattened block carries the same keys as a
-/// standalone [`Vcs`] record.
+/// #333): the sample timestamp plus the file's VCS block at that moment.
+/// `as_of` leads; the metrics sit under a nested `vcs` key (issue #684),
+/// the same always-slim [`Vcs`] row every other endpoint emits. The four
+/// constant stamps are carried once on the enclosing [`VcsTrend`], never
+/// repeated per point (issue #635).
 #[cfg(feature = "vcs-git")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VcsTrendPoint {
     /// Unix-second timestamp this point was sampled at.
     pub as_of: i64,
     /// The file's change-history metrics at `as_of`.
-    #[serde(flatten)]
     pub vcs: Vcs,
 }
 

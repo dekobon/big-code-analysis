@@ -19,10 +19,11 @@ up with CSV_HEADER's metric columns; the identity columns are
 omits ``parent_name`` / ``depth``; flat records use ``name`` /
 ``kind`` and add the parent / depth pair). One known metric also
 diverges: the ``tokens`` family flattens to ``tokens.tokens``,
-``tokens.tokens_average``, ``tokens.tokens_min``, ``tokens.tokens_max``
-(the JSON shape), while CSV_HEADER lists ``tokens.sum`` etc. —
-the CLI's CSV writer renames those columns. Rename in the consumer
-if you need an exact CSV match.
+``tokens.average``, ``tokens.min``, ``tokens.max`` (the JSON shape).
+Only the sum leaf differs from CSV_HEADER, which spells it
+``tokens.sum``; the ``average`` / ``min`` / ``max`` leaves now match
+(#590). Rename the sum leaf in the consumer if you need an exact CSV
+match.
 
 Both walkers (the space tree and each space's metrics subtree) use
 explicit stacks rather than recursion, so pathological inputs —

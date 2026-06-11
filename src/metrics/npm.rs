@@ -1050,8 +1050,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 1,
-                  "interfaces": 0,
+                  "class_npm_sum": 1,
+                  "interface_npm_sum": 0,
                   "class_methods": 4,
                   "interface_methods": 0,
                   "class_coa": 0.25,
@@ -1373,8 +1373,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 8,
-                  "interfaces": 0,
+                  "class_npm_sum": 8,
+                  "interface_npm_sum": 0,
                   "class_methods": 16,
                   "interface_methods": 0,
                   "class_coa": 0.5,
@@ -1416,8 +1416,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 8,
-                  "interfaces": 0,
+                  "class_npm_sum": 8,
+                  "interface_npm_sum": 0,
                   "class_methods": 16,
                   "interface_methods": 0,
                   "class_coa": 0.5,
@@ -1455,8 +1455,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 6,
-                  "interfaces": 0,
+                  "class_npm_sum": 6,
+                  "interface_npm_sum": 0,
                   "class_methods": 12,
                   "interface_methods": 0,
                   "class_coa": 0.5,
@@ -1492,8 +1492,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 5,
-                  "interfaces": 0,
+                  "class_npm_sum": 5,
+                  "interface_npm_sum": 0,
                   "class_methods": 10,
                   "interface_methods": 0,
                   "class_coa": 0.5,
@@ -1531,8 +1531,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 6,
-                  "interfaces": 0,
+                  "class_npm_sum": 6,
+                  "interface_npm_sum": 0,
                   "class_methods": 12,
                   "interface_methods": 0,
                   "class_coa": 0.5,
@@ -1566,8 +1566,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npm_sum": 3,
+                  "interface_npm_sum": 0,
                   "class_methods": 6,
                   "interface_methods": 0,
                   "class_coa": 0.5,
@@ -1600,8 +1600,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npm_sum": 3,
+                  "interface_npm_sum": 0,
                   "class_methods": 3,
                   "interface_methods": 0,
                   "class_coa": 1.0,
@@ -1636,8 +1636,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npm_sum": 3,
+                  "interface_npm_sum": 0,
                   "class_methods": 3,
                   "interface_methods": 0,
                   "class_coa": 1.0,
@@ -1679,8 +1679,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npm_sum": 3,
+                  "interface_npm_sum": 0,
                   "class_methods": 5,
                   "interface_methods": 0,
                   "class_coa": 0.6,
@@ -1709,8 +1709,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 0,
-                  "interfaces": 3,
+                  "class_npm_sum": 0,
+                  "interface_npm_sum": 3,
                   "class_methods": 0,
                   "interface_methods": 3,
                   "class_coa": 0.0,
@@ -1816,8 +1816,8 @@ mod tests {
                     metric.npm,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 3,
+                  "class_npm_sum": 3,
+                  "interface_npm_sum": 3,
                   "class_methods": 5,
                   "interface_methods": 3,
                   "class_coa": 0.6,

@@ -266,8 +266,8 @@ const SPECS: &[DictSpec] = &[
         class: "NpaDict",
         doc: "Number-of-public-attributes metric block.",
         fields: &[
-            req("classes", Int),
-            req("interfaces", Int),
+            req("class_npa_sum", Int),
+            req("interface_npa_sum", Int),
             req("class_attributes", Int),
             req("interface_attributes", Int),
             req("class_cda", Float),
@@ -281,8 +281,8 @@ const SPECS: &[DictSpec] = &[
         class: "NpmDict",
         doc: "Number-of-public-methods metric block.",
         fields: &[
-            req("classes", Int),
-            req("interfaces", Int),
+            req("class_npm_sum", Int),
+            req("interface_npm_sum", Int),
             req("class_methods", Int),
             req("interface_methods", Int),
             req("class_coa", Float),
@@ -297,30 +297,29 @@ const SPECS: &[DictSpec] = &[
         doc: "Token-count metric block.",
         fields: &[
             req("tokens", Int),
-            req("tokens_average", Float),
-            req("tokens_min", Int),
-            req("tokens_max", Int),
+            req("average", Float),
+            req("min", Int),
+            req("max", Int),
         ],
     },
     DictSpec {
         class: "WmcDict",
         doc: "Weighted-methods-per-class metric block.",
         fields: &[
-            req("classes", Int),
-            req("interfaces", Int),
+            req("class_wmc_sum", Int),
+            req("interface_wmc_sum", Int),
             req("total", Int),
         ],
     },
     DictSpec {
         class: "VcsDict",
         doc: "Change-history (VCS) metric block; present only under \
-              `vcs=True` / `vcs_per_function=True`. `hotspot_score` and \
-              `author_ids` are elided when unavailable.",
+              `vcs=True` / `vcs_per_function=True`. Always-slim (issue \
+              #635): the constant `*_version` / `*_window_days` stamps live \
+              once on the `vcs_metrics()` / `vcs_trend()` envelope, not on \
+              each block. `hotspot_score` and `author_ids` are elided when \
+              unavailable.",
         fields: &[
-            req("vcs_schema_version", Int),
-            req("risk_score_version", Int),
-            req("long_window_days", Int),
-            req("recent_window_days", Int),
             req("commits_long", Int),
             req("commits_recent", Int),
             req("churn_long", Int),

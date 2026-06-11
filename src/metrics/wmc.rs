@@ -473,8 +473,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 13,
-                  "interfaces": 0,
+                  "class_wmc_sum": 13,
+                  "interface_wmc_sum": 0,
                   "total": 13
                 }
                 "#
@@ -836,8 +836,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 5,
-                  "interfaces": 0,
+                  "class_wmc_sum": 5,
+                  "interface_wmc_sum": 0,
                   "total": 5
                 }
                 "#
@@ -863,8 +863,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 1,
-                  "interfaces": 0,
+                  "class_wmc_sum": 1,
+                  "interface_wmc_sum": 0,
                   "total": 1
                 }
                 "#
@@ -932,8 +932,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 9,
-                  "interfaces": 0,
+                  "class_wmc_sum": 9,
+                  "interface_wmc_sum": 0,
                   "total": 9
                 }
                 "#
@@ -980,8 +980,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_wmc_sum": 3,
+                  "interface_wmc_sum": 0,
                   "total": 3
                 }
                 "#
@@ -1015,8 +1015,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 4,
-                  "interfaces": 0,
+                  "class_wmc_sum": 4,
+                  "interface_wmc_sum": 0,
                   "total": 4
                 }
                 "#
@@ -1064,8 +1064,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 8,
-                  "interfaces": 0,
+                  "class_wmc_sum": 8,
+                  "interface_wmc_sum": 0,
                   "total": 8
                 }
                 "#
@@ -1100,8 +1100,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 2,
-                  "interfaces": 0,
+                  "class_wmc_sum": 2,
+                  "interface_wmc_sum": 0,
                   "total": 2
                 }
                 "#
@@ -1129,8 +1129,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 0,
-                  "interfaces": 6,
+                  "class_wmc_sum": 0,
+                  "interface_wmc_sum": 6,
                   "total": 6
                 }
                 "#
@@ -1160,8 +1160,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 0,
-                  "interfaces": 3,
+                  "class_wmc_sum": 0,
+                  "interface_wmc_sum": 3,
                   "total": 3
                 }
                 "#
@@ -1195,8 +1195,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 0,
-                  "interfaces": 5,
+                  "class_wmc_sum": 0,
+                  "interface_wmc_sum": 5,
                   "total": 5
                 }
                 "#
@@ -1230,8 +1230,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 2,
-                  "interfaces": 2,
+                  "class_wmc_sum": 2,
+                  "interface_wmc_sum": 2,
                   "total": 4
                 }
                 "#
@@ -1265,8 +1265,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 2,
-                  "interfaces": 2,
+                  "class_wmc_sum": 2,
+                  "interface_wmc_sum": 2,
                   "total": 4
                 }
                 "#
@@ -3381,8 +3381,8 @@ mod tests {
                     metric.wmc,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_wmc_sum": 3,
+                  "interface_wmc_sum": 0,
                   "total": 3
                 }
                 "#

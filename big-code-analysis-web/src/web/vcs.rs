@@ -84,13 +84,13 @@ pub struct WebVcsPayload {
     pub cache_dir: Option<String>,
 }
 
-/// One ranked file: repo-relative path plus the flat VCS block.
+/// One ranked file: repo-relative path plus the VCS block, nested under a
+/// `vcs` key like every other metric group (issue #684).
 #[derive(Debug, Serialize)]
 pub struct WebVcsFileEntry {
     /// Repository-relative path.
     pub path: String,
     /// The file's change-history metrics.
-    #[serde(flatten)]
     pub vcs: wire::Vcs,
 }
 
@@ -99,6 +99,11 @@ pub struct WebVcsFileEntry {
 pub struct WebVcsResponse {
     /// Echoed request identifier.
     pub id: String,
+    /// Output-shape version (carried once per response, not per file —
+    /// issue #635).
+    pub vcs_schema_version: u32,
+    /// Composite-formula version (carried once per response — issue #635).
+    pub risk_score_version: u32,
     /// Long window length, in days.
     pub long_window_days: u32,
     /// Recent window length, in days.
@@ -182,6 +187,8 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
 
     Ok(WebVcsResponse {
         id: payload.id,
+        vcs_schema_version: vcs::stats::VCS_SCHEMA_VERSION,
+        risk_score_version: vcs::score::RISK_SCORE_VERSION,
         long_window_days: options.long_window_days(),
         recent_window_days: options.recent_window_days(),
         truncated_shallow_clone: index.truncated_shallow_clone(),

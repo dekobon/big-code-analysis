@@ -663,10 +663,6 @@ mod tests {
         FileEntry {
             path: path.to_owned(),
             vcs: wire::Vcs {
-                vcs_schema_version: 1,
-                risk_score_version: 1,
-                long_window_days: 365,
-                recent_window_days: 90,
                 commits_long: recent + 10,
                 commits_recent: recent,
                 churn_long: u64::from(recent) * 100,
