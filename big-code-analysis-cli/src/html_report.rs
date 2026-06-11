@@ -1129,15 +1129,29 @@ fn write_actionable_summary(
     let _ = out.write_str("</ul>\n");
 }
 
-/// Emit the "table omitted: all N matching functions suppressed" caption in
-/// place of a hotspot table that was rendered empty *solely because*
-/// suppression hid every matching row (`count > 0`). Mirrors the Markdown
-/// renderer's `emit_fully_suppressed_note_md` so a summary bullet never points
-/// at a table absent from the document (issue #616). A no-op when `count == 0`.
-fn emit_fully_suppressed_note_html(out: &mut String, title: &str, count: usize) {
+/// Emit the section heading (`<h3>` + id) followed by the "table omitted: all
+/// N matching functions suppressed" caption, in place of a hotspot table that
+/// was rendered empty *solely because* suppression hid every matching row
+/// (`count > 0`). The heading uses the same id basis `emit_html_section` does,
+/// so deep links resolve regardless of suppression state (issue #681).
+/// Mirrors the Markdown renderer's `emit_fully_suppressed_note_md` so a
+/// summary bullet never points at a table absent from the document (issue
+/// #616). A no-op when `count == 0`.
+fn emit_fully_suppressed_note_html(
+    out: &mut String,
+    headings: &mut Headings,
+    id_prefix: &str,
+    title: &str,
+    count: usize,
+) {
     if count == 0 {
         return;
     }
+    // Emit the section heading with the same id basis `emit_html_section`
+    // uses, so a fully-suppressed section keeps its place in the heading/id
+    // sequence and deep links resolve regardless of suppression state
+    // (issue #681). The omission note is the section body.
+    headings.emit_h3(out, &format!("{id_prefix}-{title}"), &escape_html(title));
     let _ = writeln!(
         out,
         "<p class=\"note\">{}</p>",
@@ -1182,7 +1196,13 @@ fn write_language_section(
                 // suppression earns the same "table omitted" caption, or the
                 // Actionable Summary's raw CC bullets would dangle (#616).
                 let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
-                emit_fully_suppressed_note_html(out, &spec.title.render(top_n), suppressed);
+                emit_fully_suppressed_note_html(
+                    out,
+                    headings,
+                    &id_prefix,
+                    &spec.title.render(top_n),
+                    suppressed,
+                );
             } else {
                 emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
                 emit_cc_note_html(out, &stats, policy);
@@ -1194,7 +1214,13 @@ fn write_language_section(
                 // table whose every matching row was suppressed; only the
                 // latter earns a caption so a summary bullet never dangles.
                 let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
-                emit_fully_suppressed_note_html(out, &spec.title.render(top_n), suppressed);
+                emit_fully_suppressed_note_html(
+                    out,
+                    headings,
+                    &id_prefix,
+                    &spec.title.render(top_n),
+                    suppressed,
+                );
             } else {
                 emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
             }
@@ -1892,9 +1918,20 @@ mod tests {
             report.contains("table omitted: all 1 matching functions suppressed"),
             "a fully-suppressed HTML table must leave an explanatory caption:\n{report}"
         );
+        // Issue #681: the heading + deep-link id are still emitted so the
+        // section keeps its place in the heading/id sequence; only the rows
+        // (the `hidden` function) are absent from this section's body.
         assert!(
-            !report.contains(">Functions With Many Parameters (&gt;3)</h3>"),
-            "the all-suppressed many-parameters table must not render:\n{report}"
+            report.contains(
+                "<h3 id=\"rust-functions-with-many-parameters-3\">\
+                 Functions With Many Parameters (&gt;3)</h3>"
+            ),
+            "a fully-suppressed many-parameters table must still emit its heading + id:\n{report}"
+        );
+        let nargs_section = html_section(&report, "Functions With Many Parameters (&gt;3)");
+        assert!(
+            !nargs_section.contains("<td>hidden</td>"),
+            "the all-suppressed many-parameters section must not render a row:\n{nargs_section}"
         );
     }
 
@@ -1912,13 +1949,24 @@ mod tests {
         hot.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic]));
 
         let report = generate_html_report(&[unit, hot], 20, SuppressionPolicy::Honor);
+        // Issue #681: the CC heading + deep-link id are still emitted; only
+        // the CC table's rows are hidden (the function is suppressed solely
+        // for cyclomatic, so it still appears in other sections).
         assert!(
-            !report.contains(">Cyclomatic Complexity Hotspots</h3>"),
-            "the all-suppressed CC table must not render its rows:\n{report}"
+            report.contains(
+                "<h3 id=\"rust-cyclomatic-complexity-hotspots\">\
+                 Cyclomatic Complexity Hotspots</h3>"
+            ),
+            "a fully-suppressed CC table must still emit its heading + id:\n{report}"
+        );
+        let cc_section = html_section(&report, "Cyclomatic Complexity Hotspots");
+        assert!(
+            !cc_section.contains("<td>hot</td>"),
+            "the all-suppressed CC section must not render a table row:\n{cc_section}"
         );
         assert!(
-            report.contains("table omitted: all 1 matching functions suppressed"),
-            "a fully-suppressed CC table must leave an explanatory caption:\n{report}"
+            cc_section.contains("table omitted: all 1 matching functions suppressed"),
+            "the fully-suppressed CC section's body is the omission caption:\n{cc_section}"
         );
     }
 
