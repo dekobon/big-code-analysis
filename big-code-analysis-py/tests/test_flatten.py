@@ -475,22 +475,25 @@ def test_non_mapping_child_in_spaces_is_silently_skipped() -> None:
 
 
 def test_tokens_metric_keys_follow_json_shape_not_csv_header() -> None:
-    """Regression-pins the README/docstring's documented divergence:
-    the JSON output emits ``tokens.tokens``/``tokens_average``/… ,
-    not the CLI's CSV_HEADER ``tokens.sum``/``tokens.average``.
+    """Pins the JSON tokens leaf shape after #590.
 
-    If the Rust serializer is ever fixed to emit ``sum``/``average``,
-    this test fails and the README + CHANGELOG callouts must be
-    updated (or deleted)."""
+    The bare-sum leaf stays ``tokens.tokens`` (intentional per #510),
+    while the avg/min/max siblings were renamed to ``average``/``min``/
+    ``max`` so JSON and the CLI's CSV_HEADER now agree on those three.
+    The only remaining JSON-vs-CSV divergence is the sum leaf:
+    ``tokens.tokens`` (JSON) vs ``tokens.sum`` (CSV header)."""
     result = bca.analyze_source("def f(x): return x + 1\n", "python")
     record = next(iter(bca.flatten_spaces(result)))
 
-    # JSON-shape keys present.
+    # JSON-shape keys present (post-#590 leaf names).
     assert "tokens.tokens" in record
-    assert "tokens.tokens_average" in record
-    # CSV_HEADER-shape keys absent (still a known divergence today).
+    assert "tokens.average" in record
+    assert "tokens.min" in record
+    assert "tokens.max" in record
+    # The old ``tokens_average`` spelling and the CSV-header ``tokens.sum``
+    # leaf are both absent from the JSON shape.
+    assert "tokens.tokens_average" not in record
     assert "tokens.sum" not in record
-    assert "tokens.average" not in record
 
 
 @pytest.mark.parametrize("bad", [None, [], 42, "a", (1, 2)])

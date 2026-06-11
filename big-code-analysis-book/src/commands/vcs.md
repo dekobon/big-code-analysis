@@ -102,7 +102,7 @@ standalone page, pass [`bca report --vcs`](report.md), which appends a
 | `cochange_entropy_long` / `cochange_entropy_recent` | f64 | Co-change graph entropy in bits per window (see below) |
 | `risk_score` | f64 | Composite, formula-versioned (see below) — **ordinal, not cardinal** |
 | `hotspot_score` | f64? | `complexity × churn_recent`; present only when AST metrics are computed alongside |
-| `risk_score_version` / `vcs_schema_version` | u32 | Forward-compatibility version stamps |
+| `risk_score_version` / `vcs_schema_version` | u32 | Forward-compatibility version stamps. Carried **once on the report envelope**, alongside `long_window_days` / `recent_window_days` — not repeated inside each per-file `vcs` block (issue #635) |
 
 Author identities are canonicalised through the repository `.mailmap`
 and counted by lowercased email; `Co-authored-by:` trailers add
@@ -473,8 +473,8 @@ $ bca vcs --top 20 trend --points 12 --span 24mo --pretty
   "files": {
     "src/parser.rs": [
       null,                       // did not exist at the oldest point
-      { "as_of": 1705259520, "risk_score": 4.1, ... },
-      { "as_of": 1710519040, "risk_score": 6.8, ... }
+      { "as_of": 1705259520, "vcs": { "risk_score": 4.1, ... } },
+      { "as_of": 1710519040, "vcs": { "risk_score": 6.8, ... } }
     ]
   },
   "deltas": {

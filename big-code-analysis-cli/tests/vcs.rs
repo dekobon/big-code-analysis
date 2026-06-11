@@ -93,14 +93,31 @@ fn vcs_json_ranks_the_tracked_file() {
         .iter()
         .find(|f| f["path"] == "src/work.rs")
         .expect("src/work.rs ranked");
-    assert_eq!(work["commits_long"], 2);
-    assert_eq!(work["commits_recent"], 1, "only the 5-day commit is recent");
+    // The per-file metrics nest under a `vcs` key (#684); the constant
+    // stamps live once on the envelope, never per row (#635).
+    let work_vcs = &work["vcs"];
+    assert_eq!(work_vcs["commits_long"], 2);
     assert_eq!(
-        work["bug_fix_commits"], 1,
+        work_vcs["commits_recent"], 1,
+        "only the 5-day commit is recent"
+    );
+    assert_eq!(
+        work_vcs["bug_fix_commits"], 1,
         "the second commit message says 'fix bug'"
     );
-    assert_eq!(work["authors_long"], 1);
+    assert_eq!(work_vcs["authors_long"], 1);
     assert_eq!(doc["long_window_days"], 365);
+    for constant in [
+        "vcs_schema_version",
+        "risk_score_version",
+        "long_window_days",
+        "recent_window_days",
+    ] {
+        assert!(
+            work.get(constant).is_none() && work_vcs.get(constant).is_none(),
+            "constant `{constant}` must not be repeated per row (#635)"
+        );
+    }
 }
 
 /// Count `*.json` cache entries anywhere under `root`.
@@ -383,7 +400,8 @@ fn vcs_emit_author_details_controls_author_ids() {
         let assert = cli().current_dir(repo.path()).args(args).assert().success();
         let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
         let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-        doc["files"][0].get("author_ids").cloned()
+        // `author_ids` lives inside the nested per-file `vcs` block (#684).
+        doc["files"][0]["vcs"].get("author_ids").cloned()
     };
     // Off by default; opt-in surfaces a (sorted) array of hashed ids.
     assert!(ids(&[]).is_none(), "author_ids key absent by default");

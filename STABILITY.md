@@ -224,6 +224,17 @@ change bumps that field, and the serialized field *set* is versioned by
 `vcs_schema_version`. Per-file score *magnitudes* therefore carry the
 same "not byte-stable across bumps" caveat as every other metric value.
 
+In `2.0` the per-file VCS block became a **nested `vcs` object** under
+each ranked file (and each `/vcs/trend` point), replacing the former
+`#[serde(flatten)]`-beside-`path` layout, so it now reads like every
+other metric group (#684). The block is also **always-slim** (#635):
+the four constant stamps that hold across an entire response —
+`vcs_schema_version`, `risk_score_version`, `long_window_days`,
+`recent_window_days` — are carried exactly once on the enclosing
+envelope (`bca vcs`'s report, `POST /vcs`, `vcs_metrics()`, and the
+`/vcs/trend` document), never repeated per row or per trend point. The
+CSV projection stays flat with dotted column names.
+
 Per-function change-history attribution (#329) extends the same opt-in
 surface: `big_code_analysis::vcs::{PerFunctionBlame, LineSpan}`, the
 `vcs::Error::Blame` variant, the `bca metrics --vcs-per-function` flag,
@@ -634,10 +645,10 @@ abc.{assignments,branches,conditions,magnitude,
      assignments_average,branches_average,conditions_average,
      assignments_min,assignments_max,branches_min,branches_max,
      conditions_min,conditions_max},
-wmc.{classes,interfaces,total},
-npm.{classes,interfaces,class_methods,interface_methods,class_coa,
-     interface_coa,total,total_methods,coa},
-npa.{classes,interfaces,class_attributes,interface_attributes,
+wmc.{class_wmc_sum,interface_wmc_sum,total},
+npm.{class_npm_sum,interface_npm_sum,class_methods,interface_methods,
+     class_coa,interface_coa,total,total_methods,coa},
+npa.{class_npa_sum,interface_npa_sum,class_attributes,interface_attributes,
      class_cda,interface_cda,total,total_attributes,cda},
 mi.{original,sei,visual_studio}
 ```
@@ -1035,7 +1046,14 @@ loose ends that will be tightened at `2.0`:
   scheme (#510, #511) — reserved for `2.0` because the serialized key
   shape is SemVer-protected; the changelog `2.0.0` entry carries the
   full key map. (The per-function `cyclomatic` average re-baseline,
-  #512, is tracked separately.)
+  #512, is tracked separately.) This includes renaming the
+  sum-carrying `classes` / `interfaces` keys to mirror their
+  accessors — `npm.{class_npm_sum,interface_npm_sum}`,
+  `npa.{class_npa_sum,interface_npa_sum}`,
+  `wmc.{class_wmc_sum,interface_wmc_sum}` (#589) — and the JSON
+  `tokens` avg/min/max leaves `tokens_average` / `tokens_min` /
+  `tokens_max` → `average` / `min` / `max`, keeping the bare-sum
+  `tokens` leaf (#590).
 - Integer-valued metrics serialize as integers and their `Stats`
   accessors return `u64` rather than `f64` (#530): every count, sum,
   and min/max, plus Halstead `length`/`vocabulary` and all WMC values.

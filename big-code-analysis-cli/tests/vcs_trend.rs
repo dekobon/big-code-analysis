@@ -89,6 +89,23 @@ fn trend_emits_stable_json_shape() {
     // Pin the concrete per-point block version (stats::VCS_SCHEMA_VERSION),
     // not merely "is a number" — a schema bump must update this test.
     assert_eq!(json["vcs_schema_version"], 2);
+    // The other three constant stamps must be present on the envelope too
+    // (#635): the per-point absence loop below only proves they are not
+    // *duplicated*, so without these a stamp dropped from the envelope
+    // entirely would pass unnoticed.
+    let envelope = json.as_object().expect("trend response object");
+    for constant in [
+        "risk_score_version",
+        "long_window_days",
+        "recent_window_days",
+    ] {
+        assert!(
+            envelope
+                .get(constant)
+                .is_some_and(serde_json::Value::is_number),
+            "constant `{constant}` must be carried once on the trend envelope (#635)"
+        );
+    }
     let points = json["as_of_points"].as_array().expect("as_of_points array");
     assert_eq!(points.len(), 3);
     assert_eq!(points[2], FIXED_NOW, "newest point is the as-of anchor");
@@ -99,10 +116,26 @@ fn trend_emits_stable_json_shape() {
     assert!(late[0].is_null(), "late.rs absent at the oldest point");
     assert!(late[2].is_object(), "late.rs present at the newest point");
     assert_eq!(late[2]["as_of"], FIXED_NOW);
+    // A present point nests its metrics under a `vcs` key (#684); the
+    // constant stamps are carried once on the envelope, never per point
+    // (#635).
     assert!(
-        late[2]["risk_score"].is_number(),
-        "a present point carries the flattened vcs block"
+        late[2]["vcs"]["risk_score"].is_number(),
+        "a present point carries a nested vcs block"
     );
+    let point = late[2].as_object().expect("present point object");
+    let point_vcs = late[2]["vcs"].as_object().expect("nested vcs object");
+    for constant in [
+        "vcs_schema_version",
+        "risk_score_version",
+        "long_window_days",
+        "recent_window_days",
+    ] {
+        assert!(
+            !point.contains_key(constant) && !point_vcs.contains_key(constant),
+            "constant `{constant}` must not be repeated per trend point (#635)"
+        );
+    }
 
     // The delta summary is present and split into two lists.
     assert!(json["deltas"]["improved"].is_array());

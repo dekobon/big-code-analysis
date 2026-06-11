@@ -66,11 +66,11 @@ impl VcsParams {
     }
 }
 
-/// One ranked file: repo-relative path plus the flat VCS block.
+/// One ranked file: repo-relative path plus the VCS block, nested under a
+/// `vcs` key like every other metric group (issue #684).
 #[derive(Serialize)]
 struct FileEntry {
     path: String,
-    #[serde(flatten)]
     vcs: wire::Vcs,
 }
 

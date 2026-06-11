@@ -875,6 +875,39 @@ for historical reference.
 - **(breaking)** Lib: the `Metric::NArgs` enum variant is renamed to
   `Metric::Nargs`; its lowercase `"nargs"` serde/`Display`/`FromStr`
   spelling is unchanged. Deferred to the 2.0.0 release (#588).
+- **(breaking)** Output: the sum-carrying `classes` / `interfaces`
+  wire keys on `npm` / `npa` / `wmc` are renamed to mirror their
+  accessors — `npm.{class_npm_sum,interface_npm_sum}`,
+  `npa.{class_npa_sum,interface_npa_sum}`,
+  `wmc.{class_wmc_sum,interface_wmc_sum}` — across JSON/YAML/TOML/CBOR
+  and the CSV columns. The truthful sibling keys (`class_methods`,
+  `total`, `coa`, `cda`, …) are unchanged. Deferred to the 2.0.0
+  release (#589).
+- **(breaking)** Output: the JSON `tokens` block's `tokens_average` /
+  `tokens_min` / `tokens_max` leaves are renamed `average` / `min` /
+  `max`, matching the CSV columns; the bare-sum `tokens` leaf is kept.
+  The terminal dump's tokens sum label changes `sum` → `tokens` to
+  match. Deferred to the 2.0.0 release (#590).
+- **(breaking)** CLI: the default text metric dump is now driven from
+  the serialized (`wire::CodeMetrics`) shape, so every metric block
+  renders its full, uniform field set (e.g. `loc` now shows the
+  averages and min/max, `nexits` renders as a `sum`/`average`/`min`/
+  `max` aggregate) instead of a hand-picked per-metric subset. Float
+  values render rounded to two decimals in the text view only; JSON
+  keeps full precision. Deferred to the 2.0.0 release (#674).
+- **(breaking)** Output: the per-file change-history (VCS) block is now
+  a **nested `vcs` object** under each ranked file (and each
+  `/vcs/trend` point) for `bca vcs`, `POST /vcs`, `vcs_metrics()`, and
+  `vcs_trend()`, replacing the former flattened-beside-`path` layout;
+  CSV stays flat with dotted columns. Deferred to the 2.0.0 release
+  (#684).
+- **(breaking)** Output: the per-row VCS block is always-slim — the
+  four constant stamps `vcs_schema_version`, `risk_score_version`,
+  `long_window_days`, and `recent_window_days` are carried exactly
+  once on the enclosing `/vcs` and `/vcs/trend` envelope (and no
+  longer duplicated per file row or per trend point). `POST /vcs`
+  gains the two version stamps at the response top level. Deferred to
+  the 2.0.0 release (#635).
 - **(breaking)** CLI: argv/usage/value-parse errors now exit 1 instead
   of clap's 2, reserving exit codes 2–5 for the `check` and
   `vcs jit --fail-above`-style metric gates; `--help` / `--version`

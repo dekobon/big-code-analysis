@@ -433,6 +433,8 @@ defaults to the `bca vcs` default. The optional fields are:
 ```json
 {
   "id": "unique-id",
+  "vcs_schema_version": 1,
+  "risk_score_version": 1,
   "long_window_days": 365,
   "recent_window_days": 90,
   "truncated_shallow_clone": false,
@@ -440,27 +442,30 @@ defaults to the `bca vcs` default. The optional fields are:
   "files": [
     {
       "path": "src/main.rs",
-      "vcs_schema_version": 1,
-      "risk_score_version": 1,
-      "commits_long": 12,
-      "commits_recent": 3,
-      "churn_long": 540,
-      "churn_recent": 80,
-      "authors_long": 4,
-      "authors_recent": 2,
-      "risk_score": 1.42
+      "vcs": {
+        "commits_long": 12,
+        "commits_recent": 3,
+        "churn_long": 540,
+        "churn_recent": 80,
+        "authors_long": 4,
+        "authors_recent": 2,
+        "risk_score": 1.42
+      }
     }
   ]
 }
 ```
 
-`files` is ordered by descending `risk_score`. Each entry carries the
-repository-relative `path` plus the flat VCS metric block (the same shape
-`bca vcs` emits): commit and churn counts over the long and recent
-windows, author counts, ownership share, burst, bug-fix / security-fix /
-revert counts, age, change and co-change entropy, and the composite
-`risk_score`. `hotspot_score` and the hashed `author_ids` appear only
-when computable / requested. `vcs_aggregate` carries the directory- and
+`files` is ordered by descending `vcs.risk_score`. Each entry carries the
+repository-relative `path` plus a nested `vcs` metric block (the same
+shape `bca vcs` emits, issue #684): commit and churn counts over the long
+and recent windows, author counts, ownership share, burst, bug-fix /
+security-fix / revert counts, age, change and co-change entropy, and the
+composite `risk_score`. `hotspot_score` and the hashed `author_ids`
+appear inside that block only when computable / requested. The four
+constant stamps `vcs_schema_version`, `risk_score_version`,
+`long_window_days`, and `recent_window_days` sit once at the top level,
+never per row (issue #635). `vcs_aggregate` carries the directory- and
 repo-level bus factor (issue #332).
 
 ### 9. Historical trend — `/vcs/trend`
@@ -495,7 +500,7 @@ POST http://127.0.0.1:8080/v1/vcs/trend
   "truncated_shallow_clone": false,
   "as_of_points": [1704067200, 1711929600],
   "files": {
-    "src/main.rs": [ { "as_of": 1704067200, "risk_score": 1.1 }, null ]
+    "src/main.rs": [ { "as_of": 1704067200, "vcs": { "risk_score": 1.1 } }, null ]
   },
   "deltas": { "improved": [], "regressed": [] }
 }
@@ -503,9 +508,12 @@ POST http://127.0.0.1:8080/v1/vcs/trend
 
 `as_of_points` lists the sample timestamps oldest-first. Each file's
 array in `files` aligns to it 1:1, with a `null` element at a point where
-the file did not yet exist; each present element is that file's full VCS
-block at that moment. `deltas` ranks the most-improved and most-regressed
-files by their risk-score movement across the series.
+the file did not yet exist; each present element is
+`{ "as_of": ..., "vcs": { ... } }`, with that file's VCS block nested
+under `vcs` at that moment (issue #684). The four constant stamps sit
+once at the top level, never per point (issue #635). `deltas` ranks the
+most-improved and most-regressed files by their risk-score movement
+across the series.
 
 ### 10. Just-in-time risk — `/vcs/jit`
 

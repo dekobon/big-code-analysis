@@ -3,8 +3,8 @@ source: src/metrics/npa.rs
 expression: metric.npa
 ---
 {
-  "classes": 4,
-  "interfaces": 0,
+  "class_npa_sum": 4,
+  "interface_npa_sum": 0,
   "class_attributes": 5,
   "interface_attributes": 0,
   "class_cda": 0.8,

@@ -186,8 +186,8 @@ class NomDict(TypedDict):
 class NpaDict(TypedDict):
     """Number-of-public-attributes metric block."""
 
-    classes: int
-    interfaces: int
+    class_npa_sum: int
+    interface_npa_sum: int
     class_attributes: int
     interface_attributes: int
     class_cda: float | None
@@ -200,8 +200,8 @@ class NpaDict(TypedDict):
 class NpmDict(TypedDict):
     """Number-of-public-methods metric block."""
 
-    classes: int
-    interfaces: int
+    class_npm_sum: int
+    interface_npm_sum: int
     class_methods: int
     interface_methods: int
     class_coa: float | None
@@ -215,28 +215,26 @@ class TokensDict(TypedDict):
     """Token-count metric block."""
 
     tokens: int
-    tokens_average: float | None
-    tokens_min: int
-    tokens_max: int
+    average: float | None
+    min: int
+    max: int
 
 
 class WmcDict(TypedDict):
     """Weighted-methods-per-class metric block."""
 
-    classes: int
-    interfaces: int
+    class_wmc_sum: int
+    interface_wmc_sum: int
     total: int
 
 
 class VcsDict(TypedDict):
     """Change-history (VCS) metric block; present only under `vcs=True` / `vcs_per_function=True`.
-    `hotspot_score` and `author_ids` are elided when unavailable.
+    Always-slim (issue #635): the constant `*_version` / `*_window_days` stamps live once on the
+    `vcs_metrics()` / `vcs_trend()` envelope, not on each block. `hotspot_score` and
+    `author_ids` are elided when unavailable.
     """
 
-    vcs_schema_version: int
-    risk_score_version: int
-    long_window_days: int
-    recent_window_days: int
     commits_long: int
     commits_recent: int
     churn_long: int

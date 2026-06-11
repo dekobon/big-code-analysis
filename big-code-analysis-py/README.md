@@ -352,11 +352,12 @@ as the CLI's CSV writer (`cyclomatic.modified.sum`,
 the CLI's `CSV_HEADER` set; the identity columns do not — CSV uses
 `space_name` / `space_kind` and has no `parent_name` / `depth`,
 while flat records use `name` / `kind` and add the parent / depth
-pair. One metric also diverges: `tokens.*` flattens to the JSON
-shape (`tokens.tokens`, `tokens.tokens_average`,
-`tokens.tokens_min`, `tokens.tokens_max`), while CSV_HEADER renames
-those columns to `tokens.sum` / `.average` / `.min` / `.max`.
-Rename in the consumer if you need exact CSV alignment.
+pair. One metric leaf also diverges: `tokens.*` flattens to the JSON
+shape (`tokens.tokens`, `tokens.average`, `tokens.min`,
+`tokens.max`); only the sum leaf differs from CSV_HEADER, which
+spells it `tokens.sum`, while the `average` / `min` / `max` leaves
+now match (#590). Rename the sum leaf in the consumer if you need
+exact CSV alignment.
 
 ```python
 import sqlite3

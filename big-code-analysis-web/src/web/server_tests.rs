@@ -610,12 +610,12 @@ async fn test_web_metrics_json() {
                                             "volume": 4.754_887_502_163_468},
                                "loc": {"cloc": 1, "ploc": 2, "lloc": 1, "sloc": 4, "blank": 1, "cloc_average": 0.5, "ploc_average": 1.0, "lloc_average": 0.5, "sloc_average": 2.0, "blank_average": 0.5, "cloc_min": 0, "ploc_min": 2, "lloc_min": 1, "sloc_min": 2, "blank_min": 0, "cloc_max": 1, "ploc_max": 2, "lloc_max": 1, "sloc_max": 4, "blank_max": 1},
                                "nom": {"functions": 1, "closures": 0, "functions_average": 0.5, "closures_average": 0.0, "total": 1, "average": 0.5, "closures_min": 0, "closures_max": 0, "functions_min": 0, "functions_max": 1},
-                               "tokens": {"tokens": 6, "tokens_average": 3.0, "tokens_min": 0, "tokens_max": 6},
+                               "tokens": {"tokens": 6, "average": 3.0, "min": 0, "max": 6},
                                "mi": {"original": 139.974_331_558_152_1,
                                       "sei": 176.151_664_509_301_33,
                                       "visual_studio": 81.856_334_244_533_39},
                                "abc": {"assignments": 0, "branches": 0, "conditions": 0, "magnitude": 0.0, "assignments_average": 0.0, "branches_average": 0.0, "conditions_average": 0.0, "assignments_min": 0, "assignments_max": 0, "branches_min": 0, "branches_max": 0, "conditions_min": 0, "conditions_max": 0},
-                               "wmc": {"classes": 0, "interfaces": 0, "total": 0}},
+                               "wmc": {"class_wmc_sum": 0, "interface_wmc_sum": 0, "total": 0}},
                    "name": "test.py",
                    "spaces": [{"kind": "function",
                                "start_line": 3,
@@ -640,7 +640,7 @@ async fn test_web_metrics_json() {
                                                         "volume": 4.754_887_502_163_468},
                                            "loc": {"cloc": 0, "ploc": 2, "lloc": 1, "sloc": 2, "blank": 0, "cloc_average": 0.0, "ploc_average": 2.0, "lloc_average": 1.0, "sloc_average": 2.0, "blank_average": 0.0, "cloc_min": 0, "ploc_min": 2, "lloc_min": 1, "sloc_min": 2, "blank_min": 0, "cloc_max": 0, "ploc_max": 2, "lloc_max": 1, "sloc_max": 2, "blank_max": 0},
                                            "nom": {"functions": 1, "closures": 0, "functions_average": 1.0, "closures_average": 0.0, "total": 1, "average": 1.0, "closures_min": 0, "closures_max": 0, "functions_min": 1, "functions_max": 1},
-                                           "tokens": {"tokens": 6, "tokens_average": 6.0, "tokens_min": 6, "tokens_max": 6},
+                                           "tokens": {"tokens": 6, "average": 6.0, "min": 6, "max": 6},
                                            "mi": {"original": 151.433_315_883_223_23,
                                                   "sei": 142.873_061_717_489_78,
                                                   "visual_studio": 88.557_494_668_551_6},
@@ -699,12 +699,12 @@ async fn test_web_metrics_json_unit() {
                                             "volume": 4.754_887_502_163_468},
                                "loc": {"cloc": 0, "ploc": 2, "lloc": 1, "sloc": 2, "blank": 0, "cloc_average": 0.0, "ploc_average": 1.0, "lloc_average": 0.5, "sloc_average": 1.0, "blank_average": 0.0, "cloc_min": 0, "ploc_min": 2, "lloc_min": 1, "sloc_min": 2, "blank_min": 0, "cloc_max": 0, "ploc_max": 2, "lloc_max": 1, "sloc_max": 2, "blank_max": 0},
                                "nom": {"functions": 1, "closures": 0, "functions_average": 0.5, "closures_average": 0.0, "total": 1, "average": 0.5, "closures_min": 0, "closures_max": 0, "functions_min": 0, "functions_max": 1},
-                               "tokens": {"tokens": 6, "tokens_average": 3.0, "tokens_min": 0, "tokens_max": 6},
+                               "tokens": {"tokens": 6, "average": 3.0, "min": 0, "max": 6},
                                "mi": {"original": 151.203_315_883_223_2,
                                       "sei": 142.643_061_717_489_76,
                                       "visual_studio": 88.422_991_744_574_97},
                                "abc": {"assignments": 0, "branches": 0, "conditions": 0, "magnitude": 0.0, "assignments_average": 0.0, "branches_average": 0.0, "conditions_average": 0.0, "assignments_min": 0, "assignments_max": 0, "branches_min": 0, "branches_max": 0, "conditions_min": 0, "conditions_max": 0},
-                               "wmc": {"classes": 0, "interfaces": 0, "total": 0}},
+                               "wmc": {"class_wmc_sum": 0, "interface_wmc_sum": 0, "total": 0}},
                    "name": "test.py",
                    "spaces": []}
     });
@@ -801,12 +801,12 @@ async fn test_web_metrics_plain() {
                                             "volume": 4.754_887_502_163_468},
                                "loc": {"cloc": 0, "ploc": 2, "lloc": 1, "sloc": 2, "blank": 0, "cloc_average": 0.0, "ploc_average": 1.0, "lloc_average": 0.5, "sloc_average": 1.0, "blank_average": 0.0, "cloc_min": 0, "ploc_min": 2, "lloc_min": 1, "sloc_min": 2, "blank_min": 0, "cloc_max": 0, "ploc_max": 2, "lloc_max": 1, "sloc_max": 2, "blank_max": 0},
                                "nom": {"functions": 1, "closures": 0, "functions_average": 0.5, "closures_average": 0.0, "total": 1, "average": 0.5, "closures_min": 0, "closures_max": 0, "functions_min": 0, "functions_max": 1},
-                               "tokens": {"tokens": 6, "tokens_average": 3.0, "tokens_min": 0, "tokens_max": 6},
+                               "tokens": {"tokens": 6, "average": 3.0, "min": 0, "max": 6},
                                "mi": {"original": 151.203_315_883_223_2,
                                       "sei": 142.643_061_717_489_76,
                                       "visual_studio": 88.422_991_744_574_97},
                                "abc": {"assignments": 0, "branches": 0, "conditions": 0, "magnitude": 0.0, "assignments_average": 0.0, "branches_average": 0.0, "conditions_average": 0.0, "assignments_min": 0, "assignments_max": 0, "branches_min": 0, "branches_max": 0, "conditions_min": 0, "conditions_max": 0},
-                               "wmc": {"classes": 0, "interfaces": 0, "total": 0}},
+                               "wmc": {"class_wmc_sum": 0, "interface_wmc_sum": 0, "total": 0}},
                    "name": "test.py",
                    "spaces": [{"kind": "function",
                                "start_line": 1,
@@ -831,7 +831,7 @@ async fn test_web_metrics_plain() {
                                                         "volume": 4.754_887_502_163_468},
                                            "loc": {"cloc": 0, "ploc": 2, "lloc": 1, "sloc": 2, "blank": 0, "cloc_average": 0.0, "ploc_average": 2.0, "lloc_average": 1.0, "sloc_average": 2.0, "blank_average": 0.0, "cloc_min": 0, "ploc_min": 2, "lloc_min": 1, "sloc_min": 2, "blank_min": 0, "cloc_max": 0, "ploc_max": 2, "lloc_max": 1, "sloc_max": 2, "blank_max": 0},
                                            "nom": {"functions": 1, "closures": 0, "functions_average": 1.0, "closures_average": 0.0, "total": 1, "average": 1.0, "closures_min": 0, "closures_max": 0, "functions_min": 1, "functions_max": 1},
-                                           "tokens": {"tokens": 6, "tokens_average": 6.0, "tokens_min": 6, "tokens_max": 6},
+                                           "tokens": {"tokens": 6, "average": 6.0, "min": 6, "max": 6},
                                            "mi": {"original": 151.433_315_883_223_23,
                                                   "sei": 142.873_061_717_489_78,
                                                   "visual_studio": 88.557_494_668_551_6},
@@ -2577,13 +2577,32 @@ async fn test_web_vcs_ranks_files() {
     let res: Value = test::call_and_read_body_json(&app, req).await;
     assert_eq!(res["id"], "req-1");
     assert_eq!(res["long_window_days"], 365);
+    // The four constant stamps live once on the envelope (#635) and are
+    // never repeated on a row.
+    assert_eq!(res["recent_window_days"], 90);
+    assert!(res["vcs_schema_version"].is_number());
+    assert!(res["risk_score_version"].is_number());
     let files = res["files"].as_array().expect("files array");
     let work = files
         .iter()
         .find(|f| f["path"] == "work.rs")
         .expect("work.rs ranked");
-    assert_eq!(work["commits_long"], 1);
-    assert_eq!(work["commits_recent"], 1);
+    // The per-file metrics sit under a nested `vcs` key (#684), not
+    // flattened beside `path`.
+    let work_vcs = &work["vcs"];
+    assert_eq!(work_vcs["commits_long"], 1);
+    assert_eq!(work_vcs["commits_recent"], 1);
+    for constant in [
+        "vcs_schema_version",
+        "risk_score_version",
+        "long_window_days",
+        "recent_window_days",
+    ] {
+        assert!(
+            work.get(constant).is_none() && work_vcs.get(constant).is_none(),
+            "constant `{constant}` must not be duplicated per row (#635)"
+        );
+    }
     // The bus-factor aggregate ships alongside the ranked files (#332):
     // one solo author over one file ⇒ repo bus factor 1.
     let bus_factor = &res["vcs_aggregate"]["bus_factor"];

@@ -349,8 +349,10 @@ def vcs_metrics(
     is any path inside the working tree. Returns a ``dict`` with
     ``long_window_days``, ``recent_window_days``, ``risk_score_version``,
     ``vcs_schema_version``, ``truncated_shallow_clone``, and a ``files``
-    list of per-file metric dicts (path plus the flat ``vcs`` fields)
-    ranked by descending ``risk_score``.
+    list of per-file dicts — each carrying ``path`` plus a nested ``vcs``
+    block (issue #684) — ranked by descending ``vcs.risk_score``. The
+    constant ``*_version`` / window stamps sit once at the top level, not
+    inside each row (issue #635).
 
     Windows accept ``12mo`` / ``2y`` / ``8w`` / ``90d`` or ISO 8601
     (``P1Y``). ``risk_formula`` is ``"weighted"`` (default) or
@@ -414,8 +416,11 @@ def vcs_trend(
     ``truncated_shallow_clone``, ``as_of_points`` (sample timestamps,
     oldest-first), a ``files`` map from path to a point array aligned to
     ``as_of_points`` (a ``None`` element marks a point where the file did
-    not exist), and a ``deltas`` summary splitting the most-``improved``
-    and most-``regressed`` files by ``risk_score``.
+    not exist; a present point is ``{"as_of": ..., "vcs": {...}}`` with
+    the metrics nested under ``vcs`` — issue #684), and a ``deltas``
+    summary splitting the most-``improved`` and most-``regressed`` files
+    by ``risk_score``. The constant ``*_version`` / window stamps sit once
+    at the top level, never per point (issue #635).
 
     Each point re-anchors at the mainline tip of that moment, so it is a
     faithful historical snapshot rather than today's tree windowed

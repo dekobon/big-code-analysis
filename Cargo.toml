@@ -159,6 +159,12 @@ serde.workspace = true
 # serialized and read back through `wire` (#532) round-trips losslessly
 # (the default parser can be off by 1 ULP). Parse-only: serialized output
 # is unchanged, so no snapshot churn.
+#
+# `preserve_order` is deliberately NOT enabled: it would flip every
+# `Value::Object` workspace-wide to insertion order, perturbing the frozen
+# code-climate / SARIF fingerprint contracts (#559). The text metric dump
+# (#674) therefore renders fields in serde_json's default sorted-key order,
+# which is deterministic and gives the uniform field set #674 requires.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 # Pinned to match the version already locked transitively via grammar
 # crates (Cargo.lock). Used by the GitLab Code Climate writer to

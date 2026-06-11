@@ -2005,8 +2005,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 8,
-                  "interfaces": 0,
+                  "class_npa_sum": 8,
+                  "interface_npa_sum": 0,
                   "class_attributes": 16,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2048,8 +2048,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 20,
-                  "interfaces": 0,
+                  "class_npa_sum": 20,
+                  "interface_npa_sum": 0,
                   "class_attributes": 40,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2091,8 +2091,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 20,
-                  "interfaces": 0,
+                  "class_npa_sum": 20,
+                  "interface_npa_sum": 0,
                   "class_attributes": 40,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2134,8 +2134,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 20,
-                  "interfaces": 0,
+                  "class_npa_sum": 20,
+                  "interface_npa_sum": 0,
                   "class_attributes": 40,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2173,8 +2173,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 12,
-                  "interfaces": 0,
+                  "class_npa_sum": 12,
+                  "interface_npa_sum": 0,
                   "class_attributes": 24,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2463,8 +2463,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 9,
-                  "interfaces": 0,
+                  "class_npa_sum": 9,
+                  "interface_npa_sum": 0,
                   "class_attributes": 18,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2506,8 +2506,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 10,
-                  "interfaces": 0,
+                  "class_npa_sum": 10,
+                  "interface_npa_sum": 0,
                   "class_attributes": 16,
                   "interface_attributes": 0,
                   "class_cda": 0.625,
@@ -2541,8 +2541,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npa_sum": 3,
+                  "interface_npa_sum": 0,
                   "class_attributes": 6,
                   "interface_attributes": 0,
                   "class_cda": 0.5,
@@ -2575,8 +2575,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npa_sum": 3,
+                  "interface_npa_sum": 0,
                   "class_attributes": 3,
                   "interface_attributes": 0,
                   "class_cda": 1.0,
@@ -2614,8 +2614,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npa_sum": 3,
+                  "interface_npa_sum": 0,
                   "class_attributes": 3,
                   "interface_attributes": 0,
                   "class_cda": 1.0,
@@ -2656,8 +2656,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 3,
-                  "interfaces": 0,
+                  "class_npa_sum": 3,
+                  "interface_npa_sum": 0,
                   "class_attributes": 5,
                   "interface_attributes": 0,
                   "class_cda": 0.6,
@@ -2686,8 +2686,8 @@ mod tests {
                     metric.npa,
                     @r#"
                 {
-                  "classes": 0,
-                  "interfaces": 3,
+                  "class_npa_sum": 0,
+                  "interface_npa_sum": 3,
                   "class_attributes": 0,
                   "interface_attributes": 3,
                   "class_cda": 0.0,
