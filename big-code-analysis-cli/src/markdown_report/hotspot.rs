@@ -491,19 +491,27 @@ pub(crate) fn cc_note_caption(policy: SuppressionPolicy) -> Option<&'static str>
 
 /// Logical (unescaped) lead-in for the Actionable Summary, captioning it as a
 /// raw whole-codebase roll-up that — unlike the hotspot tables — counts
-/// functions regardless of suppression policy (issue #501, #616). `suppressed`
-/// is the number of functions carrying a marker (see
-/// [`suppressed_func_count`]); when it is `0` the parenthetical is dropped.
+/// functions regardless of suppression policy (issue #501, #616).
+///
+/// `breakdown` is the per-metric suppressed-function tally from
+/// [`suppressed_metric_breakdown`] (table order, nonzero only). When it is
+/// empty the parenthetical is dropped; otherwise each metric is listed with
+/// its own count (e.g. `halstead: 6,431, cognitive: 4`) so a single noisy
+/// metric does not read as a blanket silencing of the codebase (issue #672).
 /// Both renderers feed the result through their own escaper.
-pub(crate) fn actionable_summary_caption(suppressed: usize) -> Cow<'static, str> {
-    if suppressed == 0 {
-        Cow::Borrowed("Raw counts across all functions, ignoring suppression markers.")
-    } else {
-        Cow::Owned(format!(
-            "Raw counts across all functions, including {suppressed} suppressed \
-             (re-run with --no-suppress to list them)."
-        ))
+pub(crate) fn actionable_summary_caption(breakdown: &[(Metric, usize)]) -> Cow<'static, str> {
+    if breakdown.is_empty() {
+        return Cow::Borrowed("Raw counts across all functions, ignoring suppression markers.");
     }
+    let parts: Vec<String> = breakdown
+        .iter()
+        .map(|(metric, count)| format!("{metric}: {}", crate::markdown_report::thousands(*count)))
+        .collect();
+    Cow::Owned(format!(
+        "Raw counts across all functions; the hotspot tables hide suppressed \
+         rows ({}) — re-run with --no-suppress to list them.",
+        parts.join(", ")
+    ))
 }
 
 /// Logical (unescaped) caption emitted in place of a hotspot table that was
@@ -720,19 +728,41 @@ pub(crate) fn fully_suppressed_count(
     }
 }
 
-/// Number of distinct functions in `funcs` carrying *any* suppression marker
-/// under `policy` — the "N suppressed" figure the raw Actionable Summary
-/// cites so a reader can reconcile its counts against the suppression-filtered
-/// hotspot tables. `0` under [`SuppressionPolicy::Ignore`], since
-/// `--no-suppress` honors no markers.
-pub(crate) fn suppressed_func_count(
+/// Per-metric tally of how many functions each function-level hotspot table
+/// actually hides under `policy`, in [`SPECS`] (table) order — the breakdown
+/// the raw Actionable Summary cites so a reader can reconcile its counts
+/// against the suppression-filtered hotspot tables.
+///
+/// Each entry counts the functions a given table suppresses (the
+/// table's `keep` filter combined with [`FunctionSummary::is_hidden_for`]
+/// for its `metric_kind`), which is what that table genuinely omits —
+/// including file-level `suppress-file(<metric>, …)` markers folded into
+/// each function's scope. Counting per metric rather than per-function-any-
+/// metric stops a single noisy metric (e.g. a blanket Halstead suppression)
+/// from reading as if the whole codebase were silenced (issue #672).
+///
+/// Only metrics with a nonzero count appear. File-level (`Source::Units`)
+/// tables such as MI are skipped: `funcs` carries no unit spaces, so they
+/// would always tally zero. Returns an empty `Vec` under
+/// [`SuppressionPolicy::Ignore`], since `--no-suppress` honors no markers.
+pub(crate) fn suppressed_metric_breakdown(
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
-) -> usize {
+) -> Vec<(Metric, usize)> {
     if matches!(policy, SuppressionPolicy::Ignore) {
-        return 0;
+        return Vec::new();
     }
-    funcs.iter().filter(|s| !s.suppressed.is_empty()).count()
+    SPECS
+        .iter()
+        .filter(|spec| !matches!(spec.source, Source::Units))
+        .filter_map(|spec| {
+            let hidden = funcs
+                .iter()
+                .filter(|s| (spec.keep)(s) && s.is_hidden_for(spec.metric_kind, policy))
+                .count();
+            (hidden > 0).then_some((spec.metric_kind, hidden))
+        })
+        .collect()
 }
 
 /// Like [`select`] but also returns the cyclomatic stats over the FULL
@@ -855,6 +885,108 @@ mod tests {
             "suppressed function dropped from the CC table"
         );
         assert_eq!(rows[0].name, "process_request", "highest CC first");
+    }
+
+    /// A file-level `suppress-file(halstead, …)` marker folds into every
+    /// function's scope as `Some({Halstead})`. The breakdown must report only
+    /// `halstead`, with the per-table count — not the legacy "N suppressed
+    /// across all metrics" that read as if the whole codebase were silenced
+    /// (issue #672).
+    #[test]
+    fn breakdown_isolates_single_suppressed_metric() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+
+        let mut funcs: Vec<FunctionSummary> = (0..3)
+            .map(|i| summary(&format!("f{i}"), "a.rs", i + 1, 5.0))
+            .collect();
+        for f in &mut funcs {
+            f.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Halstead]));
+        }
+        let refs: Vec<&FunctionSummary> = funcs.iter().collect();
+
+        let breakdown = suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor);
+        assert_eq!(
+            breakdown,
+            vec![(Metric::Halstead, 3)],
+            "only the halstead table hides these rows"
+        );
+
+        let caption = actionable_summary_caption(&breakdown);
+        assert!(
+            caption.contains("halstead: 3"),
+            "caption names the metric and count: {caption}"
+        );
+        assert!(
+            !caption.contains("cognitive") && !caption.contains("cyclomatic"),
+            "no metric without a suppressed row appears: {caption}"
+        );
+        assert!(
+            caption.contains("--no-suppress"),
+            "the re-run hint is retained: {caption}"
+        );
+    }
+
+    /// A function suppressing several metrics (here all of them via
+    /// `SuppressionScope::All`) lists each affected table in `SPECS` order,
+    /// so the breakdown matches exactly what each table omits (issue #672).
+    #[test]
+    fn breakdown_lists_each_suppressed_metric_in_table_order() {
+        use big_code_analysis::SuppressionScope;
+
+        let mut f = summary("blanket", "b.rs", 1, 5.0);
+        f.suppressed = SuppressionScope::All;
+        let refs = vec![&f];
+
+        let breakdown = suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor);
+        // `summary` builds a `Function` with every function-table metric > its
+        // keep threshold (nargs 5 > 3, etc.) except WMC (class-like only) and
+        // MI (unit-level, skipped). `All` covers them all, so each surviving
+        // table reports one hidden row, in `SPECS` order.
+        let kinds: Vec<Metric> = breakdown.iter().map(|(m, _)| *m).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                Metric::Cyclomatic,
+                Metric::Cognitive,
+                Metric::Halstead,
+                Metric::Loc,
+                Metric::NArgs,
+                Metric::Nexits,
+                Metric::Abc,
+            ],
+            "every function table that matches `keep` reports its hidden row, in table order"
+        );
+        assert!(breakdown.iter().all(|(_, n)| *n == 1));
+
+        let caption = actionable_summary_caption(&breakdown);
+        assert!(caption.contains("cyclomatic: 1, cognitive: 1, halstead: 1"));
+    }
+
+    /// With no markers (or under `--no-suppress`) the caption drops the
+    /// breakdown entirely and states it ignores suppression (issue #672).
+    #[test]
+    fn breakdown_empty_when_nothing_suppressed() {
+        let funcs = [summary("clean", "c.rs", 1, 5.0)];
+        let refs: Vec<&FunctionSummary> = funcs.iter().collect();
+
+        assert!(
+            suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor).is_empty(),
+            "no markers means no breakdown"
+        );
+
+        // Even a suppressed function yields an empty breakdown under Ignore.
+        let mut suppressed = summary("hidden", "c.rs", 2, 5.0);
+        suppressed.suppressed = big_code_analysis::SuppressionScope::All;
+        let with_marker = vec![&funcs[0], &suppressed];
+        let breakdown = suppressed_metric_breakdown(&with_marker, SuppressionPolicy::Ignore);
+        assert!(breakdown.is_empty(), "--no-suppress honors no markers");
+
+        let caption = actionable_summary_caption(&breakdown);
+        assert_eq!(
+            caption,
+            "Raw counts across all functions, ignoring suppression markers."
+        );
     }
 
     #[test]
