@@ -1694,10 +1694,10 @@ mod tests {
         // reconcile it against the filtered CC note (2 functions > 10 here).
         assert!(
             report.contains(
-                "Raw counts across all functions, including 1 suppressed \
-                 (re-run with --no-suppress to list them)."
+                "Raw counts across all functions; the hotspot tables hide suppressed \
+                 rows (cyclomatic: 1) — re-run with --no-suppress to list them."
             ),
-            "Actionable Summary must caption its raw population:\n{report}"
+            "Actionable Summary must caption its raw population per metric:\n{report}"
         );
         assert!(
             report.contains("**2** functions with CC > 10"),

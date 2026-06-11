@@ -37,7 +37,7 @@ path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1043.0
+value = 1175.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"

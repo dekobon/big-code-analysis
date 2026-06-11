@@ -145,11 +145,11 @@ pub(super) fn write_actionable_summary(
     );
 
     let _ = writeln!(out, "\n### Actionable Summary\n");
-    let suppressed = super::hotspot::suppressed_func_count(funcs, policy);
+    let breakdown = super::hotspot::suppressed_metric_breakdown(funcs, policy);
     let _ = writeln!(
         out,
         "{}\n",
-        super::hotspot::actionable_summary_caption(suppressed)
+        super::hotspot::actionable_summary_caption(&breakdown)
     );
     if cc_gt10 == 0 && cog_gt15 == 0 && sloc_gt100 == 0 && nargs_gt3 == 0 && bugs_gt1 == 0 {
         let _ = writeln!(out, "No major quality concerns detected.");

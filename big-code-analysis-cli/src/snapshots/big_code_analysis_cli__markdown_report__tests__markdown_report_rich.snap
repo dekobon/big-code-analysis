@@ -152,7 +152,7 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 
 ### Actionable Summary
 
-Raw counts across all functions, including 1 suppressed (re-run with --no-suppress to list them).
+Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.
 
 - **5** functions with CC > 10
 - **4** functions with cognitive complexity > 15

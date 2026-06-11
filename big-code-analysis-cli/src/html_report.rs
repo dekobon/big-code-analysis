@@ -1080,11 +1080,11 @@ fn write_actionable_summary(
         &format!("{id_prefix}-actionable-summary"),
         "Actionable Summary",
     );
-    let suppressed = hotspot::suppressed_func_count(funcs, policy);
+    let breakdown = hotspot::suppressed_metric_breakdown(funcs, policy);
     let _ = writeln!(
         out,
         "<p class=\"note\">{}</p>",
-        escape_html(&hotspot::actionable_summary_caption(suppressed))
+        escape_html(&hotspot::actionable_summary_caption(&breakdown))
     );
     if counts.all_clear() {
         let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
@@ -1883,10 +1883,10 @@ mod tests {
         );
         assert!(
             report.contains(
-                "Raw counts across all functions, including 1 suppressed \
-                 (re-run with --no-suppress to list them)."
+                "Raw counts across all functions; the hotspot tables hide suppressed \
+                 rows (cyclomatic: 1, nargs: 1) \u{2014} re-run with --no-suppress to list them."
             ),
-            "HTML Actionable Summary must caption its raw population:\n{report}"
+            "HTML Actionable Summary must caption its raw population per metric:\n{report}"
         );
         assert!(
             report.contains("table omitted: all 1 matching functions suppressed"),
