@@ -203,8 +203,10 @@ fn report_with_no_matching_files_produces_empty_summary() {
         ])
         .assert()
         .success()
-        // Global header is a two-column table (issue #671).
-        .stdout(predicate::str::contains("| Files analyzed"));
+        // Global header is a two-column table (issue #671) and, for an empty
+        // walk, its Files row reads 0 (padding-tolerant: the value column is
+        // right-aligned, so its width depends on the data).
+        .stdout(predicate::str::is_match(r"\| Files analyzed\s+\|\s+0 \|").expect("valid regex"));
 }
 
 #[test]
