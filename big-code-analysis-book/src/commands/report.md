@@ -25,13 +25,13 @@ ideal for sharing as a build artifact).
 Print to stdout:
 
 ```bash
-bca --paths /path/to/project report markdown
+bca report --paths /path/to/project markdown
 ```
 
 Write to a file:
 
 ```bash
-bca --paths /path/to/project report markdown --output report.md
+bca report --paths /path/to/project markdown --output report.md
 ```
 
 > **Note:** `--output` must be a *file* path, not a directory.
@@ -78,22 +78,22 @@ but the manifest never forces it off.
 Show only the five worst hotspots per section:
 
 ```bash
-bca -p src/ report markdown --top 5
+bca report -p src/ markdown --top 5
 ```
 
 Strip the workspace root from displayed paths:
 
 ```bash
-bca -p /home/user/project report markdown \
+bca report -p /home/user/project markdown \
     --strip-prefix /home/user/project/
 ```
 
 The user's daily-driver invocation:
 
 ```bash
-bca \
+bca report \
     --paths "$PWD" \
-    report markdown \
+    markdown \
     --top 20 \
     --strip-prefix "$PWD/"
 ```
@@ -189,8 +189,8 @@ fonts, no template engine). The page renders identically offline.
 Write it to a file and open in any browser:
 
 ```bash
-bca --paths /path/to/project \
-    report html --top 10 --output report.html
+bca report --paths /path/to/project \
+    html --top 10 --output report.html
 ```
 
 Click any column header to sort that table ascending, click again to

@@ -55,7 +55,7 @@ names match `bca list-metrics`; sub-metrics use a dotted form. `0` is a
 valid limit and means "no value permitted".
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --threshold cyclomatic=15 \
     --threshold cognitive=20 \
     --threshold loc.lloc=200
@@ -86,7 +86,7 @@ override the manifest for the same metric name, so you can keep a
 project-wide default and tighten a single metric for a specific run:
 
 ```bash
-bca --paths src/ check --config bca.toml
+bca check --paths src/ --config bca.toml
 ```
 
 ### Accepted metric names
@@ -136,7 +136,7 @@ cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
 ```
 
 ```bash
-bca --paths src/ check --tier soft
+bca check --paths src/ --tier soft
 ```
 
 The soft tier resolves in a fixed order:
@@ -266,7 +266,7 @@ and applies the baseline filter to whatever remains.
 ### Writing a baseline
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --write-baseline .bca-baseline.toml
 ```
 
@@ -309,7 +309,7 @@ record every violation (CI-auditor flow).
 ### Reading a baseline
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --baseline .bca-baseline.toml
 ```
 
@@ -360,7 +360,7 @@ behavior `--report-only` or `--soft-fail`; here the flag is spelled
 `--no-fail`.
 
 ```bash
-bca --paths src/ check --no-fail
+bca check --paths src/ --no-fail
 ```
 
 ## Actionable failure output
@@ -427,7 +427,7 @@ annotation while you reduce the count, swap in `--no-fail`:
 ```yaml
 - name: Surface complexity hot spots (non-blocking)
   run: |
-    bca --paths src/ check --no-fail
+    bca check --paths src/ --no-fail
 ```
 
 ## Exporting offender records
@@ -466,7 +466,7 @@ unchanged.
 ### Checkstyle (CI integration)
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --threshold cyclomatic=15 \
     --format checkstyle \
     --output report.checkstyle.xml
@@ -481,7 +481,7 @@ Generation" / "Generic Issue" importers consume directly.
 ### SARIF (GitHub Code Scanning)
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --threshold cyclomatic=15 \
     --format sarif \
     --output report.sarif.json
@@ -507,7 +507,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run big-code-analysis
         run: |
-          bca --paths . check \
+          bca check --paths . \
               --format sarif \
               --output report.sarif.json \
               --no-fail
@@ -524,7 +524,7 @@ fail the workflow.
 ### GitLab Code Quality (Code Climate JSON)
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --threshold cyclomatic=15 \
     --format code-climate \
     --output gl-code-quality-report.json
@@ -551,7 +551,7 @@ To wire the artifact into GitLab's MR Code Quality widget:
 code_quality:
   stage: quality
   script:
-    - bca --paths "$CI_PROJECT_DIR" check
+    - bca check --paths "$CI_PROJECT_DIR"
           --format code-climate
           --output gl-code-quality-report.json
           --no-fail
@@ -575,7 +575,7 @@ regression to fail the pipeline.
 ### Clang/GCC warning lines (editor quickfix and CI annotators)
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --threshold cyclomatic=15 \
     --format clang-warning \
     --output report.txt
@@ -608,7 +608,7 @@ jobs:
         run: echo "::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json"
       - name: Run big-code-analysis
         run: |
-          bca --paths . check \
+          bca check --paths . \
               --format clang-warning \
               --no-fail
 ```
@@ -620,7 +620,7 @@ workflow commands.
 ### MSVC warning lines (Visual Studio and Windows CI)
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --threshold cyclomatic=15 \
     --format msvc-warning \
     --output report.txt

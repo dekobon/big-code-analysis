@@ -119,6 +119,11 @@ fn normalize_text_format_collapses_text_to_none() {
     // a structured value passes through untouched while `Text` becomes
     // `None`.
     let mut explicit_text = StructuredArgs {
+        positional: PositionalPaths::default(),
+        selection: WalkSelectionArgs::default(),
+        tuning: WalkTuningArgs::default(),
+        preproc: PreprocConsumeArgs::default(),
+        out: OutputArgs::default(),
         output_format: Some(MetricsFormat::Text),
         output: None,
         pretty: false,
@@ -127,6 +132,11 @@ fn normalize_text_format_collapses_text_to_none() {
     assert_eq!(explicit_text.output_format, None);
 
     let mut json = StructuredArgs {
+        positional: PositionalPaths::default(),
+        selection: WalkSelectionArgs::default(),
+        tuning: WalkTuningArgs::default(),
+        preproc: PreprocConsumeArgs::default(),
+        out: OutputArgs::default(),
         output_format: Some(MetricsFormat::Json),
         output: None,
         pretty: false,
@@ -139,15 +149,25 @@ fn normalize_text_format_collapses_text_to_none() {
 // `--warnings`, keeping the old spellings as hidden aliases for one
 // release cycle. Inspect the parsed global fields so a regression that
 // drops either the new canonical long or the deprecated alias is caught.
+// Assemble the runtime `GlobalOpts` from a parsed invocation. The walk /
+// tuning / preproc / output flags are now per-subcommand groups (#597),
+// so `--jobs` / `--language` / `--paths` must follow the subcommand
+// (`metrics --jobs 1`); the universal `-w/--warnings` still parses in
+// either position. Tests build the carrier via `metrics`' `to_globals`.
 fn parsed_globals(argv: &[&str]) -> GlobalOpts {
-    parse(argv).expect("invocation parses").globals
+    let cli = parse(argv).expect("invocation parses");
+    match &cli.command {
+        Command::Metrics(args) => args.to_globals(&cli.universal),
+        other => panic!("expected Command::Metrics, got {other:?}"),
+    }
 }
 
 #[test]
 fn jobs_canonical_and_alias_parse_identically() {
-    let canonical = parsed_globals(&["--jobs", "1", "metrics"]).num_jobs;
-    let alias = parsed_globals(&["--num-jobs", "1", "metrics"]).num_jobs;
-    let short = parsed_globals(&["-j", "1", "metrics"]).num_jobs;
+    // `--jobs` is now scoped to the subcommand (#597), so it follows it.
+    let canonical = parsed_globals(&["metrics", "--jobs", "1"]).num_jobs;
+    let alias = parsed_globals(&["metrics", "--num-jobs", "1"]).num_jobs;
+    let short = parsed_globals(&["metrics", "-j", "1"]).num_jobs;
     let expected = NumJobs::Explicit(NonZeroUsize::new(1).expect("1 is non-zero"));
     assert_eq!(canonical, expected);
     assert_eq!(alias, expected);
@@ -156,6 +176,8 @@ fn jobs_canonical_and_alias_parse_identically() {
 
 #[test]
 fn warnings_canonical_and_alias_parse_identically() {
+    // `-w/--warnings` stays universal (`global = true`), so it parses
+    // before or after the subcommand.
     assert!(parsed_globals(&["--warnings", "metrics"]).warning);
     assert!(parsed_globals(&["--warning", "metrics"]).warning);
     assert!(parsed_globals(&["-w", "metrics"]).warning);
@@ -665,14 +687,20 @@ fn dump_parses() {
 
 #[test]
 fn find_requires_a_node() {
+    // Node kinds moved to a repeatable `-t`/`--type` flag (#651); a bare
+    // `find` with no `-t` is a usage error.
     assert!(parse(&["find"]).is_err());
-    assert!(parse(&["find", "call_expression"]).is_ok());
+    assert!(parse(&["find", "-t", "call_expression"]).is_ok());
+    assert!(parse(&["find", "--type", "call_expression"]).is_ok());
+    // Repeatable: several `-t` flags select several node kinds.
+    assert!(parse(&["find", "-t", "call_expression", "-t", "if_statement"]).is_ok());
 }
 
 #[test]
 fn count_requires_a_node() {
     assert!(parse(&["count"]).is_err());
-    assert!(parse(&["count", "if_statement"]).is_ok());
+    assert!(parse(&["count", "-t", "if_statement"]).is_ok());
+    assert!(parse(&["count", "-t", "if_statement", "-t", "for_statement"]).is_ok());
 }
 
 #[test]
@@ -712,10 +740,31 @@ fn list_metrics_invalid_mode_rejected() {
     assert!(parse(&["list-metrics", "bogus"]).is_err());
 }
 
+// `--paths` is scoped to the walking subcommands (#597), and input
+// paths are also accepted positionally (#651). The pre-2.0 form that put
+// `--paths` *before* the subcommand no longer parses — a deliberate
+// break.
 #[test]
-fn global_paths_works_before_or_after_subcommand() {
-    assert!(parse(&["--paths", "x", "metrics"]).is_ok());
+fn paths_flag_and_positional_work_after_subcommand() {
     assert!(parse(&["metrics", "--paths", "x"]).is_ok());
+    assert!(parse(&["metrics", "-p", "x"]).is_ok());
+    assert!(parse(&["metrics", "x"]).is_ok());
+    assert!(parse(&["metrics", "x", "y"]).is_ok());
+    // Positional and `--paths` unioned on one invocation.
+    assert!(parse(&["metrics", "x", "--paths", "y"]).is_ok());
+}
+
+#[test]
+fn paths_flag_before_subcommand_is_rejected() {
+    assert!(parse(&["--paths", "x", "metrics"]).is_err());
+    assert!(parse(&["-p", "x", "metrics"]).is_err());
+}
+
+#[test]
+fn positional_and_paths_flag_union() {
+    // `bca metrics a --paths b` must walk both seeds, positional first.
+    let globals = parsed_globals(&["metrics", "a", "--paths", "b"]);
+    assert_eq!(globals.paths, vec![PathBuf::from("a"), PathBuf::from("b")]);
 }
 
 fn os_args(args: &[&str]) -> Vec<OsString> {
@@ -1106,22 +1155,23 @@ fn num_jobs_auto_resolves_to_at_least_one() {
 
 #[test]
 fn cli_parses_num_jobs_auto() {
-    let cli = parse(&["--num-jobs", "auto", "metrics"]).unwrap();
-    assert_eq!(cli.globals.num_jobs, NumJobs::Auto);
+    assert_eq!(
+        parsed_globals(&["metrics", "--num-jobs", "auto"]).num_jobs,
+        NumJobs::Auto
+    );
 }
 
 #[test]
 fn cli_parses_num_jobs_integer() {
-    let cli = parse(&["--num-jobs", "8", "metrics"]).unwrap();
     assert_eq!(
-        cli.globals.num_jobs,
+        parsed_globals(&["metrics", "--num-jobs", "8"]).num_jobs,
         NumJobs::Explicit(NonZeroUsize::new(8).unwrap())
     );
 }
 
 #[test]
 fn cli_rejects_num_jobs_zero() {
-    let err = parse(&["--num-jobs", "0", "metrics"]).unwrap_err();
+    let err = parse(&["metrics", "--num-jobs", "0"]).unwrap_err();
     let rendered = err.to_string();
     assert!(
         rendered.contains(">= 1"),
@@ -1131,8 +1181,7 @@ fn cli_rejects_num_jobs_zero() {
 
 #[test]
 fn cli_default_num_jobs_is_auto() {
-    let cli = parse(&["metrics"]).unwrap();
-    assert_eq!(cli.globals.num_jobs, NumJobs::Auto);
+    assert_eq!(parsed_globals(&["metrics"]).num_jobs, NumJobs::Auto);
 }
 
 // Issue #518 scoped the line-range flags off `global` onto the `dump`
@@ -1142,7 +1191,7 @@ fn cli_default_num_jobs_is_auto() {
 // wrong field or drops an alias is caught.
 fn dump_line_range(argv: &[&str]) -> (Option<usize>, Option<usize>) {
     match parse(argv).expect("dump invocation parses").command {
-        Command::Dump(line) => (line.line_start, line.line_end),
+        Command::Dump(args) => (args.line.line_start, args.line.line_end),
         other => panic!("expected Command::Dump, got {other:?}"),
     }
 }
@@ -1175,11 +1224,12 @@ fn find_accepts_canonical_line_range_flags() {
     assert_eq!(
         find_line_range(&[
             "find",
+            "-t",
+            "identifier",
             "--line-start",
             "42",
             "--line-end",
             "88",
-            "identifier"
         ]),
         (Some(42), Some(88))
     );
@@ -1188,7 +1238,7 @@ fn find_accepts_canonical_line_range_flags() {
 #[test]
 fn find_accepts_deprecated_short_line_range_aliases() {
     assert_eq!(
-        find_line_range(&["find", "--ls", "42", "identifier"]),
+        find_line_range(&["find", "-t", "identifier", "--ls", "42"]),
         (Some(42), None)
     );
 }
@@ -1208,9 +1258,9 @@ fn metrics_rejects_line_range_flags() {
 
 #[test]
 fn count_rejects_line_range_flags() {
-    // `find` and `count` share `NodesArgs`; only `find` gained the
-    // range, so `count` must still reject it.
-    assert!(parse(&["count", "--line-start", "5", "identifier"]).is_err());
+    // `find` and `count` share the `-t`/`--type` node selection; only
+    // `find` gained the range, so `count` must still reject it.
+    assert!(parse(&["count", "-t", "identifier", "--line-start", "5"]).is_err());
 }
 
 // The pre-#518 documented form put the flag *before* the subcommand
@@ -1228,14 +1278,26 @@ fn line_range_flag_before_subcommand_is_rejected() {
 // drops the alias or rewires the field is caught.
 #[test]
 fn language_flag_parses_under_new_and_legacy_spellings() {
-    let canonical = parse(&["--language", "rust", "metrics"]).expect("--language parses");
-    assert_eq!(canonical.globals.language.as_deref(), Some("rust"));
-
-    let short = parse(&["-l", "rust", "metrics"]).expect("-l parses");
-    assert_eq!(short.globals.language.as_deref(), Some("rust"));
-
-    let alias = parse(&["--language-type", "rust", "metrics"]).expect("alias parses");
-    assert_eq!(alias.globals.language.as_deref(), Some("rust"));
+    // `--language` is now scoped to the walking subcommands (#597), so it
+    // follows the subcommand.
+    assert_eq!(
+        parsed_globals(&["metrics", "--language", "rust"])
+            .language
+            .as_deref(),
+        Some("rust")
+    );
+    assert_eq!(
+        parsed_globals(&["metrics", "-l", "rust"])
+            .language
+            .as_deref(),
+        Some("rust")
+    );
+    assert_eq!(
+        parsed_globals(&["metrics", "--language-type", "rust"])
+            .language
+            .as_deref(),
+        Some("rust")
+    );
 }
 
 // Issue #595: `resolve_language` must accept both a canonical language

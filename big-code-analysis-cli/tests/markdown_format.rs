@@ -39,7 +39,7 @@ fn report_defaults_to_markdown_format() {
     // Issue #513: `bca report` with no format selector now defaults to
     // the markdown report rather than erroring on a missing positional.
     cli()
-        .args(["--paths", &fixture_path(), "report"])
+        .args(["report", "--paths", &fixture_path()])
         .assert()
         .success()
         .stdout(predicate::str::contains("# Code Quality Metrics Summary"));
@@ -50,7 +50,7 @@ fn report_canonical_format_flag_selects_markdown() {
     // The canonical `--format` spelling (issue #513) selects the same
     // markdown report the legacy positional did.
     cli()
-        .args(["--paths", &fixture_path(), "report", "--format", "markdown"])
+        .args(["report", "--paths", &fixture_path(), "--format", "markdown"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# Code Quality Metrics Summary"));
@@ -62,9 +62,9 @@ fn report_top_zero_shows_all() {
     // a valid "show every row" request, and the MI title says "all".
     cli()
         .args([
+            "report",
             "--paths",
             &fixture_path(),
-            "report",
             "markdown",
             "--top",
             "0",
@@ -81,9 +81,9 @@ fn report_output_must_not_be_directory() {
     let dir = TempDir::new().unwrap();
     cli()
         .args([
+            "report",
             "--paths",
             &fixture_path(),
-            "report",
             "markdown",
             "--output",
             dir.path().to_str().unwrap(),
@@ -99,9 +99,9 @@ fn report_output_must_not_be_directory() {
 fn report_output_parent_must_exist() {
     cli()
         .args([
+            "report",
             "--paths",
             &fixture_path(),
-            "report",
             "markdown",
             "--output",
             "/tmp/nonexistent_dir_12345/report.md",
@@ -116,7 +116,7 @@ fn report_output_parent_must_exist() {
 #[test]
 fn report_markdown_to_stdout() {
     cli()
-        .args(["--paths", &fixture_path(), "report", "markdown"])
+        .args(["report", "--paths", &fixture_path(), "markdown"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# Code Quality Metrics Summary"))
@@ -132,9 +132,9 @@ fn report_markdown_to_file() {
     let out = dir.path().join("report.md");
     cli()
         .args([
+            "report",
             "--paths",
             &fixture_path(),
-            "report",
             "markdown",
             "--output",
             out.to_str().unwrap(),
@@ -160,7 +160,7 @@ fn report_markdown_to_file() {
 #[test]
 fn report_collects_nonzero_summaries() {
     let output = cli()
-        .args(["--paths", &fixture_path(), "report", "markdown"])
+        .args(["report", "--paths", &fixture_path(), "markdown"])
         .output()
         .expect("run bca report");
     assert!(output.status.success(), "report should succeed");
@@ -195,10 +195,10 @@ fn report_with_no_matching_files_produces_empty_summary() {
     let empty = TempDir::new().expect("tempdir");
     cli()
         .args([
+            "report",
             "--no-config",
             "--paths",
             empty.path().to_str().expect("utf-8"),
-            "report",
             "markdown",
         ])
         .assert()
@@ -215,7 +215,7 @@ fn report_is_deterministic_across_runs() {
     let outputs: Vec<Vec<u8>> = (0..5)
         .map(|_| {
             cli()
-                .args(["--paths", &fp, "report", "markdown"])
+                .args(["report", "--paths", &fp, "markdown"])
                 .output()
                 .unwrap()
                 .stdout
@@ -230,7 +230,7 @@ fn report_is_deterministic_across_runs() {
 #[test]
 fn metrics_cbor_without_output_rejects_cleanly() {
     cli()
-        .args(["--paths", &fixture_path(), "metrics", "-O", "cbor"])
+        .args(["metrics", "--paths", &fixture_path(), "-O", "cbor"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -241,7 +241,7 @@ fn metrics_cbor_without_output_rejects_cleanly() {
 #[test]
 fn report_renders_nonzero_tokens_for_real_file() {
     let output = cli()
-        .args(["--paths", &fixture_path(), "report", "markdown"])
+        .args(["report", "--paths", &fixture_path(), "markdown"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -291,9 +291,9 @@ fn report_strip_prefix_removes_path_prefix() {
     };
     let output = cli()
         .args([
+            "report",
             "--paths",
             &fp,
-            "report",
             "markdown",
             "--strip-prefix",
             prefix,

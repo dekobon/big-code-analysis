@@ -82,7 +82,7 @@ fn suppression_marker_silences_violation_by_default() {
     let path = write_fixture(&dir, "branchy.rs", SUPPRESSED_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -97,9 +97,9 @@ fn no_suppress_flag_re_enables_violation() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--no-suppress",
@@ -119,7 +119,7 @@ fn lizard_compat_marker_silences_violation() {
     let path = write_fixture(&dir, "branchy.rs", LIZARD_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -134,7 +134,7 @@ fn file_scoped_marker_silences_nested_function_violation() {
     let path = write_fixture(&dir, "branchy.rs", FILE_SUPPRESSED_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -178,7 +178,7 @@ fn legacy_allow_marker_does_not_suppress() {
     let path = write_fixture(&dir, "branchy.rs", LEGACY_ALLOW_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("classify"))
@@ -197,7 +197,7 @@ fn unsuppressed_metric_still_violates() {
     let path = write_fixture(&dir, "branchy.rs", SUPPRESSED_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cognitive=0"])
+        .args(["check", "--paths", &path, "--threshold", "cognitive=0"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("cognitive"));

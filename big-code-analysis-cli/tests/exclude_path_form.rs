@@ -83,6 +83,7 @@ fn walked_with_seed(fixture: &Path, cwd: &Path, seed: &str) -> Vec<String> {
     cli(fixture)
         .current_dir(cwd)
         .args([
+            "metrics",
             "--paths",
             seed,
             "--exclude-from",
@@ -90,7 +91,6 @@ fn walked_with_seed(fixture: &Path, cwd: &Path, seed: &str) -> Vec<String> {
             // absolutely so the form under test is the *walk seed*,
             // not the exclude-file path.
             fixture.join(".bcaignore").to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",

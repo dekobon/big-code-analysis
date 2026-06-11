@@ -27,16 +27,16 @@ verb has its own scoped flag set.
 | `--metrics -O checkstyle/sarif/code-climate/clang-warning/msvc-warning` | `check --threshold ... --format <fmt> [--output FILE]` |
 | `--ops -O ...` | `ops -O ...` |
 | `--dump` | `dump` |
-| `--find <NODE>` | `find <NODE> [<NODE>...]` |
-| `--count <LIST>` | `count <NODE> [<NODE>...]` |
+| `--find <NODE>` | `find -t <NODE> [-t <NODE>...]` |
+| `--count <LIST>` | `count -t <NODE> [-t <NODE>...]` |
 | `--function` | `functions` |
 | `--comments [--in-place]` | `strip-comments [--in-place]` |
 | `--preproc <FILE> <FILE>...` (producer) | `preproc -o <OUT>` |
-| `--preproc <FILE>` (consumer) | `--preproc-data <FILE>` (global) |
+| `--preproc <FILE>` (consumer) | `--preproc-data <FILE>` (per subcommand, after the verb) |
 | `--list-metrics [MODE]` | `list-metrics [MODE]` |
 | `--pr` (pretty) | `--pretty` (on `metrics` and `ops`) |
 | `--ls`, `--le` (global) | `--line-start`, `--line-end` on `dump`/`find` (`--ls`/`--le` kept as deprecated aliases) |
-| `-p`, `-I`, `-X`, `-j`, `-l`, `-w` | unchanged; global |
+| `-p`, `-I`, `-X`, `-j`, `-l` | scoped to the subcommand; pass them *after* the verb (`-w` stays universal) |
 
 ## Side-by-side examples
 
@@ -54,8 +54,9 @@ big-code-analysis-cli \
 
 # NEW
 bca \
+    report \
     --paths "$PWD" \
-    report markdown \
+    markdown \
     --top 20 \
     --strip-prefix "$PWD/"
 ```
@@ -67,31 +68,31 @@ bca \
 big-code-analysis-cli --metrics --paths ./src --output-format json --output ./out/
 
 # NEW
-bca --paths ./src metrics -O json --output ./out/
+bca metrics --paths ./src -O json --output ./out/
 ```
 
 ### Per-file ops extraction
 
 ```bash
 # OLD: big-code-analysis-cli --ops --paths ./src -O json -o ./out/
-# NEW: bca --paths ./src ops -O json -o ./out/
+# NEW: bca ops --paths ./src -O json -o ./out/
 ```
 
 ### AST dump
 
 ```bash
 # OLD: big-code-analysis-cli --dump --paths ./file.rs
-# NEW: bca --paths ./file.rs dump
+# NEW: bca dump --paths ./file.rs
 ```
 
 ### Find / count nodes
 
 ```bash
 # OLD: big-code-analysis-cli --find call_expression --paths ./src
-# NEW: bca --paths ./src find call_expression
+# NEW: bca find --paths ./src -t call_expression
 
 # OLD: big-code-analysis-cli --count if_statement,for_statement --paths ./src
-# NEW: bca --paths ./src count if_statement for_statement
+# NEW: bca count --paths ./src -t if_statement -t for_statement
 ```
 
 > Note: `count` now takes one node type per positional argument (space
@@ -101,14 +102,14 @@ bca --paths ./src metrics -O json --output ./out/
 
 ```bash
 # OLD: big-code-analysis-cli --function --paths ./src
-# NEW: bca --paths ./src functions
+# NEW: bca functions --paths ./src
 ```
 
 ### Strip comments
 
 ```bash
 # OLD: big-code-analysis-cli --comments --in-place --paths ./src
-# NEW: bca --paths ./src strip-comments --in-place
+# NEW: bca strip-comments --paths ./src --in-place
 ```
 
 ### Preproc data — producer
@@ -119,7 +120,7 @@ big-code-analysis-cli --metrics --preproc a.h --preproc b.h \
     --paths ./src -o /tmp/p.json
 
 # NEW
-bca --paths ./src preproc -o /tmp/p.json
+bca preproc --paths ./src -o /tmp/p.json
 ```
 
 ### Preproc data — consumer
@@ -130,8 +131,8 @@ big-code-analysis-cli --metrics --preproc /tmp/p.json \
     --paths ./src -O json -o ./out/
 
 # NEW
-bca --paths ./src --preproc-data /tmp/p.json \
-    metrics -O json -o ./out/
+bca metrics --paths ./src --preproc-data /tmp/p.json \
+    -O json -o ./out/
 ```
 
 ### List metrics

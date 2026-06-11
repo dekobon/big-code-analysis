@@ -32,9 +32,9 @@ fn metrics_writes_per_file_json_to_output_dir() {
     let dir = TempDir::new().unwrap();
     cli()
         .args([
+            "metrics",
             "--paths",
             &fixture_path(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -63,9 +63,9 @@ fn metrics_pretty_emits_indented_json() {
     let dir = TempDir::new().unwrap();
     cli()
         .args([
+            "metrics",
             "--paths",
             &fixture_path(),
-            "metrics",
             "-O",
             "json",
             "--pretty",
@@ -87,9 +87,9 @@ fn ops_writes_per_file_json_to_output_dir() {
     let dir = TempDir::new().unwrap();
     cli()
         .args([
+            "ops",
             "--paths",
             &fixture_path(),
-            "ops",
             "-O",
             "json",
             "-o",
@@ -114,7 +114,7 @@ fn ops_writes_per_file_json_to_output_dir() {
 #[test]
 fn dump_prints_ast_to_stdout() {
     cli()
-        .args(["--paths", &fixture_path(), "dump"])
+        .args(["dump", "--paths", &fixture_path()])
         .assert()
         .success()
         // The Python file declares functions; the AST dump should
@@ -127,7 +127,7 @@ fn dump_prints_ast_to_stdout() {
 #[test]
 fn functions_lists_function_spans() {
     cli()
-        .args(["--paths", &fixture_path(), "functions"])
+        .args(["functions", "--paths", &fixture_path()])
         .assert()
         .success()
         // The fixture contains `read_csvs`, `absolutify`, and `main`.
@@ -138,7 +138,7 @@ fn functions_lists_function_spans() {
 #[test]
 fn find_locates_call_expressions() {
     cli()
-        .args(["--paths", &fixture_path(), "find", "call"])
+        .args(["find", "--paths", &fixture_path(), "-t", "call"])
         .assert()
         .success()
         // `find` emits matches with the node-kind label `{call:<id>}`.
@@ -151,7 +151,13 @@ fn find_locates_call_expressions() {
 #[test]
 fn count_reports_node_counts() {
     cli()
-        .args(["--paths", &fixture_path(), "count", "function_definition"])
+        .args([
+            "count",
+            "--paths",
+            &fixture_path(),
+            "-t",
+            "function_definition",
+        ])
         .assert()
         .success()
         // Count emits a "Total nodes / Found nodes / Percentage" report.
@@ -167,7 +173,7 @@ fn strip_comments_writes_to_stdout_without_comments() {
     let src = dir.path().join("snippet.py");
     std::fs::write(&src, "# this is a comment\nx = 1\n").unwrap();
     cli()
-        .args(["--paths", src.to_str().unwrap(), "strip-comments"])
+        .args(["strip-comments", "--paths", src.to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicate::str::contains("x = 1"))
@@ -184,9 +190,9 @@ fn strip_comments_output_flag_writes_to_file() {
     std::fs::write(&src, "# this is a comment\nx = 1\n").unwrap();
     cli()
         .args([
+            "strip-comments",
             "--paths",
             src.to_str().unwrap(),
-            "strip-comments",
             "--output",
             out.to_str().unwrap(),
         ])
@@ -223,9 +229,9 @@ fn strip_comments_output_conflicts_with_in_place() {
     std::fs::write(&src, "# c\nx = 1\n").unwrap();
     cli()
         .args([
+            "strip-comments",
             "--paths",
             src.to_str().unwrap(),
-            "strip-comments",
             "--in-place",
             "--output",
             dir.path().join("out.py").to_str().unwrap(),
@@ -247,9 +253,9 @@ fn strip_comments_output_rejects_multi_file_input() {
     let out = dir.path().join("stripped.py");
     cli()
         .args([
+            "strip-comments",
             "--paths",
             dir.path().to_str().unwrap(),
-            "strip-comments",
             "--output",
             out.to_str().unwrap(),
         ])
@@ -274,7 +280,7 @@ fn preproc_emits_json_to_stdout_without_output() {
     std::fs::write(&src, "no preproc here\n").unwrap();
 
     let output = cli()
-        .args(["--paths", src.to_str().unwrap(), "preproc"])
+        .args(["preproc", "--paths", src.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(output.status.success(), "preproc should succeed");
@@ -292,9 +298,9 @@ fn preproc_writes_json_to_output_file() {
 
     cli()
         .args([
+            "preproc",
             "--paths",
             src.to_str().unwrap(),
-            "preproc",
             "-o",
             out.to_str().unwrap(),
         ])
@@ -332,7 +338,7 @@ fn preproc_resolves_cross_file_include_across_directory() {
     std::fs::write(&helper_h, "#define HELPER 42\n").unwrap();
 
     let output = cli()
-        .args(["--paths", dir.path().to_str().unwrap(), "preproc"])
+        .args(["preproc", "--paths", dir.path().to_str().unwrap()])
         .output()
         .unwrap();
     assert!(output.status.success(), "preproc should succeed");
@@ -407,11 +413,11 @@ fn force_language_by_name_analyzes_extensionless_file() {
 
     let output = cli()
         .args([
+            "metrics",
             "--paths",
             file.to_str().unwrap(),
             "-l",
             "rust",
-            "metrics",
             "-O",
             "json",
         ])
@@ -443,11 +449,11 @@ fn force_language_by_extension_still_works() {
 
     cli()
         .args([
+            "metrics",
             "--paths",
             file.to_str().unwrap(),
             "-l",
             "rs",
-            "metrics",
             "-O",
             "json",
         ])
@@ -466,7 +472,7 @@ fn unknown_language_value_exits_one_and_lists_valid_values() {
     std::fs::write(&file, b"fn main() {}\n").unwrap();
 
     cli()
-        .args(["--paths", file.to_str().unwrap(), "-l", "bogus", "metrics"])
+        .args(["metrics", "--paths", file.to_str().unwrap(), "-l", "bogus"])
         .assert()
         .failure()
         .code(1)

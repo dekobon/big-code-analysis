@@ -44,9 +44,9 @@ fn run_json(dir: &TempDir, extra: &[&str]) -> Value {
     let assert = {
         let mut cmd = cli();
         cmd.args([
+            "exemptions",
             "--paths",
             dir.path().to_str().unwrap(),
-            "exemptions",
             "--format",
             "json",
         ]);
@@ -177,7 +177,7 @@ fn manifest_check_keys_drive_audit() {
     let mut cmd = cli();
     cmd.current_dir(dir.path());
     let assert = cmd
-        .args(["--paths", ".", "exemptions", "--format", "json"])
+        .args(["exemptions", "--paths", ".", "--format", "json"])
         .assert()
         .success();
     let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
@@ -216,9 +216,9 @@ fn default_baseline_file_is_audited_when_present() {
     cmd.current_dir(dir.path());
     let assert = cmd
         .args([
+            "exemptions",
             "--paths",
             ".",
-            "exemptions",
             "--format",
             "json",
             "--only-baseline",
@@ -292,9 +292,9 @@ fn section_only_flags_are_mutually_exclusive() {
     let dir = marker_fixture();
     cli()
         .args([
+            "exemptions",
             "--paths",
             dir.path().to_str().unwrap(),
-            "exemptions",
             "--markers-only",
             "--baseline-only",
         ])
@@ -311,9 +311,9 @@ fn canonical_and_alias_section_flags_conflict() {
     let dir = marker_fixture();
     cli()
         .args([
+            "exemptions",
             "--paths",
             dir.path().to_str().unwrap(),
-            "exemptions",
             "--markers-only",
             "--only-baseline",
         ])
@@ -355,7 +355,7 @@ fn old_only_spellings_are_hidden_from_help() {
 fn always_exits_zero_even_with_markers_present() {
     let dir = marker_fixture();
     cli()
-        .args(["--paths", dir.path().to_str().unwrap(), "exemptions"])
+        .args(["exemptions", "--paths", dir.path().to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicate::str::contains("parse_long"));
@@ -366,7 +366,7 @@ fn always_exits_zero_even_with_markers_present() {
 fn tty_format_renders_section_headers() {
     let dir = marker_fixture();
     cli()
-        .args(["--paths", dir.path().to_str().unwrap(), "exemptions"])
+        .args(["exemptions", "--paths", dir.path().to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicate::str::contains("# In-source markers ("))
@@ -380,9 +380,9 @@ fn missing_explicit_baseline_is_an_error() {
     let dir = marker_fixture();
     cli()
         .args([
+            "exemptions",
             "--paths",
             dir.path().to_str().unwrap(),
-            "exemptions",
             "--only-baseline",
             "--baseline",
             dir.path().join("does-not-exist.toml").to_str().unwrap(),
@@ -405,7 +405,7 @@ fn format_text_and_tty_alias_render_human_report() {
     let dir = marker_fixture();
     let path = dir.path().to_str().unwrap();
     let default_out = cli()
-        .args(["--paths", path, "exemptions"])
+        .args(["exemptions", "--paths", path])
         .assert()
         .success()
         .get_output()
@@ -413,7 +413,7 @@ fn format_text_and_tty_alias_render_human_report() {
         .clone();
     for value in ["text", "tty"] {
         let out = cli()
-            .args(["--paths", path, "exemptions", "--format", value])
+            .args(["exemptions", "--paths", path, "--format", value])
             .assert()
             .success()
             .get_output()

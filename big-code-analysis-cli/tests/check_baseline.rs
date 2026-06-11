@@ -91,9 +91,9 @@ fn write_baseline_then_recheck_exits_clean() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -105,9 +105,9 @@ fn write_baseline_then_recheck_exits_clean() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -167,9 +167,9 @@ fn write_baseline_bare_without_manifest_baseline_errors() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -188,9 +188,9 @@ fn regressed_function_fails_even_when_baselined() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -205,9 +205,9 @@ fn regressed_function_fails_even_when_baselined() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -227,9 +227,9 @@ fn new_offender_fails_even_with_baseline() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -243,9 +243,9 @@ fn new_offender_fails_even_with_baseline() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             new_src.as_str(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -266,9 +266,9 @@ fn improved_function_still_passes() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -282,9 +282,9 @@ fn improved_function_still_passes() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -308,9 +308,9 @@ fn moved_function_still_covered_after_line_drift() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -327,9 +327,9 @@ fn moved_function_still_covered_after_line_drift() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -370,9 +370,9 @@ fn same_named_methods_on_different_impls_match_independently() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -397,9 +397,9 @@ fn same_named_methods_on_different_impls_match_independently() {
     // Re-check unchanged: both are covered, gate passes clean.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -442,10 +442,10 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     // own thresholds / exclude_from into this fully-explicit run.
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -465,10 +465,10 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     // Default tolerance (50) absorbs the small drift → both covered.
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -482,10 +482,10 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     // surface as new. Proves the flag value reaches the matcher.
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline-line-tolerance",
@@ -510,9 +510,9 @@ fn fuzzy_match_covers_renamed_function() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline-fuzzy-match",
@@ -534,9 +534,9 @@ fn fuzzy_match_covers_renamed_function() {
     // offender and the gate fails.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -549,9 +549,9 @@ fn fuzzy_match_covers_renamed_function() {
     // With fuzzy: the body hash matches, so it stays covered.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline-fuzzy-match",
@@ -589,9 +589,9 @@ pub fn classify(n: i32) -> &'static str {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -631,9 +631,9 @@ pub fn classify(n: i32) -> &'static str {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--no-suppress",
@@ -654,9 +654,9 @@ fn baseline_and_write_baseline_conflict_at_arg_parse() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -676,9 +676,9 @@ fn write_baseline_conflicts_with_output_format() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output-format",
@@ -698,9 +698,9 @@ fn write_baseline_conflicts_with_output() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output",
@@ -722,9 +722,9 @@ fn missing_baseline_file_fails_with_exit_1() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -744,9 +744,9 @@ fn malformed_baseline_toml_fails_with_exit_1() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -766,9 +766,9 @@ fn higher_version_baseline_fails_with_helpful_message() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -788,9 +788,9 @@ fn empty_baseline_file_fails_with_missing_version() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -811,9 +811,9 @@ fn no_fail_overrides_baseline_fail() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -826,9 +826,9 @@ fn no_fail_overrides_baseline_fail() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -859,9 +859,9 @@ fn stale_baseline_entries_do_not_cover_unrelated_violations() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -888,9 +888,9 @@ fn write_baseline_byte_equal_across_two_runs() {
     for out in [&baseline_a, &baseline_b] {
         cli(dir.path())
             .args([
+                "check",
                 "--paths",
                 &src,
-                "check",
                 "--threshold",
                 "cyclomatic=1",
                 "--write-baseline",
@@ -916,9 +916,9 @@ fn filter_emits_summary_when_any_filtered() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -929,9 +929,9 @@ fn filter_emits_summary_when_any_filtered() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -952,9 +952,9 @@ fn write_baseline_creates_parent_directory() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -982,9 +982,9 @@ fn top_level_file_metric_baselined() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "loc.sloc=1",
             "--write-baseline",
@@ -1005,9 +1005,9 @@ fn top_level_file_metric_baselined() {
     // other entry.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "loc.sloc=1",
             "--baseline",
@@ -1031,9 +1031,9 @@ fn write_baseline_with_no_matching_files_fails_with_exit_1() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             empty.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1057,9 +1057,9 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=10",
             "--write-baseline",
@@ -1089,9 +1089,9 @@ fn regressed_violation_carries_tag_prefix() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1104,9 +1104,9 @@ fn regressed_violation_carries_tag_prefix() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             src_path.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -1127,9 +1127,9 @@ fn new_violation_carries_new_tag() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1142,9 +1142,9 @@ fn new_violation_carries_new_tag() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             new_src.as_str(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -1168,10 +1168,10 @@ fn no_baseline_emits_unprefixed_lines() {
     // would otherwise tag this run's violations with `[new]`.
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
         ])
@@ -1203,9 +1203,9 @@ fn write_baseline_byte_equal_across_paths_forms() {
     // Form A: --paths . (relative to CWD = tempdir).
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             ".",
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1217,9 +1217,9 @@ fn write_baseline_byte_equal_across_paths_forms() {
     // Form B: --paths /abs/tempdir (absolute).
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &abs_paths,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1256,9 +1256,9 @@ fn check_baseline_matches_across_paths_forms() {
     // Write with --paths "." (relative).
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             ".",
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -1272,9 +1272,9 @@ fn check_baseline_matches_across_paths_forms() {
     // mismatch and the gate would re-fail on every offender.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &abs_paths,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -1314,9 +1314,9 @@ fn legacy_v2_baseline_migrates_dot_prefix() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             ".",
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -1340,9 +1340,9 @@ fn soft_write_baseline_stamps_tier_and_headroom() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--tier",
             "soft",
             "--headroom",
@@ -1372,9 +1372,9 @@ fn hard_check_reading_soft_baseline_is_silent() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--tier",
             "soft",
             "--headroom",
@@ -1389,9 +1389,9 @@ fn hard_check_reading_soft_baseline_is_silent() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -1412,9 +1412,9 @@ fn stricter_check_reading_looser_baseline_warns() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--tier",
             "soft",
             "--headroom",
@@ -1429,9 +1429,9 @@ fn stricter_check_reading_looser_baseline_warns() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--tier",
             "soft",
             "--headroom",

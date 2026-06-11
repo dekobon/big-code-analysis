@@ -67,7 +67,7 @@ fn default_mode_exits_two_on_violation() {
     let src = write_branchy(&dir, 5);
 
     cli(dir.path())
-        .args(["--paths", &src, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &src, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2);
 }
@@ -87,9 +87,9 @@ fn default_mode_collapses_regression_to_two() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -102,9 +102,9 @@ fn default_mode_collapses_regression_to_two() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -121,9 +121,9 @@ fn strict_clean_exits_zero() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=100",
             "--strict-exit-codes",
@@ -139,9 +139,9 @@ fn no_fail_overrides_strict_exit_codes() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--strict-exit-codes",
@@ -161,9 +161,9 @@ fn strict_new_only_exits_two() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--strict-exit-codes",
@@ -182,9 +182,9 @@ fn strict_regression_only_exits_three() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -199,9 +199,9 @@ fn strict_regression_only_exits_three() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -222,9 +222,9 @@ fn strict_mixed_exits_four() {
     // Baseline captures only file a.rs (cyclomatic 5).
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--write-baseline",
@@ -239,9 +239,9 @@ fn strict_mixed_exits_four() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--baseline",
@@ -263,9 +263,9 @@ fn strict_hard_breach_under_soft_tier_exits_five() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--config",
             config.to_str().unwrap(),
             "--tier",
@@ -287,9 +287,9 @@ fn strict_soft_encroachment_exits_two_not_five() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &src,
-            "check",
             "--config",
             config.to_str().unwrap(),
             "--tier",
@@ -318,7 +318,7 @@ fn metrics_clean_run_exits_zero() {
     let src = write_branchy(&dir, 5);
 
     cli(dir.path())
-        .args(["--paths", &src, "metrics"])
+        .args(["metrics", "--paths", &src])
         .assert()
         .code(0);
 }
@@ -331,11 +331,11 @@ fn tool_error_exits_one_not_metric_signal() {
     let (dir, mut cmd) = common::cli_hermetic();
 
     cmd.args([
+        "metrics",
         "-I",
         "[",
         "--paths",
         dir.path().to_str().unwrap(),
-        "metrics",
     ])
     .assert()
     .code(1)
@@ -390,7 +390,7 @@ fn malformed_threshold_value_exits_one_not_gate() {
     // under any default limit, so a silently-ignored bad value would exit
     // 0 — pinning the stderr makes the wrong-reason path observable.
     cli(dir.path())
-        .args(["--paths", &src, "check", "--threshold", "cyclomatic=abc"])
+        .args(["check", "--paths", &src, "--threshold", "cyclomatic=abc"])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("invalid value 'cyclomatic=abc'"));

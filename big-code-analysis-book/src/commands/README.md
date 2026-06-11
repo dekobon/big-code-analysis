@@ -60,6 +60,45 @@ errors — usage errors included, so a typo'd flag never lands in the
 gate band — CI can always distinguish "the gate found a regression"
 (`2`–`5`) from "the tool itself crashed" (`1`).
 
+## Flag placement and input paths
+
+Every subcommand reads the input it analyzes as a trailing positional
+path, so the common case reads like every other code tool
+(`tokei`, `cloc`, `scc`, `rg`):
+
+```bash
+bca metrics src/            # analyze the src/ tree
+bca check src/ tests/       # gate two subtrees
+bca find -t function_item . # find every function in the current tree
+```
+
+Flags are **scoped to the subcommand that consumes them** and must be
+written **after** the subcommand token:
+
+```bash
+bca metrics --exclude '*.generated.rs' src/   # correct
+bca --exclude '*.generated.rs' metrics src/   # ERROR (exit 1)
+```
+
+Only `-w` / `--warnings` and `--report-skipped` are universal and accepted
+in any position. Every input-selection flag (`-p` / `--paths`, `-I` /
+`--include`, `-X` / `--exclude`, `-l` / `--language`, `--paths-from`,
+`--exclude-from`, `--no-ignore`, `--no-skip-generated`, `--no-config`),
+walker-tuning flag (`-j` / `--jobs`, `--exclude-tests`,
+`--no-cyclomatic-try`), the preprocessor flag (`--preproc-data`), and the
+output flag (`--color`) lives in a help-grouped section
+(*Input selection* / *Walker tuning* / *Preprocessor* / *Output*) on the
+subcommands that read it. A flag passed to a subcommand that never
+consumed it is a hard usage error (exit 1) rather than a silent no-op — so
+`bca vcs commit --exclude-tests` and `bca list-metrics --paths` both
+error, and `bca list-metrics --help` does not advertise walker flags.
+
+The `-p` / `--paths` flag still works and is **unioned** with the
+positional paths, so `bca metrics a.rs --paths b.rs` walks both. The
+[`find`](nodes.md) and [`count`](nodes.md) subcommands take their node
+kinds via a repeatable `-t` / `--type` flag (so the positional slot is
+free for paths): `bca find -t function_item -t struct_item src/`.
+
 ## Metrics
 
 Metrics provide quantitative measures about source code, which can help in:
@@ -138,7 +177,7 @@ following are skipped before parsing:
 - The global gitignore (`~/.config/git/ignore`, or whatever
   `core.excludesFile` points at).
 - `.gitignore` files in ancestor directories of the seed (so
-  `bca --paths src/` from a project root picks up the project's
+  `bca metrics src/` from a project root picks up the project's
   top-level `.gitignore`).
 
 The walker honors `.gitignore` even outside a checked-in git

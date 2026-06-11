@@ -307,7 +307,7 @@ BCA_BASE_ARGS := --paths $(BCA_PATHS) --exclude-from $(BCA_EXCLUDE_FROM)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."
-	@$(BCA) $(BCA_BASE_ARGS) check \
+	@$(BCA) check $(BCA_BASE_ARGS) \
 	  --config $(BCA_THRESHOLDS) \
 	  --baseline $(BCA_BASELINE)
 
@@ -318,14 +318,14 @@ self-scan:
 # offender comparison — no helper script, no second TOML file.
 self-scan-headroom: self-scan
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$(BCA_HEADROOM))..."
-	@$(BCA) $(BCA_BASE_ARGS) check \
+	@$(BCA) check $(BCA_BASE_ARGS) \
 	  --config $(BCA_THRESHOLDS) \
 	  --headroom $(BCA_HEADROOM) \
 	  --baseline $(BCA_BASELINE)
 
 self-scan-write-baseline:
 	@echo "Refreshing $(BCA_BASELINE) at hard thresholds..."
-	@$(BCA) $(BCA_BASE_ARGS) check \
+	@$(BCA) check $(BCA_BASE_ARGS) \
 	  --config $(BCA_THRESHOLDS) \
 	  --write-baseline $(BCA_BASELINE)
 
@@ -337,7 +337,7 @@ self-scan-write-baseline:
 # Run them sequentially (hard first, then soft) and commit the diff.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing $(BCA_BASELINE) at soft thresholds (BCA_HEADROOM=$(BCA_HEADROOM))..."
-	@$(BCA) $(BCA_BASE_ARGS) check \
+	@$(BCA) check $(BCA_BASE_ARGS) \
 	  --config $(BCA_THRESHOLDS) \
 	  --headroom $(BCA_HEADROOM) \
 	  --write-baseline $(BCA_BASELINE)
@@ -467,22 +467,22 @@ headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
 base_args   := "--paths " + paths + " --exclude-from " + exclude
 
 self-scan:
-    {{bca}} {{base_args}} \
-        check --config {{thresholds}} --baseline {{baseline}}
+    {{bca}} check {{base_args}} \
+        --config {{thresholds}} --baseline {{baseline}}
 
 self-scan-headroom: self-scan
-    {{bca}} {{base_args}} \
-        check --config {{thresholds}} --headroom {{headroom}} --baseline {{baseline}}
+    {{bca}} check {{base_args}} \
+        --config {{thresholds}} --headroom {{headroom}} --baseline {{baseline}}
 
 self-scan-write-baseline:
-    {{bca}} {{base_args}} \
-        check --config {{thresholds}} --write-baseline {{baseline}}
+    {{bca}} check {{base_args}} \
+        --config {{thresholds}} --write-baseline {{baseline}}
 
 # Like the Make skeleton, never compose this with `self-scan-write-baseline`
 # in parallel — they race on the same {{baseline}} file.
 self-scan-write-baseline-headroom:
-    {{bca}} {{base_args}} \
-        check --config {{thresholds}} --headroom {{headroom}} --write-baseline {{baseline}}
+    {{bca}} check {{base_args}} \
+        --config {{thresholds}} --headroom {{headroom}} --write-baseline {{baseline}}
 ```
 
 ## Skeleton: `package.json` scripts
@@ -497,10 +497,10 @@ when debugging:
 ```json
 {
   "scripts": {
-    "self-scan": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
-    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
+    "self-scan": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --baseline .bca-baseline.toml",
+    "self-scan-headroom": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
+    "self-scan-write-baseline": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --write-baseline .bca-baseline.toml",
+    "self-scan-write-baseline-headroom": "bca check --paths . --exclude-from .bcaignore --config thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
   }
 }
 ```

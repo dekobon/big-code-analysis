@@ -15,10 +15,10 @@ Tree-sitter exposes a synthetic `ERROR` node anywhere it could not
 parse. Use `find` to surface them:
 
 ```bash
-bca \
+bca find \
     --include "*.rs" \
     --paths "$PWD" \
-    find ERROR
+    -t ERROR
 ```
 
 > **Flag ordering.** `--include` and `--exclude` are variadic and
@@ -31,15 +31,15 @@ fast when a syntactically broken file is staged.
 
 ## Count specific syntactic constructs
 
-`count` accepts one or more node-type names and reports the totals.
-For example, to count `if`, `for`, and `while` constructs across a
-Rust project:
+`count` takes one or more node types via the repeatable `-t`/`--type`
+flag and reports the totals. For example, to count `if`, `for`, and
+`while` constructs across a Rust project:
 
 ```bash
-bca \
+bca count \
     --include "*.rs" \
     --paths src/ \
-    count if_expression for_expression while_expression
+    -t if_expression -t for_expression -t while_expression
 ```
 
 The exact node-type names come from the underlying tree-sitter
@@ -49,10 +49,10 @@ grammar. To discover them, dump the AST of a small sample file
 ## Find all `unsafe` blocks in a Rust crate
 
 ```bash
-bca \
+bca find \
     --include "*.rs" \
     --paths src/ \
-    find unsafe_block
+    -t unsafe_block
 ```
 
 Each match prints the file path and the line range of the node.
@@ -63,7 +63,7 @@ Useful for understanding why a metric came out the way it did, or for
 discovering the tree-sitter node names you need for `find` / `count`:
 
 ```bash
-bca --paths src/lib.rs dump
+bca dump --paths src/lib.rs
 ```
 
 To narrow the dump to a specific function or block, add line bounds
@@ -71,18 +71,18 @@ with the `--line-start` and `--line-end` flags (they must follow the
 `dump` subcommand):
 
 ```bash
-bca \
+bca dump \
     --paths src/lib.rs \
-    dump --line-start 42 --line-end 88
+    --line-start 42 --line-end 88
 ```
 
 `--line-start` / `--line-end` apply to `dump` and `find`, so the same
 range can be used to scope a search to a single function:
 
 ```bash
-bca \
+bca find \
     --paths src/lib.rs \
-    find --line-start 42 --line-end 88 return_expression
+    --line-start 42 --line-end 88 -t return_expression
 ```
 
 The short `--ls` / `--le` spellings remain as deprecated aliases for one
@@ -93,10 +93,9 @@ release cycle and are slated for removal in 2.0.
 For a quick human-readable inventory:
 
 ```bash
-bca \
+bca functions \
     --include "*.rs" \
-    --paths src/ \
-    functions
+    --paths src/
 ```
 
 The output is a tree per file: an `In file …` header followed by an
@@ -109,10 +108,10 @@ output instead and walk `.spaces[]` recursively, taking entries whose
 `kind` is `function`:
 
 ```bash
-bca \
+bca metrics \
     --include "*.rs" \
     --paths src/ \
-    metrics -O json \
+    -O json \
   | jq -c '
       . as $root
       | def funcs: if .kind == "function" then [.] else [] end

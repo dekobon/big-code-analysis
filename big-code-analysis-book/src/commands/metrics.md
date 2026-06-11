@@ -16,7 +16,7 @@ or to a directory of structured files.
 To compute and display metrics for a given file or directory, run:
 
 ```bash
-bca --paths /path/to/your/file/or/directory metrics
+bca metrics --paths /path/to/your/file/or/directory
 ```
 
 - `--paths` (or `-p`): file or directory to analyze. If a directory is
@@ -57,7 +57,7 @@ new invocation.
 To export metrics as JSON files:
 
 ```bash
-bca --paths /path/to/your/file/or/directory metrics \
+bca metrics --paths /path/to/your/file/or/directory \
     -O json -o /path/to/output/directory
 ```
 
@@ -85,7 +85,7 @@ bca --paths /path/to/your/file/or/directory metrics \
 ### CSV (spreadsheets and Pandas)
 
 ```bash
-bca --paths /path/to/your/code metrics \
+bca metrics --paths /path/to/your/code \
     -O csv -o csv-output
 ```
 
@@ -108,7 +108,7 @@ quotes, or newlines round-trip cleanly.
 Stream the result to a single file with `-`:
 
 ```bash
-bca --paths /path/to/your/code metrics -O csv \
+bca metrics --paths /path/to/your/code -O csv \
     > metrics.csv
 ```
 
@@ -124,14 +124,14 @@ produces a `<input>.csv` mirror under the output directory.
 ### Pretty print
 
 ```bash
-bca --paths /path/to/your/file/or/directory metrics \
+bca metrics --paths /path/to/your/file/or/directory \
     --pretty -O json
 ```
 
 ## Excluding inline test code
 
 ```bash
-bca --paths /path/to/your/code --exclude-tests metrics
+bca metrics --paths /path/to/your/code --exclude-tests
 ```
 
 By default, every node in the AST is counted, including inline test

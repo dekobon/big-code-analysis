@@ -237,8 +237,8 @@ jobs:
       - name: Generate report
         run: |
           bca \
-            --paths "$PWD" \
             report markdown \
+            --paths "$PWD" \
             --top 20 \
             --strip-prefix "$PWD/" \
             --output report.md
@@ -262,7 +262,7 @@ at it:
 
 ```bash
 # Once, on a developer machine. Commit both files.
-bca --paths src/ check \
+bca check --paths src/ \
     --write-baseline .bca-baseline.toml
 git add bca.toml .bca-baseline.toml
 ```
@@ -288,7 +288,7 @@ deny-set covering vendored grammars, generated trees, and tests.
 ```yaml
 - name: Threshold check with baseline
   run: |
-    bca --paths src/ check \
+    bca check --paths src/ \
         --baseline .bca-baseline.toml
 ```
 
@@ -349,7 +349,7 @@ offender list. Two flags answer that:
     fetch-depth: 0
 - name: Threshold check with diff-aware footer
   run: |
-    bca --paths . --exclude-from .bcaignore check \
+    bca check --paths . --exclude-from .bcaignore \
         --baseline .bca-baseline.toml \
         --since "origin/${{ github.base_ref }}"
 ```
@@ -406,7 +406,7 @@ not shown` line so the count stays visible.
 ```yaml
 - name: Threshold check with inline annotations
   run: |
-    bca --paths . --exclude-from .bcaignore check \
+    bca check --paths . --exclude-from .bcaignore \
         --baseline .bca-baseline.toml
   # No `--github-annotations` flag needed — auto-enabled in GHA.
 ```
@@ -432,7 +432,7 @@ written by other tools earlier in the same step) is preserved.
 ```yaml
 - name: Threshold check with step-summary digest
   run: |
-    bca --paths . --exclude-from .bcaignore check \
+    bca check --paths . --exclude-from .bcaignore \
         --baseline .bca-baseline.toml
   # No flag needed — `$GITHUB_STEP_SUMMARY` is set automatically in GHA.
 ```
@@ -451,7 +451,7 @@ digest from above):
 ```text
 --- next steps ---
 * Detailed reports: bca-reports artifact at https://github.com/<owner>/<repo>/actions/runs/<run-id>
-* To refresh baseline: bca --paths . --exclude-from .bcaignore check --write-baseline .bca-baseline.toml
+* To refresh baseline: bca check --paths . --exclude-from .bcaignore --write-baseline .bca-baseline.toml
 * Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html
 ```
 
@@ -469,7 +469,7 @@ that grep-pipes stderr.
 Refresh after focused refactors:
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --write-baseline .bca-baseline.toml
 git diff .bca-baseline.toml   # expect a shrinking file
 ```
@@ -495,7 +495,7 @@ recommended invocation is:
 
 - name: Threshold gate (diff-aware + GHA UX)
   run: |
-    bca --paths . --exclude-from .bcaignore check \
+    bca check --paths . --exclude-from .bcaignore \
         --baseline .bca-baseline.toml \
         --since "origin/${{ github.base_ref }}"
   # No `--github-annotations` or `--summary-file` flag needed:
@@ -536,7 +536,7 @@ an env signal. To preview the GHA experience locally:
 ```bash
 GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=/tmp/bca-summary.md \
   BCA_DIFF_BASE=main \
-  bca --paths . --exclude-from .bcaignore check \
+  bca check --paths . --exclude-from .bcaignore \
       --baseline .bca-baseline.toml
 cat /tmp/bca-summary.md
 ```
@@ -559,13 +559,13 @@ when the count grows:
     BASE="$(git merge-base origin/main HEAD)"
     git worktree add /tmp/base "$BASE"
 
-    bca --paths /tmp/base check \
+    bca check --paths /tmp/base \
         --format checkstyle \
         --output /tmp/base.xml \
         --no-fail
     BASE_COUNT=$(grep -c "<error" /tmp/base.xml || true)
 
-    bca --paths "$PWD" check \
+    bca check --paths "$PWD" \
         --format checkstyle \
         --output /tmp/head.xml \
         --no-fail
@@ -691,26 +691,26 @@ bca-quality:
       export PATH="$HOME/.local/bin:$PATH"
   script:
     - bca
-        --paths "$PWD"
         check
+        --paths "$PWD"
         --format code-climate
         --output gl-code-quality-report.json
         --no-fail
     - bca
-        --paths "$PWD"
         check
+        --paths "$PWD"
         --format checkstyle
         --output bca-checkstyle.xml
         --no-fail
     - bca
-        --paths "$PWD"
         report markdown
+        --paths "$PWD"
         --top 20
         --strip-prefix "$PWD/"
         --output bca-report.md
     # The threshold gate runs separately so the artifacts above still
     # publish on failure. Exit 2 = at least one threshold exceeded.
-    - bca --paths "$PWD" check
+    - bca check --paths "$PWD"
   artifacts:
     when: always
     reports:
@@ -747,7 +747,7 @@ so the integration is a one-liner:
 code_quality:
   stage: quality
   script:
-    - bca --paths "$CI_PROJECT_DIR" check
+    - bca check --paths "$CI_PROJECT_DIR"
           --format code-climate
           --output gl-code-quality-report.json
           --no-fail
@@ -816,7 +816,7 @@ SonarQube (via its *Generic Issue* importer) consume Checkstyle 4.3
 XML directly. The same invocation feeds both:
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --format checkstyle \
     --output report.checkstyle.xml
 ```

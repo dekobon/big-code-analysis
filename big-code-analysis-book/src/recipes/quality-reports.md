@@ -35,9 +35,9 @@ shape.
 Run from the project root and write the report to a file:
 
 ```bash
-bca \
+bca report \
     --paths "$PWD" \
-    report markdown \
+    markdown \
     --top 20 \
     --strip-prefix "$PWD/" \
     --output report.md
@@ -59,20 +59,20 @@ bca \
 include/exclude globs do the filtering:
 
 ```bash
-bca \
+bca report \
     --include "*.rs" --include "*.py" \
     --paths "$PWD" \
-    report markdown --output report.md
+    markdown --output report.md
 ```
 
 To exclude vendored or generated trees, layer in `--exclude`:
 
 ```bash
-bca \
+bca report \
     --include "*.rs" \
     --exclude "**/target/**" --exclude "**/vendor/**" \
     --paths "$PWD" \
-    report markdown
+    markdown
 ```
 
 > **Flag arity.** `--include` and `--exclude` take exactly one glob per
@@ -85,10 +85,10 @@ repo root (a `.bcaignore` by convention) and load it with
 values; blank lines and `#`-prefixed comments are skipped:
 
 ```bash
-bca \
+bca report \
     --paths . \
     --exclude-from .bcaignore \
-    report markdown --output report.md
+    markdown --output report.md
 ```
 
 ## Show only the worst offenders
@@ -97,7 +97,7 @@ For a quick triage view that highlights the top three problems per
 section:
 
 ```bash
-bca -p src/ report markdown --top 3
+bca report -p src/ markdown --top 3
 ```
 
 The report still includes every section, but each table is short
@@ -110,10 +110,10 @@ on each side and diff the Markdown:
 
 ```bash
 git worktree add /tmp/before main
-bca -p /tmp/before report markdown \
+bca report -p /tmp/before markdown \
     --strip-prefix /tmp/before/ --output /tmp/before.md
 
-bca -p "$PWD" report markdown \
+bca report -p "$PWD" markdown \
     --strip-prefix "$PWD/" --output /tmp/after.md
 
 diff -u /tmp/before.md /tmp/after.md | less
@@ -131,16 +131,15 @@ way the compiler sees it. The workflow is two steps:
 
 ```bash
 # 1. Build a preprocessor-data JSON from the headers and sources.
-bca \
+bca preproc \
     --paths src/ include/ \
-    preproc \
     --output /tmp/preproc.json
 
 # 2. Run the report (or any other command) with that data attached.
-bca \
+bca report \
     --paths src/ \
     --preproc-data /tmp/preproc.json \
-    report markdown --output report.md
+    markdown --output report.md
 ```
 
 `--preproc-data` is a global flag, so it works with `metrics`, `ops`,
@@ -154,7 +153,7 @@ diff, not the whole tree:
 
 ```bash
 git diff --name-only --diff-filter=AM origin/main...HEAD \
-    | bca --paths-from - metrics -O json -o ./out
+    | bca metrics --paths-from - -O json -o ./out
 ```
 
 - `--diff-filter=AM` keeps Added and Modified files and drops
@@ -171,7 +170,7 @@ pipeline:
 
 ```bash
 git diff --name-only --diff-filter=AM origin/main...HEAD \
-    | bca --paths-from - report markdown \
+    | bca report --paths-from - markdown \
         --top 10 --output pr-report.md
 ```
 

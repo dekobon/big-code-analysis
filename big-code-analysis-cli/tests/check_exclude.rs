@@ -53,9 +53,9 @@ fn check_exclude_flag_drops_matching_offenders_only() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",
@@ -80,9 +80,9 @@ fn check_exclude_covering_sole_offender_exits_zero() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",
@@ -109,9 +109,9 @@ fn check_exclude_from_file_drops_matching_offenders() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude-from",
@@ -134,9 +134,9 @@ fn write_baseline_omits_excluded_files() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",
@@ -169,9 +169,9 @@ fn report_markdown_still_shows_excluded_files() {
 
     cli(dir.path())
         .args([
+            "report",
             "--paths",
             dir.path().to_str().unwrap(),
-            "report",
             "markdown",
         ])
         .assert()
@@ -242,10 +242,10 @@ fn no_config_drops_manifest_check_exclude_from_union() {
 
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",
@@ -266,9 +266,9 @@ fn print_effective_config_lists_check_exclude() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",
@@ -292,9 +292,9 @@ fn check_exclude_from_missing_file_names_the_right_flag() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude-from",
@@ -379,9 +379,9 @@ fn check_exclude_anchors_paths_from_seeds() {
 
     cli(cwd.path())
         .args([
+            "check",
             "--paths-from",
             list.to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--check-exclude",

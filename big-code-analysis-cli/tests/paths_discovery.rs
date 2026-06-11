@@ -21,9 +21,9 @@ fn cli(env_dir: &Path) -> Command {
     // walked. The runner's cwd is inside the repo, whose root `bca.toml`
     // declares `paths` and `exclude_from`; `--no-config` suppresses that
     // discovery so the manifest cannot leak extra path/exclude rules
-    // into the walk. As a global flag it must precede
-    // the subcommand, so it is injected here before any per-test `args`.
-    cmd.arg("--no-config");
+    // into the walk. As a scoped flag it must follow the subcommand, so
+    // each per-test `args` array passes it right after the subcommand
+    // token rather than injecting it here.
     cmd
 }
 
@@ -66,9 +66,10 @@ fn gitignore_skips_excluded_file_when_walking_dir() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths",
             dir.path().to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -97,9 +98,10 @@ fn gitignore_explicit_path_bypasses_ignore() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths",
             skip.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -124,10 +126,11 @@ fn no_ignore_flag_includes_gitignored_file() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--no-ignore",
             "--paths",
             dir.path().to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -158,9 +161,10 @@ fn paths_from_file_reads_paths() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths-from",
             listfile.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -192,9 +196,10 @@ fn paths_from_stdin_reads_paths() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths-from",
             "-",
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -226,11 +231,12 @@ fn paths_from_and_paths_union_both() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths",
             keep.to_str().unwrap(),
             "--paths-from",
             listfile.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -263,9 +269,10 @@ fn paths_from_file_trims_whitespace() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths-from",
             listfile.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -290,9 +297,10 @@ fn paths_from_missing_file_dies() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths-from",
             missing.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -325,9 +333,10 @@ fn paths_from_strips_utf8_bom_on_first_line() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths-from",
             listfile.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -356,7 +365,14 @@ fn no_paths_defaults_to_current_directory() {
 
     cli(dir.path())
         .current_dir(dir.path())
-        .args(["metrics", "-O", "json", "-o", out.to_str().unwrap()])
+        .args([
+            "metrics",
+            "--no-config",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -378,9 +394,10 @@ fn nonexistent_explicit_path_fails() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths",
             missing.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -403,9 +420,10 @@ fn nonexistent_paths_from_entry_fails() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths-from",
             listfile.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -429,11 +447,12 @@ fn empty_match_emits_stderr_notice() {
 
     cli(dir.path())
         .args([
+            "metrics",
+            "--no-config",
             "--paths",
             dir.path().to_str().unwrap(),
             "--include",
             "**/*.nonesuch",
-            "metrics",
             "-O",
             "json",
             "-o",

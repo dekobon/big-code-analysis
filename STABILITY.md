@@ -537,6 +537,30 @@ reach the raw tree-sitter surface.
   plumbing surface. They are not covered by any stability promise
   and may be removed or renamed in a patch bump.
 
+## CLI argument grammar
+
+The `bca` command-line grammar (subcommand names, flag spellings, and
+flag *placement*) is a CLI surface, not a library API, and is **not**
+covered by the library SemVer contract above; it evolves with the
+`big-code-analysis-cli` crate version and breaking grammar changes are
+reserved for major bumps and called out in `CHANGELOG.md`.
+
+As of `2.0`, flags are **scoped to the subcommand that consumes them**
+(#597). Only `-w`/`--warnings` and `--report-skipped` are universal and
+accepted in any position; every walk-, tuning-, preprocessor-, and
+output-specific flag (`--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,
+`--language`/`-l`, `--jobs`/`-j`, `--no-ignore`, `--exclude-tests`,
+`--no-cyclomatic-try`, `--no-config`, `--preproc-data`, `--color`,
+`--no-skip-generated`, `--paths-from`, `--exclude-from`) must follow the
+subcommand (`bca metrics --paths src`, never `bca --paths src metrics`).
+A flag passed to a subcommand that never consumed it is a hard usage
+error (exit 1), not a silent no-op — `bca vcs commit --exclude-tests`
+and `bca list-metrics --paths` both error. Input paths are also accepted
+positionally on the walking subcommands (`bca metrics src/`), unioned
+with `--paths` (#651); `bca find` / `bca count` take node kinds via a
+repeatable `-t`/`--type` flag. `--help` output is sectioned by flag group
+(Input selection / Walker tuning / Preprocessor / Output).
+
 ## CLI artifact formats
 
 The `.bca-baseline.toml` schema is a CLI artifact, not a library
