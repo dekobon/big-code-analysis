@@ -1,8 +1,8 @@
-"""Tests for ``bca.analyze_batch`` and ``bca.AnalysisError``.
+"""Tests for ``bca.analyze_batch`` and ``bca.AnalysisFailure``.
 
 Covers the issue-#266 contract: never-raise per-file semantics,
 1:1 ordering, the three documented ``error_kind`` values, generator
-input, the ``AnalysisError`` constructor's hash/equality/repr
+input, the ``AnalysisFailure`` constructor's hash/equality/repr
 behaviour, and the programmer-error surfaces that still raise.
 
 Run via::
@@ -101,7 +101,7 @@ def test_ordering_preserved_with_interleaved_failures(tmp_path: Path) -> None:
     results = bca.analyze_batch(paths)
     assert len(results) == 3
     assert isinstance(results[0], dict)
-    assert isinstance(results[1], bca.AnalysisError)
+    assert isinstance(results[1], bca.AnalysisFailure)
     assert isinstance(results[2], dict)
 
 
@@ -113,7 +113,7 @@ def test_missing_file_yields_io_error(tmp_path: Path) -> None:
     results = bca.analyze_batch([missing])
     assert len(results) == 1
     err = results[0]
-    assert isinstance(err, bca.AnalysisError)
+    assert isinstance(err, bca.AnalysisFailure)
     assert err.error_kind == "IoError"
     assert str(missing) in err.path
 
@@ -129,7 +129,7 @@ def test_unknown_extension_yields_unsupported_language(tmp_path: Path) -> None:
     bad.write_text("nothing parseable here\n")
     results = bca.analyze_batch([bad])
     err = results[0]
-    assert isinstance(err, bca.AnalysisError)
+    assert isinstance(err, bca.AnalysisFailure)
     assert err.error_kind == "UnsupportedLanguage"
 
 
@@ -137,14 +137,14 @@ def test_directory_path_yields_io_error(tmp_path: Path) -> None:
     """A path that exists but is a directory.
 
     ``std::fs::read`` returns ``EISDIR`` here, which the bridge
-    maps to ``AnalysisError::Io``; in batch that flows through to
+    maps to ``AnalysisFailure::Io``; in batch that flows through to
     ``error_kind="IoError"``. Pins the I/O arm against the
     directory case without needing to fabricate a permission
     setup that varies by CI runner.
     """
     results = bca.analyze_batch([tmp_path])
     err = results[0]
-    assert isinstance(err, bca.AnalysisError)
+    assert isinstance(err, bca.AnalysisFailure)
     assert err.error_kind == "IoError"
 
 
@@ -170,7 +170,7 @@ def test_syntactically_broken_source_yields_parse_error(tmp_path: Path) -> None:
     broken.write_bytes(b"\x00\x01\x02\x03 not even close to source")
     results = bca.analyze_batch([broken])
     err = results[0]
-    assert isinstance(err, bca.AnalysisError)
+    assert isinstance(err, bca.AnalysisFailure)
     assert err.error_kind == "ParseError"
 
 
@@ -297,39 +297,67 @@ def test_batch_does_not_raise_when_every_file_fails(tmp_path: Path) -> None:
     unknown.write_text("nothing\n")
     results = bca.analyze_batch([missing, unknown, tmp_path])
     assert len(results) == 3
-    assert all(isinstance(r, bca.AnalysisError) for r in results)
-    kinds = [r.error_kind for r in results if isinstance(r, bca.AnalysisError)]
+    assert all(isinstance(r, bca.AnalysisFailure) for r in results)
+    kinds = [r.error_kind for r in results if isinstance(r, bca.AnalysisFailure)]
     assert kinds == ["IoError", "UnsupportedLanguage", "IoError"]
 
 
-# ── AnalysisError: shape / equality / hashing ───────────────────
+# ── AnalysisFailure: shape / equality / hashing ───────────────────
 
 
 def test_analysis_error_attributes_are_readable() -> None:
-    err = bca.AnalysisError("p.py", "boom", "IoError")
+    err = bca.AnalysisFailure("p.py", "boom", "IoError")
     assert err.path == "p.py"
     assert err.error == "boom"
     assert err.error_kind == "IoError"
 
 
 def test_analysis_error_is_not_an_exception_subclass() -> None:
-    """Sanity check: ``AnalysisError`` is *returned*, never raised.
+    """Sanity check: ``AnalysisFailure`` is *returned*, never raised.
 
     Catches a regression where someone makes it inherit
     ``BaseException`` (perhaps to enable ``raise``-style use); the
     issue contract explicitly forbids that so callers do not have
     to worry about implicit exception propagation through ``raise
-    AnalysisError(...)`` typos.
+    AnalysisFailure(...)`` typos.
     """
-    err = bca.AnalysisError("p.py", "boom", "IoError")
+    err = bca.AnalysisFailure("p.py", "boom", "IoError")
     assert not isinstance(err, BaseException)
 
 
+def test_analysis_failure_class_is_not_a_base_exception_subclass() -> None:
+    """#614: the class itself (not just an instance) is not raisable.
+
+    The rename from ``AnalysisError`` exists precisely because the
+    ``…Error`` suffix made readers write ``except bca.AnalysisError:``,
+    which raises ``TypeError`` (a non-``BaseException`` class cannot be
+    caught). Pin the value-type contract under the new name at the
+    *class* level — ``issubclass(AnalysisFailure, BaseException)`` is
+    ``False`` — and confirm the misleading old name is gone.
+    """
+    assert not issubclass(bca.AnalysisFailure, BaseException)
+    assert not hasattr(bca, "AnalysisError"), (
+        "the misleading AnalysisError name must be removed at 2.0 (#614)"
+    )
+
+
+def test_analyze_batch_returns_analysis_failure_not_raises(tmp_path: Path) -> None:
+    """#614: a per-file failure is *returned* as ``AnalysisFailure``,
+    never raised — the value-type contract under the new name.
+    """
+    missing = tmp_path / "nope.rs"
+    # No raise even though the file does not exist.
+    results = bca.analyze_batch([missing])
+    assert len(results) == 1
+    assert isinstance(results[0], bca.AnalysisFailure)
+    assert results[0].error_kind == "IoError"
+
+
 def test_analysis_error_equality_by_value() -> None:
-    a = bca.AnalysisError("p.py", "msg", "IoError")
-    b = bca.AnalysisError("p.py", "msg", "IoError")
-    c = bca.AnalysisError("p.py", "msg", "ParseError")
-    d = bca.AnalysisError("q.py", "msg", "IoError")
+    a = bca.AnalysisFailure("p.py", "msg", "IoError")
+    b = bca.AnalysisFailure("p.py", "msg", "IoError")
+    c = bca.AnalysisFailure("p.py", "msg", "ParseError")
+    d = bca.AnalysisFailure("q.py", "msg", "IoError")
     assert a == b
     assert a != c
     assert a != d
@@ -339,11 +367,11 @@ def test_analysis_error_hash_matches_equality() -> None:
     """Equal errors hash equal; the contract that lets callers
     deduplicate via ``set`` / ``dict`` keys.
     """
-    a = bca.AnalysisError("p.py", "msg", "IoError")
-    b = bca.AnalysisError("p.py", "msg", "IoError")
+    a = bca.AnalysisFailure("p.py", "msg", "IoError")
+    b = bca.AnalysisFailure("p.py", "msg", "IoError")
     assert hash(a) == hash(b)
     assert len({a, b}) == 1
-    assert len({a, bca.AnalysisError("p.py", "other", "IoError")}) == 2
+    assert len({a, bca.AnalysisFailure("p.py", "other", "IoError")}) == 2
 
 
 def test_analysis_error_repr_includes_all_fields() -> None:
@@ -363,9 +391,9 @@ def test_analysis_error_repr_includes_all_fields() -> None:
     Python's ``repr`` surrounds simple strings with single quotes,
     so the expected fragment is ``path='p.py'``.
     """
-    err = bca.AnalysisError("p.py", "missing", "IoError")
+    err = bca.AnalysisFailure("p.py", "missing", "IoError")
     r = repr(err)
-    assert r.startswith("AnalysisError(")
+    assert r.startswith("AnalysisFailure(")
     assert "path='p.py'" in r
     assert "error='missing'" in r
     assert "error_kind='IoError'" in r
@@ -386,9 +414,9 @@ def test_analysis_error_rejects_unknown_kind() -> None:
     # the whole point of this test is to verify that the constructor
     # rejects values outside that set at runtime.
     with pytest.raises(ValueError):  # noqa: PT011
-        bca.AnalysisError("p.py", "msg", "NotARealKind")  # type: ignore[arg-type]
+        bca.AnalysisFailure("p.py", "msg", "NotARealKind")  # type: ignore[arg-type]
     with pytest.raises(ValueError):  # noqa: PT011
-        bca.AnalysisError("p.py", "msg", "IOError")  # type: ignore[arg-type]
+        bca.AnalysisFailure("p.py", "msg", "IOError")  # type: ignore[arg-type]
 
 
 def test_analysis_error_is_frozen() -> None:
@@ -401,7 +429,7 @@ def test_analysis_error_is_frozen() -> None:
     consistency). Cover every field so a partial-frozen regression
     can't slip past a single-attribute check.
     """
-    err = bca.AnalysisError("p.py", "msg", "IoError")
+    err = bca.AnalysisFailure("p.py", "msg", "IoError")
     for attr, value in [
         ("path", "other.py"),
         ("error", "new message"),
@@ -418,11 +446,11 @@ def test_analysis_error_accepts_keyword_arguments() -> None:
     Regression guard for the stub/runtime mismatch fixed in this
     PR — the original stub declared positional-only via ``/``
     while the Rust ``#[pyo3(signature = (...))]`` accepts kwargs,
-    so a strict-mypy caller writing ``AnalysisError(path=...,
+    so a strict-mypy caller writing ``AnalysisFailure(path=...,
     ...)`` would have failed type-check despite the runtime
     accepting it.
     """
-    err = bca.AnalysisError(path="p.py", error="boom", error_kind="IoError")
+    err = bca.AnalysisFailure(path="p.py", error="boom", error_kind="IoError")
     assert err.path == "p.py"
     assert err.error == "boom"
     assert err.error_kind == "IoError"
@@ -479,7 +507,7 @@ def test_analysis_error_round_trips_through_pickle() -> None:
     via ``__setstate__`` would still pass the round-trip
     assertion but silently weaken the closed-taxonomy contract).
     """
-    original = bca.AnalysisError("p.py", "boom", "IoError")
+    original = bca.AnalysisFailure("p.py", "boom", "IoError")
     revived = pickle.loads(pickle.dumps(original))
     assert revived == original
     assert revived.path == "p.py"
@@ -512,9 +540,9 @@ def test_analysis_error_repr_round_trips_through_eval_for_non_ascii() -> None:
     in Python — which the bare-ASCII fixtures elsewhere in this
     file do not catch.
     """
-    err = bca.AnalysisError("/tmp/\x01中.py", "boom ሴ", "IoError")
-    # ``eval`` needs ``AnalysisError`` bound in scope to reconstruct.
-    revived = eval(repr(err), {"AnalysisError": bca.AnalysisError})
+    err = bca.AnalysisFailure("/tmp/\x01中.py", "boom ሴ", "IoError")
+    # ``eval`` needs ``AnalysisFailure`` bound in scope to reconstruct.
+    revived = eval(repr(err), {"AnalysisFailure": bca.AnalysisFailure})
     assert revived == err
 
 
@@ -568,7 +596,7 @@ def test_exclude_tests_kwarg_is_effective(tmp_path: Path) -> None:
     assert isinstance(without_tests, dict)
 
     # `with_tests["spaces"]` is `list[FuncSpaceDict]` (#623); the
-    # isinstance guards above narrow the batch entries off AnalysisError.
+    # isinstance guards above narrow the batch entries off AnalysisFailure.
     with_spaces = with_tests["spaces"]
     without_spaces = without_tests["spaces"]
     assert len(without_spaces) < len(with_spaces), (

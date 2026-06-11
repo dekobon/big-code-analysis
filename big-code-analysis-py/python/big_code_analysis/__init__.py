@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import os
 
-from . import _native
+from . import _native, vcs
 from ._enums import Lang, MetricName
 from ._flatten import flatten_spaces
 from ._native import (
-    AnalysisError,
+    AnalysisFailure,
     InvalidDiffError,
     InvalidRevisionError,
     NotARepositoryError,
@@ -38,20 +38,32 @@ from ._native import (
     __version__,
     analyze,
     analyze_batch,
+    analyze_paths,
     analyze_source,
     to_sarif,
-    vcs_jit,
-    vcs_metrics,
-    vcs_trend,
 )
 from ._types import (
     AbcDict,
+    BusFactorDict,
     CodeMetricsDict,
     CognitiveDict,
     CyclomaticDict,
     CyclomaticModifiedDict,
+    DirectoryBusFactorDict,
     FuncSpaceDict,
+    GroupBusFactorDict,
     HalsteadDict,
+    JitCommitDict,
+    JitCommitReportDict,
+    JitContributionsDict,
+    JitDiffContributionsDict,
+    JitDiffReportDict,
+    JitDiffusionDict,
+    JitExperienceDict,
+    JitFeaturesDict,
+    JitHistoryDict,
+    JitPurposeDict,
+    JitSizeDict,
     LocDict,
     MiDict,
     NargsDict,
@@ -61,7 +73,14 @@ from ._types import (
     NpmDict,
     SuppressionScopeDict,
     TokensDict,
+    VcsAggregateDict,
     VcsDict,
+    VcsReportDict,
+    VcsReportFileDict,
+    VcsTrendDeltaDict,
+    VcsTrendDeltasDict,
+    VcsTrendDict,
+    VcsTrendPointDict,
     WmcDict,
 )
 
@@ -84,7 +103,7 @@ def supported_languages() -> list[Lang]:
     return [Lang(name) for name in _native.supported_languages()]
 
 
-def language_for_file(path: str | os.PathLike[str], /) -> Lang | None:
+def language_for_file(path: str | os.PathLike[str], /, *, read: bool = True) -> Lang | None:
     """Return the :class:`Lang` :func:`analyze` would dispatch for ``path``.
 
     Mirrors :func:`supported_languages`: the native call returns the
@@ -95,17 +114,33 @@ def language_for_file(path: str | os.PathLike[str], /) -> Lang | None:
     ``in supported_languages()`` — existing string-based call sites
     keep working.
 
-    Resolves through the same ``big_code_analysis::guess_language``
-    pipeline :func:`analyze` uses: the path extension wins when
-    recognised, otherwise the file's leading window is inspected for a
-    ``#!`` shebang or an emacs ``-*- mode: … -*-`` declaration. Returns
-    ``None`` only when none of those signals resolve.
-
-    Reads the file before inspection (parity with :func:`analyze`,
-    #318); see the native ``language_for_file`` stub for the ``OSError``
+    With ``read=True`` (the default) resolves through the same
+    ``big_code_analysis::guess_language`` pipeline :func:`analyze` uses:
+    the path extension wins when recognised, otherwise the file's leading
+    window is inspected for a ``#!`` shebang or an emacs ``-*- mode: … -*-``
+    declaration. Reads the file before inspection (parity with
+    :func:`analyze`, #318); see the native stub for the ``OSError``
     contract on I/O failure.
+
+    Pass ``read=False`` (#682) for the cheap, filesystem-free path: it
+    resolves by extension alone, reads nothing, and never raises — so it
+    answers for paths that do not exist yet. Returns ``None`` for an
+    extension-less path or an unknown extension.
     """
-    name = _native.language_for_file(path)
+    name = _native.language_for_file(path, read=read)
+    return Lang(name) if name is not None else None
+
+
+def language_for_extension(ext: str, /) -> Lang | None:
+    """Return the :class:`Lang` for a bare file extension (#682).
+
+    Accepts both ``"py"`` and ``".py"`` (case-insensitive). Returns
+    ``None`` for an unknown extension — a pure, filesystem-free table
+    lookup, the inverse of :func:`language_extensions`. Lifts the native
+    slug into the :class:`Lang` enum so the result is consistently typed
+    (and, being a ``StrEnum``, still equals its slug).
+    """
+    name = _native.language_for_extension(ext)
     return Lang(name) if name is not None else None
 
 
@@ -127,15 +162,29 @@ def language_extensions(language: str | Lang, /) -> list[str]:
 __all__ = [
     "METRIC_NAMES",
     "AbcDict",
-    "AnalysisError",
+    "AnalysisFailure",
+    "BusFactorDict",
     "CodeMetricsDict",
     "CognitiveDict",
     "CyclomaticDict",
     "CyclomaticModifiedDict",
+    "DirectoryBusFactorDict",
     "FuncSpaceDict",
+    "GroupBusFactorDict",
     "HalsteadDict",
     "InvalidDiffError",
     "InvalidRevisionError",
+    "JitCommitDict",
+    "JitCommitReportDict",
+    "JitContributionsDict",
+    "JitDiffContributionsDict",
+    "JitDiffReportDict",
+    "JitDiffusionDict",
+    "JitExperienceDict",
+    "JitFeaturesDict",
+    "JitHistoryDict",
+    "JitPurposeDict",
+    "JitSizeDict",
     "Lang",
     "LocDict",
     "MetricName",
@@ -150,20 +199,27 @@ __all__ = [
     "SuppressionScopeDict",
     "TokensDict",
     "UnsupportedLanguageError",
+    "VcsAggregateDict",
     "VcsDict",
     "VcsEnvironmentError",
     "VcsError",
+    "VcsReportDict",
+    "VcsReportFileDict",
+    "VcsTrendDeltaDict",
+    "VcsTrendDeltasDict",
+    "VcsTrendDict",
+    "VcsTrendPointDict",
     "WmcDict",
     "__version__",
     "analyze",
     "analyze_batch",
+    "analyze_paths",
     "analyze_source",
     "flatten_spaces",
     "language_extensions",
+    "language_for_extension",
     "language_for_file",
     "supported_languages",
     "to_sarif",
-    "vcs_jit",
-    "vcs_metrics",
-    "vcs_trend",
+    "vcs",
 ]

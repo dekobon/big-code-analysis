@@ -41,6 +41,13 @@ default = ["pyo3/auto-initialize"]
 # `analyze(..., vcs=True)` opt-in (issue #328), on top of the default
 # `all-languages`.
 big-code-analysis = { path = "..", default-features = true, features = ["vcs"] }
+# `ignore` + `globset` back `analyze_paths` (issue #658): the directory
+# walker reuses the same gitignore-aware crate the CLI walker uses, plus
+# include/exclude glob compilation, rather than reimplementing the walk in
+# Python. The CLI walker itself is binary-private, so the bindings depend on
+# the underlying crates directly (same pins as the CLI / workspace).
+ignore = "^0.4"
+globset = "^0.4"
 pyo3 = { workspace = true }
 # `serde` (derive) builds the `vcs_metrics()` report struct that is
 # serialized to JSON and handed to the conversion layer (issue #328).

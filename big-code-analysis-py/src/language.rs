@@ -17,9 +17,39 @@
 
 use std::path::Path;
 
-use big_code_analysis::{LANG, guess_language};
+use big_code_analysis::{LANG, get_from_ext, guess_language};
 
 use crate::analysis::AnalysisError;
+
+/// Resolve a bare file extension to its language name, filesystem-free.
+///
+/// Accepts the extension with or without a leading dot (`"py"` and
+/// `".py"` both resolve), normalising it internally before consulting the
+/// upstream [`big_code_analysis::get_from_ext`] table — the same table
+/// [`language_for_file`]'s extension stage uses. Returns `None` for an
+/// unknown extension (no raise, no I/O): a pure table lookup in the
+/// extension → language direction, the inverse of
+/// [`crate::language::language_extensions`] (issue #682).
+pub(crate) fn language_for_extension(ext: &str) -> Option<&'static str> {
+    // `get_from_ext` keys on the bare suffix (no dot); strip a single
+    // leading dot so `".py"` and `"py"` converge, and lowercase so
+    // `"PY"` resolves like the case-insensitive walker would.
+    let normalized = ext.strip_prefix('.').unwrap_or(ext).to_lowercase();
+    get_from_ext(&normalized).map(|lang| lang.name())
+}
+
+/// Resolve `path`'s language by its extension alone — filesystem-free.
+///
+/// Reads nothing and never raises: a path that does not exist yet (an
+/// archive listing, a git-tree entry, a candidate filename) still resolves
+/// when its extension is known. Returns `None` for an extension-less path
+/// or an unknown extension. This is the `read=False` half of the public
+/// `language_for_file` (issue #682); the `read=True` default keeps the
+/// content-sniffing [`language_for_file`] behaviour.
+pub(crate) fn language_for_path_extension(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?;
+    language_for_extension(ext)
+}
 
 /// Returns the language name (as accepted by `analyze_source`) that
 /// matches `path`, by extension first and falling back to a

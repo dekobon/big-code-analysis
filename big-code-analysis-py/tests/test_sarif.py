@@ -11,7 +11,7 @@ The contract under test:
   for the same metric/threshold pair: same ``ruleId``, ``level``,
   ``message.text``, ``physicalLocation`` and ``logicalLocation``.
 * Iterable input (the natural shape of :func:`analyze_batch`'s
-  return value) is consumed lazily; :class:`AnalysisError` entries
+  return value) is consumed lazily; :class:`AnalysisFailure` entries
   are filtered, not raised.
 * Unknown threshold names raise :class:`ValueError` listing the
   accepted set, so a typo fails fast.
@@ -250,12 +250,12 @@ def test_to_sarif_metric_absent_from_dict_emits_no_finding() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Iterable input + AnalysisError filtering
+# Iterable input + AnalysisFailure filtering
 # ─────────────────────────────────────────────────────────────────
 
 
 def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
-    """``AnalysisError`` entries in an iterable must be skipped, not
+    """``AnalysisFailure`` entries in an iterable must be skipped, not
     raised — they represent files we couldn't analyse.
 
     Uses ``cyclomatic=0`` so the ok.py finding is positively
@@ -270,12 +270,12 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
     bogus.write_text("noise")
 
     results = bca.analyze_batch([ok, missing, bogus])
-    assert any(isinstance(r, bca.AnalysisError) for r in results), (
-        "fixture expected to produce at least one AnalysisError"
+    assert any(isinstance(r, bca.AnalysisFailure) for r in results), (
+        "fixture expected to produce at least one AnalysisFailure"
     )
     parsed = _parse(bca.to_sarif(results, thresholds={"cyclomatic": 0}))
     # ok.py's `f` has cyclomatic = 1 > 0 → exactly one finding.
-    # Pins that AnalysisError entries are dropped while the
+    # Pins that AnalysisFailure entries are dropped while the
     # successful dict is still walked.
     findings = parsed["runs"][0]["results"]
     assert len(findings) == 1, (
@@ -290,11 +290,11 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
 def test_to_sarif_does_not_raise_on_pure_analysis_error_input(
     tmp_path: Path,
 ) -> None:
-    """An iterable containing **only** AnalysisError instances still
+    """An iterable containing **only** AnalysisFailure instances still
     yields a well-formed empty SARIF run."""
     missing = tmp_path / "nope.py"
     results = bca.analyze_batch([missing])
-    assert isinstance(results[0], bca.AnalysisError)
+    assert isinstance(results[0], bca.AnalysisFailure)
     parsed = _parse(bca.to_sarif(results, thresholds={"cyclomatic": 1}))
     assert parsed["runs"][0]["results"] == []
 
@@ -307,7 +307,7 @@ def test_to_sarif_filters_none_entries_silently(tmp_path: Path) -> None:
     classified as generated, so the natural pattern
     ``bca.to_sarif([bca.analyze(p) for p in paths])`` MUST tolerate
     ``None`` siblings alongside successful dicts. The skip mirrors
-    the ``AnalysisError`` contract — both represent "no record
+    the ``AnalysisFailure`` contract — both represent "no record
     emitted for this file".
 
     Uses ``cyclomatic=0`` so the ok.py finding is positively

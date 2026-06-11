@@ -7,7 +7,7 @@ flattens each result into scalar rows via
 sqlite database, and queries the top-N most-complex functions
 back out. The script also threads a deliberately-broken file
 through the batch to demonstrate the never-raise semantics:
-:func:`analyze_batch` returns an :class:`AnalysisError` for the
+:func:`analyze_batch` returns an :class:`AnalysisFailure` for the
 bad input while the rest of the batch lands normally.
 
 This example complements ``flat_records.py`` — that one shows the
@@ -37,32 +37,31 @@ import big_code_analysis as bca
 def discover_sources(root: Path) -> list[Path]:
     """Yield every file under ``root`` a language can claim.
 
-    Resolves each candidate via :func:`bca.language_for_file`, which
-    matches the path extension and (for extension-less scripts) the
-    leading ``#!`` shebang / emacs ``-*- mode -*-`` declaration —
-    so extension-less Python scripts like the bindings'
-    ``tests/fixtures/install`` shebang fixture are included. The
-    candidate set is filtered upfront by the registered extension
-    table so the per-file ``language_for_file`` reads stay scoped to
-    files that can plausibly be sources.
+    Uses the #682 filesystem-free extension lookup
+    (:func:`bca.language_for_extension`) for the cheap common case — no
+    more hand-inverting the per-language extension table and
+    re-normalising the dot — and falls back to
+    :func:`bca.language_for_file` (with content sniffing) only for
+    extension-less candidates, to catch shebang / emacs-mode scripts
+    like the bindings' ``tests/fixtures/install`` fixture.
+
+    For a richer walk — ``.gitignore`` awareness, include/exclude globs,
+    the generated-file filter, and the batch result in one call — reach
+    for :func:`bca.analyze_paths` instead; this helper stays a plain
+    ``rglob`` to keep the discovery and batch steps separate for the
+    example's narration.
     """
-    suffixes: set[str] = set()
-    for lang in bca.supported_languages():
-        for ext in bca.language_extensions(lang):
-            # `language_extensions` returns the bare suffix (no dot);
-            # `Path.suffix` includes the leading dot. Normalise here
-            # so the membership check below stays a single string op.
-            suffixes.add(f".{ext.lower()}")
 
     def _is_source(p: Path) -> bool:
         if not p.is_file():
             return False
-        if p.suffix and p.suffix.lower() in suffixes:
-            return True
-        # Extension-less candidate — pay the file-read cost in
-        # `language_for_file` to catch shebang / emacs-mode scripts.
-        # Wrap in try/except: missing-file races and permission
-        # errors here would otherwise abort the whole walk.
+        if p.suffix:
+            # Cheap, filesystem-free extension lookup (#682): no inversion
+            # of the extension table, no dot re-normalisation.
+            return bca.language_for_extension(p.suffix) is not None
+        # Extension-less candidate — pay the file-read cost to catch
+        # shebang / emacs-mode scripts. Wrap in try/except: missing-file
+        # races and permission errors here would otherwise abort the walk.
         try:
             return bca.language_for_file(p) is not None
         except OSError:
@@ -84,7 +83,7 @@ def run(
     ``extra_paths`` lets the caller (or the test) splice in extra
     inputs that the directory walk would not naturally pick up —
     typically a deliberately-broken file used to demonstrate the
-    :class:`AnalysisError` discriminator path.
+    :class:`AnalysisFailure` discriminator path.
 
     ``skip_generated`` (default ``True``) routes through per-file
     :func:`bca.analyze` instead of :func:`bca.analyze_batch` so the
@@ -113,7 +112,7 @@ def run(
         # Per-file `analyze` honours the walker's `is_generated`
         # filter (returns None) and raises typed OSError /
         # UnsupportedLanguageError / ParseError on failure. Catch
-        # those and bucket alongside the AnalysisError taxonomy so
+        # those and bucket alongside the AnalysisFailure taxonomy so
         # the never-raise contract still holds for the caller.
         for path in inputs:
             try:
@@ -131,7 +130,7 @@ def run(
     else:
         batch = bca.analyze_batch([str(p) for p in inputs])
         for path, batch_result in zip(inputs, batch, strict=True):
-            if isinstance(batch_result, bca.AnalysisError):
+            if isinstance(batch_result, bca.AnalysisFailure):
                 errors += 1
                 print(f"  skip {path}: ({batch_result.error_kind}) {batch_result.error}")
                 continue
@@ -166,7 +165,7 @@ def run(
 
 # Minimum schema the helper queries against; surfaces even when
 # every input errored and no flattened rows landed. Without this
-# floor, an all-AnalysisError batch leaves `metrics` un-created,
+# floor, an all-AnalysisFailure batch leaves `metrics` un-created,
 # `_top_n_cyclomatic` then raises `sqlite3.OperationalError: no
 # such table: metrics` mid-pipeline — directly contradicting the
 # never-raise demo this example exists to showcase. The columns

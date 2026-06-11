@@ -23,6 +23,30 @@ for historical reference.
 
 ### Changed
 
+- **(Python, breaking, deferred to 2.0)** Renamed the `AnalysisError`
+  pyclass to `AnalysisFailure` (#614). It is a value type **returned** (not
+  raised) by `analyze_batch` — the `…Error` suffix that PEP 8 reserves for
+  exceptions misled readers into `except bca.AnalysisError:`, a `TypeError`
+  at the `except` site since the class does not inherit `BaseException`.
+  The shape, fields, and returned-not-raised semantics are unchanged; only
+  the name moves. The package is not yet on PyPI, so the rename is cheap
+  now but pinned by the 2.0 contract.
+- **(Python, breaking, deferred to 2.0)** Namespaced the change-history
+  surface into a `big_code_analysis.vcs` submodule (#612). The flat
+  `vcs_metrics` / `vcs_trend` / `vcs_jit` functions become `vcs.rank` /
+  `vcs.trend` / `vcs.commit` (names mirroring the `bca vcs` CLI
+  subcommands), with the 15-shared parameters collapsed onto a single
+  `vcs.Options` object all three accept — killing the duplicated
+  17-kwarg signatures (and the drift #583 patched once already). The GIL
+  is released across the history walks (folds in #620), so a
+  `ThreadPoolExecutor` over several repositories parallelises them.
+- **(Python, breaking, deferred to 2.0)** Split the dual-mode `vcs_jit`
+  into `vcs.commit` (commit mode) and `vcs.score_diff(diff)` (diff mode)
+  (#667). `vcs.commit` no longer accepts a `diff` kwarg — the footgun where
+  `diff` silently discarded a named `commit` and returned a non-comparable
+  `partial_risk_score` is gone structurally, matching the CLI/web's #632
+  reject-the-mix behaviour. Each function now returns one well-defined
+  shape.
 - Structured the `bca-web` error body with a machine-readable
   `error_kind` token (#631). Every error response is now
   `{error, error_kind, id}`: `error` keeps its human role but carries the
@@ -193,6 +217,50 @@ for historical reference.
 
 ### Added
 
+- **(Python)** `big_code_analysis.language_for_extension(ext)` — a
+  filesystem-free extension → language lookup that accepts both `"py"` and
+  `".py"` (case-insensitive), returns `None` for an unknown extension, and
+  never reads a file or raises (#682). Paired with a new
+  `language_for_file(path, *, read=False)` option that resolves by
+  extension alone — answering for paths that do not exist yet (archive
+  listings, git trees, candidate filtering) — so the README/example dance
+  of inverting the per-language extension table by hand collapses to one
+  call.
+- **(Python)** `big_code_analysis.analyze_paths(*paths, include=None,
+  exclude=None, …)` — a directory-walk entry point that reuses the CLI's
+  gitignore-aware walker (include/exclude globs, generated-file filter,
+  language inference) and returns the `analyze_batch` shape with the same
+  never-raise semantics (per-file failures become `AnalysisFailure`
+  elements) (#658). Each positional seed may be a file or a directory; it
+  forwards the `analyze` kwargs (including `vcs` / `vcs_per_function`) so a
+  data-science consumer can point it at a repository root instead of
+  writing their own walker.
+- **(Python)** `vcs` / `vcs_per_function` boolean kwargs on `analyze_batch`,
+  mirroring single-file `analyze` (#670). The batch builds **one** shared
+  history index / blame engine per containing repository — keyed by the
+  discovered work-tree root (`vcs::workdir_root`), so files in different
+  subdirectories of one checkout (`src/a.rs`, `tests/b.rs`) share a single
+  index rather than rebuilding it per directory — and reuses it across that
+  repo's files (amortising the walk the comprehension form repeats per
+  file); a VCS failure leaves the AST metrics intact and never becomes an
+  `AnalysisFailure`. Keeps the "migrating
+  `[analyze(p) for p in paths]` to `analyze_batch(paths)` is
+  behaviour-preserving" claim true even when the comprehension used `vcs=`.
+- **(Python)** Typed `TypedDict`s for the change-history report shapes
+  (#664): `VcsReportDict` (from `vcs.rank`), `VcsTrendDict` (from
+  `vcs.trend`), `JitCommitReportDict` (from `vcs.commit`), and
+  `JitDiffReportDict` (from `vcs.score_diff`) replace the former
+  `dict[str, Any]` returns. The report / trend envelope structs are
+  single-sourced in `big_code_analysis::wire` (the same drift-gated
+  generator the analysis-result dicts use), so the Python types cannot
+  diverge from the JSON the CLI emits.
+- `big_code_analysis::vcs::workdir_root(path)` — discover the canonicalised
+  work-tree root of the repository enclosing a file or directory, or `None`
+  when it is outside any repository (or the repository is bare). Lets a
+  front end coalesce a batch of files onto the repository each belongs to;
+  the Python `analyze_batch(vcs=True)` cache uses it so files in different
+  subdirectories of one checkout share a single history index (#670).
+  Additive, `vcs-git`-gated.
 - `bca metrics --metrics <name,…>` restricts computation to a subset of
   metrics via the public `MetricsOptions::with_only` (dependencies
   auto-resolved). Accepts comma-separated and/or repeated values using

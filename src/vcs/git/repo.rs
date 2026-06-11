@@ -46,6 +46,31 @@ pub(crate) fn open(root: &Path) -> Result<OpenRepo, Error> {
     })
 }
 
+/// Discover the working-tree root of the repository containing `path`.
+///
+/// Returns the canonicalised work-tree directory (the same value
+/// [`OpenRepo::workdir`] carries), or `None` when `path` is not inside a
+/// repository or the repository is bare (no work tree). Backs the public
+/// [`crate::vcs::workdir_root`] helper.
+///
+/// `gix::discover` walks upward from a *directory*; a `path` that names a
+/// file (or does not exist) is discovered from its parent directory so the
+/// helper accepts either a file or a directory.
+pub(crate) fn workdir_root(path: &Path) -> Option<PathBuf> {
+    let directory = if path.is_dir() {
+        path
+    } else {
+        // `Path::parent()` of a bare filename is `Some("")`; map that empty
+        // parent to the current directory so discovery starts somewhere
+        // real (mirroring `crate::vcs::repo_root_for` in the front ends).
+        match path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        }
+    };
+    open(directory).ok().and_then(|open| open.workdir)
+}
+
 /// Resolve a revision spelling to the commit it names, peeling through
 /// any tag. Shared by the file-level walk ([`super::build`]) and the
 /// single-commit JIT path ([`super::jit`]) so both map a resolution

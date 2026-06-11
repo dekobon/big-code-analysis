@@ -17,9 +17,9 @@ byte-for-byte.
 
 * A single `dict` returned by `bca.analyze` or
   `bca.analyze_source`.
-* Any iterable yielding such dicts and / or `bca.AnalysisError`
+* Any iterable yielding such dicts and / or `bca.AnalysisFailure`
   instances (the natural shape of `bca.analyze_batch`'s return
-  value). `AnalysisError` entries are skipped silently — they
+  value). `AnalysisFailure` entries are skipped silently — they
   represent files that could not be analysed, not findings.
 
 ## Thresholds
@@ -87,7 +87,7 @@ placeholders.
 ## See also
 
 * [Batch processing](batch.md) — the natural source of input
-  iterables for `to_sarif`; `AnalysisError` entries are skipped
+  iterables for `to_sarif`; `AnalysisFailure` entries are skipped
   silently.
 * [Metric selection](metrics.md) — threshold names are a closed
   set independent of `metrics=`; requesting a narrower metric

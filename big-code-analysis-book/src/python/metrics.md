@@ -13,7 +13,7 @@ The same kwarg is honoured by `bca.analyze_source` and
 `bca.analyze_batch` — the latter applies the selection uniformly
 to every file in the batch. Validation runs **before** any file
 I/O: an empty list or unknown name raises `ValueError`
-immediately and never returns an `AnalysisError` slot for what is
+immediately and never returns an `AnalysisFailure` slot for what is
 really a caller bug.
 
 ## Canonical names

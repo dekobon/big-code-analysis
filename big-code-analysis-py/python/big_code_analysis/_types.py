@@ -13,16 +13,30 @@
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 __all__ = [
     "AbcDict",
+    "BusFactorDict",
     "CodeMetricsDict",
     "CognitiveDict",
     "CyclomaticDict",
     "CyclomaticModifiedDict",
+    "DirectoryBusFactorDict",
     "FuncSpaceDict",
+    "GroupBusFactorDict",
     "HalsteadDict",
+    "JitCommitDict",
+    "JitCommitReportDict",
+    "JitContributionsDict",
+    "JitDiffContributionsDict",
+    "JitDiffReportDict",
+    "JitDiffusionDict",
+    "JitExperienceDict",
+    "JitFeaturesDict",
+    "JitHistoryDict",
+    "JitPurposeDict",
+    "JitSizeDict",
     "LocDict",
     "MiDict",
     "NargsDict",
@@ -32,7 +46,14 @@ __all__ = [
     "NpmDict",
     "SuppressionScopeDict",
     "TokensDict",
+    "VcsAggregateDict",
     "VcsDict",
+    "VcsReportDict",
+    "VcsReportFileDict",
+    "VcsTrendDeltaDict",
+    "VcsTrendDeltasDict",
+    "VcsTrendDict",
+    "VcsTrendPointDict",
     "WmcDict",
 ]
 
@@ -231,8 +252,8 @@ class WmcDict(TypedDict):
 class VcsDict(TypedDict):
     """Change-history (VCS) metric block; present only under `vcs=True` / `vcs_per_function=True`.
     Always-slim (issue #635): the constant `*_version` / `*_window_days` stamps live once on the
-    `vcs_metrics()` / `vcs_trend()` envelope, not on each block. `hotspot_score` and
-    `author_ids` are elided when unavailable.
+    `vcs.rank` / `vcs.trend` envelope, not on each block. `hotspot_score` and `author_ids` are
+    elided when unavailable.
     """
 
     commits_long: int
@@ -255,6 +276,228 @@ class VcsDict(TypedDict):
     risk_score: float | None
     hotspot_score: NotRequired[float | None]
     author_ids: NotRequired[list[str]]
+
+
+class GroupBusFactorDict(TypedDict):
+    """Bus-factor numbers for one author group (the repo, or one directory). `key_author_ids` is
+    present only under `emit_author_details=True`.
+    """
+
+    bus_factor: int
+    files: int
+    authors: int
+    key_author_ids: NotRequired[list[str]]
+
+
+class DirectoryBusFactorDict(TypedDict):
+    """Per-directory bus factor: a directory path plus its `GroupBusFactorDict` fields (flattened
+    inline in the wire shape).
+    """
+
+    directory: str
+    bus_factor: int
+    files: int
+    authors: int
+    key_author_ids: NotRequired[list[str]]
+
+
+class BusFactorDict(TypedDict):
+    """Directory-/repo-level bus-factor aggregate (Avelino DoA, issue #332)."""
+
+    bus_factor_schema_version: int
+    coverage_threshold: float | None
+    doa_threshold: float | None
+    repo: GroupBusFactorDict
+    by_directory: list[DirectoryBusFactorDict]
+
+
+class VcsAggregateDict(TypedDict):
+    """Top-level change-history aggregate object wrapping the bus-factor summary."""
+
+    bus_factor: BusFactorDict
+
+
+class VcsReportFileDict(TypedDict):
+    """One ranked file in a `VcsReportDict`: its repository-relative path plus the always-slim
+    `vcs` block (issue #684).
+    """
+
+    path: str
+    vcs: VcsDict
+
+
+class VcsReportDict(TypedDict):
+    """Return type of `big_code_analysis.vcs.rank()` — the file-ranking change-history report
+    (issue #328 / #664). The four constant stamps sit once at the top level (issue #635);
+    `files` is ranked by descending `vcs.risk_score`. `vcs_aggregate` is present only when the
+    bus factor was computed.
+    """
+
+    long_window_days: int
+    recent_window_days: int
+    risk_score_version: int
+    vcs_schema_version: int
+    truncated_shallow_clone: bool
+    vcs_aggregate: NotRequired[VcsAggregateDict]
+    files: list[VcsReportFileDict]
+
+
+class VcsTrendPointDict(TypedDict):
+    """One sampled point in a `VcsTrendDict`: the sample timestamp plus the file's `vcs` block at
+    that moment (issue #333 / #684).
+    """
+
+    as_of: int
+    vcs: VcsDict
+
+
+class VcsTrendDeltaDict(TypedDict):
+    """One file's risk-score movement across the trend."""
+
+    path: str
+    first_as_of: int
+    last_as_of: int
+    first_risk_score: float | None
+    last_risk_score: float | None
+    delta: float | None
+
+
+class VcsTrendDeltasDict(TypedDict):
+    """The improving / regressing delta summary."""
+
+    improved: list[VcsTrendDeltaDict]
+    regressed: list[VcsTrendDeltaDict]
+
+
+class VcsTrendDict(TypedDict):
+    """Return type of `big_code_analysis.vcs.trend()` — a historical metric trend (issue #333 /
+    #664). `as_of_points` lists the sample timestamps oldest-first; every file's series in
+    `files` aligns to it 1:1, with a `None` element where the file did not exist.
+    """
+
+    trend_schema_version: int
+    vcs_schema_version: int
+    risk_score_version: int
+    long_window_days: int
+    recent_window_days: int
+    truncated_shallow_clone: bool
+    as_of_points: list[int]
+    files: dict[str, list[VcsTrendPointDict | None]]
+    deltas: VcsTrendDeltasDict
+
+
+class JitSizeDict(TypedDict):
+    """Commit / diff size features."""
+
+    lines_added: int
+    lines_deleted: int
+    files_touched: int
+    hunks: int
+
+
+class JitDiffusionDict(TypedDict):
+    """Change-diffusion features (subsystem / directory spread)."""
+
+    subsystems: int
+    directories: int
+    entropy: float | None
+
+
+class JitHistoryDict(TypedDict):
+    """Prior-change history features (commit mode only)."""
+
+    prior_changes: int
+    prior_distinct_authors: int
+    prior_bug_fix_commits: int
+    prior_security_fix_commits: int
+    file_risk_max: float | None
+    file_risk_mean: float | None
+    new_files: int
+
+
+class JitExperienceDict(TypedDict):
+    """Author-experience features (commit mode only)."""
+
+    author_prior_commits: int
+    author_recent_commits: int
+
+
+class JitPurposeDict(TypedDict):
+    """Commit-purpose flags derived from the message."""
+
+    is_fix: bool
+    is_security_fix: bool
+    is_revert: bool
+
+
+class JitFeaturesDict(TypedDict):
+    """The four feature groups computed for a commit score."""
+
+    size: JitSizeDict
+    diffusion: JitDiffusionDict
+    history: JitHistoryDict
+    experience: JitExperienceDict
+
+
+class JitContributionsDict(TypedDict):
+    """Per-group contributions to a commit `risk_score`."""
+
+    size: float | None
+    diffusion: float | None
+    history: float | None
+    purpose: float | None
+    experience: float | None
+
+
+class JitCommitDict(TypedDict):
+    """The scored commit's identity and purpose flags."""
+
+    id: str
+    parent_count: int
+    is_merge: bool
+    purpose: JitPurposeDict
+
+
+class JitCommitReportDict(TypedDict):
+    """Return type of `big_code_analysis.vcs.commit()` — the commit just-in-time risk report
+    (issue #331 / #664). `source` is the literal `"commit"`; all five feature groups are present
+    and `risk_score` is comparable across commits.
+    """
+
+    jit_schema_version: int
+    jit_score_version: int
+    source: Literal["commit"]
+    long_window_days: int
+    recent_window_days: int
+    risk_score: float | None
+    commit: JitCommitDict
+    features: JitFeaturesDict
+    contributions: JitContributionsDict
+
+
+class JitDiffContributionsDict(TypedDict):
+    """Per-group contributions to a diff `partial_risk_score` (only size + diffusion are computable
+    for a bare diff).
+    """
+
+    size: float | None
+    diffusion: float | None
+
+
+class JitDiffReportDict(TypedDict):
+    """Return type of `big_code_analysis.vcs.score_diff()` — the partial just-in-time risk report
+    for a bare diff (issue #580 / #664). `source` is the literal `"diff"`; only size and
+    diffusion are computable, so `partial_risk_score` is **not comparable** to a commit
+    `risk_score` and the history / experience / purpose groups are absent.
+    """
+
+    jit_schema_version: int
+    jit_score_version: int
+    source: Literal["diff"]
+    partial_risk_score: float | None
+    size: JitSizeDict
+    diffusion: JitDiffusionDict
+    contributions: JitDiffContributionsDict
 
 
 class CodeMetricsDict(TypedDict, total=False):

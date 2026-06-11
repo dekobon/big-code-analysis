@@ -44,7 +44,7 @@ option.
 * [Quick start](quick-start.md) — analyse one file, print one
   metric.
 * [Batch processing](batch.md) — `analyze_batch`,
-  `AnalysisError`, parallelism with `ThreadPoolExecutor`.
+  `AnalysisFailure`, parallelism with `ThreadPoolExecutor`.
 * [Flat-record iteration](flat-records.md) — `flatten_spaces`
   feeding sqlite / pandas.
 * [Metric selection](metrics.md) — `metrics=` kwarg,

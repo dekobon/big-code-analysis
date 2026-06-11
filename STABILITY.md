@@ -206,7 +206,7 @@ default for the library; on by default for the `bca` / `bca-web` /
 Python builds). When enabled, the following join the shape contract:
 the `big_code_analysis::vcs` module (`build_history_index`, `Options`,
 `Stats`, `HistoryIndex`, `RiskFormula`, `FileTypeScope`, `parse_window`,
-`parse_timestamp`), `wire::Vcs`, `CodeMetrics::vcs`, the `bca vcs`
+`parse_timestamp`, `workdir_root`), `wire::Vcs`, `CodeMetrics::vcs`, the `bca vcs`
 subcommand (including its `--file-types {metrics|all|EXT,…}` scope flag
 and the matching `bca.toml` `[vcs] file_types` key) and `bca metrics
 --vcs` flag, the `POST /vcs` REST endpoint, and the Python
@@ -894,13 +894,19 @@ change afterward without breaking every consumer's imports.
   releases; the package facade (`__init__.py`) is the stable seam.
 
 The bound surface tracks the library: `analyze`, `analyze_source`,
-`analyze_batch`, `language_for_file`, `language_extensions`,
-`supported_languages`, `to_sarif`, `flatten_spaces`, the
-`AnalysisError` / `ParseError` / `UnsupportedLanguageError`
-exception types, the change-history exception taxonomy (`VcsError`
-and its `NotARepositoryError` / `InvalidRevisionError` /
-`InvalidDiffError` / `VcsEnvironmentError` subclasses),
-`__version__`, and the `METRIC_NAMES` constant.
+`analyze_batch`, `analyze_paths` (the directory-walk entry point, #658),
+`language_for_file` (with the filesystem-free `read=False` option, #682),
+`language_for_extension` (#682), `language_extensions`,
+`supported_languages`, `to_sarif`, `flatten_spaces`, the `AnalysisFailure`
+value type (a per-file batch failure, **returned not raised** — renamed
+from `AnalysisError` at 2.0, #614), the `ParseError` /
+`UnsupportedLanguageError` exception types, the change-history exception
+taxonomy (`VcsError` and its `NotARepositoryError` / `InvalidRevisionError`
+/ `InvalidDiffError` / `VcsEnvironmentError` subclasses), `__version__`,
+and the `METRIC_NAMES` constant. The change-history surface lives in the
+`big_code_analysis.vcs` submodule (#612): `vcs.rank` / `vcs.trend` /
+`vcs.commit` / `vcs.score_diff` plus the shared `vcs.Options` object —
+names mirroring the `bca vcs` CLI subcommands.
 
 ### Language and metric string enums
 
@@ -922,16 +928,19 @@ the existing values are frozen.
 
 ### Error mapping
 
-Per-file failures from `analyze_batch` are **returned**, not raised,
-as `AnalysisError` values (not `Exception` subclasses). The
-`error_kind` field is a closed set —
+Per-file failures from `analyze_batch` / `analyze_paths` are
+**returned**, not raised, as `AnalysisFailure` values (not `Exception`
+subclasses — the class is deliberately not raisable; it was renamed from
+`AnalysisError` at 2.0 because the `…Error` suffix mislead readers into
+`except` clauses, #614). The `error_kind` field is a closed set —
 `Literal["UnsupportedLanguage", "ParseError", "IoError"]` — and is
 part of the contract: callers may branch on it. The raising entry
 points (`analyze`, `analyze_source`) map upstream failures to
 `UnsupportedLanguageError` (a `ValueError` subclass), `ParseError`,
 or the appropriate `OSError` subclass. The change-history surface
-(`vcs_metrics` / `vcs_trend` / `vcs_jit`) maps `vcs::Error` variants
-to `VcsError` (a `ValueError` subclass) and its named subclasses —
+(`vcs.rank` / `vcs.trend` / `vcs.commit` / `vcs.score_diff`) maps
+`vcs::Error` variants to `VcsError` (a `ValueError` subclass) and its
+named subclasses —
 `NotARepositoryError`, `InvalidRevisionError`, `InvalidDiffError`,
 `VcsEnvironmentError`. The subclasses are pinned additively: a caller
 may catch the specific class or the `VcsError` / `ValueError` base.
@@ -949,21 +958,24 @@ as the library: additive in minor bumps, breaking only at a major.
 
 The analysis-result wire shape is also expressed as exported
 `TypedDict`s (#623): `analyze` / `analyze_source` return
-`FuncSpaceDict | None` / `FuncSpaceDict`, `analyze_batch` returns
-`list[FuncSpaceDict | AnalysisError]`, and the nested metric blocks
-(`CodeMetricsDict`, `LocDict`, `HalsteadDict`, `VcsDict`, …) are
-re-exported from the package. Like the enums, these are **generated**
-from the `big_code_analysis::wire` structs (`src/wire.rs`, the single
-source of the serialized shape) by a checked-in generator with a
+`FuncSpaceDict | None` / `FuncSpaceDict`, `analyze_batch` /
+`analyze_paths` return `list[FuncSpaceDict | AnalysisFailure]`, and the
+nested metric blocks (`CodeMetricsDict`, `LocDict`, `HalsteadDict`,
+`VcsDict`, …) are re-exported from the package. Like the enums, these are
+**generated** from the `big_code_analysis::wire` structs (`src/wire.rs`,
+the single source of the serialized shape) by a checked-in generator with a
 drift-gate test, so the Python types cannot diverge from the JSON the
 CLI emits. The change is stub-only — the runtime values are plain
 dicts, byte-identical to the CLI output — so it only narrows the
 static type. Every metric block is `NotRequired` because a `metrics=`
 selection can elide blocks; under the default full suite every block
-is present. The VCS *report* dicts (`vcs_metrics` / `vcs_trend` /
-`vcs_jit` returns) remain `dict[str, Any]`: their shapes are assembled
-outside `wire.rs` and are not single-sourced. The same additive /
-major-only shape contract applies.
+is present. The VCS *report* dicts are now single-sourced and typed too
+(#664): `vcs.rank` returns `VcsReportDict`, `vcs.trend` returns
+`VcsTrendDict`, `vcs.commit` returns `JitCommitReportDict`, and
+`vcs.score_diff` returns `JitDiffReportDict` — the report / trend envelope
+structs moved into `big_code_analysis::wire` and the jit shapes are
+mirrored from `src/vcs/jit.rs`, so the former `dict[str, Any]` returns are
+gone. The same additive / major-only shape contract applies.
 
 [strenum]: https://docs.python.org/3/library/enum.html#enum.StrEnum
 [pep561]: https://peps.python.org/pep-0561/

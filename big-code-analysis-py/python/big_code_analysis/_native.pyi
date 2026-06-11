@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
-from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from ._types import FuncSpaceDict
 
@@ -43,8 +42,9 @@ class VcsError(ValueError):
 
     Subclasses :class:`ValueError`, so a single ``except ValueError``
     (or ``except VcsError``) catches every VCS failure raised by
-    :func:`vcs_metrics`, :func:`vcs_trend`, :func:`vcs_jit`, and
-    ``analyze(..., vcs=True)``. The three named subclasses below carve
+    ``big_code_analysis.vcs.rank`` / ``.trend`` / ``.commit`` /
+    ``.score_diff`` and ``analyze(..., vcs=True)``. The three named
+    subclasses below carve
     out the triggers a caller most plausibly branches on; the bare
     ``VcsError`` is itself raised for client-input option failures (a
     malformed window / timestamp / formula / file-type scope /
@@ -65,7 +65,7 @@ class InvalidRevisionError(VcsError):
     """Raised when a ``reference`` / ``commit`` cannot be resolved."""
 
 class InvalidDiffError(VcsError):
-    """Raised when the ``diff`` passed to :func:`vcs_jit` is malformed."""
+    """Raised when the ``diff`` passed to ``vcs.score_diff`` is malformed."""
 
 class VcsEnvironmentError(VcsError):
     """Raised when a VCS operation fails for an environment reason.
@@ -77,18 +77,23 @@ class VcsEnvironmentError(VcsError):
     ``vcs::Error`` variants (``is_client_input == false``, #641).
     """
 
-class AnalysisError:
+class AnalysisFailure:
     """Structured per-file failure returned by :func:`analyze_batch`.
 
     Instances are **returned**, never raised — :func:`analyze_batch`
     interleaves them with successful ``dict`` results so a single
-    pipeline failure does not break the rest of the batch. Use
-    ``isinstance(r, AnalysisError)`` as the discriminator:
+    pipeline failure does not break the rest of the batch. The class is
+    deliberately **not** an ``Exception`` subclass and was renamed from
+    ``AnalysisError`` at 2.0 (#614): the ``…Error`` suffix that PEP 8
+    reserves for raisable exceptions misled readers into
+    ``except bca.AnalysisError:`` (a ``TypeError`` at the ``except``
+    site, since it does not inherit ``BaseException``). Use
+    ``isinstance(r, AnalysisFailure)`` as the discriminator:
 
     .. code-block:: python
 
         for r in bca.analyze_batch(paths):
-            if isinstance(r, bca.AnalysisError):
+            if isinstance(r, bca.AnalysisFailure):
                 log.warning("%s (%s): %s", r.path, r.error_kind, r.error)
             else:
                 process(r)
@@ -302,7 +307,7 @@ def analyze(
     among the computed metrics (it is, unless restricted via
     ``metrics=``). The block is omitted when the file is untracked,
     binary, or outside any repository. For ranking a whole repository,
-    prefer :func:`vcs_metrics`, which walks history once.
+    prefer ``big_code_analysis.vcs.rank``, which walks history once.
 
     Pass ``vcs_per_function=True`` to attach a ``"vcs"`` block to **each
     nested function / method / class space** (not just the file-level
@@ -321,170 +326,13 @@ def analyze(
     nested spaces is returned unchanged.
     """
 
-def vcs_metrics(
-    repo_path: str | os.PathLike[str],
-    /,
-    *,
-    long_window: str | None = None,
-    recent_window: str | None = None,
-    top: int | None = None,
-    reference: str | None = None,
-    risk_formula: str | None = None,
-    file_types: Sequence[str] | str | None = None,
-    full_history: bool = False,
-    include_merges: bool = False,
-    follow_renames: bool = True,
-    exclude_bots: bool = True,
-    bot_pattern: str | None = None,
-    as_of: datetime | str | None = None,
-    emit_author_details: bool = False,
-    include_deleted: bool = False,
-    bus_factor_threshold: float | None = None,
-    no_cache: bool = False,
-    cache_dir: str | os.PathLike[str] | None = None,
-) -> dict[str, Any]:
-    """Rank the files in a git repository by change-history risk.
-
-    The programmatic analogue of ``bca vcs`` (issue #328). ``repo_path``
-    is any path inside the working tree. Returns a ``dict`` with
-    ``long_window_days``, ``recent_window_days``, ``risk_score_version``,
-    ``vcs_schema_version``, ``truncated_shallow_clone``, and a ``files``
-    list of per-file dicts — each carrying ``path`` plus a nested ``vcs``
-    block (issue #684) — ranked by descending ``vcs.risk_score``. The
-    constant ``*_version`` / window stamps sit once at the top level, not
-    inside each row (issue #635).
-
-    Windows accept ``12mo`` / ``2y`` / ``8w`` / ``90d`` or ISO 8601
-    (``P1Y``). ``risk_formula`` is ``"weighted"`` (default) or
-    ``"percentile"``. ``file_types`` scopes which files are ranked:
-    ``"metrics"`` (default — only files bca has metrics for), ``"all"``
-    (every tracked text file), a comma-separated extension allow-list
-    (``"rs,py"``), or a sequence of extensions (``["rs", "py"]``).
-    ``bus_factor_threshold`` (default ``0.5``) sets the
-    coverage/abandonment fraction for the bus-factor flag. ``as_of``
-    pins the reference "now" for reproducible snapshots; it accepts a
-    ``datetime`` or a string (RFC 3339 / ``@unix`` / git date).
-
-    The persistent change-history cache (issue #334) reuses prior work on
-    an unchanged tree and walks only new commits when ``HEAD`` advances.
-    Pass ``no_cache=True`` to skip it, or ``cache_dir`` (a ``str`` or
-    ``os.PathLike``) to override its location (default: the platform cache
-    directory).
-
-    Raises
-    ------
-    NotARepositoryError
-        When ``repo_path`` is not inside a git working tree.
-    VcsError
-        For a malformed window / timestamp / formula / file-type scope /
-        bus-factor threshold (the option-validation base; all VCS
-        exceptions subclass :class:`VcsError`, itself a ``ValueError``).
-    VcsEnvironmentError
-        When walking history, diffing, or cache I/O fails.
-    """
-
-def vcs_trend(
-    repo_path: str | os.PathLike[str],
-    /,
-    *,
-    points: int = 12,
-    span: str | None = None,
-    top: int | None = None,
-    top_deltas: int | None = None,
-    long_window: str | None = None,
-    recent_window: str | None = None,
-    reference: str | None = None,
-    risk_formula: str | None = None,
-    file_types: Sequence[str] | str | None = None,
-    full_history: bool = False,
-    include_merges: bool = False,
-    follow_renames: bool = True,
-    exclude_bots: bool = True,
-    bot_pattern: str | None = None,
-    as_of: datetime | str | None = None,
-    emit_author_details: bool = False,
-    include_deleted: bool = False,
-    bus_factor_threshold: float | None = None,
-) -> dict[str, Any]:
-    """Sample change-history metrics over time as a per-file trend.
-
-    The programmatic analogue of ``bca vcs trend`` (issue #333).
-    ``points`` (>= 2) evenly-spaced samples cover ``span`` (default
-    ``12mo``), ending at ``as_of`` (or wall-clock now). Returns a
-    ``dict`` with ``trend_schema_version``, ``vcs_schema_version``,
-    ``risk_score_version``, the window lengths,
-    ``truncated_shallow_clone``, ``as_of_points`` (sample timestamps,
-    oldest-first), a ``files`` map from path to a point array aligned to
-    ``as_of_points`` (a ``None`` element marks a point where the file did
-    not exist; a present point is ``{"as_of": ..., "vcs": {...}}`` with
-    the metrics nested under ``vcs`` — issue #684), and a ``deltas``
-    summary splitting the most-``improved`` and most-``regressed`` files
-    by ``risk_score``. The constant ``*_version`` / window stamps sit once
-    at the top level, never per point (issue #635).
-
-    Each point re-anchors at the mainline tip of that moment, so it is a
-    faithful historical snapshot rather than today's tree windowed
-    differently. ``top`` caps how many files the series keeps (by
-    most-recent risk); ``top_deltas`` trims each delta list. The other
-    knobs match :func:`vcs_metrics`.
-
-    Raises
-    ------
-    NotARepositoryError
-        When ``repo_path`` is not inside a git working tree.
-    VcsError
-        For a malformed option, or a point count below 2 or above the
-        supported maximum (the option-validation base; subclass of
-        ``ValueError``).
-    VcsEnvironmentError
-        When walking history, diffing, or cache I/O fails.
-    """
-
-def vcs_jit(
-    repo_path: str | os.PathLike[str] | None = None,
-    /,
-    *,
-    commit: str = "HEAD",
-    diff: str | None = None,
-    long_window: str | None = None,
-    recent_window: str | None = None,
-    full_history: bool = False,
-    include_merges: bool = False,
-    follow_renames: bool = True,
-    as_of: datetime | str | None = None,
-) -> dict[str, Any]:
-    """Score a single commit (or an arbitrary diff) for just-in-time risk.
-
-    The programmatic analogue of ``bca vcs jit`` (issues #331 / #580).
-    ``repo_path`` is any path inside the working tree; ``commit`` is any
-    git revision spelling (default ``"HEAD"``), scored against its first
-    parent. Returns a ``dict`` with ``jit_schema_version``,
-    ``jit_score_version``, ``source == "commit"`` (the mode discriminator),
-    the window lengths, the ordinal composite ``risk_score``, the ``commit``
-    block, the ``features`` (size / diffusion / history / experience), and
-    the per-group ``contributions``.
-
-    Pass ``diff`` (a unified diff string) to score a bare diff instead of a
-    commit. A bare diff carries no author / parent / history, so only the
-    size and diffusion groups are computable: the returned dict then has
-    ``source == "diff"``, a ``partial_risk_score`` that is **not comparable**
-    to a commit ``risk_score``, and **no** history / experience / purpose groups
-    (they are absent, not zero, so an unavailable group can never be
-    misread as "low risk"). In diff mode ``repo_path`` / ``commit`` and the
-    window knobs are ignored.
-
-    Raises
-    ------
-    NotARepositoryError
-        When ``repo_path`` is not a git working tree (commit mode).
-    InvalidRevisionError
-        When ``commit`` cannot be resolved to a revision.
-    InvalidDiffError
-        When the supplied ``diff`` is malformed (diff mode).
-    VcsError
-        For a malformed window / timestamp (the option-validation base;
-        subclass of ``ValueError``).
-    """
+# The change-history (VCS) surface lives in the ``_native.vcs``
+# submodule (issue #612): ``rank`` / ``trend`` / ``commit`` /
+# ``score_diff`` plus the shared ``Options`` class. It is registered
+# at runtime by the ``_native`` extension and re-exported, fully typed,
+# by the pure-Python ``big_code_analysis.vcs`` facade
+# (``big_code_analysis/vcs.py``) — the typed public seam, the same
+# pattern ``__init__`` uses for the top-level surface.
 
 def analyze_source(
     code: str | bytes | bytearray,
@@ -531,7 +379,9 @@ def analyze_batch(
     allow_lossy_path: bool = False,
     skip_generated: bool = True,
     metrics: Sequence[str] | None = None,
-) -> list[FuncSpaceDict | AnalysisError]:
+    vcs: bool = False,
+    vcs_per_function: bool = False,
+) -> list[FuncSpaceDict | AnalysisFailure]:
     """Compute metrics for every path in ``paths``.
 
     Returns a list whose elements preserve the input order, so
@@ -539,7 +389,7 @@ def analyze_batch(
     skipped**. Each element is either:
 
     * a ``dict`` matching :func:`analyze`'s output shape, or
-    * an :class:`AnalysisError` describing the per-file failure.
+    * an :class:`AnalysisFailure` describing the per-file failure.
 
     A path that is skipped (``skip_generated=True`` and the file is
     generated) produces **no** element, so with skipping enabled the
@@ -548,7 +398,7 @@ def analyze_batch(
 
     The function **never raises on per-file errors** — a missing
     file, an unknown extension, or a parser failure becomes an
-    :class:`AnalysisError` in the matching result slot instead. It
+    :class:`AnalysisFailure` in the matching result slot instead. It
     still raises on *programmer* errors:
 
     * ``TypeError`` if ``paths`` is not iterable, or an element is
@@ -601,9 +451,74 @@ def analyze_batch(
     inside ``analyze_batch`` itself — the entry point is a
     sequential sweep — but the GIL release means other Python
     threads in the process are not blocked for the duration.
+
+    ``vcs`` / ``vcs_per_function`` mirror :func:`analyze`'s kwargs
+    (#670): pass ``vcs=True`` to attach a file-level ``"vcs"`` block,
+    ``vcs_per_function=True`` to attach one to every nested space.
+    Batch amortises the history walk — it builds **one** index / blame
+    engine per containing repository and reuses it across every file in
+    that repo, rather than the N one-shot walks a comprehension over
+    ``analyze(p, vcs=True)`` would do. A VCS failure on one file leaves
+    its AST metrics intact (it never becomes an :class:`AnalysisFailure`);
+    a file outside any repository simply gets no ``"vcs"`` block. This
+    keeps the "migrating the comprehension to ``analyze_batch`` is
+    behaviour-preserving" claim true even when the comprehension used
+    ``vcs=`` / ``vcs_per_function=``.
     """
 
-def language_for_file(path: str | os.PathLike[str], /) -> str | None:
+def analyze_paths(
+    *paths: str | os.PathLike[str],
+    include: Sequence[str] | str | None = None,
+    exclude: Sequence[str] | str | None = None,
+    respect_gitignore: bool = True,
+    exclude_tests: bool = False,
+    allow_lossy_path: bool = False,
+    skip_generated: bool = True,
+    metrics: Sequence[str] | None = None,
+    vcs: bool = False,
+    vcs_per_function: bool = False,
+) -> list[FuncSpaceDict | AnalysisFailure]:
+    """Walk one or more path seeds and analyse every discovered file (#658).
+
+    Each positional ``path`` may be a file or a directory; directories
+    are **walked** with ``.gitignore`` awareness (the same ``ignore``
+    crate the ``bca`` CLI walker uses), honouring the ``include`` /
+    ``exclude`` globs and the generated-file filter. This is the
+    discovery step :func:`analyze_batch` lacks — where
+    :func:`analyze_batch` analyses an **explicit list** of paths
+    verbatim, ``analyze_paths`` *finds* the files first, so a
+    data-science consumer can point it at a repository root instead of
+    writing their own walker (the canonical "analyze my repo" entry
+    point).
+
+    ``include`` / ``exclude`` accept a single glob string or a sequence
+    of them; globs are matched against each file's path relative to its
+    walk seed (so ``include="*.rs"`` matches ``src/lib.rs`` by its
+    basename). Pass ``respect_gitignore=False`` to walk ignored files
+    too. The remaining kwargs (``exclude_tests`` / ``allow_lossy_path``
+    / ``skip_generated`` / ``metrics`` / ``vcs`` / ``vcs_per_function``)
+    forward to per-file analysis exactly as on :func:`analyze` /
+    :func:`analyze_batch`, including the shared per-repo VCS index (#670).
+
+    Returns the :func:`analyze_batch` result shape with the same
+    never-raise semantics: a per-file failure becomes an
+    :class:`AnalysisFailure` element rather than a raise, and a generated
+    file (under ``skip_generated=True``) yields no element. The result
+    order follows the walk, not any caller-supplied ordering.
+
+    Raises
+    ------
+    ValueError
+        If ``metrics`` is an empty sequence or names an unknown metric
+        (validated before the walk), or if an ``include`` / ``exclude``
+        glob is malformed (the offending pattern is named).
+    TypeError
+        If a positional ``path`` is not ``str`` / ``os.PathLike[str]``.
+    """
+
+def language_for_file(
+    path: str | os.PathLike[str], /, *, read: bool = True
+) -> str | None:
     """Return the language name :func:`analyze` would dispatch for ``path``.
 
     Resolves through the same ``big_code_analysis::guess_language``
@@ -613,24 +528,36 @@ def language_for_file(path: str | os.PathLike[str], /) -> str | None:
     or an emacs ``-*- mode: … -*-`` declaration. Returns ``None``
     only when none of those signals resolve.
 
-    Reads the file before inspection (parity with :func:`analyze`,
-    #318). The previous extension-only ``language_for_file`` could
-    return ``None`` for an extension-less shebang script while
-    :func:`analyze` on the same path succeeded — that asymmetry is
-    closed at the cost of dropping the prior "Never raises" contract.
+    With ``read=True`` (the default) the file is read before inspection
+    (parity with :func:`analyze`, #318). Pass ``read=False`` (#682) for
+    the cheap, **filesystem-free** path: it resolves by extension alone,
+    reads nothing, and **never raises** — so it answers for paths that do
+    not exist yet (an archive listing, a git-tree entry, candidate
+    filtering). ``read=False`` returns ``None`` for an extension-less path
+    or an unknown extension, delegating to the same table
+    :func:`language_for_extension` uses.
 
     Raises
     ------
     OSError
-        For any underlying I/O failure. Dispatches to the canonical
-        subclass (``FileNotFoundError``, ``PermissionError``,
-        ``IsADirectoryError``, …) based on ``errno``, with
-        ``err.errno`` and ``err.filename`` populated — same shape as
-        :func:`analyze`. If you need the prior "extension only, never
-        raises" semantics for a cheap path-only check, wrap the call
-        in ``try / except OSError`` (or pre-check
-        ``os.path.exists(path)``) — the extension table itself is
-        unchanged.
+        For any underlying I/O failure, **only when ``read=True``**.
+        Dispatches to the canonical subclass (``FileNotFoundError``,
+        ``PermissionError``, ``IsADirectoryError``, …) based on
+        ``errno``, with ``err.errno`` and ``err.filename`` populated —
+        same shape as :func:`analyze`. For the prior "extension only,
+        never raises" semantics pass ``read=False`` (the #682 successor
+        to wrapping the call in ``try / except OSError``).
+    """
+
+def language_for_extension(ext: str, /) -> str | None:
+    """Return the language name for a bare file extension (#682).
+
+    Accepts both ``"py"`` and ``".py"`` (the leading dot is normalised
+    away); matching is case-insensitive. Returns ``None`` for an unknown
+    extension — a pure table lookup that reads no file and never raises,
+    the inverse of :func:`language_extensions`. This is the cheap "which
+    language is ``.tsx``?" primitive that previously had to be rebuilt by
+    inverting the per-language extension table by hand.
     """
 
 def supported_languages() -> list[str]:
@@ -648,7 +575,7 @@ def language_extensions(language: str, /) -> list[str]:
 def to_sarif(
     result: FuncSpaceDict
     | None
-    | Iterable[FuncSpaceDict | AnalysisError | None],
+    | Iterable[FuncSpaceDict | AnalysisFailure | None],
     /,
     *,
     thresholds: dict[str, float] | None = None,
@@ -659,10 +586,10 @@ def to_sarif(
     :func:`analyze` / :func:`analyze_source`, a scalar ``None`` (the
     documented return of :func:`analyze` for generated files; yields
     an empty SARIF run), or any iterable yielding such dicts,
-    :class:`AnalysisError` instances, and/or ``None`` (the natural
+    :class:`AnalysisFailure` instances, and/or ``None`` (the natural
     shape of :func:`analyze_batch`'s return value, or a list
     comprehension over :func:`analyze` which returns ``None`` for
-    generated files). ``AnalysisError`` and ``None`` entries are
+    generated files). ``AnalysisFailure`` and ``None`` entries are
     skipped silently — they represent files for which no record was
     emitted (either the pipeline could not analyse them, or they
     were classified as generated), not findings.

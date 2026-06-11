@@ -123,7 +123,7 @@ def run(
         raise SystemExit(msg)
 
     batch = bca.analyze_batch(materialised)
-    analyzed = sum(1 for r in batch if not isinstance(r, bca.AnalysisError))
+    analyzed = sum(1 for r in batch if not isinstance(r, bca.AnalysisFailure))
     errors = len(batch) - analyzed
 
     # `thresholds is None` (not truthiness) means "use the default

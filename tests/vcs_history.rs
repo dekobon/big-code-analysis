@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use big_code_analysis::vcs::{self, Options, build_history_index, build_trend};
+use big_code_analysis::vcs::{self, Options, build_history_index, build_trend, workdir_root};
 
 mod common;
 use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
@@ -648,4 +648,47 @@ fn not_a_repository_errors_clearly() {
         matches!(err, vcs::Error::NotARepository(_)),
         "expected NotARepository, got {err:?}"
     );
+}
+
+#[test]
+fn workdir_root_coalesces_files_across_subdirectories() {
+    // Two files in *different* subdirectories of one checkout must resolve
+    // to the same work-tree root — the property the batch VCS cache relies
+    // on to build one index per repository rather than one per directory
+    // (issue #670).
+    let repo = Repo::init();
+    repo.write("src/a.rs", "fn a() {}\n");
+    repo.write("tests/b.rs", "fn b() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "init");
+
+    let root_a = workdir_root(&repo.path().join("src/a.rs")).expect("a.rs is in a repo");
+    let root_b = workdir_root(&repo.path().join("tests/b.rs")).expect("b.rs is in a repo");
+    assert_eq!(root_a, root_b, "both files share one work-tree root");
+
+    // The discovered root is the repo's canonicalised work tree.
+    let canonical = repo.path().canonicalize().expect("canonicalize repo path");
+    assert_eq!(root_a, canonical);
+}
+
+#[test]
+fn workdir_root_is_none_outside_a_repository() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    assert!(
+        workdir_root(&dir.path().join("loose.rs")).is_none(),
+        "a path outside any repository has no work-tree root"
+    );
+}
+
+#[test]
+fn workdir_root_distinguishes_separate_repositories() {
+    let one = Repo::init();
+    one.write("x.rs", "fn x() {}\n");
+    one.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "one");
+    let two = Repo::init();
+    two.write("y.rs", "fn y() {}\n");
+    two.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "two");
+
+    let root_one = workdir_root(&one.path().join("x.rs")).expect("repo one");
+    let root_two = workdir_root(&two.path().join("y.rs")).expect("repo two");
+    assert_ne!(root_one, root_two, "distinct repos yield distinct roots");
 }
