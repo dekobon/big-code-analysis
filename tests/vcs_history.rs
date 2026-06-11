@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use big_code_analysis::vcs::{self, Options, build_history_index};
+use big_code_analysis::vcs::{self, Options, build_history_index, build_trend};
 
 mod common;
 use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
@@ -597,6 +597,46 @@ fn shallow_clone_degrades_gracefully() {
     assert!(
         stats.churn_long >= 1,
         "the tip's content counts as additions"
+    );
+}
+
+#[test]
+fn trend_anchors_newest_when_all_commits_share_one_second() {
+    // Reproduces issue #650: every commit lands in the same commit-time
+    // second (scripted setups, squash/rebase chains, bot commits). The
+    // empty init commit and the content commit are indistinguishable by
+    // time, so the per-point tip selection must tie-break toward the
+    // newest (content-bearing) commit — otherwise it anchors at the empty
+    // init and the whole trend collapses to `{}`.
+    let shared_second = FIXED_NOW - 5 * DAY;
+    let repo = Repo::init();
+    // Empty init commit at the shared second (the classic oldest tie).
+    repo.commit("Ada", "ada@example.com", shared_second, "init");
+    // Content commit at the *same* second. Unique per-line content avoids
+    // the gix-blame repetitive-content non-determinism on identical lines.
+    repo.write(
+        "src/work.rs",
+        "fn first() {}\nfn second() {}\nfn third() {}\n",
+    );
+    repo.commit("Ada", "ada@example.com", shared_second, "add work");
+
+    // Sample points all fall after the shared second, so each must anchor
+    // at the content commit.
+    let mut options = Options::default();
+    options.as_of = Some(shared_second + 2 * DAY);
+    let trend = build_trend(repo.path(), &options, 2, DAY).expect("trend builds");
+
+    assert!(
+        !trend.is_empty(),
+        "trend must not collapse to empty when commits share one second"
+    );
+    let series: Vec<_> = trend.iter().collect();
+    assert_eq!(series.len(), 1, "exactly the one tracked file");
+    let (path, stats) = series[0];
+    assert_eq!(path.as_path(), Path::new("src/work.rs"));
+    assert!(
+        stats.iter().all(Option::is_some),
+        "the file must exist at every sampled point after its commit"
     );
 }
 

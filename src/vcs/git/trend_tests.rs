@@ -37,6 +37,22 @@ fn tip_at_or_before_is_robust_to_out_of_order_times() {
 }
 
 #[test]
+fn tip_at_or_before_breaks_same_second_ties_toward_newest() {
+    // All commits share one commit-time second (scripted setups,
+    // squash/rebase chains, bot commits). In this newest-first timeline
+    // the real tip is oid(3) at index 0; the oldest equal-time commit —
+    // an empty init commit — is oid(1) at the end. The selection must
+    // resolve the tie to the newest (oid(3)), not the oldest, so the
+    // snapshot anchors at content rather than before the repo had any.
+    let timeline = vec![(100, oid(3)), (100, oid(2)), (100, oid(1))];
+    assert_eq!(tip_at_or_before(&timeline, 100), Some(oid(3)));
+    // A point after the shared second still selects the newest.
+    assert_eq!(tip_at_or_before(&timeline, 250), Some(oid(3)));
+    // A point before the shared second selects nothing.
+    assert_eq!(tip_at_or_before(&timeline, 50), None);
+}
+
+#[test]
 fn snapshot_options_anchors_reference_and_as_of() {
     let base = Options {
         reference: "HEAD".to_owned(),
