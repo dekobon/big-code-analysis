@@ -158,6 +158,50 @@ fn consumer_processes_jobs_then_terminates_on_poison_pill() {
     );
 }
 
+#[test]
+fn consumer_continues_past_processing_errors_then_terminates() {
+    // A `func` that returns `Err` must not abort the consumer loop: the
+    // error is reported via `per_file_error_message` (BrokenPipe swallowed,
+    // every other error `eprintln!`-ed) and the loop proceeds to the next
+    // job, terminating only on the poison-pill. Driving both error kinds
+    // exercises both sides of the call-site `&& let Some(message)` guard.
+    let (sender, receiver): (JobSender<()>, JobReceiver<()>) = unbounded();
+
+    let invocations = Arc::new(AtomicUsize::new(0));
+    let invocations_for_closure = Arc::clone(&invocations);
+    let func = Arc::new(move |path: PathBuf, _cfg: &()| {
+        invocations_for_closure.fetch_add(1, Ordering::SeqCst);
+        // "pipe.rs" simulates a closed downstream pipe (swallowed); any
+        // other path simulates a real failure (reported to stderr).
+        let kind = if path == Path::new("pipe.rs") {
+            ErrorKind::BrokenPipe
+        } else {
+            ErrorKind::PermissionDenied
+        };
+        Err(std::io::Error::new(kind, "simulated"))
+    });
+
+    let handle = thread::spawn(move || consumer(receiver, func));
+
+    let cfg = Arc::new(());
+    for name in ["pipe.rs", "denied.rs"] {
+        sender
+            .send(Some(JobItem {
+                path: PathBuf::from(name),
+                cfg: Arc::clone(&cfg),
+            }))
+            .expect("send should succeed");
+    }
+    sender.send(None).expect("send should succeed");
+
+    handle.join().expect("consumer thread should not panic");
+    assert_eq!(
+        invocations.load(Ordering::SeqCst),
+        2,
+        "both jobs must be processed despite each returning an error",
+    );
+}
+
 // ── Per-file error diagnostics (#665) ────────────────────────────
 //
 // The consumer must swallow `BrokenPipe` silently (the routine
