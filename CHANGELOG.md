@@ -23,6 +23,10 @@ for historical reference.
 
 ### Added
 
+- `write_csv_aggregate` (re-exported from the crate root): writes several
+  metric trees into one CSV document under a single shared header row.
+  Backs `bca metrics/ops --output <FILE> --format csv` (#669), which
+  previously repeated the header before every file's rows.
 - A `mypy stubtest` gate (`make py-stubtest`) verifies the hand-written
   PyO3 type stub
   `big-code-analysis-py/python/big_code_analysis/_native.pyi` against the

@@ -112,6 +112,12 @@ fn walk_seed(
     let mut builder = WalkBuilder::new(root);
     builder
         .standard_filters(respect_gitignore)
+        // Hidden (dot-prefixed) entries are skipped unconditionally, matching
+        // the CLI walker's `.hidden(true)` — `standard_filters(false)` would
+        // otherwise un-hide them, so `respect_gitignore=false` would walk
+        // `.git/` / `.venv/` that the CLI never sees. Set after
+        // `standard_filters` so it wins regardless of the gitignore toggle.
+        .hidden(true)
         // `require_git(false)` honours a `.gitignore` even when the seed is
         // not inside an initialised git repository — matching the CLI walker
         // (`big-code-analysis-cli/src/lib.rs`) so the two surfaces filter

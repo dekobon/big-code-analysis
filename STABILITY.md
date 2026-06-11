@@ -628,6 +628,7 @@ at the crate root from `src/output/`:
 | Writer | Signature (eliding `<W: Write>`) |
 |--------|----------------------------------|
 | `write_csv` | `(space: &FuncSpace, source_path: &Path, writer: W) -> io::Result<()>` |
+| `write_csv_aggregate` | `(spaces: impl IntoIterator<Item = (&FuncSpace, &Path)>, writer: W) -> io::Result<()>` — one shared header, then every tree's rows |
 | `write_sarif` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_sarif_with_suppressed` | `(active, suppressed: &[OffenderRecord], writer: W) -> io::Result<()>` |
 | `write_checkstyle` | `(offenders: &[OffenderRecord], writer: W) -> io::Result<()>` |
