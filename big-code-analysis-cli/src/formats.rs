@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use clap::ValueEnum;
 use serde::Serialize;
 
-use big_code_analysis::{CSV_EXTENSION, FuncSpace, write_csv};
+use big_code_analysis::{CSV_EXTENSION, FuncSpace, write_csv, write_csv_aggregate};
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
     "CBOR is binary and cannot be printed to stdout; use --output";
@@ -268,9 +268,10 @@ pub(crate) fn dump_aggregate<T: Serialize>(
 }
 
 /// Write every space's CSV rows into ONE aggregate `--output <FILE>`
-/// (#669). The per-file CSV columns are shared, so concatenating each
-/// file's rows under a single header-bearing document is the natural
-/// aggregate: `write_csv` writes a self-describing block per space.
+/// (#669). Delegates to [`write_csv_aggregate`], which emits the shared
+/// [`CSV_HEADER`](big_code_analysis::CSV_HEADER) exactly once — unlike a
+/// per-file `write_csv` loop, which would repeat the header before every
+/// file's rows and corrupt the concatenated document.
 pub(crate) fn dump_csv_aggregate(
     spaces: &[(FuncSpace, PathBuf)],
     output: &Path,
@@ -280,11 +281,11 @@ pub(crate) fn dump_csv_aggregate(
     {
         create_dir_all(parent)?;
     }
-    let mut file = File::create(output)?;
-    for (space, path) in spaces {
-        write_csv(space, path, &mut file)?;
-    }
-    Ok(())
+    let file = File::create(output)?;
+    write_csv_aggregate(
+        spaces.iter().map(|(space, path)| (space, path.as_path())),
+        file,
+    )
 }
 
 #[inline]

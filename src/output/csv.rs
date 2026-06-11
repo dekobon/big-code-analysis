@@ -205,6 +205,41 @@ pub fn write_csv<W: Write>(space: &FuncSpace, source_path: &Path, writer: W) -> 
     wtr.flush()
 }
 
+/// Write multiple metric trees into ONE CSV document under a single shared
+/// header row.
+///
+/// [`write_csv`] emits [`CSV_HEADER`] on every call, so concatenating its
+/// output for several files would repeat the header before each file's rows
+/// — a structurally invalid CSV that downstream parsers ingest as data. This
+/// emits the header exactly once, then every file's rows, for the
+/// `--output <FILE>` aggregate path (#669). A non-UTF-8 source path skips
+/// that file's rows with a stderr warning, matching [`write_csv`].
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] surfaced by the underlying [`csv::Writer`].
+pub fn write_csv_aggregate<'a, W, I>(spaces: I, writer: W) -> io::Result<()>
+where
+    W: Write,
+    I: IntoIterator<Item = (&'a FuncSpace, &'a Path)>,
+{
+    let mut wtr = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(writer);
+    wtr.write_record(CSV_HEADER).map_err(csv_err)?;
+    for (space, source_path) in spaces {
+        let Some(path_str) = source_path.to_str() else {
+            eprintln!(
+                "Warning: skipping non-UTF-8 source path in CSV output: {}",
+                source_path.display()
+            );
+            continue;
+        };
+        write_space_rows(&mut wtr, path_str, space)?;
+    }
+    wtr.flush()
+}
+
 fn write_space_rows<W: Write>(
     wtr: &mut csv::Writer<W>,
     path_str: &str,
@@ -292,6 +327,36 @@ mod tests {
         let expected: Vec<&str> = CSV_HEADER.to_vec();
         let got: Vec<&str> = first.split(',').collect();
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn aggregate_emits_exactly_one_shared_header() {
+        // The `--output <FILE>` aggregate (#669) concatenates several files'
+        // rows into one document and MUST emit the header once. A naive
+        // per-file `write_csv` loop repeats it before every file, which
+        // downstream CSV parsers ingest as data rows (regression guard).
+        let a = empty_space("a", SpaceKind::Unit, 1, 1);
+        let b = empty_space("b", SpaceKind::Unit, 1, 1);
+        let c = empty_space("c", SpaceKind::Unit, 1, 1);
+        let spaces: Vec<(FuncSpace, &Path)> = vec![
+            (a, Path::new("a.rs")),
+            (b, Path::new("b.rs")),
+            (c, Path::new("c.rs")),
+        ];
+        let mut buf = Vec::new();
+        write_csv_aggregate(spaces.iter().map(|(s, p)| (s, *p)), &mut buf)
+            .expect("writing to Vec is infallible");
+        let out = String::from_utf8(buf).expect("output is UTF-8");
+
+        let header_line = CSV_HEADER.join(",");
+        let header_count = out.lines().filter(|l| *l == header_line).count();
+        assert_eq!(header_count, 1, "exactly one header row, got:\n{out}");
+        // One header + one data row per file (each Unit space is one row).
+        assert_eq!(out.lines().count(), 4, "header + 3 data rows:\n{out}");
+        assert!(
+            out.lines().next() == Some(header_line.as_str()),
+            "header first"
+        );
     }
 
     #[test]

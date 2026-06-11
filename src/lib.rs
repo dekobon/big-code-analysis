@@ -249,8 +249,8 @@ pub mod output;
 pub use crate::output::{
     CSV_EXTENSION, CSV_HEADER, ColorMode, OffenderRecord, Severity, TOOL_ID, dump_node,
     dump_node_with_color, dump_ops, dump_ops_with_color, dump_root, dump_root_with_color,
-    write_checkstyle, write_clang_warning, write_code_climate, write_csv, write_msvc_warning,
-    write_sarif, write_sarif_with_suppressed,
+    write_checkstyle, write_clang_warning, write_code_climate, write_csv, write_csv_aggregate,
+    write_msvc_warning, write_sarif, write_sarif_with_suppressed,
 };
 
 // --- AST plumbing (Node) ---

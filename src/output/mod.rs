@@ -21,7 +21,7 @@ pub use checkstyle::write_checkstyle;
 pub(crate) mod funcspace_row;
 
 pub mod csv;
-pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
+pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv, write_csv_aggregate};
 
 pub mod sarif;
 pub use sarif::{write_sarif, write_sarif_with_suppressed};

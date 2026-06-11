@@ -121,6 +121,18 @@ def test_analyze_paths_respect_gitignore_false(tmp_path: Path) -> None:
     assert _names(results) == {"keep.rs", "ignored.rs"}
 
 
+def test_analyze_paths_skips_hidden_even_without_gitignore(tmp_path: Path) -> None:
+    """Hidden (dot-prefixed) entries are skipped unconditionally, matching
+    the CLI walker's `.hidden(true)`. `respect_gitignore=False` opts out of
+    gitignore handling but must NOT start walking dotfiles / `.git/` /
+    `.venv/` that the CLI never sees — the two surfaces stay in parity."""
+    _write(tmp_path, "keep.rs", "fn keep() {}\n")
+    _write(tmp_path, ".hidden.rs", "fn hidden() {}\n")
+    _write(tmp_path, ".cache/buried.rs", "fn buried() {}\n")
+    results = bca.analyze_paths(tmp_path, respect_gitignore=False)
+    assert _names(results) == {"keep.rs"}
+
+
 def test_analyze_paths_include_exclude_globs(tmp_path: Path) -> None:
     """#658: include / exclude globs filter the walk (root-relative)."""
     _write(tmp_path, "a.rs", "fn a() {}\n")

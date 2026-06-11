@@ -146,8 +146,7 @@ pub(crate) fn known_diff_metric_names() -> Vec<&'static str> {
 /// unknown name returns `Err` with the known-names list and a
 /// suggestion, so a typo errors (exit 1) instead of silently matching
 /// nothing (#662).
-pub(crate) fn validate_diff_metric(name: &str) -> Result<(), String> {
-    let known = known_diff_metric_names();
+fn validate_one_diff_metric(name: &str, known: &[&'static str]) -> Result<(), String> {
     // Resolve dotted / aliased spellings to their bucket name first, so
     // `cyclomatic.modified` and `sloc` both validate against the bucket
     // set the diff filter actually compares against.
@@ -157,7 +156,7 @@ pub(crate) fn validate_diff_metric(name: &str) -> Result<(), String> {
     }
     Err(format!(
         "unknown metric {name:?}{}; known metrics: {}",
-        crate::threshold_suggestion::format_suggestion(name, &known),
+        crate::threshold_suggestion::format_suggestion(name, known),
         known.join(", ")
     ))
 }
@@ -166,7 +165,10 @@ pub(crate) fn validate_diff_metric(name: &str) -> Result<(), String> {
 /// first error. Shared by `diff`, `diff-baseline`, and `metrics
 /// --metrics` (#662, #691).
 pub(crate) fn validate_diff_metrics(names: &[String]) -> Result<(), String> {
-    names.iter().try_for_each(|n| validate_diff_metric(n))
+    let known = known_diff_metric_names();
+    names
+        .iter()
+        .try_for_each(|n| validate_one_diff_metric(n, &known))
 }
 
 /// Resolve a validated `--metrics` name (a bucket name, a dotted id, or a
@@ -174,7 +176,7 @@ pub(crate) fn validate_diff_metrics(names: &[String]) -> Result<(), String> {
 /// family it computes. A `loc` sub-metric (`sloc`, `lloc`, …) resolves to
 /// [`Metric::Loc`](big_code_analysis::Metric::Loc); every other bucket
 /// name is itself a family name. Returns `None` for a name with no
-/// catalog family — callers validate first via [`validate_diff_metric`],
+/// catalog family — callers validate first via [`validate_diff_metrics`],
 /// so `None` should not occur for accepted names. Used by `bca metrics
 /// --metrics` (#691) to build the `MetricsOptions::with_only` selection.
 pub(crate) fn metric_for_name(name: &str) -> Option<big_code_analysis::Metric> {
