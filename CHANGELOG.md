@@ -1787,6 +1787,32 @@ for historical reference.
 
 ### Fixed
 
+- `bca check` remediation footer no longer claims a `bca-reports` CI
+  artifact on local runs; outside GitHub Actions it now suggests
+  `bca report` for the detailed view (#676).
+- Actionable Summary suppression caption now shows a per-metric
+  breakdown (`halstead: N, cognitive: M`) of the rows each hotspot
+  table actually hides, instead of an any-marker-any-metric
+  per-function count that read as a near-total silencing of the
+  codebase (#672). Report bytes only.
+- Fully-suppressed hotspot sections now emit their heading (`###` /
+  `<h3>` + id) with the omission note as the body, so heading
+  structure and deep-link anchors stay stable across suppression
+  states (#681). Report bytes only.
+- Markdown report global header and per-language summary now render as
+  two-column tables instead of run-on paragraphs in spec-conformant
+  GFM (wikis, mdBook, repo-rendered `.md`) (#671). Report bytes only.
+- VCS trend tip selection tie-breaks same-second commits toward the
+  newest commit; previously `max_by_key` selected the oldest (e.g. an
+  empty init commit), collapsing the trend to empty/wrong snapshots on
+  repositories whose commits share one commit-time second (#650).
+- Per-file walker errors are now Display-formatted
+  (`error processing <path>: <err>`) and `BrokenPipe` is swallowed
+  silently (`| head` / `| less`); previously a Rust `Os { … }` Debug
+  struct leaked. Stderr diagnostics only (#665).
+- Web 405 responses now carry an RFC 9110 `Allow` header, and
+  `OPTIONS` is answered with `204` + `Allow` so clients can discover
+  supported methods (#655).
 - Per-file output (`bca metrics/ops -o <dir>`) is written under the
   walk-root-relative path again when `--paths` is spelled through a
   symlinked directory. `reanchor_seed` compared the as-spelled seed
