@@ -92,8 +92,9 @@ section.
     and removed `MetricKind` from the public API. `SuppressionScope`
     now carries `BTreeSet<Metric>`, so a serialized non-empty
     suppressed scope spells the exit-point metric `nexits` (the
-    canonical name) rather than the old `exit`; deserialization still
-    reads the legacy `exit` alias. `tokens` has no threshold and is
+    canonical name) rather than the old `exit`; the `exit` parse alias
+    was retired at `2.0` (#588), so only `nexits` now deserializes.
+    `tokens` has no threshold and is
     rejected as non-suppressible (`Metric::suppressible()` enumerates
     the silenceable set). The threshold-name resolver moved to the
     free function `big_code_analysis::threshold_metric_for_name`
@@ -156,7 +157,7 @@ section.
     a `HashMap`/`HashSet`. Adding these derives is additive.
 - **Per-metric `Stats`** — one `Stats` struct under each
   `src/metrics/<metric>.rs` (`abc`, `cognitive`, `cyclomatic`,
-  `exit`, `halstead`, `loc`, `mi`, `nargs`, `nom`, `npa`, `npm`,
+  `halstead`, `loc`, `mi`, `nargs`, `nexits`, `nom`, `npa`, `npm`,
   `wmc`, plus `tokens`). These structs are **not**
   `#[non_exhaustive]`, so adding a public field is a shape break in
   the strict SemVer sense. In practice we treat field additions as

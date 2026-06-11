@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::metric_set::{Metric, MetricSet};
 use crate::metrics::{
-    abc, cognitive, cyclomatic, exit, halstead, loc, mi, nargs, nom, npa, npm, tokens, wmc,
+    abc, cognitive, cyclomatic, halstead, loc, mi, nargs, nexits, nom, npa, npm, tokens, wmc,
 };
 use crate::spaces::SpaceKind;
 use crate::suppression::SuppressionScope;
@@ -241,13 +241,13 @@ pub struct Nexits {
     pub max: u64,
 }
 
-impl From<&exit::Stats> for Nexits {
-    fn from(s: &exit::Stats) -> Self {
+impl From<&nexits::Stats> for Nexits {
+    fn from(s: &nexits::Stats) -> Self {
         Self {
-            sum: s.exit_sum(),
-            average: s.exit_average(),
-            min: s.exit_min(),
-            max: s.exit_max(),
+            sum: s.nexits_sum(),
+            average: s.nexits_average(),
+            min: s.nexits_min(),
+            max: s.nexits_max(),
         }
     }
 }
@@ -296,10 +296,10 @@ pub struct Halstead {
 impl From<&halstead::Stats> for Halstead {
     fn from(s: &halstead::Stats) -> Self {
         Self {
-            unique_operators: s.u_operators(),
-            total_operators: s.operators(),
-            unique_operands: s.u_operands(),
-            total_operands: s.operands(),
+            unique_operators: s.unique_operators(),
+            total_operators: s.total_operators(),
+            unique_operands: s.unique_operands(),
+            total_operands: s.total_operands(),
             length: s.length(),
             estimated_program_length: s.estimated_program_length(),
             purity_ratio: s.purity_ratio(),
@@ -408,9 +408,9 @@ pub struct Mi {
 impl From<&mi::Stats> for Mi {
     fn from(s: &mi::Stats) -> Self {
         Self {
-            original: s.mi_original(),
-            sei: s.mi_sei(),
-            visual_studio: s.mi_visual_studio(),
+            original: s.original(),
+            sei: s.sei(),
+            visual_studio: s.visual_studio(),
         }
     }
 }
@@ -446,14 +446,14 @@ pub struct Nargs {
 impl From<&nargs::Stats> for Nargs {
     fn from(s: &nargs::Stats) -> Self {
         Self {
-            function_args: s.fn_args_sum(),
+            function_args: s.function_args_sum(),
             closure_args: s.closure_args_sum(),
-            function_args_average: s.fn_args_average(),
+            function_args_average: s.function_args_average(),
             closure_args_average: s.closure_args_average(),
-            total: s.nargs_total(),
-            average: s.nargs_average(),
-            function_args_min: s.fn_args_min(),
-            function_args_max: s.fn_args_max(),
+            total: s.total(),
+            average: s.average(),
+            function_args_min: s.function_args_min(),
+            function_args_max: s.function_args_max(),
             closure_args_min: s.closure_args_min(),
             closure_args_max: s.closure_args_max(),
         }
@@ -1015,7 +1015,7 @@ impl From<&crate::spaces::CodeMetrics> for CodeMetrics {
         // mask, mirroring the compute `Serialize` impl exactly.
         let on = |m: Metric| sel.contains(m);
         Self {
-            nargs: on(Metric::NArgs).then(|| Nargs::from(&c.nargs)),
+            nargs: on(Metric::Nargs).then(|| Nargs::from(&c.nargs)),
             nexits: on(Metric::Nexits).then(|| Nexits::from(&c.nexits)),
             cognitive: on(Metric::Cognitive).then(|| Cognitive::from(&c.cognitive)),
             cyclomatic: on(Metric::Cyclomatic).then(|| Cyclomatic::from(&c.cyclomatic)),
@@ -1051,7 +1051,7 @@ impl CodeMetrics {
                 set.insert(metric);
             }
         };
-        mark(self.nargs.is_some(), Metric::NArgs);
+        mark(self.nargs.is_some(), Metric::Nargs);
         mark(self.nexits.is_some(), Metric::Nexits);
         mark(self.cognitive.is_some(), Metric::Cognitive);
         mark(self.cyclomatic.is_some(), Metric::Cyclomatic);
@@ -1183,7 +1183,7 @@ macro_rules! serialize_via_wire {
 serialize_via_wire!(abc::Stats => Abc);
 serialize_via_wire!(cognitive::Stats => Cognitive);
 serialize_via_wire!(cyclomatic::Stats => Cyclomatic);
-serialize_via_wire!(exit::Stats => Nexits);
+serialize_via_wire!(nexits::Stats => Nexits);
 serialize_via_wire!(halstead::Stats => Halstead);
 serialize_via_wire!(loc::Stats => Loc);
 serialize_via_wire!(mi::Stats => Mi);

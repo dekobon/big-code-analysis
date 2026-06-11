@@ -172,11 +172,11 @@ fn extract_summaries_inner(
             halstead_effort: m.halstead.effort(),
             halstead_bugs: m.halstead.bugs(),
             halstead_time: m.halstead.time(),
-            mi_original: m.mi.mi_original(),
-            mi_sei: m.mi.mi_sei(),
-            mi_visual_studio: m.mi.mi_visual_studio(),
-            nargs: m.nargs.nargs_total() as usize,
-            nexits: m.nexits.exit_sum() as usize,
+            mi_original: m.mi.original(),
+            mi_sei: m.mi.sei(),
+            mi_visual_studio: m.mi.visual_studio(),
+            nargs: m.nargs.total() as usize,
+            nexits: m.nexits.nexits_sum() as usize,
             nom: m.nom.total() as usize,
             abc: m.abc.magnitude(),
             wmc: m.wmc.total_wmc() as f64,
@@ -1756,7 +1756,7 @@ mod tests {
         // detail table is dropped — but the raw summary bullet survives.
         let mut wide = make_summary("wide", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         wide.nargs = 7;
-        wide.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::NArgs]));
+        wide.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Nargs]));
 
         let report = generate_report(&[unit, wide], 20, SuppressionPolicy::Honor);
         // Issue #681: the section heading is still emitted so the section

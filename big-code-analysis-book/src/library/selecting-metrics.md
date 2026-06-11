@@ -108,7 +108,7 @@ let opts = MetricsOptions::default().with_only(&[
     Metric::Loc,
     Metric::Nom,
     Metric::Tokens,
-    Metric::NArgs,
+    Metric::Nargs,
     Metric::Nexits,
     Metric::Abc,
     Metric::Npm,

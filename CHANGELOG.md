@@ -849,6 +849,32 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Lib: Halstead `Stats` accessors renamed to the wire
+  vocabulary — `u_operators` → `unique_operators`, `operators` →
+  `total_operators`, `u_operands` → `unique_operands`, `operands` →
+  `total_operands`. JSON/YAML/TOML/CBOR output keys are unchanged.
+  Deferred to the 2.0.0 release (#588).
+- **(breaking)** Lib: the `exit` metric module is renamed to `nexits`
+  (`src/metrics/exit.rs` → `nexits.rs`; the crate-internal
+  `crate::exit` path is now `crate::nexits`), its `Stats` accessors
+  `exit`/`exit_sum`/`exit_average`/`exit_min`/`exit_max` become
+  `nexits`/`nexits_sum`/`nexits_average`/`nexits_min`/`nexits_max`,
+  and the retired `"exit"` parse alias for `Metric::Nexits` no longer
+  resolves (only `"nexits"` parses). Output keys are unchanged.
+  Deferred to the 2.0.0 release (#588).
+- **(breaking)** Lib: NArgs `Stats` accessors renamed —
+  `fn_args`/`fn_args_sum`/`fn_args_average`/`fn_args_min`/`fn_args_max`
+  → `function_args`/`function_args_sum`/`function_args_average`/
+  `function_args_min`/`function_args_max`, and `nargs_total`/
+  `nargs_average` → `total`/`average`. Wire keys are unchanged.
+  Deferred to the 2.0.0 release (#588).
+- **(breaking)** Lib: MI `Stats` accessors renamed —
+  `mi_original`/`mi_sei`/`mi_visual_studio` →
+  `original`/`sei`/`visual_studio`. Output keys are unchanged.
+  Deferred to the 2.0.0 release (#588).
+- **(breaking)** Lib: the `Metric::NArgs` enum variant is renamed to
+  `Metric::Nargs`; its lowercase `"nargs"` serde/`Display`/`FromStr`
+  spelling is unchanged. Deferred to the 2.0.0 release (#588).
 - **(breaking)** CLI: argv/usage/value-parse errors now exit 1 instead
   of clap's 2, reserving exit codes 2–5 for the `check` and
   `vcs jit --fail-above`-style metric gates; `--help` / `--version`

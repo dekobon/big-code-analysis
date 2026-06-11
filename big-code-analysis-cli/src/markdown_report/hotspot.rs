@@ -355,7 +355,7 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
         keep: |s| s.nargs > 3,
         metric: |s| s.nargs as f64,
         dir: SortDir::Desc,
-        metric_kind: Metric::NArgs,
+        metric_kind: Metric::Nargs,
         rank_col: 3,
         columns: &[
             COL_FUNCTION,
@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn specs_count_and_actionable_splice() {
         assert_eq!(SPECS.len(), 9);
-        assert!(matches!(SPECS[5].metric_kind, Metric::NArgs)); // Many-Params
+        assert!(matches!(SPECS[5].metric_kind, Metric::Nargs)); // Many-Params
         assert!(matches!(
             SPECS[ACTIONABLE_SUMMARY_INDEX].metric_kind,
             Metric::Wmc
@@ -951,7 +951,7 @@ mod tests {
                 Metric::Cognitive,
                 Metric::Halstead,
                 Metric::Loc,
-                Metric::NArgs,
+                Metric::Nargs,
                 Metric::Nexits,
                 Metric::Abc,
             ],

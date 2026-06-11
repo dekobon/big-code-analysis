@@ -364,21 +364,23 @@ def test_flatten_compatible_with_metric_selection() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# exit / nexits alias
+# nexits canonical spelling (retired "exit" alias)
 # ─────────────────────────────────────────────────────────────────
 
 
-def test_exit_alias_accepts_both_spellings() -> None:
-    """``"exit"`` and ``"nexits"`` both map to ``Metric::Exit``.
+def test_nexits_canonical_spelling() -> None:
+    """``"nexits"`` is the only accepted spelling; ``"exit"`` is rejected.
 
-    The result's metric key is ``"nexits"`` (the JSON output key)
-    regardless of which spelling the caller used.
+    The legacy ``"exit"`` Metric-Display alias was retired at 2.0
+    (issue #588); passing it now raises ``ValueError`` like any other
+    unknown metric name. The output key remains ``"nexits"``.
     """
-    via_display = bca.analyze(FIXTURES / "hello.py", metrics=["exit"])
     via_json_key = bca.analyze(FIXTURES / "hello.py", metrics=["nexits"])
-    assert via_display == via_json_key
-    assert via_display is not None
-    assert "nexits" in via_display["metrics"]
+    assert via_json_key is not None
+    assert "nexits" in via_json_key["metrics"]
+
+    with pytest.raises(ValueError):
+        bca.analyze(FIXTURES / "hello.py", metrics=["exit"])
 
 
 # ─────────────────────────────────────────────────────────────────

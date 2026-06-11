@@ -884,7 +884,7 @@ mod tests {
         let scope = SuppressionScope::Some(BTreeSet::from([
             Metric::Wmc,
             Metric::Nexits,
-            Metric::NArgs,
+            Metric::Nargs,
             Metric::Cognitive,
         ]));
         let json = serde_json::to_string(&scope).unwrap();

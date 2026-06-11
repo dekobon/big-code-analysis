@@ -1897,7 +1897,7 @@ mod tests {
         hidden.cyclomatic = 30.0;
         hidden.nargs = 7;
         hidden.suppressed =
-            SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic, Metric::NArgs]));
+            SuppressionScope::Some(BTreeSet::from([Metric::Cyclomatic, Metric::Nargs]));
 
         let report = generate_html_report(&[unit, visible, hidden], 20, SuppressionPolicy::Honor);
 

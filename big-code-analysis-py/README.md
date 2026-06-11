@@ -190,9 +190,9 @@ results = bca.analyze_batch(
 
 Names are case-sensitive lowercase; passing an unknown name raises
 `ValueError` with the canonical list in the error message. The
-`"exit"` Metric-Display spelling is accepted as an alias for the
-canonical JSON-key spelling `"nexits"`; both produce a `"nexits"`
-key in the output. Duplicates are silently collapsed.
+number-of-exit-points metric is spelled `"nexits"` (matching its
+JSON-key spelling); the legacy `"exit"` alias was retired at 2.0.
+Duplicates are silently collapsed.
 
 ## SARIF 2.1.0 output
 

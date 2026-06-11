@@ -31,7 +31,7 @@ fn exit_max(lang: LANG, source: &str, ext: &str) -> f64 {
         MetricsOptions::default(),
     )
     .expect("parser produced no FuncSpace for parity fixture");
-    space.metrics.nexits.exit_max() as f64
+    space.metrics.nexits.nexits_max() as f64
 }
 
 #[test]

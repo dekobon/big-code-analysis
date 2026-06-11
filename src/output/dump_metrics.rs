@@ -11,11 +11,11 @@ use termcolor::{Color, StandardStream, WriteColor};
 use crate::abc;
 use crate::cognitive;
 use crate::cyclomatic;
-use crate::exit;
 use crate::halstead;
 use crate::loc;
 use crate::mi;
 use crate::nargs;
+use crate::nexits;
 use crate::nom;
 use crate::npa;
 use crate::npm;
@@ -198,28 +198,28 @@ fn dump_halstead(
 
     dump_value(
         "unique_operators",
-        stats.u_operators() as f64,
+        stats.unique_operators() as f64,
         &prefix,
         false,
         stdout,
     )?;
     dump_value(
         "total_operators",
-        stats.operators() as f64,
+        stats.total_operators() as f64,
         &prefix,
         false,
         stdout,
     )?;
     dump_value(
         "unique_operands",
-        stats.u_operands() as f64,
+        stats.unique_operands() as f64,
         &prefix,
         false,
         stdout,
     )?;
     dump_value(
         "total_operands",
-        stats.operands() as f64,
+        stats.total_operands() as f64,
         &prefix,
         false,
         stdout,
@@ -344,11 +344,11 @@ fn dump_mi(
     writeln!(stdout, "mi")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("original", stats.mi_original(), &prefix, false, stdout)?;
-    dump_value("sei", stats.mi_sei(), &prefix, false, stdout)?;
+    dump_value("original", stats.original(), &prefix, false, stdout)?;
+    dump_value("sei", stats.sei(), &prefix, false, stdout)?;
     dump_value(
         "visual_studio",
-        stats.mi_visual_studio(),
+        stats.visual_studio(),
         &prefix,
         true,
         stdout,
@@ -372,10 +372,10 @@ fn dump_nargs(
     let prefix = format!("{prefix}{pref_child}");
     // Subtree-aggregate counts (`*_sum`), matching the JSON serializer:
     // `total`/`average` are already aggregates, so the per-space
-    // `fn_args()`/`closure_args()` would not sum to `total` at a parent.
+    // `function_args()`/`closure_args()` would not sum to `total` at a parent.
     dump_value(
         "function_args",
-        stats.fn_args_sum() as f64,
+        stats.function_args_sum() as f64,
         &prefix,
         false,
         stdout,
@@ -387,12 +387,12 @@ fn dump_nargs(
         false,
         stdout,
     )?;
-    dump_value("total", stats.nargs_total() as f64, &prefix, false, stdout)?;
-    dump_value("average", stats.nargs_average(), &prefix, true, stdout)
+    dump_value("total", stats.total() as f64, &prefix, false, stdout)?;
+    dump_value("average", stats.average(), &prefix, true, stdout)
 }
 
 fn dump_nexits(
-    stats: &exit::Stats,
+    stats: &nexits::Stats,
     prefix: &str,
     last: bool,
     stdout: &mut dyn WriteColor,
@@ -406,7 +406,7 @@ fn dump_nexits(
     write!(stdout, "nexits: ")?;
 
     color(stdout, Color::White)?;
-    writeln!(stdout, "{}", stats.exit())
+    writeln!(stdout, "{}", stats.nexits())
 }
 
 fn dump_abc(

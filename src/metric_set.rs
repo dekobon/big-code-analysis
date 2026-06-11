@@ -46,8 +46,8 @@ pub enum Metric {
     /// Token counts ([`crate::tokens::Stats`]).
     Tokens,
     /// Number of arguments ([`crate::nargs::Stats`]).
-    NArgs,
-    /// Exit-point count ([`crate::exit::Stats`]).
+    Nargs,
+    /// Exit-point count ([`crate::nexits::Stats`]).
     Nexits,
     /// ABC ([`crate::abc::Stats`]).
     Abc,
@@ -99,12 +99,12 @@ impl Metric {
             // Wmc aggregates per-method cyclomatic complexity and
             // needs Nom to count those methods.
             Self::Wmc => &[Self::Cyclomatic, Self::Nom],
-            // Cognitive, Exit, and NArgs each expose a per-function
+            // Cognitive, Nexits, and Nargs each expose a per-function
             // average whose divisor is the function/closure count
             // sourced from Nom (see `spaces::compute_averages`).
             // Without Nom the divisor would be the `Stats` default
             // (zero), producing inf/NaN averages (#428).
-            Self::Cognitive | Self::Nexits | Self::NArgs => &[Self::Nom],
+            Self::Cognitive | Self::Nexits | Self::Nargs => &[Self::Nom],
             _ => &[],
         }
     }
@@ -116,14 +116,10 @@ impl Metric {
     /// that parses user input into a [`MetricSet`].
     ///
     /// Each entry round-trips through [`Metric::from_str`]. Every
-    /// metric now uses one canonical spelling end-to-end:
+    /// metric uses one canonical spelling end-to-end:
     /// [`Metric::Nexits`] is `"nexits"` in `Display`, in this table,
     /// and as the JSON output key (the `CodeMetrics::Serialize` impl
-    /// in `src/spaces.rs`). The legacy `"exit"` spelling is still
-    /// accepted by `FromStr` as a hidden back-compat alias (see
-    /// #536) but is deliberately absent here so callers see the
-    /// canonical name in `Metric::NAMES`, in the output dict, and in
-    /// error messages.
+    /// in `src/spaces.rs`).
     ///
     /// Alphabetised. The drift between this table and the
     /// `FromStr` arms (or the `Metric` enum itself) is guarded by
@@ -167,7 +163,7 @@ impl Metric {
         Self::Loc,
         Self::Nom,
         Self::Tokens,
-        Self::NArgs,
+        Self::Nargs,
         Self::Nexits,
         Self::Abc,
         Self::Npm,
@@ -186,7 +182,7 @@ impl fmt::Display for Metric {
             Self::Loc => "loc",
             Self::Nom => "nom",
             Self::Tokens => "tokens",
-            Self::NArgs => "nargs",
+            Self::Nargs => "nargs",
             Self::Nexits => "nexits",
             Self::Abc => "abc",
             Self::Npm => "npm",
@@ -236,11 +232,9 @@ impl FromStr for Metric {
 
     /// Parse a [`Metric`] from its [`fmt::Display`] spelling.
     ///
-    /// Strict lowercase: `"Loc"` is rejected. The single alias is
-    /// `"exit"`, the pre-#536 spelling, which parses to
-    /// [`Metric::Nexits`] — a hidden back-compat alias kept for one
-    /// release cycle. The canonical spelling everywhere else
-    /// (`Display`, `NAMES`, JSON output key) is `"nexits"`.
+    /// Strict lowercase: `"Loc"` is rejected. Every metric has exactly
+    /// one accepted spelling, matching its `Display` form, `NAMES`
+    /// entry, and JSON output key.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "cognitive" => Ok(Self::Cognitive),
@@ -249,13 +243,8 @@ impl FromStr for Metric {
             "loc" => Ok(Self::Loc),
             "nom" => Ok(Self::Nom),
             "tokens" => Ok(Self::Tokens),
-            "nargs" => Ok(Self::NArgs),
-            // `nexits` is the canonical spelling (matches `Display`,
-            // `NAMES`, and the JSON output key). `exit` is a hidden
-            // back-compat alias retained for one release cycle after
-            // the #536 rename of `Metric::Exit` → `Metric::Nexits`;
-            // it is intentionally absent from `NAMES`.
-            "exit" | "nexits" => Ok(Self::Nexits),
+            "nargs" => Ok(Self::Nargs),
+            "nexits" => Ok(Self::Nexits),
             "abc" => Ok(Self::Abc),
             "npm" => Ok(Self::Npm),
             "npa" => Ok(Self::Npa),
@@ -289,9 +278,6 @@ impl<'de> serde::Deserialize<'de> for Metric {
         // exactly how `BTreeSet<Metric>` reaches the wire inside a
         // `SuppressionScope::Some` CBOR/YAML/TOML payload.
         let s = std::borrow::Cow::<str>::deserialize(deserializer)?;
-        // `from_str` accepts the legacy `"exit"` alias as well as the
-        // canonical `"nexits"`, so reading a pre-rename serialized scope
-        // still resolves to `Metric::Nexits`.
         s.parse().map_err(serde::de::Error::custom)
     }
 }
@@ -318,7 +304,7 @@ impl MetricSet {
         | Metric::Loc.bit()
         | Metric::Nom.bit()
         | Metric::Tokens.bit()
-        | Metric::NArgs.bit()
+        | Metric::Nargs.bit()
         | Metric::Nexits.bit()
         | Metric::Abc.bit()
         | Metric::Npm.bit()

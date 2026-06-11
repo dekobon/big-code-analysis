@@ -44,12 +44,12 @@ use crate::suppression::{
 use crate::abc::{self, Abc};
 use crate::cognitive::{self, Cognitive};
 use crate::cyclomatic::{self, Cyclomatic};
-use crate::exit::{self, Exit};
 use crate::getter::Getter;
 use crate::halstead::{self, Halstead, HalsteadMaps};
 use crate::loc::{self, Loc};
 use crate::mi::{self, Mi};
 use crate::nargs::{self, NArgs};
+use crate::nexits::{self, Exit};
 use crate::nom::{self, Nom};
 use crate::npa::{self, Npa};
 use crate::npm::{self, Npm};
@@ -119,7 +119,7 @@ pub struct CodeMetrics {
     /// `NArgs` data
     pub nargs: nargs::Stats,
     /// `NExits` data
-    pub nexits: exit::Stats,
+    pub nexits: nexits::Stats,
     /// `Cognitive` data
     pub cognitive: cognitive::Stats,
     /// `Cyclomatic` data
@@ -401,7 +401,7 @@ fn compute_averages(state: &mut State, selected: MetricSet) {
         state.space.metrics.nexits.finalize(nom_total);
     }
     // Nargs average
-    if selected.contains(Metric::NArgs) {
+    if selected.contains(Metric::Nargs) {
         state
             .space
             .metrics
@@ -421,7 +421,7 @@ fn compute_minmax(state: &mut State, selected: MetricSet) {
     if selected.contains(Metric::Cognitive) {
         state.space.metrics.cognitive.compute_minmax();
     }
-    if selected.contains(Metric::NArgs) {
+    if selected.contains(Metric::Nargs) {
         state.space.metrics.nargs.compute_minmax();
     }
     if selected.contains(Metric::Nom) {
@@ -1018,7 +1018,7 @@ fn compute_per_node<'a, T: ParserTrait>(
     if selected.contains(Metric::Tokens) {
         T::Tokens::compute(node, &mut last.metrics.tokens);
     }
-    if selected.contains(Metric::NArgs) {
+    if selected.contains(Metric::Nargs) {
         T::NArgs::compute(node, &mut last.metrics.nargs);
     }
     if selected.contains(Metric::Nexits) {
@@ -2444,7 +2444,7 @@ fn prod(x: i32) -> i32 {
             assert_eq!(pruned.metrics.cyclomatic.cyclomatic_sum(), 0);
             // Halstead operators count is at the default (0) — no
             // per-node token text was hashed.
-            assert_eq!(pruned.metrics.halstead.u_operators(), 0);
+            assert_eq!(pruned.metrics.halstead.unique_operators(), 0);
         }
 
         // Selecting `Mi` alone must auto-add its dependencies
@@ -2481,7 +2481,7 @@ fn prod(x: i32) -> i32 {
             // is a finite non-zero number (the MI for this snippet is
             // around 150 — a positive value well above the 0.0 that
             // `inputs_are_empty` would short-circuit to).
-            let mi_value = pruned.metrics.mi.mi_original();
+            let mi_value = pruned.metrics.mi.original();
             assert!(
                 mi_value.is_finite() && mi_value != 0.0,
                 "MI must be finite and non-default when its dependencies were computed; got {mi_value}"
@@ -2552,31 +2552,31 @@ fn prod(x: i32) -> i32 {
                 pruned.metrics.nom.total() > 0,
                 "Nom must have run (Exit dependency); got total=0"
             );
-            let avg = pruned.metrics.nexits.exit_average();
+            let avg = pruned.metrics.nexits.nexits_average();
             assert!(
                 avg.is_finite(),
-                "exit_average must be finite when Nom is pulled in; got {avg}"
+                "nexits_average must be finite when Nom is pulled in; got {avg}"
             );
-            // `prod` has no explicit `return`, so exit_sum == 0 and the
+            // `prod` has no explicit `return`, so nexits_sum == 0 and the
             // guarded divisor (1) keeps the average a finite 0.0.
-            assert_eq!(pruned.metrics.nexits.exit_sum(), 0);
+            assert_eq!(pruned.metrics.nexits.nexits_sum(), 0);
             assert_eq!(avg, 0.0);
         }
 
         #[test]
         fn nargs_only_pulls_nom_and_average_is_finite() {
-            let pruned = analyse(&[Metric::NArgs]);
+            let pruned = analyse(&[Metric::Nargs]);
             let sel = pruned.metrics.selected();
-            assert!(sel.contains(Metric::NArgs));
+            assert!(sel.contains(Metric::Nargs));
             assert!(sel.contains(Metric::Nom), "NArgs depends on Nom (#428)");
             assert!(
                 pruned.metrics.nom.total() > 0,
                 "Nom must have run (NArgs dependency); got total=0"
             );
-            let avg = pruned.metrics.nargs.nargs_average();
+            let avg = pruned.metrics.nargs.average();
             assert!(
                 avg.is_finite(),
-                "nargs_average must be finite when Nom is pulled in; got {avg}"
+                "average must be finite when Nom is pulled in; got {avg}"
             );
             // One argument over one function => average == 1.
             assert_eq!(avg, 1.0);

@@ -162,7 +162,7 @@ pub(crate) use crate::languages::*;
 // crate-root path (`crate::abc`, `crate::cognitive`, ...). Re-export
 // them under those names without widening the public surface.
 pub(crate) use crate::metrics::{
-    abc, cognitive, cyclomatic, exit, halstead, loc, mi, nargs, nom, npa, npm, tokens, wmc,
+    abc, cognitive, cyclomatic, halstead, loc, mi, nargs, nexits, nom, npa, npm, tokens, wmc,
 };
 
 // Module declarations. Each `pub use` line below names exactly the

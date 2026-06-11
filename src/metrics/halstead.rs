@@ -116,10 +116,10 @@ impl fmt::Display for Stats {
              effort: {}, \
              time: {}, \
              bugs: {}",
-            self.u_operators(),
-            self.operators(),
-            self.u_operands(),
-            self.operands(),
+            self.unique_operators(),
+            self.total_operators(),
+            self.unique_operands(),
+            self.total_operands(),
             self.length(),
             self.estimated_program_length(),
             self.purity_ratio(),
@@ -148,51 +148,51 @@ impl Stats {
     /// Returns `η1`, the number of distinct operators
     #[inline]
     #[must_use]
-    pub fn u_operators(&self) -> u64 {
+    pub fn unique_operators(&self) -> u64 {
         self.u_operators
     }
 
     /// Returns `N1`, the number of total operators
     #[inline]
     #[must_use]
-    pub fn operators(&self) -> u64 {
+    pub fn total_operators(&self) -> u64 {
         self.operators
     }
 
     /// Returns `η2`, the number of distinct operands
     #[inline]
     #[must_use]
-    pub fn u_operands(&self) -> u64 {
+    pub fn unique_operands(&self) -> u64 {
         self.u_operands
     }
 
     /// Returns `N2`, the number of total operands
     #[inline]
     #[must_use]
-    pub fn operands(&self) -> u64 {
+    pub fn total_operands(&self) -> u64 {
         self.operands
     }
 
     /// Returns the program length
     ///
-    /// Computed as `N = N1 + N2`, the sum of [`Self::operators`] and
-    /// [`Self::operands`].
+    /// Computed as `N = N1 + N2`, the sum of [`Self::total_operators`] and
+    /// [`Self::total_operands`].
     #[inline]
     #[must_use]
     pub fn length(&self) -> u64 {
-        self.operands() + self.operators()
+        self.total_operands() + self.total_operators()
     }
 
     /// Returns the calculated estimated program length
     ///
     /// Computed as `N^ = n1 * log2(n1) + n2 * log2(n2)`, where `n1` is
-    /// [`Self::u_operators`] and `n2` is [`Self::u_operands`]. Each term is
+    /// [`Self::unique_operators`] and `n2` is [`Self::unique_operands`]. Each term is
     /// treated as `0` when its unique count is `0`.
     #[inline]
     #[must_use]
     pub fn estimated_program_length(&self) -> f64 {
-        let uo = self.u_operators() as f64;
-        let ud = self.u_operands() as f64;
+        let uo = self.unique_operators() as f64;
+        let ud = self.unique_operands() as f64;
         let uo_term = if uo == 0.0 { 0.0 } else { uo * uo.log2() };
         let ud_term = if ud == 0.0 { 0.0 } else { ud * ud.log2() };
         uo_term + ud_term
@@ -215,12 +215,12 @@ impl Stats {
 
     /// Returns the program vocabulary
     ///
-    /// Computed as `n = n1 + n2`, the sum of [`Self::u_operators`] and
-    /// [`Self::u_operands`].
+    /// Computed as `n = n1 + n2`, the sum of [`Self::unique_operators`] and
+    /// [`Self::unique_operands`].
     #[inline]
     #[must_use]
     pub fn vocabulary(&self) -> u64 {
-        self.u_operands() + self.u_operators()
+        self.unique_operands() + self.unique_operators()
     }
 
     /// Returns the program volume.
@@ -245,16 +245,16 @@ impl Stats {
     /// Returns the estimated difficulty required to program
     ///
     /// Computed as `D = (n1 / 2) * (N2 / n2)`, where `n1` is
-    /// [`Self::u_operators`], `N2` is [`Self::operands`], and `n2` is
-    /// [`Self::u_operands`].
+    /// [`Self::unique_operators`], `N2` is [`Self::total_operands`], and `n2` is
+    /// [`Self::unique_operands`].
     #[inline]
     #[must_use]
     pub fn difficulty(&self) -> f64 {
-        let ud = self.u_operands() as f64;
+        let ud = self.unique_operands() as f64;
         if ud == 0.0 {
             0.0
         } else {
-            self.u_operators() as f64 / 2. * self.operands() as f64 / ud
+            self.unique_operators() as f64 / 2. * self.total_operands() as f64 / ud
         }
     }
 
@@ -613,8 +613,8 @@ mod tests {
                 //   does NOT split them.  `,` does not appear (only one
                 //   parameter on each side of the body).
                 // Unique operands: g, p, q, 1                       (= 4)
-                assert_eq!(metric.halstead.u_operators(), 8);
-                assert_eq!(metric.halstead.u_operands(), 4);
+                assert_eq!(metric.halstead.unique_operators(), 8);
+                assert_eq!(metric.halstead.unique_operands(), 4);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -642,11 +642,11 @@ mod tests {
                 // so we assert a lower-bound and anchor via snapshot below.
                 let s = &metric.halstead;
                 assert!(
-                    s.u_operators() >= 14,
+                    s.unique_operators() >= 14,
                     "expected >= 14 unique operators (bitwise + logical + syntax), got {}",
-                    s.u_operators(),
+                    s.unique_operators(),
                 );
-                assert_eq!(s.u_operands(), 8); // f, a, b, x, y, z, 1, 2
+                assert_eq!(s.unique_operands(), 8); // f, a, b, x, y, z, 1, 2
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -671,11 +671,11 @@ mod tests {
                 // Unique operands: f, p, n, w
                 let s = &metric.halstead;
                 assert!(
-                    s.u_operators() >= 10,
+                    s.unique_operators() >= 10,
                     "expected >= 10 unique operators including ++ / -- / sizeof / cast, got {}",
-                    s.u_operators(),
+                    s.unique_operators(),
                 );
-                assert_eq!(s.u_operands(), 4);
+                assert_eq!(s.unique_operands(), 4);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -743,10 +743,10 @@ mod tests {
             //   unsigned(1) + int(1) + =(3) + ;(3) + signed(1) + long(3) = 12
             //   (`long` appears once in `signed long` and twice in `long long`)
             // Distinct/total operands: u, b, c, 3, 4, 5 = 6 / 6
-            assert_eq!(metric.halstead.u_operators(), 6);
-            assert_eq!(metric.halstead.operators(), 12);
-            assert_eq!(metric.halstead.u_operands(), 6);
-            assert_eq!(metric.halstead.operands(), 6);
+            assert_eq!(metric.halstead.unique_operators(), 6);
+            assert_eq!(metric.halstead.total_operators(), 12);
+            assert_eq!(metric.halstead.unique_operands(), 6);
+            assert_eq!(metric.halstead.total_operands(), 6);
         });
 
         // Pin the lesson-4 `n1 == dedupe(ops.operators)` invariant: the
@@ -793,8 +793,8 @@ mod tests {
                 //   would be Unknown and `u_operators` would be 7.
                 // Unique operands: f, a, b, 0
                 let s = &metric.halstead;
-                assert_eq!(s.u_operators(), 8);
-                assert_eq!(s.u_operands(), 4);
+                assert_eq!(s.unique_operators(), 8);
+                assert_eq!(s.unique_operands(), 4);
                 insta::assert_json_snapshot!(
                     s,
                     @r#"
@@ -834,8 +834,8 @@ mod tests {
             //   would be Unknown and `u_operators` would be 6.
             // Unique operands: f, a, b
             let s = &metric.halstead;
-            assert_eq!(s.u_operators(), 7);
-            assert_eq!(s.u_operands(), 3);
+            assert_eq!(s.unique_operators(), 7);
+            assert_eq!(s.unique_operands(), 3);
         });
     }
 
@@ -857,8 +857,8 @@ mod tests {
             //   falls through to `Unknown` and `u_operators` is 5.
             // Unique operands: S
             let s = &metric.halstead;
-            assert_eq!(s.u_operators(), 6);
-            assert_eq!(s.u_operands(), 1);
+            assert_eq!(s.unique_operators(), 6);
+            assert_eq!(s.unique_operands(), 1);
         });
     }
 
@@ -883,8 +883,8 @@ mod tests {
                 //   falls through to `Unknown` and `u_operators` is 5.
                 // Unique operands: S
                 let s = &metric.halstead;
-                assert_eq!(s.u_operators(), 6);
-                assert_eq!(s.u_operands(), 1);
+                assert_eq!(s.unique_operators(), 6);
+                assert_eq!(s.unique_operands(), 1);
             },
         );
     }
@@ -982,14 +982,14 @@ mod tests {
                 // Grew from 30 → 33 with the issue #394 fix: `const`,
                 // `type`, and `struct` keywords are now classified as
                 // operators (one occurrence each).
-                assert_eq!(metric.halstead.u_operators(), 33);
-                assert_eq!(metric.halstead.operators(), 121);
+                assert_eq!(metric.halstead.unique_operators(), 33);
+                assert_eq!(metric.halstead.total_operators(), 121);
                 // u_operands / operands grew (was 31/50 before #390): the
                 // fix now classifies TypeIdentifier (`T`, `S`, `Option`)
                 // and FieldIdentifier (struct fields `x`, `y`) as operands
                 // alongside the existing primitive type names.
-                assert_eq!(metric.halstead.u_operands(), 36);
-                assert_eq!(metric.halstead.operands(), 55);
+                assert_eq!(metric.halstead.unique_operands(), 36);
+                assert_eq!(metric.halstead.total_operands(), 55);
             },
         );
     }
@@ -1016,8 +1016,8 @@ mod tests {
                 // TypeIdentifier (`Point`) fell through to Unknown, so
                 // u_operands was 5 (main, p, sum, 0, 1). After the
                 // fix, +Point, +x, +y → 8 distinct names.
-                assert_eq!(metric.halstead.u_operands(), 8);
-                assert_eq!(metric.halstead.operands(), 12);
+                assert_eq!(metric.halstead.unique_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 12);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
@@ -1065,12 +1065,12 @@ mod tests {
                 // Headline: u_operands includes `Vec`, `HashMap`, `K`,
                 // `V` (and `i32` as a primitive operator). Without the
                 // fix, Vec/HashMap/K/V silently dropped to Unknown.
-                assert_eq!(metric.halstead.u_operands(), 8);
-                assert_eq!(metric.halstead.operands(), 11);
+                assert_eq!(metric.halstead.unique_operands(), 8);
+                assert_eq!(metric.halstead.total_operands(), 11);
                 // `::` appears twice (Vec::new, HashMap::new); without
                 // the #394 fix u_operators was 10 and operators 17.
-                assert_eq!(metric.halstead.u_operators(), 11);
-                assert_eq!(metric.halstead.operators(), 19);
+                assert_eq!(metric.halstead.unique_operators(), 11);
+                assert_eq!(metric.halstead.total_operators(), 19);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
@@ -1117,17 +1117,17 @@ mod tests {
                 // (`std::collections::HashMap` contributes two; the
                 // `HashMap::new` contributes one). Pre-fix all three
                 // dropped to Unknown: u_operators would be 6 (no `::`
-                // distinct) and operators() would be 7 (minus 3 `::`
+                // distinct) and total_operators() would be 7 (minus 3 `::`
                 // occurrences). With the fix u_operators=7 and
                 // operators=10.
                 //
                 // unique operators (post-fix): fn, LPAREN, LBRACE,
                 // let, =, ::, ;. unique operands: main, m, std,
                 // collections, HashMap, new.
-                assert_eq!(metric.halstead.u_operators(), 7);
-                assert_eq!(metric.halstead.operators(), 10);
-                assert_eq!(metric.halstead.u_operands(), 6);
-                assert_eq!(metric.halstead.operands(), 6);
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }
@@ -1154,10 +1154,10 @@ mod tests {
                 // the #394 fix, `use`, `pub`, `struct`, and `impl`
                 // would each drop to Unknown and u_operators would be
                 // 7. unique operands (5): std, fmt, S, n, 0.
-                assert_eq!(metric.halstead.u_operators(), 11);
-                assert_eq!(metric.halstead.operators(), 13);
-                assert_eq!(metric.halstead.u_operands(), 5);
-                assert_eq!(metric.halstead.operands(), 6);
+                assert_eq!(metric.halstead.unique_operators(), 11);
+                assert_eq!(metric.halstead.total_operators(), 13);
+                assert_eq!(metric.halstead.unique_operands(), 5);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }
@@ -1325,8 +1325,8 @@ mod tests {
         // u_operands = 2, N2 = 2 (matches the equivalent
         // `function f() { return "hello"; }` baseline).
         check_metrics::<JavascriptParser>("function f() { return `hello`; }", "foo.js", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
@@ -1351,8 +1351,8 @@ mod tests {
             "function f(name) { return `Hi ${name}!`; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 2);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -1364,8 +1364,8 @@ mod tests {
         // Firefox-mode dialect — the four JS-family `get_op_type`
         // impls share the same template-literal handling.
         check_metrics::<MozjsParser>("function f() { return `hello`; }", "foo.js", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
@@ -1378,8 +1378,8 @@ mod tests {
             "function f(name) { return `Hi ${name}!`; }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 2);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -1400,8 +1400,8 @@ mod tests {
             "function f(): string { return `hello`; }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -1422,8 +1422,8 @@ mod tests {
             "function f(name: string): string { return `Hi ${name}!`; }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -1440,8 +1440,8 @@ mod tests {
             "function f(): string { return `hello`; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -1459,8 +1459,8 @@ mod tests {
             "function f(name: string): string { return `Hi ${name}!`; }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -1483,16 +1483,16 @@ mod tests {
     #[test]
     fn javascript_optional_chain_not_double_counted_in_halstead_281() {
         check_metrics::<JavascriptParser>("function f(a) { return a?.b?.c; }", "foo.js", |m| {
-            assert_eq!(m.halstead.u_operators(), 6);
-            assert_eq!(m.halstead.operators(), 7);
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 7);
         });
     }
 
     #[test]
     fn mozjs_optional_chain_not_double_counted_in_halstead_281() {
         check_metrics::<MozjsParser>("function f(a) { return a?.b?.c; }", "foo.js", |m| {
-            assert_eq!(m.halstead.u_operators(), 6);
-            assert_eq!(m.halstead.operators(), 7);
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 7);
         });
     }
 
@@ -1503,16 +1503,16 @@ mod tests {
         // token; classifying both as `Operator` double-counted the
         // chain. We now count only the bare token, so TS matches JS.
         check_metrics::<TypescriptParser>("function f(a) { return a?.b?.c; }", "foo.ts", |m| {
-            assert_eq!(m.halstead.u_operators(), 6);
-            assert_eq!(m.halstead.operators(), 7);
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 7);
         });
     }
 
     #[test]
     fn tsx_optional_chain_not_double_counted_in_halstead_281() {
         check_metrics::<TsxParser>("function f(a) { return a?.b?.c; }", "foo.tsx", |m| {
-            assert_eq!(m.halstead.u_operators(), 6);
-            assert_eq!(m.halstead.operators(), 7);
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 7);
         });
     }
 
@@ -1546,10 +1546,10 @@ mod tests {
         // taking `CodeMetrics` by value would trigger.
         const SRC: &str = "function f(a) { return a?.b?.c; }";
         let check = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.u_operators(), 6);
-            assert_eq!(m.halstead.operators(), 7);
-            assert_eq!(m.halstead.u_operands(), 6);
-            assert_eq!(m.halstead.operands(), 7);
+            assert_eq!(m.halstead.unique_operators(), 6);
+            assert_eq!(m.halstead.total_operators(), 7);
+            assert_eq!(m.halstead.unique_operands(), 6);
+            assert_eq!(m.halstead.total_operands(), 7);
         };
 
         check_metrics::<JavascriptParser>(SRC, "foo.js", check);
@@ -1590,10 +1590,10 @@ mod tests {
         //   n2 = 2 / N2 = 2 because String2 fell through to `Unknown`;
         //   the TSX column had the same gap for String3.
         let check = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.u_operators(), 5);
-            assert_eq!(m.halstead.operators(), 5);
-            assert_eq!(m.halstead.u_operands(), 3);
-            assert_eq!(m.halstead.operands(), 3);
+            assert_eq!(m.halstead.unique_operators(), 5);
+            assert_eq!(m.halstead.total_operators(), 5);
+            assert_eq!(m.halstead.unique_operands(), 3);
+            assert_eq!(m.halstead.total_operands(), 3);
         };
 
         check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
@@ -1627,8 +1627,8 @@ mod tests {
     fn ts_void_return_type_single_operator_453() {
         const SRC: &str = "function f(): void { return; }";
         let check = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.u_operators(), 7);
-            assert_eq!(m.halstead.operators(), 7);
+            assert_eq!(m.halstead.unique_operators(), 7);
+            assert_eq!(m.halstead.total_operators(), 7);
         };
 
         check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
@@ -1649,10 +1649,10 @@ mod tests {
     fn ts_void_expression_still_single_operator_453() {
         const SRC: &str = "const x = void 0;";
         let check = |m: crate::CodeMetrics| {
-            assert_eq!(m.halstead.u_operators(), 4);
-            assert_eq!(m.halstead.operators(), 4);
-            assert_eq!(m.halstead.u_operands(), 2);
-            assert_eq!(m.halstead.operands(), 2);
+            assert_eq!(m.halstead.unique_operators(), 4);
+            assert_eq!(m.halstead.total_operators(), 4);
+            assert_eq!(m.halstead.unique_operands(), 2);
+            assert_eq!(m.halstead.total_operands(), 2);
         };
 
         check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
@@ -1830,8 +1830,8 @@ mod tests {
                 // not already counted as operands, since `String`
                 // was already an identifier in the prior grammar's
                 // counting).
-                assert_eq!(metric.halstead.u_operators(), 8);
-                assert_eq!(metric.halstead.u_operands(), 13);
+                assert_eq!(metric.halstead.unique_operators(), 8);
+                assert_eq!(metric.halstead.unique_operands(), 13);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
@@ -1885,8 +1885,8 @@ mod tests {
                 // fixture: `=` and `class`-body braces (only `{` is in
                 // the operator set). True/false collapse under one
                 // `BooleanLiteral`.
-                assert_eq!(metric.halstead.u_operators(), 2);
-                assert_eq!(metric.halstead.u_operands(), 27);
+                assert_eq!(metric.halstead.unique_operators(), 2);
+                assert_eq!(metric.halstead.unique_operands(), 27);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
@@ -1918,8 +1918,8 @@ mod tests {
             // Closure with arrow-style parameter list.
             // Distinct operators: def, =, {}, ->, * = 5.
             // Distinct operands: double, x, 2 = 3.
-            assert_eq!(metric.halstead.u_operators(), 5);
-            assert_eq!(metric.halstead.u_operands(), 3);
+            assert_eq!(metric.halstead.unique_operators(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 3);
         });
     }
 
@@ -1984,7 +1984,7 @@ mod tests {
                 // (lifting `u_operators` to 24) still flags the loss
                 // of a #247 operator at the per-token level.
                 assert_eq!(
-                    metric.halstead.u_operators(),
+                    metric.halstead.unique_operators(),
                     23,
                     "u_operators changed; check whether a #247 operator was dropped or an unrelated operator added (and update the comment / token list above accordingly)",
                 );
@@ -2012,8 +2012,8 @@ mod tests {
         //   N2 = 4.
         let src = "def greet(name) {\n  return \"Hi ${name}\"\n}\n";
         check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["greet", "name"]);
     }
@@ -2032,8 +2032,8 @@ mod tests {
         //   `"Hi $name"` would also count → u_operands = 4, N2 = 4.
         let src = "def greet(name) {\n  return \"Hi $name\"\n}\n";
         check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 3);
-            assert_eq!(metric.halstead.operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name"]);
     }
@@ -2048,8 +2048,8 @@ mod tests {
         //   operands: `f`, `"plain"` → u_operands = 2, N2 = 2.
         let src = "def f() {\n  return \"plain\"\n}\n";
         check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
         assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["f", "\"plain\""]);
     }
@@ -2072,10 +2072,10 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 15);
-                assert_eq!(metric.halstead.operators(), 32);
-                assert_eq!(metric.halstead.u_operands(), 13);
-                assert_eq!(metric.halstead.operands(), 23);
+                assert_eq!(metric.halstead.unique_operators(), 15);
+                assert_eq!(metric.halstead.total_operators(), 32);
+                assert_eq!(metric.halstead.unique_operands(), 13);
+                assert_eq!(metric.halstead.total_operands(), 23);
                 // Pin every Halstead field; values are whatever the
                 // classifier produces and become the regression spec.
                 insta::assert_json_snapshot!(metric.halstead);
@@ -2107,10 +2107,10 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 14);
-                assert_eq!(metric.halstead.operators(), 33);
-                assert_eq!(metric.halstead.u_operands(), 21);
-                assert_eq!(metric.halstead.operands(), 23);
+                assert_eq!(metric.halstead.unique_operators(), 14);
+                assert_eq!(metric.halstead.total_operators(), 33);
+                assert_eq!(metric.halstead.unique_operands(), 21);
+                assert_eq!(metric.halstead.total_operands(), 23);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -2137,7 +2137,7 @@ mod tests {
             |metric| {
                 // The headline assertion: four distinct primitive
                 // keywords contribute four distinct operators, not one.
-                assert_eq!(metric.halstead.u_operators(), 9);
+                assert_eq!(metric.halstead.unique_operators(), 9);
             },
         );
     }
@@ -2165,8 +2165,8 @@ mod tests {
             "class C { void M(string name) { string s = $\"Hi {name}!\"; } }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -2184,8 +2184,8 @@ mod tests {
             "class C { void M() { string s = $\"hello\"; } }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
@@ -2201,8 +2201,8 @@ mod tests {
             "class C { void M() { string s = \"hi\"; } }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
@@ -2298,8 +2298,8 @@ mod tests {
             "sub greet { my $name = shift; my $msg = \"Hi $name\"; return $msg; }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 6);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -2316,8 +2316,8 @@ mod tests {
             "sub greet { my $msg = \"hello\"; return $msg; }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
@@ -2334,8 +2334,8 @@ mod tests {
             "sub greet { my $msg = 'Hi $name'; return $msg; }",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
@@ -2360,8 +2360,8 @@ mod tests {
         //   * heredoc body (`heredoc_body_statement`)       × 1
         // expected: u_operands = 2, N2 = 2.
         check_metrics::<PerlParser>("my $msg = <<END;\nhello world\nEND\n", "foo.pl", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
@@ -2392,8 +2392,8 @@ mod tests {
             "my $name = \"x\";\nmy $msg = <<\"END\";\nhi $name\nEND\n",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 4);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 4);
             },
         );
     }
@@ -2496,8 +2496,8 @@ end",
             "fun greet(name: String): String {\n    return \"Hi $name\"\n}\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
         // Lesson 4: the ops store agrees on n2 and the exact operand set
@@ -2532,8 +2532,8 @@ end",
         // hide it.
         let src = "fun f() { val x = 1; println(\"v=$x\") }\n";
         check_metrics::<KotlinParser>(src, "foo.kt", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 4);
-            assert_eq!(metric.halstead.operands(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 5);
         });
         assert_ops_operands::<KotlinParser>(src, "foo.kt", 4, vec!["f", "x", "println", "1"]);
     }
@@ -2559,8 +2559,8 @@ end",
         let short = "fun f() { val s = \"$a $b\" }\n";
         let long = "fun f() { val s = \"${a} ${b}\" }\n";
         check_metrics::<KotlinParser>(short, "foo.kt", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 4);
-            assert_eq!(metric.halstead.operands(), 4);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
         });
         // Both `a` and `b` present, wrapper absent, n2 == dedupe(operands).
         assert_ops_operands::<KotlinParser>(short, "foo.kt", 4, vec!["f", "s", "a", "b"]);
@@ -2597,8 +2597,8 @@ end",
         //   operands: `f`, `a`, `"price: $5"` → u_operands = 3, N2 = 3.
         let src = "fun f() { val a = \"price: $5\" }\n";
         check_metrics::<KotlinParser>(src, "foo.kt", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 3);
-            assert_eq!(metric.halstead.operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
         assert_ops_operands::<KotlinParser>(src, "foo.kt", 3, vec!["f", "a", "\"price: $5\""]);
     }
@@ -2620,8 +2620,8 @@ end",
             "fun f(x: Int): String { return \"v=${x}\" }\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -2639,8 +2639,8 @@ end",
             "fun f(): String { return \"hello\" }\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -2665,8 +2665,8 @@ end",
             "def greet(name):\n    return f\"Hi {name}!\"\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 2);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 3);
             },
         );
     }
@@ -2683,8 +2683,8 @@ end",
         // a bare `"hi"` as a top-level `expression_statement` would
         // be skipped, but here it appears as `return "hi"`.)
         check_metrics::<PythonParser>("def f():\n    return \"hi\"\n", "foo.py", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
@@ -2692,8 +2692,8 @@ end",
     fn python_empty_file_halstead() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
             let h = &metric.halstead;
-            assert_eq!(h.u_operators(), 0);
-            assert_eq!(h.operands(), 0);
+            assert_eq!(h.unique_operators(), 0);
+            assert_eq!(h.total_operands(), 0);
             assert_eq!(h.estimated_program_length(), 0.0);
             assert_eq!(h.purity_ratio(), 0.0);
             assert_eq!(h.volume(), 0.0);
@@ -2719,8 +2719,8 @@ end",
                 //   await used three times -> N1 counts: async(1) def(1) await(3) = 5
                 //   Before #413, Await + Await2 both matched, so `await` was a
                 //   distinct operator twice: n1=4, N1=8.
-                assert_eq!(metric.halstead.u_operators(), 3);
-                assert_eq!(metric.halstead.operators(), 5);
+                assert_eq!(metric.halstead.unique_operators(), 3);
+                assert_eq!(metric.halstead.total_operators(), 5);
             },
         );
     }
@@ -2733,8 +2733,8 @@ end",
         check_metrics::<PythonParser>("g = lambda x: x + 1\n", "foo.py", |metric| {
             // expected operators: =, lambda, +  (3 unique, each used once)
             // Before #413, lambda was absent: only =, + were counted.
-            assert_eq!(metric.halstead.u_operators(), 3);
-            assert_eq!(metric.halstead.operators(), 3);
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 3);
         });
     }
 
@@ -2750,8 +2750,8 @@ end",
                 // expected operators: match, case, pass  (3 unique)
                 //   match(1) + case(2) + pass(2) = 5 total occurrences.
                 // Before #413, neither match nor case was counted (only pass).
-                assert_eq!(metric.halstead.u_operators(), 3);
-                assert_eq!(metric.halstead.operators(), 5);
+                assert_eq!(metric.halstead.unique_operators(), 3);
+                assert_eq!(metric.halstead.total_operators(), 5);
             },
         );
     }
@@ -2766,8 +2766,8 @@ end",
             |metric| {
                 // expected operators: def, global, nonlocal  (3 unique)
                 // Before #413, nonlocal was absent: only def, global counted.
-                assert_eq!(metric.halstead.u_operators(), 3);
-                assert_eq!(metric.halstead.operators(), 3);
+                assert_eq!(metric.halstead.unique_operators(), 3);
+                assert_eq!(metric.halstead.total_operators(), 3);
             },
         );
     }
@@ -2792,8 +2792,8 @@ end",
                 // Before #413, `a not in b` counted not+in (two) and
                 // `a is not b` counted is+not (two); the compounds were
                 // never classified.
-                assert_eq!(metric.halstead.u_operators(), 7);
-                assert_eq!(metric.halstead.operators(), 8);
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 8);
             },
         );
     }
@@ -2813,10 +2813,10 @@ f() {
                 // `x` (assignment LHS and inside `$x`) is a `variable_name`
                 // with aliased kind_id 160 — all three aliases must be in
                 // the operand list (see lesson 2).
-                assert_eq!(metric.halstead.u_operators(), 12);
-                assert_eq!(metric.halstead.operators(), 12);
-                assert_eq!(metric.halstead.u_operands(), 6);
-                assert_eq!(metric.halstead.operands(), 9);
+                assert_eq!(metric.halstead.unique_operators(), 12);
+                assert_eq!(metric.halstead.total_operators(), 12);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 9);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -2843,10 +2843,10 @@ f() {
         // u_operands = 6 and N2 = 6. The `=` is the only operator;
         // appears twice (N1 = 2, n1 = 1).
         check_metrics::<BashParser>("a=\"plain\"\nb=\"$x\"\n", "foo.sh", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 1);
-            assert_eq!(metric.halstead.operators(), 2);
-            assert_eq!(metric.halstead.u_operands(), 5);
-            assert_eq!(metric.halstead.operands(), 5);
+            assert_eq!(metric.halstead.unique_operators(), 1);
+            assert_eq!(metric.halstead.total_operators(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 5);
+            assert_eq!(metric.halstead.total_operands(), 5);
             insta::assert_json_snapshot!(metric.halstead);
         });
     }
@@ -2874,10 +2874,10 @@ f() {
             "def greet(name) do\n  msg = \"Hi #{name}\"\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 7);
-                assert_eq!(metric.halstead.operators(), 7);
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 7);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -2890,8 +2890,8 @@ f() {
         // one operand. expected: `def`, `f`, `"hello"` → 3 unique
         // operands (n2 = 3), each appearing once (N2 = 3).
         check_metrics::<ElixirParser>("def f do\n  \"hello\"\nend\n", "foo.ex", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 3);
-            assert_eq!(metric.halstead.operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
     }
 
@@ -2907,8 +2907,8 @@ f() {
             "def f(name) do\n  re = ~r/foo#{name}/\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 5);
-                assert_eq!(metric.halstead.operands(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 5);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }
@@ -2930,8 +2930,8 @@ f() {
             "def f(name) do\n  cl = 'Hi #{name}'\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -2967,10 +2967,10 @@ f() {
             "a=\"$v\"\nb=\"${v[0]}\"\nc=\"$(date)\"\nd=\"$((1+2))\"\n",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 6);
-                assert_eq!(metric.halstead.operators(), 9);
-                assert_eq!(metric.halstead.u_operands(), 10);
-                assert_eq!(metric.halstead.operands(), 12);
+                assert_eq!(metric.halstead.unique_operators(), 6);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 10);
+                assert_eq!(metric.halstead.total_operands(), 12);
             },
         );
     }
@@ -3047,8 +3047,8 @@ f() {
                 // The wrapping `QuotedWord` must still contribute exactly
                 // one operand when it carries no interpolation children;
                 // dropping to 2 would mean the inert case was over-guarded.
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3071,8 +3071,8 @@ f() {
                 // Operands: `f`, `x`, `y` (proc args), `s`, `$x`, `$y` — 6
                 // unique, 6 total. The wrapping `QuotedWord` contributes
                 // nothing. Pre-fix this read 7/7 (double-counted wrapper).
-                assert_eq!(metric.halstead.u_operands(), 6);
-                assert_eq!(metric.halstead.operands(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 6);
+                assert_eq!(metric.halstead.total_operands(), 6);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3096,8 +3096,8 @@ f() {
                 // wrapping `QuotedWord` and the inert text `result: ` do
                 // not contribute extra operands. Pre-fix this read 4/4
                 // (double-counted wrapper).
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 3);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 3);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3112,10 +3112,10 @@ f() {
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 11);
-                assert_eq!(metric.halstead.operators(), 15);
-                assert_eq!(metric.halstead.u_operands(), 9);
-                assert_eq!(metric.halstead.operands(), 22);
+                assert_eq!(metric.halstead.unique_operators(), 11);
+                assert_eq!(metric.halstead.total_operators(), 15);
+                assert_eq!(metric.halstead.unique_operands(), 9);
+                assert_eq!(metric.halstead.total_operands(), 22);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3128,10 +3128,10 @@ f() {
             function inc(int $x): int { return $x + 1; }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 9);
-                assert_eq!(metric.halstead.operators(), 9);
-                assert_eq!(metric.halstead.u_operands(), 5);
-                assert_eq!(metric.halstead.operands(), 10);
+                assert_eq!(metric.halstead.unique_operators(), 9);
+                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operands(), 5);
+                assert_eq!(metric.halstead.total_operands(), 10);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3163,8 +3163,8 @@ f() {
             "<?php $name = \"world\"; echo \"Hello $name!\";",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -3179,8 +3179,8 @@ f() {
         // Source: `<?php echo "Hello world!";`
         // Operands: `"Hello world!"` × 1 → u_operands = 1, N2 = 1.
         check_metrics::<PhpParser>("<?php echo \"Hello world!\";", "foo.php", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 1);
-            assert_eq!(metric.halstead.operands(), 1);
+            assert_eq!(metric.halstead.unique_operands(), 1);
+            assert_eq!(metric.halstead.total_operands(), 1);
         });
     }
 
@@ -3205,8 +3205,8 @@ f() {
             "<?php $name = \"x\"; echo <<<EOT\nhi $name\nEOT;\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 5);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 5);
             },
         );
     }
@@ -3228,8 +3228,8 @@ f() {
             "<?php echo <<<'EOT'\nplain $name not interpolated\nEOT;\n",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 1);
-                assert_eq!(metric.halstead.operands(), 1);
+                assert_eq!(metric.halstead.unique_operands(), 1);
+                assert_eq!(metric.halstead.total_operands(), 1);
             },
         );
     }
@@ -3263,8 +3263,8 @@ f() {
             "<?php $obj = new stdClass; $obj->prop = \"x\"; echo \"Hi $obj->prop!\";",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 5);
-                assert_eq!(metric.halstead.operands(), 10);
+                assert_eq!(metric.halstead.unique_operands(), 5);
+                assert_eq!(metric.halstead.total_operands(), 10);
             },
         );
     }
@@ -3287,8 +3287,8 @@ f() {
             "<?php $arr = [1]; echo \"Hi $arr[0]!\";",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4);
-                assert_eq!(metric.halstead.operands(), 6);
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 6);
             },
         );
     }
@@ -3310,8 +3310,8 @@ f() {
         // Before the fix the backtick literal vanished from the count
         // ⇒ u_operands = 2, N2 = 2.
         check_metrics::<PhpParser>("<?php $out = `ls`;", "foo.php", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 3);
-            assert_eq!(metric.halstead.operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 3);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
     }
 
@@ -3339,8 +3339,8 @@ f() {
             "<?php $dir = \"/tmp\"; $out = `ls $dir`;",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 5);
-                assert_eq!(metric.halstead.operands(), 7);
+                assert_eq!(metric.halstead.unique_operands(), 5);
+                assert_eq!(metric.halstead.total_operands(), 7);
             },
         );
     }
@@ -3359,10 +3359,10 @@ f() {
             "foo.ex",
             |metric| {
                 // Positive headline assertions on integer counts.
-                assert_eq!(metric.halstead.u_operators(), 15);
-                assert_eq!(metric.halstead.operators(), 23);
-                assert_eq!(metric.halstead.u_operands(), 16);
-                assert_eq!(metric.halstead.operands(), 27);
+                assert_eq!(metric.halstead.unique_operators(), 15);
+                assert_eq!(metric.halstead.total_operators(), 23);
+                assert_eq!(metric.halstead.unique_operands(), 16);
+                assert_eq!(metric.halstead.total_operands(), 27);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
@@ -3403,10 +3403,10 @@ f() {
             "def factorial(n)\n  return 1 if n <= 1\n  n * factorial(n - 1)\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 9);
-                assert_eq!(metric.halstead.operators(), 11);
-                assert_eq!(metric.halstead.u_operands(), 3);
-                assert_eq!(metric.halstead.operands(), 9);
+                assert_eq!(metric.halstead.unique_operators(), 9);
+                assert_eq!(metric.halstead.total_operators(), 11);
+                assert_eq!(metric.halstead.unique_operands(), 3);
+                assert_eq!(metric.halstead.total_operands(), 9);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -3420,10 +3420,10 @@ f() {
         // (see `src/getter.rs::get_op_type`'s `R::String | …` case).
         // expected: operators = {def, end} = 2; operands = {f, "hello"} = 2.
         check_metrics::<RubyParser>("def f\n  \"hello\"\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 2);
-            assert_eq!(metric.halstead.operators(), 2);
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 2);
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.total_operators(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 2);
         });
     }
 
@@ -3446,8 +3446,8 @@ f() {
         // Without the guard, the wrapping literal would also count,
         // inflating u_operands to 3 and operands to 4.
         check_metrics::<RubyParser>("def f(name)\n  \"Hi #{name}\"\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.u_operands(), 2);
-            assert_eq!(metric.halstead.operands(), 3);
+            assert_eq!(metric.halstead.unique_operands(), 2);
+            assert_eq!(metric.halstead.total_operands(), 3);
         });
     }
 
@@ -3458,8 +3458,8 @@ f() {
         // `DelimitedSymbol` (`:"…#{x}…"`) can interpolate).
         // expected: operators = {def, end} = 2; operands = {f, :ok} = 2.
         check_metrics::<RubyParser>("def f\n  :ok\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 2);
-            assert_eq!(metric.halstead.u_operands(), 2);
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.unique_operands(), 2);
         });
     }
 
@@ -3472,8 +3472,8 @@ f() {
         // expected: u_operators = {def, (, ), =~, /, end} = 6;
         // u_operands = {f, s, /foo/} = 3.
         check_metrics::<RubyParser>("def f(s)\n  s =~ /foo/\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 6);
-            assert_eq!(metric.halstead.u_operands(), 3);
+            assert_eq!(metric.halstead.unique_operators(), 6);
+            assert_eq!(metric.halstead.unique_operands(), 3);
         });
     }
 
@@ -3501,10 +3501,10 @@ f() {
 }
 ";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 12);
-            assert_eq!(metric.halstead.operators(), 20);
-            assert_eq!(metric.halstead.u_operands(), 12);
-            assert_eq!(metric.halstead.operands(), 16);
+            assert_eq!(metric.halstead.unique_operators(), 12);
+            assert_eq!(metric.halstead.total_operators(), 20);
+            assert_eq!(metric.halstead.unique_operands(), 12);
+            assert_eq!(metric.halstead.total_operands(), 16);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -3537,10 +3537,10 @@ f() {
     fn irules_inert_quoted_word_counts_as_operand() {
         let source = "proc f {} {\n    set s \"hello world\"\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 4);
-            assert_eq!(metric.halstead.operators(), 6);
-            assert_eq!(metric.halstead.u_operands(), 4);
-            assert_eq!(metric.halstead.operands(), 4);
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 6);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -3571,10 +3571,10 @@ f() {
     fn irules_interpolated_quoted_word_no_double_count() {
         let source = "proc f {x y} {\n    set s \"$x is $y\"\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 4);
-            assert_eq!(metric.halstead.operators(), 6);
-            assert_eq!(metric.halstead.u_operands(), 7);
-            assert_eq!(metric.halstead.operands(), 7);
+            assert_eq!(metric.halstead.unique_operators(), 4);
+            assert_eq!(metric.halstead.total_operators(), 6);
+            assert_eq!(metric.halstead.unique_operands(), 7);
+            assert_eq!(metric.halstead.total_operands(), 7);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -3620,10 +3620,10 @@ f() {
 }
 ";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 26);
-            assert_eq!(metric.halstead.operators(), 57);
-            assert_eq!(metric.halstead.u_operands(), 23);
-            assert_eq!(metric.halstead.operands(), 42);
+            assert_eq!(metric.halstead.unique_operators(), 26);
+            assert_eq!(metric.halstead.total_operators(), 57);
+            assert_eq!(metric.halstead.unique_operands(), 23);
+            assert_eq!(metric.halstead.total_operands(), 42);
         });
 
         let path = PathBuf::from("foo.irule");
@@ -3651,18 +3651,18 @@ f() {
     /// reference double-counts. `get_op_type` excludes `Id` whose parent is
     /// a `VariableSubstitution`. Operands: `f`, the proc arg `x`, `return`,
     /// `$x`, and the proc-body `braced_word` — five, with no duplicate
-    /// (`operands()` == 5). If the guard regressed, the inner `id` "x" would
-    /// add a sixth operand occurrence (it text-collides with the proc arg
-    /// `x`, so `u_operands` would stay 5 but `operands()` would rise to 6 —
-    /// hence the total, not just the unique count, is asserted).
+    /// (`total_operands()` == 5). If the guard regressed, the inner `id` "x"
+    /// would add a sixth operand occurrence (it text-collides with the proc
+    /// arg `x`, so `u_operands` would stay 5 but `total_operands()` would rise
+    /// to 6 — hence the total, not just the unique count, is asserted).
     #[test]
     fn irules_bare_variable_operand() {
         let source = "proc f {x} {\n    return $x\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.u_operators(), 3);
-            assert_eq!(metric.halstead.operators(), 5);
-            assert_eq!(metric.halstead.u_operands(), 5);
-            assert_eq!(metric.halstead.operands(), 5);
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 5);
+            assert_eq!(metric.halstead.total_operands(), 5);
         });
 
         let path = PathBuf::from("foo.irule");

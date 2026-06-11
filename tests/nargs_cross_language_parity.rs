@@ -38,7 +38,7 @@ fn fn_args_sum(lang: LANG, source: &str, ext: &str) -> f64 {
         MetricsOptions::default(),
     )
     .expect("parser produced no FuncSpace for parity fixture");
-    space.metrics.nargs.fn_args_sum() as f64
+    space.metrics.nargs.function_args_sum() as f64
 }
 
 #[test]

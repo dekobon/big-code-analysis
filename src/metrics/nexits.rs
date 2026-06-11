@@ -59,10 +59,10 @@ impl fmt::Display for Stats {
         write!(
             f,
             "sum: {}, average: {} min: {}, max: {}",
-            self.exit_sum(),
-            self.exit_average(),
-            self.exit_min(),
-            self.exit_max()
+            self.nexits_sum(),
+            self.nexits_average(),
+            self.nexits_min(),
+            self.nexits_max()
         )
     }
 }
@@ -77,12 +77,12 @@ impl Stats {
 
     /// Returns the `NExit` metric value
     #[must_use]
-    pub fn exit(&self) -> u64 {
+    pub fn nexits(&self) -> u64 {
         self.exit as u64
     }
     /// Returns the `NExit` metric sum value
     #[must_use]
-    pub fn exit_sum(&self) -> u64 {
+    pub fn nexits_sum(&self) -> u64 {
         self.exit_sum as u64
     }
     /// Returns the `NExit` metric minimum value.
@@ -91,7 +91,7 @@ impl Stats {
     /// into `exit_min` to `0`, so a never-observed space
     /// serializes to a meaningful number rather than `1.8446744e19`.
     #[must_use]
-    pub fn exit_min(&self) -> u64 {
+    pub fn nexits_min(&self) -> u64 {
         if self.exit_min == usize::MAX {
             0
         } else {
@@ -100,7 +100,7 @@ impl Stats {
     }
     /// Returns the `NExit` metric maximum value
     #[must_use]
-    pub fn exit_max(&self) -> u64 {
+    pub fn nexits_max(&self) -> u64 {
         self.exit_max as u64
     }
 
@@ -115,8 +115,8 @@ impl Stats {
     /// was not selected) degrades to `sum / 1` instead of producing
     /// `inf`/`NaN` (#428).
     #[must_use]
-    pub fn exit_average(&self) -> f64 {
-        crate::metrics::average(self.exit_sum() as f64, self.total_space_functions)
+    pub fn nexits_average(&self) -> f64 {
+        crate::metrics::average(self.nexits_sum() as f64, self.total_space_functions)
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn exit_empty_file_min_is_zero() {
         let stats = Stats::default();
-        assert_eq!(stats.exit_min(), 0);
+        assert_eq!(stats.nexits_min(), 0);
     }
 
     #[test]
@@ -606,8 +606,8 @@ mod tests {
             "foo.c",
             |metric| {
                 // 1 function, 3 returns
-                assert_eq!(metric.nexits.exit_sum(), 3);
-                assert_eq!(metric.nexits.exit_max(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
+                assert_eq!(metric.nexits.nexits_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -643,8 +643,8 @@ mod tests {
             |metric| {
                 // 1 function, 3 returns (2 in try, 1 in catch); no
                 // `throw` here, so the return-only path stays at 3.
-                assert_eq!(metric.nexits.exit_sum(), 3);
-                assert_eq!(metric.nexits.exit_max(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
+                assert_eq!(metric.nexits.nexits_max(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -676,8 +676,8 @@ mod tests {
             "foo.c",
             |metric| {
                 // 1 function, 2 returns
-                assert_eq!(metric.nexits.exit_sum(), 2);
-                assert_eq!(metric.nexits.exit_max(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+                assert_eq!(metric.nexits.nexits_max(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -704,8 +704,8 @@ mod tests {
             "foo.c",
             |metric| {
                 // 1 function with zero ReturnStatement nodes.
-                assert_eq!(metric.nexits.exit_sum(), 0);
-                assert_eq!(metric.nexits.exit_max(), 0);
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+                assert_eq!(metric.nexits.nexits_max(), 0);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -1580,8 +1580,8 @@ end",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 1);
-                assert_eq!(metric.nexits.exit_max(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 1);
+                assert_eq!(metric.nexits.nexits_max(), 1);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1598,8 +1598,8 @@ end",
 }",
             "foo.tcl",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
-                assert_eq!(metric.nexits.exit_max(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+                assert_eq!(metric.nexits.nexits_max(), 2);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1618,8 +1618,8 @@ end",
          }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
-                assert_eq!(metric.nexits.exit_max(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
+                assert_eq!(metric.nexits.nexits_max(), 3);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1637,8 +1637,8 @@ end",
             "foo.ts",
             |metric| {
                 // outer has 1 return, inner has 1 return → sum=2, max=1
-                assert_eq!(metric.nexits.exit_sum(), 2);
-                assert_eq!(metric.nexits.exit_max(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+                assert_eq!(metric.nexits.nexits_max(), 1);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1652,8 +1652,8 @@ end",
          }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 0);
-                assert_eq!(metric.nexits.exit_max(), 0);
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+                assert_eq!(metric.nexits.nexits_max(), 0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1672,8 +1672,8 @@ end",
          }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
-                assert_eq!(metric.nexits.exit_max(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
+                assert_eq!(metric.nexits.nexits_max(), 3);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1692,8 +1692,8 @@ end",
          }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
-                assert_eq!(metric.nexits.exit_max(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
+                assert_eq!(metric.nexits.nexits_max(), 3);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1707,8 +1707,8 @@ end",
          }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 0);
-                assert_eq!(metric.nexits.exit_max(), 0);
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+                assert_eq!(metric.nexits.nexits_max(), 0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1726,8 +1726,8 @@ end",
             "foo.js",
             |metric| {
                 // outer has 1 return, inner has 1 return → sum=2, max=1
-                assert_eq!(metric.nexits.exit_sum(), 2);
-                assert_eq!(metric.nexits.exit_max(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+                assert_eq!(metric.nexits.nexits_max(), 1);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1821,7 +1821,7 @@ end",
             "defmodule Foo do\n  def add(a, b) do\n    a + b\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 0);
+                assert_eq!(metric.nexits.nexits_sum(), 0);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -1845,7 +1845,7 @@ end",
             "defmodule Foo do\n  def bad(x) do\n    raise \"first\"\n    throw(:second)\n    exit(:third)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -1870,7 +1870,7 @@ end",
             "defmodule Foo do\n  def wrap(stack) do\n    reraise(\"oops\", stack)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 1);
             },
         );
     }
@@ -1884,7 +1884,7 @@ end",
             "defmodule Foo do\n  def f do\n    throw_event(:click)\n    Logger.raise_alert()\n    exit_code = 0\n    exit_code\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 0);
+                assert_eq!(metric.nexits.nexits_sum(), 0);
             },
         );
     }
@@ -1893,7 +1893,7 @@ end",
     fn ruby_no_exit() {
         // Function body without any `return` produces zero exits.
         check_metrics::<RubyParser>("def foo\n  a = 1\n  a + 1\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.nexits.exit_sum(), 0);
+            assert_eq!(metric.nexits.nexits_sum(), 0);
         });
     }
 
@@ -1905,7 +1905,7 @@ end",
             "def kind(x)\n  return :zero if x == 0\n  if x > 0\n    return :pos\n  elsif x < 0\n    return :neg\n  end\n  return :unknown\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 4);
+                assert_eq!(metric.nexits.nexits_sum(), 4);
             },
         );
     }
@@ -1919,7 +1919,7 @@ end",
             "def foo(x)\n  return 0 if x.nil?\n  yield x\n  return x * 2\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1937,7 +1937,7 @@ end",
                  return int(s)",
             "foo.py",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -1963,7 +1963,7 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -1989,7 +1989,7 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2014,7 +2014,7 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2039,7 +2039,7 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2067,7 +2067,7 @@ end",
              }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2098,7 +2098,7 @@ end",
             }",
             "foo.java",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
             },
         );
     }
@@ -2107,7 +2107,7 @@ end",
     fn groovy_no_exit() {
         // No functions at all — `nexits.sum` is 0.
         check_metrics::<GroovyParser>("int a = 42", "foo.groovy", |metric| {
-            assert_eq!(metric.nexits.exit_sum(), 0);
+            assert_eq!(metric.nexits.nexits_sum(), 0);
         });
     }
 
@@ -2120,7 +2120,7 @@ end",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 1);
             },
         );
     }
@@ -2136,7 +2136,7 @@ end",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
             },
         );
     }
@@ -2156,7 +2156,7 @@ end",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
             },
         );
     }
@@ -2168,7 +2168,7 @@ end",
         // *explicit* `return` / `yield` / `throw` — consistent with
         // Java's docstring.
         check_metrics::<GroovyParser>("int identity(int x) { x }", "foo.groovy", |metric| {
-            assert_eq!(metric.nexits.exit_sum(), 0);
+            assert_eq!(metric.nexits.nexits_sum(), 0);
         });
     }
 
@@ -2182,7 +2182,7 @@ end",
              }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 2);
+                assert_eq!(metric.nexits.nexits_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2211,7 +2211,7 @@ end",
                  return",
             "foo.py",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2239,7 +2239,7 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2266,7 +2266,7 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2292,7 +2292,7 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2318,7 +2318,7 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2347,7 +2347,7 @@ end",
                  yield from range(3)",
             "foo.py",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2377,7 +2377,7 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2403,7 +2403,7 @@ end",
              }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2429,7 +2429,7 @@ end",
              }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2455,7 +2455,7 @@ end",
              }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 3);
+                assert_eq!(metric.nexits.nexits_sum(), 3);
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r#"
@@ -2483,7 +2483,7 @@ end",
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 0);
+                assert_eq!(metric.nexits.nexits_sum(), 0);
             },
         );
     }
@@ -2501,7 +2501,7 @@ end",
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 1);
             },
         );
     }
@@ -2517,7 +2517,7 @@ end",
 ",
             "foo.irule",
             |metric| {
-                assert_eq!(metric.nexits.exit_sum(), 1);
+                assert_eq!(metric.nexits.nexits_sum(), 1);
             },
         );
     }
