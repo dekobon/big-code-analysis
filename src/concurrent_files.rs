@@ -6,8 +6,9 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use std::fmt;
+use std::io::ErrorKind;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
@@ -165,10 +166,27 @@ where
     while let Ok(Some(job)) = receiver.recv() {
         let path = job.path.clone();
 
-        if let Err(err) = func(job.path, &job.cfg) {
-            eprintln!("{err:?} for file {}", path.display());
+        if let Err(err) = func(job.path, &job.cfg)
+            && let Some(message) = per_file_error_message(&path, &err)
+        {
+            eprintln!("{message}");
         }
     }
+}
+
+/// Format a per-file processing error for stderr, or return `None` when it
+/// should be swallowed silently.
+///
+/// `BrokenPipe` is swallowed to match the CLI's `write_stdout_or_die` policy
+/// (`big-code-analysis-cli/src/lib.rs`): a closed downstream pipe (`| head`,
+/// `| less`, …) is the routine case, not a failure. Every other error is
+/// `Display`-formatted so internal type structure does not leak into
+/// user-facing diagnostics (a Debug `Os { code, kind, .. }` struct).
+fn per_file_error_message(path: &Path, err: &std::io::Error) -> Option<String> {
+    if err.kind() == ErrorKind::BrokenPipe {
+        return None;
+    }
+    Some(format!("error processing {}: {err}", path.display()))
 }
 
 fn send_file<T: 'static + Send + Sync>(
