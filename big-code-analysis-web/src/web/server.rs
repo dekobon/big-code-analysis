@@ -1240,12 +1240,51 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.default_service(web::route().to(not_found));
 }
 
+/// `Allow` header value advertising the methods of the `POST`-only
+/// resources (#655). RFC 9110 §15.5.6 requires a `405` to name the
+/// resource's supported methods; the same set answers an `OPTIONS`
+/// method-discovery probe.
+const POST_ALLOW_METHODS: &str = "POST, OPTIONS";
+
+/// `Allow` header value advertising the methods of the `GET`-only
+/// introspection / `/ping` resources (#655). `HEAD` is served wherever
+/// `GET` is (#644), so both appear alongside the `OPTIONS` discovery verb.
+const GET_ALLOW_METHODS: &str = "GET, HEAD, OPTIONS";
+
+/// Builds the method-fallback response for a resource that advertises
+/// `allow_methods` (#655).
+///
+/// `OPTIONS` is the method-discovery verb, so it answers `204 No Content`
+/// with the `Allow` header and no body. Every other unsupported method
+/// answers `405 Method Not Allowed` carrying both the `Allow` header
+/// (RFC 9110 §15.5.6, a MUST) and the diagnostic JSON `{error, id}` body.
+fn method_fallback(
+    method: &http::Method,
+    allow_methods: &'static str,
+    not_allowed_message: &'static str,
+) -> HttpResponse {
+    let allow = http::header::HeaderValue::from_static(allow_methods);
+    if method == http::Method::OPTIONS {
+        return HttpResponse::NoContent()
+            .insert_header((http::header::ALLOW, allow))
+            .finish();
+    }
+    let mut resp = json_error(
+        http::StatusCode::METHOD_NOT_ALLOWED,
+        not_allowed_message,
+        String::new(),
+    );
+    resp.headers_mut().insert(http::header::ALLOW, allow);
+    resp
+}
+
 /// Resource-level fallback for the content-type-guarded `POST` endpoints.
 ///
 /// Reached when a request hits a known endpoint but matches none of its
 /// routes: a `POST` carrying an unsupported/missing `Content-Type` gets a
-/// diagnostic `415`, any other method gets `405` (these endpoints are
-/// `POST`-only).
+/// diagnostic `415`, `OPTIONS` gets a `204` advertising the resource's
+/// methods, and any other method gets `405` with an `Allow` header (these
+/// endpoints are `POST`-only).
 async fn guarded_post_fallback(req: actix_web::HttpRequest) -> HttpResponse {
     if req.method() == http::Method::POST {
         json_error(
@@ -1255,21 +1294,24 @@ async fn guarded_post_fallback(req: actix_web::HttpRequest) -> HttpResponse {
             String::new(),
         )
     } else {
-        json_error(
-            http::StatusCode::METHOD_NOT_ALLOWED,
+        method_fallback(
+            req.method(),
+            POST_ALLOW_METHODS,
             "Method not allowed. This endpoint accepts POST.",
-            String::new(),
         )
     }
 }
 
 /// Resource-level fallback for the `GET`-only introspection / `/ping`
 /// resources.
-async fn get_only_method_not_allowed() -> HttpResponse {
-    json_error(
-        http::StatusCode::METHOD_NOT_ALLOWED,
+///
+/// `OPTIONS` gets a `204` advertising the resource's methods; any other
+/// unsupported method gets `405` with an `Allow` header (#655).
+async fn get_only_method_not_allowed(req: actix_web::HttpRequest) -> HttpResponse {
+    method_fallback(
+        req.method(),
+        GET_ALLOW_METHODS,
         "Method not allowed. This endpoint accepts GET.",
-        String::new(),
     )
 }
 
