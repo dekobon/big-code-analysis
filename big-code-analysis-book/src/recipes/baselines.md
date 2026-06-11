@@ -215,7 +215,7 @@ headroom = 0.95
 - `tier = "hard"` — written by the hard gate (`bca check
   --write-baseline …`); no `headroom` key.
 - `tier = "soft"`, `headroom = <ratio>` — written by the soft gate
-  scaled by `--headroom` (`bca check --tier soft --headroom 0.95
+  scaled by the soft ratio (`bca check --tier soft=0.95
   --write-baseline …`).
 - `tier = "soft"` with no `headroom` — written by the soft gate driven
   by a `[thresholds.soft]` table (per-metric limits, no single ratio).

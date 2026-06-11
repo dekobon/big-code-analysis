@@ -23,6 +23,43 @@ for historical reference.
 
 ### Changed
 
+- **(breaking, deferred to 2.0)** Simplified `bca check`'s threshold-tier
+  model (#688). The standalone `--headroom <RATIO>` flag is retired; the
+  soft tier now carries its own scale ratio via the value-taking
+  `--tier <hard|soft|soft=RATIO>` (default `hard`; a bare `--tier`
+  means `soft`; `soft` alone uses the 0.95 default ratio). This folds
+  the former four-mechanism precedence model (config / `[thresholds.soft]`
+  / headroom / `--threshold`) down to tier-carries-ratio plus absolute
+  `--threshold` overrides, and removes the three runtime precedence
+  notes whose self-contradictory help text the issue flagged. The
+  `[check] headroom` manifest key is unchanged and folds into the soft
+  tier's ratio. `--headroom <R>` survives as a hidden one-cycle
+  deprecated alias for `--tier soft=<R>` (warns; removed next major) —
+  note that it now *promotes* a hard run to the soft tier rather than
+  being ignored at the hard tier.
+- **(breaking, deferred to 2.0)** Aligned `bca.toml` manifest key names
+  with their CLI flags (#666). The `num_jobs` key is renamed to `jobs`
+  (matching `--jobs`); `--no-cyclomatic-try` (presence flag) becomes the
+  value-taking `--cyclomatic-count-try <bool>` (matching the positive
+  `cyclomatic_count_try` key); and `--strict-exit-codes` becomes the
+  value-taking `--exit-codes <default|tiered>` (matching the
+  `[check] exit_codes` key). All three new flags are full overrides — a
+  CLI value beats the manifest in *both* directions, not just opt-in.
+  One-cycle deprecated aliases (warn-but-honor): the `num_jobs` manifest
+  key, the `--no-cyclomatic-try` flag (= `--cyclomatic-count-try false`),
+  and the `--strict-exit-codes` flag (= `--exit-codes tiered`). The false
+  "Every key mirrors a CLI flag" doc claim is corrected.
+- **(breaking, deferred to 2.0)** Gave the auto-enabled CI behaviours of
+  `bca check` never-forms and gave manifest booleans two-way CLI
+  overrides (#683). `--github-annotations` becomes tri-state
+  `<auto|always|never>` (mirroring `--color`; `auto` detects
+  `$GITHUB_ACTIONS`, `never` suppresses even inside a step, a bare flag
+  still means `always`); `--summary-file` now accepts `auto` / `never`
+  keywords alongside a path (`never` suppresses the step-summary append
+  even when `$GITHUB_STEP_SUMMARY` is set); and `--baseline-fuzzy-match`
+  / `--no-suppress` become value-taking (`<bool>`, bare = `true`) so a
+  CLI `false` overrides the matching manifest key without dropping the
+  whole config via `--no-config`.
 - **(breaking)** CLI flags are now scoped to the subcommands that consume
   them, with sectioned `--help` output (#597). Every flag that used to be
   `global = true` — `--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,

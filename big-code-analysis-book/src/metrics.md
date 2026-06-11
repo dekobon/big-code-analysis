@@ -373,8 +373,9 @@ fallible code that threads a handful of `?` through a happy path. You
 can opt out so `?` is treated as linear error propagation:
 
 - Library: `MetricsOptions::default().with_count_cyclomatic_try(false)`.
-- CLI: the global `--no-cyclomatic-try` flag, or `cyclomatic_count_try
-  = false` in `bca.toml` (the flag wins when both are set).
+- CLI: `--cyclomatic-count-try false` (or the deprecated
+  `--no-cyclomatic-try` alias), or `cyclomatic_count_try = false` in
+  `bca.toml` (the CLI value overrides the key in either direction).
 - A repo gate: set `cyclomatic_count_try = false` in the
   auto-discovered `bca.toml` (this project's own `make self-scan` does
   exactly this — no flag or env var). Toggling the policy shifts

@@ -49,13 +49,13 @@ fn thresholds_extracts_scalars_and_ignores_subtables() {
 #[test]
 fn num_jobs_accepts_string_and_integer() {
     let auto = manifest(RawManifest {
-        num_jobs: Some(toml::Value::String("auto".to_owned())),
+        jobs: Some(toml::Value::String("auto".to_owned())),
         ..Default::default()
     });
     assert_eq!(auto.num_jobs(), Some(NumJobs::Auto));
 
     let four = manifest(RawManifest {
-        num_jobs: Some(toml::Value::Integer(4)),
+        jobs: Some(toml::Value::Integer(4)),
         ..Default::default()
     });
     assert_eq!(
@@ -174,54 +174,68 @@ fn merge_globals_include_replaces_not_unions() {
 #[test]
 fn merge_globals_cyclomatic_count_try_opts_out_when_false() {
     // Manifest `cyclomatic_count_try = false` opts the gate out of
-    // counting `?` (#409) when the CLI flag is absent.
+    // counting `?` (#409) when the CLI left the flag unset (`None`).
     let m = manifest(RawManifest {
         cyclomatic_count_try: Some(false),
         ..Default::default()
     });
     let mut g = GlobalOpts::default();
-    assert!(!g.no_cyclomatic_try);
+    assert_eq!(g.count_cyclomatic_try, None);
     m.merge_globals(&mut g, false);
-    assert!(g.no_cyclomatic_try);
+    assert_eq!(g.count_cyclomatic_try, Some(false));
 }
 
 #[test]
 fn merge_globals_cyclomatic_count_try_default_keeps_counting() {
-    // Absent key (or `true`) leaves the default counting behaviour
-    // intact, so published metric values are preserved (#409).
-    for raw in [
-        RawManifest::default(),
-        RawManifest {
-            cyclomatic_count_try: Some(true),
-            ..Default::default()
-        },
-    ] {
-        let mut g = GlobalOpts::default();
-        manifest(raw).merge_globals(&mut g, false);
-        assert!(!g.no_cyclomatic_try);
-    }
+    // Absent key leaves the resolved value `None`, so the downstream
+    // `unwrap_or(true)` default counts `?` and published metric values
+    // are preserved (#409). An explicit `true` key carries through too.
+    let mut g = GlobalOpts::default();
+    manifest(RawManifest::default()).merge_globals(&mut g, false);
+    assert_eq!(g.count_cyclomatic_try, None);
+
+    let mut g_true = GlobalOpts::default();
+    manifest(RawManifest {
+        cyclomatic_count_try: Some(true),
+        ..Default::default()
+    })
+    .merge_globals(&mut g_true, false);
+    assert_eq!(g_true.count_cyclomatic_try, Some(true));
 }
 
 #[test]
-fn merge_globals_cyclomatic_count_try_cli_flag_wins() {
-    // `--no-cyclomatic-try` ORs on top: a manifest `true` cannot turn
-    // counting back on once the CLI flag has opted out (#409).
-    let m = manifest(RawManifest {
+fn merge_globals_cyclomatic_count_try_cli_value_wins_both_directions() {
+    // Full override (#666): an explicit CLI value wins over the manifest
+    // in EITHER direction. CLI `false` over manifest `true`, and — the
+    // case the old OR-merge could not express — CLI `true` over manifest
+    // `false`.
+    let m_true = manifest(RawManifest {
         cyclomatic_count_try: Some(true),
         ..Default::default()
     });
-    let mut g = GlobalOpts {
-        no_cyclomatic_try: true,
+    let mut g_off = GlobalOpts {
+        count_cyclomatic_try: Some(false),
         ..Default::default()
     };
-    m.merge_globals(&mut g, false);
-    assert!(g.no_cyclomatic_try);
+    m_true.merge_globals(&mut g_off, false);
+    assert_eq!(g_off.count_cyclomatic_try, Some(false));
+
+    let m_false = manifest(RawManifest {
+        cyclomatic_count_try: Some(false),
+        ..Default::default()
+    });
+    let mut g_on = GlobalOpts {
+        count_cyclomatic_try: Some(true),
+        ..Default::default()
+    };
+    m_false.merge_globals(&mut g_on, false);
+    assert_eq!(g_on.count_cyclomatic_try, Some(true));
 }
 
 #[test]
 fn merge_globals_respects_explicit_cli_num_jobs() {
     let m = manifest(RawManifest {
-        num_jobs: Some(toml::Value::Integer(8)),
+        jobs: Some(toml::Value::Integer(8)),
         ..Default::default()
     });
 
@@ -274,30 +288,41 @@ fn known_keys_covers_report_table() {
 }
 
 /// `[report] no_suppress = true` enables the audit view when the CLI
-/// did not pass `--no-suppress`; a bare CLI flag can still force it on,
-/// but the manifest never forces it off (OR semantics, like
-/// `baseline_fuzzy_match`).
+/// left `--no-suppress` unset (`None`); an explicit CLI value overrides
+/// the manifest in EITHER direction (#683 full override).
 #[test]
 fn merge_report_enables_no_suppress_from_manifest() {
     let m = manifest(toml::from_str("[report]\nno_suppress = true\n").expect("parse"));
-    let mut args = report_args(false);
+    let mut args = report_args(None);
     m.merge_report(&mut args);
-    assert!(args.no_suppress, "manifest must enable the audit view");
+    assert_eq!(
+        args.no_suppress,
+        Some(true),
+        "manifest must enable the audit view"
+    );
 
-    // Absent / false manifest key leaves an explicit CLI opt-in intact
-    // and does not turn a default-honor run into audit.
+    // Absent manifest key leaves the resolved value `None`, so the
+    // downstream default honors markers.
     let m_default = manifest(RawManifest::default());
-    let mut honor = report_args(false);
+    let mut honor = report_args(None);
     m_default.merge_report(&mut honor);
-    assert!(!honor.no_suppress, "default honors markers");
-    let mut already_on = report_args(true);
-    m_default.merge_report(&mut already_on);
-    assert!(already_on.no_suppress, "CLI opt-in survives empty manifest");
+    assert_eq!(honor.no_suppress, None, "default honors markers");
+
+    // CLI `false` forces the marker-honoring default even when the
+    // manifest enabled the audit view — the case the old OR-merge could
+    // not express.
+    let mut cli_off = report_args(Some(false));
+    m.merge_report(&mut cli_off);
+    assert_eq!(
+        cli_off.no_suppress,
+        Some(false),
+        "CLI false overrides manifest true"
+    );
 }
 
 /// Build a `ReportArgs` for merge tests with the given `no_suppress`
 /// flag; other fields take their non-interesting defaults.
-fn report_args(no_suppress: bool) -> ReportArgs {
+fn report_args(no_suppress: Option<bool>) -> ReportArgs {
     ReportArgs {
         selection: crate::WalkSelectionArgs::default(),
         tuning: crate::WalkTuningArgs::default(),
@@ -393,11 +418,14 @@ fn merge_check_honours_check_table_baseline_keys() {
         .expect("parse"),
     );
     let mut args = empty_check_args();
+    // A bare soft tier so the manifest `[check] headroom` ratio folds in
+    // (issue #688): it now drives the tier's ratio, not `args.headroom`.
+    args.tier = crate::TierSpec::Soft(None);
     m.merge_check(&mut args);
     assert_eq!(args.baseline, Some(PathBuf::from("/repo/bl.toml")));
     assert_eq!(args.baseline_line_tolerance, Some(3));
-    assert!(args.baseline_fuzzy_match);
-    assert_eq!(args.headroom, Some(0.9));
+    assert_eq!(args.baseline_fuzzy_match, Some(true));
+    assert_eq!(args.tier, crate::TierSpec::Soft(Some(0.9)));
 }
 
 /// The deprecated top-level spelling (#599) is still honoured for one
@@ -414,11 +442,12 @@ fn merge_check_honours_legacy_top_level_baseline_keys() {
         .expect("parse"),
     );
     let mut args = empty_check_args();
+    args.tier = crate::TierSpec::Soft(None);
     m.merge_check(&mut args);
     assert_eq!(args.baseline, Some(PathBuf::from("/repo/bl.toml")));
     assert_eq!(args.baseline_line_tolerance, Some(3));
-    assert!(args.baseline_fuzzy_match);
-    assert_eq!(args.headroom, Some(0.9));
+    assert_eq!(args.baseline_fuzzy_match, Some(true));
+    assert_eq!(args.tier, crate::TierSpec::Soft(Some(0.9)));
 }
 
 /// When a key is set in BOTH the deprecated top level and the
@@ -438,10 +467,11 @@ fn merge_check_prefers_check_table_over_legacy_top_level() {
         .expect("parse"),
     );
     let mut args = empty_check_args();
+    args.tier = crate::TierSpec::Soft(None);
     m.merge_check(&mut args);
     assert_eq!(args.baseline, Some(PathBuf::from("/repo/new.toml")));
     assert_eq!(args.baseline_line_tolerance, Some(9));
-    assert_eq!(args.headroom, Some(0.95));
+    assert_eq!(args.tier, crate::TierSpec::Soft(Some(0.95)));
 }
 
 /// `merge_exemptions` reads the baseline from `[check]` too (#599), so

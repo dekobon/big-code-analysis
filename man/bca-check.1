@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-\-report\-suppressed\fR] [\fB\-\-report\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-strict\-exit\-codes\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
+\fBbca\-check\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-\-report\-suppressed\fR] [\fB\-\-report\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-tier\fR] [\fB\-\-exit\-codes\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .SH OPTIONS
@@ -63,11 +63,23 @@ Git ref to diff `HEAD` against. The set of files reported by `git diff \-\-name\
 \fB\-\-changed\-only\fR
 Drop violations from files outside the `\-\-since`/auto\-detected touched set entirely (terser CI output for PR gates). Requires a resolvable diff base, either via `\-\-since` or one of the auto\-detected env vars; failing to resolve is fatal so a misconfigured CI does not silently turn the gate into a no\-op
 .TP
-\fB\-\-github\-annotations\fR
-Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands per violation so the GHA UI renders them as inline annotations on the file\-diff view. Additive to the human\-readable stderr stream — annotations ride on top, they don\*(Aqt replace it. Auto\-enabled when `$GITHUB_ACTIONS == "true"`. Capped at 10 per metric (GitHub Actions surfaces at most 10 errors per step in the UI); overflow rolls up to one `::error::N more <metric> violations not shown` line per affected metric so the count is still visible
+\fB\-\-github\-annotations\fR [\fI<auto|always|never>\fR] [default: auto]
+Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands per violation so the GHA UI renders them as inline annotations on the file\-diff view. Additive to the human\-readable stderr stream — annotations ride on top, they don\*(Aqt replace it. Tri\-state `<auto|always|never>` mirroring `\-\-color` (issue #683): `auto` (default) emits annotations when `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never` suppresses them even inside a GHA step (so a workflow that runs `bca check` twice can annotate from only one run). A bare `\-\-github\-annotations` means `always`. Capped at 10 per metric (GitHub Actions surfaces at most 10 errors per step in the UI); overflow rolls up to one `::error::N more <metric> violations not shown` line per affected metric so the count is still visible
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+auto: Enable when the GitHub Actions env signal is present
+.IP \(bu 2
+always: Always enable, even outside a GHA step
+.IP \(bu 2
+never: Never enable, even inside a GHA step
+.RE
 .TP
-\fB\-\-summary\-file\fR \fI<SUMMARY_FILE>\fR
-File path to append a markdown digest of the violations to — per\-file rollup table, per\-metric breakdown, and top\-N offenders by `value / limit` ratio. Mirrors the format `bca report markdown` produces so a reader skimming the GHA step\-summary panel sees a familiar table layout. When this flag is omitted, auto\-detect via `$GITHUB_STEP_SUMMARY`. The block is bracketed by HTML\-comment markers so a retried step replaces (not stacks) the previous digest
+\fB\-\-summary\-file\fR \fI<PATH|auto|never>\fR
+Where to append a markdown digest of the violations — per\-file rollup table, per\-metric breakdown, and top\-N offenders by `value / limit` ratio. Mirrors the format `bca report markdown` produces so a reader skimming the GHA step\-summary panel sees a familiar table layout. Accepts a file path, or the keywords `auto` / `never` (issue #683): `auto` (the default when the flag is omitted) appends to `$GITHUB_STEP_SUMMARY` when that env var is set; `never` suppresses the digest even inside a GHA step; a path appends there unconditionally. The block is bracketed by HTML\-comment markers so a retried step replaces (not stacks) the previous digest
 .TP
 \fB\-\-no\-remediation\fR
 Suppress the trailing "\-\-\- next steps \-\-\-" remediation block that names the artifact, prints a copy\-paste\-safe `\-\-write\-baseline` refresh invocation, and links to the Baselines recipe. By default the block is emitted on failure (and in `$GITHUB_STEP_SUMMARY` when present) so a first\-time reader of a failing CI log can see what to do next without leaving the page
@@ -85,38 +97,45 @@ toml
 json
 .RE
 .TP
-\fB\-\-headroom\fR \fI<RATIO>\fR
-Scale every threshold from `\-\-config` (or `bca.toml`\*(Aqs `[thresholds]` table) by this ratio before comparing against offenders. Accepts a value in `(0, 1]`: `1.0` is a no\-op; `0.95` trips the gate on functions that have reached 95% of any limit — an early\-warning "soft tier" that fires before the hard 100% gate. Explicit `\-\-threshold <metric>=<value>` overrides are absolute: they are applied *after* scaling and are NOT rescaled (the documented resolution order is config → scale by `\-\-headroom` → `\-\-threshold` overrides). Stacks with `\-\-write\-baseline`: the baseline then captures every offender at the scaled limits (a superset of the hard\-tier offenders). Out\-of\-range values exit 1. `\-\-headroom` applies only to the soft tier (`\-\-tier=soft`); at the hard tier it is ignored with a note
+\fB\-\-tier\fR [\fI<hard|soft|soft=RATIO>\fR] [default: hard]
+Which threshold tier to gate against (issue #688). Accepts `hard`, `soft`, or `soft=<RATIO>`:
+
+\- `hard` (default) — flag a function only when a metric is at or over its `[thresholds]` limit. \- `soft` — early\-warning tier: flag a function when a metric reaches `RATIO` (default 0.95) of any limit, i.e. before the hard gate trips. With a `[thresholds.soft]` table present, the per\-metric soft limits take precedence over the blanket ratio (metrics absent from it inherit their hard limit). \- `soft=0.90` — soft tier scaling every limit by 0.90; `soft=1.0` disables the blanket scale (a soft tier driven only by an explicit `[thresholds.soft]` table).
+
+Resolution order: `[thresholds]` (manifest + `\-\-config`) → `[thresholds.soft]` or the soft ratio → absolute `\-\-threshold name=value` overrides (applied last, never scaled). Both tiers ratchet through the same `\-\-baseline`. `RATIO` must lie in `(0, 1]`; an out\-of\-range value is a usage error.
 .TP
-\fB\-\-tier\fR \fI<TIER>\fR [default: hard]
-Which threshold tier to gate against. `hard` (default) compares against the `[thresholds]` table verbatim. `soft` is the early\-warning tier, resolved in this order:
+\fB\-\-exit\-codes\fR [\fI<default|tiered>\fR]
+Exit\-code style (issue #385/#666): `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr +N%]` stderr tags:
 
-1. Start from `[thresholds]` (manifest, merged with `\-\-config`). 2. If a `[thresholds.soft]` table exists, merge it on top (absolute or `"<ratio>x"` scale\-relative limits); metrics absent from it inherit their hard limit. `\-\-headroom` is then ignored (per\-metric intent wins) with a stderr warning. 3. Otherwise scale every `[thresholds]` limit by `\-\-headroom` (default 0.95 when unset, so `\-\-tier=soft` is never a silent no\-op; `\-\-headroom 1.0` disables scaling). 4. Repeated `\-\-threshold name=value` flags apply last, absolutely.
+\- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
 
-Both tiers ratchet through the same `\-\-baseline`.
+Every fail\-state stays non\-zero, so existing `exit != 0 → fail` tooling is unaffected; only consumers that test `$? \-eq 2` explicitly need to widen to 2\-5. `\-\-no\-fail` still forces exit `0`. Mirrors the `[check] exit_codes` key in `bca.toml`; the CLI value overrides the manifest in either direction.
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
 .IP \(bu 2
-hard
+default
 .IP \(bu 2
-soft
+tiered
 .RE
-.TP
-\fB\-\-strict\-exit\-codes\fR
-Opt into tiered exit codes (issue #385). Default behaviour is the stable 0/1/2 contract: `0` clean, `1` tool error, `2` on any threshold violation. With this flag, exit `2` is split by category so CI can branch on severity without parsing the `[new]` / `[regr +N%]` stderr tags:
-
-\- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier=soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
-
-Every fail\-state stays non\-zero, so existing `exit != 0 → fail` tooling is unaffected; only consumers that test `$? \-eq 2` explicitly need to widen to 2\-5. `\-\-no\-fail` still forces exit `0`. Mirrored by `[check] exit_codes = "tiered"` in `bca.toml`; the flag can only enable the tiered mode (a bare flag cannot represent "off"), so it ORs with the manifest key rather than replacing it.
 .TP
 \fB\-\-baseline\-line\-tolerance\fR \fI<LINES>\fR
 Tolerance, in lines, for matching a `\-\-baseline` entry whose qualified symbol is ambiguous (two methods with the same name on different `impl` blocks, overloads, collided anonymous spaces). Unambiguous symbols match regardless of line drift; this only disambiguates a tie. Defaults to 50. Mirrored by the `baseline_line_tolerance` key in `bca.toml`
 .TP
-\fB\-\-baseline\-fuzzy\-match\fR
-Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Mirrored by the `baseline_fuzzy_match` key in `bca.toml`
+\fB\-\-baseline\-fuzzy\-match\fR [\fI<BOOL>\fR]
+Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Value\-taking (issue #683): a bare `\-\-baseline\-fuzzy\-match` means `true`; `\-\-baseline\-fuzzy\-match false` forces it off even when the `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value overrides the manifest in either direction
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+true
+.IP \(bu 2
+false
+.RE
 .TP
 \fB\-\-check\-exclude\fR \fI<GLOB>\fR
 Glob for files to analyse and report but exempt from the threshold gate. Repeatable. Matching files are still walked, parsed, metric\*(Aqd, and shown by `bca report`; `bca check` simply drops their violations before emitting offenders and before `\-\-write\-baseline` records anything — so structural exemptions (test fixtures, generated code, macro\-dispatch modules) stay out of `.bca\-baseline.toml`. Precedence: in\-source `bca: suppress` markers win first, then these globs, then the baseline. Unioned with `\-\-check\-exclude\-from` and — as a negative filter key (#539) — with the `bca.toml` `[check] exclude` list: CLI values are *added to* (merged with), not a replacement for, the manifest\*(Aqs exemptions, so a CLI `\-\-check\-exclude` never silently re\-gates a path the project config deliberately exempted. Pass `\-\-no\-config` to ignore the manifest entirely. Globs match the path as walked, exactly like `\-\-exclude`
@@ -167,8 +186,18 @@ Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and c
 \fB\-\-exclude\-tests\fR
 Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
 .TP
-\fB\-\-no\-cyclomatic\-try\fR
-Stop Rust\*(Aqs `?` operator (the `try_expression` node) from contributing to cyclomatic complexity (standard and modified). By default `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass this to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\- linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (the CLI flag wins when both are set)
+\fB\-\-cyclomatic\-count\-try\fR [\fI<BOOL>\fR]
+Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (issue #666); the CLI value overrides the manifest in either direction
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+true
+.IP \(bu 2
+false
+.RE
 .SH PREPROCESSOR
 .TP
 \fB\-\-preproc\-data\fR \fI<PREPROC_DATA>\fR

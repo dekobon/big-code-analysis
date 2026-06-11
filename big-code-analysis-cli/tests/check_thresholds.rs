@@ -1115,9 +1115,7 @@ fn check_headroom_scales_config_limit_into_offender() {
             "--config",
             &cfg,
             "--tier",
-            "soft",
-            "--headroom",
-            "0.01",
+            "soft=0.01",
         ])
         .assert()
         .code(2)
@@ -1126,11 +1124,12 @@ fn check_headroom_scales_config_limit_into_offender() {
         .stderr(predicate::str::contains("(limit 1)"));
 }
 
-/// `--headroom` is ignored at the default hard tier: a value that would
-/// trip the gate at the soft tier leaves the hard run clean, with a note
-/// pointing the user at `--tier=soft`.
+/// The deprecated `--headroom <R>` alias now promotes the gate to
+/// `--tier soft=<R>` (issue #688): headroom IS the soft tier's ratio,
+/// not a separate hard-tier dial. A value that trips the soft gate now
+/// trips, and a one-cycle deprecation warning points at the new form.
 #[test]
-fn check_headroom_ignored_at_hard_tier() {
+fn check_headroom_alias_promotes_to_soft_tier() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
@@ -1146,10 +1145,12 @@ fn check_headroom_ignored_at_hard_tier() {
             "0.01",
         ])
         .assert()
-        .success()
+        .code(2)
         .stderr(predicate::str::contains(
-            "--headroom applies only to the soft tier",
-        ));
+            "`--headroom <R>` is deprecated; use `--tier soft=<R>`",
+        ))
+        .stderr(predicate::str::contains("cyclomatic"))
+        .stderr(predicate::str::contains("(limit 1)"));
 }
 
 /// `--tier=soft --headroom 1.0` is the documented no-op. The limit is
@@ -1166,15 +1167,7 @@ fn check_headroom_one_is_noop() {
 
     cli(dir.path())
         .args([
-            "check",
-            "--paths",
-            &path,
-            "--config",
-            &cfg,
-            "--tier",
-            "soft",
-            "--headroom",
-            "1.0",
+            "check", "--paths", &path, "--config", &cfg, "--tier", "soft=1.0",
         ])
         .assert()
         .success()
@@ -1226,11 +1219,9 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
             "--config",
             &cfg,
             "--tier",
-            "soft",
+            "soft=0.5",
             "--threshold",
             "cyclomatic=8",
-            "--headroom",
-            "0.5",
         ])
         .assert()
         .success()
@@ -1256,16 +1247,14 @@ fn check_soft_tier_without_config_warns_and_noops() {
             "--paths",
             &path,
             "--tier",
-            "soft",
+            "soft=0.5",
             "--threshold",
             "cyclomatic=100",
-            "--headroom",
-            "0.5",
         ])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "--tier=soft has no effect without configured thresholds",
+            "--tier soft has no effect without configured thresholds",
         ));
 }
 
@@ -1289,9 +1278,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
             "--config",
             &cfg,
             "--tier",
-            "soft",
-            "--headroom",
-            "0.01",
+            "soft=0.01",
             "--write-baseline",
             baseline_str,
         ])
@@ -1312,9 +1299,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
             "--config",
             &cfg,
             "--tier",
-            "soft",
-            "--headroom",
-            "0.01",
+            "soft=0.01",
             "--baseline",
             baseline_str,
         ])
@@ -1336,9 +1321,7 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
             "--config",
             &cfg,
             "--tier",
-            "soft",
-            "--headroom",
-            "0.5",
+            "soft=0.5",
             "--print-effective-config",
         ])
         .assert()
@@ -1435,11 +1418,11 @@ fn check_soft_table_unspecified_metric_inherits_hard_limit() {
         .stdout(predicate::str::contains("nargs = 7.0"));
 }
 
-/// When a `[thresholds.soft]` table is present, `--headroom` is ignored
-/// at the soft tier with a stderr warning — per-metric intent wins over
-/// the scalar.
+/// When a `[thresholds.soft]` table is present, the blanket
+/// `--tier soft=<R>` ratio does not apply — per-metric intent wins over
+/// the scalar (issue #688: the soft table takes precedence silently).
 #[test]
-fn check_soft_table_ignores_headroom_with_warning() {
+fn check_soft_table_overrides_blanket_ratio() {
     let dir = TempDir::new().unwrap();
     let cfg = write_fixture(
         &dir,
@@ -1453,19 +1436,14 @@ fn check_soft_table_ignores_headroom_with_warning() {
             "--config",
             &cfg,
             "--tier",
-            "soft",
-            "--headroom",
-            "0.5",
+            "soft=0.5",
             "--print-effective-config",
         ])
         .assert()
         .success()
-        // 50.0 (soft override), NOT 25.0 (50 * 0.5 headroom). Anchor the
+        // 50.0 (soft override), NOT 25.0 (50 * 0.5 ratio). Anchor the
         // `.0` so a buggy `500.0` can't substring-match.
-        .stdout(predicate::str::contains("cyclomatic = 50.0"))
-        .stderr(predicate::str::contains(
-            "--headroom is ignored because a [thresholds.soft] table",
-        ));
+        .stdout(predicate::str::contains("cyclomatic = 50.0"));
 }
 
 /// A `"NNx"` soft override with no hard limit to scale is a config error
@@ -1499,4 +1477,135 @@ fn check_soft_table_scale_without_hard_base_errors() {
         .code(1)
         .stderr(predicate::str::contains("no hard"))
         .stderr(predicate::str::contains("cyclomatic"));
+}
+
+// ─── #683: tri-state CI flags ─────────────────────────────────────────
+
+/// `--github-annotations never` suppresses the `::error` annotations
+/// even when `$GITHUB_ACTIONS == "true"` — the opt-out that the bare
+/// on-only flag could not express (#683).
+#[test]
+fn github_annotations_never_suppresses_under_gha() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli(dir.path())
+        .env("GITHUB_ACTIONS", "true")
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+            "--github-annotations",
+            "never",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("::error file=").not());
+}
+
+/// `--github-annotations always` forces the annotations on even outside
+/// a GHA step (no `$GITHUB_ACTIONS`).
+#[test]
+fn github_annotations_always_forces_on_outside_gha() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+            "--github-annotations",
+            "always",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("::error file="));
+}
+
+/// `--summary-file never` skips the step-summary append even when
+/// `$GITHUB_STEP_SUMMARY` is set (#683).
+#[test]
+fn summary_file_never_skips_append_under_gha() {
+    const ENV_KEY: &str = "GITHUB_STEP_SUMMARY";
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let summary = dir.path().join("step-summary.md");
+    fs::write(&summary, "").unwrap();
+
+    cli(dir.path())
+        .env(ENV_KEY, &summary)
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+            "--summary-file",
+            "never",
+        ])
+        .assert()
+        .code(2);
+
+    let body = fs::read_to_string(&summary).unwrap();
+    assert!(
+        body.is_empty(),
+        "--summary-file never must not append: {body:?}"
+    );
+}
+
+// ─── #666/#688: deprecated-alias warn-but-honor ───────────────────────
+
+/// `--strict-exit-codes` still works for one cycle but warns, pointing
+/// at the canonical `--exit-codes tiered` (#666).
+#[test]
+fn strict_exit_codes_alias_warns_but_honors() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+            "--strict-exit-codes",
+        ])
+        .assert()
+        // New offenders, no baseline → tiered exit 2 (same as default
+        // here, but the alias is honored, not rejected).
+        .code(2)
+        .stderr(predicate::str::contains(
+            "`--strict-exit-codes` is deprecated; use `--exit-codes tiered`",
+        ));
+}
+
+/// `--no-cyclomatic-try` still works for one cycle but warns, pointing
+/// at the canonical `--cyclomatic-count-try false` (#666).
+#[test]
+fn no_cyclomatic_try_alias_warns_but_honors() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=100",
+            "--no-cyclomatic-try",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--no-cyclomatic-try` is deprecated; use `--cyclomatic-count-try false`",
+        ));
 }

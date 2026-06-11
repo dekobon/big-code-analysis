@@ -50,9 +50,9 @@ use crate::{
     Action, AggregateItem, CheckArgs, Cli, Command, Config, CountArgs, DiffBaselineArgs,
     ExemptionsArgs, FindArgs, GlobalOpts, InitArgs, LineRange, ListMetricsArgs, MetricsArgs,
     OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs,
-    Tier, die, die_io, group_files_by_basename, legacy_hint, load_baseline, load_preproc_data,
-    load_threshold_config, read_exclude_patterns_from, resolve_walk_files, run_walk,
-    run_walk_collecting, run_walk_resolved, validate_output_path, write_atomic,
+    SummaryFile, Tier, TierSpec, die, die_io, group_files_by_basename, legacy_hint, load_baseline,
+    load_preproc_data, load_threshold_config, read_exclude_patterns_from, resolve_walk_files,
+    run_walk, run_walk_collecting, run_walk_resolved, validate_output_path, write_atomic,
     write_output_or_stdout, write_stdout_or_die,
 };
 
@@ -74,17 +74,32 @@ fn run_check(
         }
         None => ParsedThresholds::default(),
     };
+    // Resolve the deprecated `--headroom` / `--strict-exit-codes` aliases
+    // once (issues #688/#666). The manifest merge above has already
+    // folded `[check] exit_codes` into `args.exit_codes` when the CLI
+    // left it unset, so `resolved_exit_codes` reflects both sources with
+    // the CLI value winning in either direction.
+    let tier = args.resolved_tier();
+    let tiered_exit_codes = args.resolved_exit_codes() == Some(crate::ExitCodes::Tiered);
     let ResolvedThresholds {
         set,
         hard_limits,
         provenance,
-    } = validate_and_build_thresholds(&mut args, base_thresholds);
+    } = validate_and_build_thresholds(&mut args, base_thresholds, tier);
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by
     // the time we get here the flag is unambiguous.
     if let Some(format) = args.print_effective_config {
-        print_effective_config(&globals, &args, &set, manifest, format);
+        print_effective_config(
+            &globals,
+            &args,
+            &set,
+            manifest,
+            format,
+            tier,
+            tiered_exit_codes,
+        );
         return;
     }
     let scope = resolve_diff_scope(&args);
@@ -136,7 +151,7 @@ fn run_check(
         args.baseline.as_deref(),
         args.baseline_line_tolerance
             .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
-        args.baseline_fuzzy_match,
+        args.baseline_fuzzy_match.unwrap_or(false),
         provenance,
         args.report_suppressed,
     );
@@ -160,7 +175,7 @@ fn run_check(
     let any_violations = !active.is_empty();
     // Categorise the active violations for the exit-code contract (#385)
     // before `emit_check_results` consumes them.
-    let outcome = classify_check_outcome(&active, args.tier, &hard_limits);
+    let outcome = classify_check_outcome(&active, tier.tier(), &hard_limits);
     // Build the remediation block ONLY when we have something to
     // remediate. Empty active set (clean run) gets no trailing block —
     // there is no baseline to refresh and no artifact worth pointing
@@ -183,7 +198,7 @@ fn run_check(
     // stable 0/1/2 contract otherwise). A clean run returns `None` and
     // the process exits 0 implicitly.
     if !args.no_fail
-        && let Some(code) = outcome.exit_code(args.strict_exit_codes)
+        && let Some(code) = outcome.exit_code(tiered_exit_codes)
     {
         process::exit(code);
     }
@@ -211,8 +226,11 @@ fn print_effective_config(
     set: &ThresholdSet,
     manifest: Option<&Manifest>,
     format: PrintConfigFormat,
+    tier: TierSpec,
+    tiered_exit_codes: bool,
 ) {
-    let effective = EffectiveConfig::from_resolved(globals, args, set, manifest);
+    let effective =
+        EffectiveConfig::from_resolved(globals, args, set, manifest, tier, tiered_exit_codes);
     let serialized = match format {
         PrintConfigFormat::Toml => toml::to_string_pretty(&effective)
             .unwrap_or_else(|e| die(format_args!("serialize effective config to TOML: {e}"))),
@@ -277,22 +295,23 @@ struct EffectiveCheck {
     changed_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
-    /// The `--headroom` ratio applied to the config-derived limits, if
-    /// any. Recorded for provenance: the `[thresholds]` table above
-    /// already shows the post-scaling values, so this is the one signal
-    /// that distinguishes "limit 14.25 because config said 15 × 0.95"
-    /// from "limit 14.25 because config literally said 14.25".
+    /// The soft-tier scale ratio applied to the config-derived limits,
+    /// if any (the `RATIO` in `--tier soft=RATIO`, issue #688). Recorded
+    /// for provenance: the `[thresholds]` table above already shows the
+    /// post-scaling values, so this is the one signal that distinguishes
+    /// "limit 14.25 because config said 15 × 0.95" from "limit 14.25
+    /// because config literally said 14.25".
     #[serde(skip_serializing_if = "Option::is_none")]
     headroom: Option<f64>,
     /// Which tier the `thresholds` table above was resolved for
     /// (`"hard"` or `"soft"`, issue #375). The limits shown already
-    /// reflect any `[thresholds.soft]` merge or `--headroom` scaling, so
+    /// reflect any `[thresholds.soft]` merge or soft-ratio scaling, so
     /// this field is the one signal that records *which* tier produced
     /// them.
     tier: &'static str,
-    /// Which exit-code contract is in force (#385): `"default"` (the
-    /// stable 0/1/2 codes) or `"tiered"` (the 2-5 severity split,
-    /// enabled by `--strict-exit-codes` or `[check] exit_codes`).
+    /// Which exit-code contract is in force (#385/#666): `"default"`
+    /// (the stable 0/1/2 codes) or `"tiered"` (the 2-5 severity split,
+    /// enabled by `--exit-codes tiered` or `[check] exit_codes`).
     exit_codes: &'static str,
     /// The `--baseline-line-tolerance` override, if set (issue #377).
     /// Absent means the built-in default applies.
@@ -314,6 +333,8 @@ impl EffectiveConfig {
         args: &CheckArgs,
         set: &ThresholdSet,
         manifest: Option<&Manifest>,
+        tier: TierSpec,
+        tiered_exit_codes: bool,
     ) -> Self {
         let thresholds: BTreeMap<String, f64> = set
             .iter()
@@ -347,15 +368,15 @@ impl EffectiveConfig {
             exclude_tests: globals.exclude_tests,
             changed_only: args.changed_only,
             since: args.since.clone(),
-            headroom: args.headroom,
-            tier: args.tier.as_str(),
-            exit_codes: if args.strict_exit_codes {
+            headroom: tier.ratio(),
+            tier: tier.tier().as_str(),
+            exit_codes: if tiered_exit_codes {
                 "tiered"
             } else {
                 "default"
             },
             baseline_line_tolerance: args.baseline_line_tolerance,
-            baseline_fuzzy_match: args.baseline_fuzzy_match,
+            baseline_fuzzy_match: args.baseline_fuzzy_match.unwrap_or(false),
         };
         Self { thresholds, check }
     }
@@ -385,22 +406,18 @@ struct ResolvedThresholds {
     provenance: baseline::Provenance,
 }
 
-/// Reduce the resolved tier + soft-table presence + headroom to the
+/// Reduce the resolved tier + soft-table presence to the
 /// [`baseline::Provenance`] stamped on a write and compared on a read
 /// (issue #486). Mirrors the tier-resolution branches in
 /// [`resolve_tier`]: hard → no scaling; soft with a `[thresholds.soft]`
 /// table → per-metric limits (no single ratio); soft without a table →
-/// scaled by `--headroom` (defaulting to [`DEFAULT_SOFT_HEADROOM`]).
-fn resolve_provenance(
-    tier: Tier,
-    soft_table_present: bool,
-    headroom: Option<f64>,
-) -> baseline::Provenance {
+/// scaled by the spec's ratio (defaulting to [`DEFAULT_SOFT_HEADROOM`]).
+fn resolve_provenance(tier: TierSpec, soft_table_present: bool) -> baseline::Provenance {
     match tier {
-        Tier::Hard => baseline::Provenance::hard(),
-        Tier::Soft if soft_table_present => baseline::Provenance::soft_table(),
-        Tier::Soft => {
-            baseline::Provenance::soft_headroom(headroom.unwrap_or(DEFAULT_SOFT_HEADROOM))
+        TierSpec::Hard => baseline::Provenance::hard(),
+        TierSpec::Soft(_) if soft_table_present => baseline::Provenance::soft_table(),
+        TierSpec::Soft(r) => {
+            baseline::Provenance::soft_headroom(r.unwrap_or(DEFAULT_SOFT_HEADROOM))
         }
     }
 }
@@ -470,6 +487,7 @@ fn resolve_check_output_format(args: &mut CheckArgs) {
 fn validate_and_build_thresholds(
     args: &mut CheckArgs,
     base_thresholds: ParsedThresholds,
+    tier: TierSpec,
 ) -> ResolvedThresholds {
     // Resolve the `--output` / `--format` pairing before the walk so a
     // misconfigured invocation fails fast instead of after a full parse.
@@ -486,14 +504,9 @@ fn validate_and_build_thresholds(
         soft.extend(cfg.soft);
     }
 
-    // A `--headroom` value is validated regardless of tier so a typo
-    // (`--headroom 2`) is always a usage error, even when the tier
-    // ultimately ignores the scalar.
-    if let Some(ratio) = args.headroom
-        && !crate::thresholds::is_valid_scale_ratio(ratio)
-    {
-        die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
-    }
+    // The soft ratio (the `RATIO` in `--tier soft=RATIO`) was already
+    // validated to `(0, 1]` by `TierSpec::from_str` at parse time, so a
+    // typo is a clap usage error before we ever reach here.
 
     // Capture whether a soft table is configured before `resolve_tier`
     // borrows `soft`, so provenance resolution (#486) matches the same
@@ -503,7 +516,7 @@ fn validate_and_build_thresholds(
     // Layer 3: tier resolution. Produces the per-metric limits the gate
     // compares against. Clone `hard` so the un-scaled hard-tier limits
     // survive for #385 hard-breach detection below.
-    let mut merged = resolve_tier(args.tier, hard.clone(), &soft, args.headroom);
+    let mut merged = resolve_tier(tier, hard.clone(), &soft);
 
     // Layer 4: `--threshold` CLI flags override the resolved limit for
     // the same metric name. They are absolute — applied *after* any
@@ -524,44 +537,33 @@ fn validate_and_build_thresholds(
     ResolvedThresholds {
         set: Arc::new(set),
         hard_limits: hard,
-        provenance: resolve_provenance(args.tier, soft_table_present, args.headroom),
+        provenance: resolve_provenance(tier, soft_table_present),
     }
 }
 
-/// Resolve the per-metric limits for the requested tier (#375).
+/// Resolve the per-metric limits for the requested tier (#375/#688).
+///
+/// The soft ratio rides on the [`TierSpec`] itself — there is no longer
+/// a separate `--headroom` knob to reconcile — so the precedence model
+/// collapses to:
 ///
 /// - `Hard`: the `[thresholds]` table verbatim. `[thresholds.soft]` is
-///   ignored entirely; `--headroom` (a soft-tier dial) draws a note.
-/// - `Soft` with a `[thresholds.soft]` table: merge the soft overrides
-///   on top of the hard limits (metrics absent from the soft table keep
-///   their hard limit — no soft band). `--headroom` is ignored with a
-///   warning, because explicit per-metric limits encode intent more
-///   precisely than a scalar multiplier.
-/// - `Soft` without a soft table: scale every hard limit by `--headroom`
-///   (defaulting to [`DEFAULT_SOFT_HEADROOM`] when unset).
+///   ignored entirely.
+/// - `Soft` with a `[thresholds.soft]` table: merge the per-metric soft
+///   overrides on top of the hard limits (metrics absent from the soft
+///   table keep their hard limit — no soft band). The blanket ratio, if
+///   one was pinned with `soft=RATIO`, is not applied: explicit
+///   per-metric limits encode intent more precisely than a multiplier.
+/// - `Soft` without a soft table: scale every hard limit by the spec's
+///   ratio (defaulting to [`DEFAULT_SOFT_HEADROOM`] for a bare `soft`).
 fn resolve_tier(
-    tier: Tier,
+    tier: TierSpec,
     hard: BTreeMap<String, f64>,
     soft: &BTreeMap<String, SoftLimit>,
-    headroom: Option<f64>,
 ) -> BTreeMap<String, f64> {
-    match tier {
-        Tier::Hard => {
-            if headroom.is_some() {
-                eprintln!(
-                    "note: --headroom applies only to the soft tier; pass --tier=soft \
-                     to enable it. Ignored at the hard tier."
-                );
-            }
-            hard
-        }
-        Tier::Soft if !soft.is_empty() => {
-            if headroom.is_some() {
-                eprintln!(
-                    "warning: --headroom is ignored because a [thresholds.soft] table \
-                     is configured; per-metric soft limits take precedence."
-                );
-            }
+    let ratio = match tier {
+        TierSpec::Hard => return hard,
+        TierSpec::Soft(_) if !soft.is_empty() => {
             // Start from the hard limits so metrics without a soft
             // override inherit their hard limit (no soft band), then
             // apply each soft override on top.
@@ -572,26 +574,24 @@ fn resolve_tier(
                     .unwrap_or_else(|e| die(e));
                 out.insert(name.clone(), resolved);
             }
-            out
+            return out;
         }
-        Tier::Soft => {
-            // No soft table: scale the hard limits by the headroom ratio,
-            // defaulting so `--tier=soft` is never a silent no-op.
-            let ratio = headroom.unwrap_or(DEFAULT_SOFT_HEADROOM);
-            if hard.is_empty() {
-                eprintln!(
-                    "note: --tier=soft has no effect without configured thresholds \
-                     (bca.toml [thresholds] or --config); --threshold limits are \
-                     absolute and are not scaled"
-                );
-            }
-            let mut out = hard;
-            for limit in out.values_mut() {
-                *limit = scale_threshold(*limit, ratio);
-            }
-            out
-        }
+        // No soft table: scale the hard limits by the spec's ratio,
+        // defaulting so a bare `--tier soft` is never a silent no-op.
+        TierSpec::Soft(r) => r.unwrap_or(DEFAULT_SOFT_HEADROOM),
+    };
+    if hard.is_empty() {
+        eprintln!(
+            "note: --tier soft has no effect without configured thresholds \
+             (bca.toml [thresholds] or --config); --threshold limits are \
+             absolute and are not scaled"
+        );
     }
+    let mut out = hard;
+    for limit in out.values_mut() {
+        *limit = scale_threshold(*limit, ratio);
+    }
+    out
 }
 
 /// Run the parallel walker with a check-flavoured `Config`, collect
@@ -617,7 +617,7 @@ fn run_check_walk(
         // Compute body hashes during the walk only when fuzzy matching
         // is requested — whether for a `--baseline` read or to populate
         // `body_hash` in a `--write-baseline` write.
-        fuzzy_baseline: args.baseline_fuzzy_match,
+        fuzzy_baseline: args.baseline_fuzzy_match.unwrap_or(false),
         ..Config::new(Action::Check, &globals, preproc)
     };
     run_walk(globals, cfg);
@@ -733,7 +733,7 @@ fn provenance_warning(
              stricter than the baseline was written against (strictness \
              {base}); the baseline may under-cover and the gate can fire on \
              untouched files. Refresh it at the matching tier, e.g. \
-             `bca check --tier soft --headroom {cur} --write-baseline \
+             `bca check --tier soft={cur} --write-baseline \
              <file>` (or `--write-baseline <file>` for the hard tier)."
         )),
     }
@@ -1102,25 +1102,30 @@ fn classify_check_outcome(
 }
 
 /// Decide whether GitHub Actions `::error` annotations should be
-/// emitted. The explicit `--github-annotations` flag wins; otherwise
-/// fall back to auto-detection via `$GITHUB_ACTIONS == "true"`, the
-/// signal GHA sets inside every workflow step. Mirrors the
-/// auto-detect ladder in the diff resolver so the two CI-presentation
-/// behaviours stay in lockstep.
+/// emitted (issue #683). The tri-state `--github-annotations
+/// <auto|always|never>` flag resolves like `--color`: `always` forces
+/// them on, `never` suppresses them even inside a workflow step, and
+/// `auto` (the default) falls back to `$GITHUB_ACTIONS == "true"`, the
+/// signal GHA sets inside every step.
 fn github_annotations_enabled(args: &CheckArgs) -> bool {
-    args.github_annotations
-        || std::env::var(check_format::GITHUB_ACTIONS_ENV).as_deref() == Ok("true")
+    let in_gha = std::env::var(check_format::GITHUB_ACTIONS_ENV).as_deref() == Ok("true");
+    args.github_annotations.enabled_with(in_gha)
 }
 
-/// Resolve the path to append the step-summary digest to, in
-/// precedence: explicit `--summary-file <path>` wins; otherwise
-/// `$GITHUB_STEP_SUMMARY` (auto-detected in GHA workflows); otherwise
-/// `None` and the digest is not emitted.
+/// Resolve the path to append the step-summary digest to (issue #683).
+/// `--summary-file <path>` appends there unconditionally; `--summary-file
+/// never` suppresses the digest even inside a GHA step; `auto` (the
+/// default when the flag is omitted) defers to `$GITHUB_STEP_SUMMARY`.
+/// Returns `None` when no path is in effect and the digest is skipped.
 fn step_summary_path(args: &CheckArgs) -> Option<PathBuf> {
-    if let Some(p) = &args.summary_file {
-        return Some(p.clone());
+    match &args.summary_file {
+        Some(SummaryFile::Path(p)) => Some(p.clone()),
+        Some(SummaryFile::Never) => None,
+        // `auto` (explicit) and the unset default both detect the env var.
+        Some(SummaryFile::Auto) | None => {
+            std::env::var_os(check_format::GITHUB_STEP_SUMMARY_ENV).map(PathBuf::from)
+        }
     }
-    std::env::var_os(check_format::GITHUB_STEP_SUMMARY_ENV).map(PathBuf::from)
 }
 
 fn format_remediation_block(globals: &GlobalOpts, args: &CheckArgs) -> Option<String> {
@@ -1979,7 +1984,7 @@ fn run_command_report(
     if let Some(m) = manifest {
         m.merge_report(&mut args);
     }
-    let policy = SuppressionPolicy::from_no_suppress(args.no_suppress);
+    let policy = SuppressionPolicy::from_no_suppress(args.no_suppress.unwrap_or(false));
     if let Some(ref output) = args.output {
         validate_output_path(output, "report");
     }
@@ -2332,15 +2337,16 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             no_summary: true,
             since: None,
             changed_only: false,
-            github_annotations: false,
+            github_annotations: crate::CiDetect::Auto,
             summary_file: None,
             no_remediation: true,
             print_effective_config: None,
             headroom: None,
-            tier: Tier::Hard,
+            tier: TierSpec::Hard,
+            exit_codes: None,
             strict_exit_codes: false,
             baseline_line_tolerance: None,
-            baseline_fuzzy_match: false,
+            baseline_fuzzy_match: None,
             check_exclude: Vec::new(),
             check_exclude_from: None,
         };

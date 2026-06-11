@@ -513,7 +513,7 @@ fn cli_num_jobs_overrides_manifest() {
 }
 
 /// An out-of-range `num_jobs` in the manifest is a hard error with a
-/// clear message, reusing the `--num-jobs` validator's diagnostics.
+/// clear message, reusing the `--jobs` validator's diagnostics.
 #[test]
 fn manifest_num_jobs_zero_is_rejected() {
     let dir = fixture("paths = [\".\"]\nnum_jobs = 0\n\n[thresholds]\ncyclomatic = 1\n");
@@ -524,4 +524,71 @@ fn manifest_num_jobs_zero_is_rejected() {
         .assert()
         .code(1)
         .stderr(predicate::str::contains("num_jobs"));
+}
+
+/// The canonical `jobs` key (issue #666) is honored — a `jobs = 0`
+/// fails with the same validator the `--jobs` flag uses, proving the
+/// rename took effect (not just the alias).
+#[test]
+fn manifest_jobs_canonical_key_is_honored() {
+    let dir = fixture("paths = [\".\"]\njobs = 0\n\n[thresholds]\ncyclomatic = 1\n");
+
+    cli()
+        .current_dir(dir.path())
+        .arg("check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("jobs"));
+}
+
+/// The deprecated `num_jobs` key still works for one release cycle but
+/// draws a rename-deprecation warning pointing at `jobs` (issue #666) —
+/// not the misleading "unrecognized key" notice.
+#[test]
+fn manifest_num_jobs_alias_warns_but_honors() {
+    // `jobs = 8` via the legacy spelling; a CLI `-j 1` overrides it so
+    // the run is clean, isolating the warning under test.
+    let dir = fixture("paths = [\".\"]\nnum_jobs = 8\n\n[thresholds]\ncyclomatic = 100\n");
+
+    cli()
+        .current_dir(dir.path())
+        .args(["check", "-j", "1"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "key `num_jobs` is deprecated and has been renamed to `jobs`",
+        ));
+}
+
+/// `--cyclomatic-count-try true` on the CLI overrides a manifest
+/// `cyclomatic_count_try = false` (issue #666 full override) — the
+/// direction the old OR-merge could not express. With `?` counting
+/// restored, the branchy fixture's `?`-bearing function trips a tight
+/// cyclomatic limit it would clear under the manifest's opt-out.
+#[test]
+fn cli_cyclomatic_count_try_overrides_manifest_both_directions() {
+    // `try_caller` has cyclomatic 2 (one `?`); manifest opts `?` out, so
+    // at limit 1 the manifest alone keeps it at 1 (clean). The CLI
+    // `--cyclomatic-count-try true` restores the `?` count → offender.
+    let src = "pub fn try_caller() -> Result<i32, ()> { let x: Result<i32, ()> = Ok(1); Ok(x?) }\n";
+    let dir = fixture_with(
+        "paths = [\".\"]\ncyclomatic_count_try = false\n\n[thresholds]\ncyclomatic = 1\n",
+        "try.rs",
+        src,
+    );
+
+    // Manifest alone: `?` not counted → clean at limit 1.
+    cli()
+        .current_dir(dir.path())
+        .arg("check")
+        .assert()
+        .success();
+
+    // CLI forces counting back on → cyclomatic 2 > 1 → offender.
+    cli()
+        .current_dir(dir.path())
+        .args(["check", "--cyclomatic-count-try", "true"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("cyclomatic"));
 }

@@ -23,9 +23,9 @@ fails the pipeline before the change lands.
 `1` is reserved so CI can distinguish a regression (`2`) from a tool
 misconfiguration (`1`).
 
-### Tiered exit codes (`--strict-exit-codes`)
+### Tiered exit codes (`--exit-codes tiered`)
 
-`--strict-exit-codes` (or `[check] exit_codes = "tiered"` in
+`--exit-codes tiered` (or `[check] exit_codes = "tiered"` in
 `bca.toml`) splits the single violation code `2` by severity so CI can
 branch on it without parsing the `[new]` / `[regr +N%]` stderr tags:
 
@@ -36,7 +36,7 @@ branch on it without parsing the `[new]` / `[regr +N%]` stderr tags:
 | `2`  | New offenders only (no `--baseline` entry matched). |
 | `3`  | Baseline regressions only (a baselined offender worsened). |
 | `4`  | Both new offenders and regressions. |
-| `5`  | A `--tier=soft` violation that also breaches the hard limit. |
+| `5`  | A `--tier soft` violation that also breaches the hard limit. |
 
 The tiered codes are opt-in; the default contract above stays
 `0`/`1`/`2`. Every fail-state remains non-zero, so `exit != 0 → fail`
@@ -44,9 +44,12 @@ wrappers keep working — only tooling that tests `$? -eq 2` explicitly
 needs to widen to `2`-`5`. `--no-fail` still forces exit `0`. Code `5`
 is emitted only at the soft tier; at the hard tier every violation is a
 hard breach by definition, so the `2`/`3`/`4` split applies instead.
-The manifest key can only enable the tiered mode (`--strict-exit-codes`
-ORs on top); an invalid `exit_codes` value is a tool error (`1`).
-`--print-effective-config` reports the resolved `exit_codes` style.
+`--exit-codes <default|tiered>` is value-taking; the CLI value overrides
+the `[check] exit_codes` manifest key in either direction. An invalid
+`exit_codes` value is a tool error (`1`). `--print-effective-config`
+reports the resolved `exit_codes` style. The deprecated
+`--strict-exit-codes` flag is a one-cycle alias for `--exit-codes
+tiered` (warns; removed at the next major).
 
 ## Declaring thresholds
 
@@ -115,9 +118,12 @@ listing the concrete sub-metrics — pick one (e.g. `halstead.volume`).
 
 ## Two-tier thresholds (`--tier`)
 
-`--tier <hard|soft>` selects which threshold tier the gate compares
-against. `hard` (the default) uses the `[thresholds]` table verbatim;
-`soft` is an early-warning tier that fires *before* the hard gate.
+`--tier <hard|soft|soft=RATIO>` selects which threshold tier the gate
+compares against. `hard` (the default) uses the `[thresholds]` table
+verbatim; `soft` is an early-warning tier that fires *before* the hard
+gate, flagging a function at `RATIO` of any limit. A bare `--tier`
+means `soft`; `soft` alone uses the default ratio `0.95`; `soft=0.90`
+pins the ratio to `0.90`; `soft=1.0` disables the blanket scale.
 
 A `[thresholds.soft]` table sets per-metric soft limits, each either an
 absolute number or a `"<ratio>x"` string that scales the metric's hard
@@ -144,17 +150,19 @@ The soft tier resolves in a fixed order:
 1. Start from `[thresholds]` (a `bca.toml` manifest, merged with
    `--config`).
 2. If a `[thresholds.soft]` table exists, merge its overrides on top;
-   metrics absent from it inherit their hard limit. `--headroom` is
-   then ignored with a warning (explicit per-metric limits win).
-3. Otherwise scale every limit by `--headroom` (default `0.95` when
-   unset; `--headroom 1.0` disables scaling).
+   metrics absent from it inherit their hard limit. The blanket `RATIO`
+   does not apply (explicit per-metric limits win).
+3. Otherwise scale every limit by the soft `RATIO` (default `0.95` for
+   a bare `soft`; `soft=1.0` disables scaling).
 4. Repeated `--threshold name=value` flags apply last, absolutely.
 
-`--headroom` is a soft-tier dial: at the default hard tier it is
-ignored with a note. The scale factor in a `"<ratio>x"` string (and
-`--headroom`) must be in `(0, 1]`. Both tiers ratchet through the same
-`--baseline`, and `--print-effective-config` reports the resolved
-`tier` alongside the post-merge limits. See the
+The soft `RATIO` (and the scale factor in a `"<ratio>x"` string) must
+be in `(0, 1]`. The `[check] headroom` manifest key supplies the ratio
+for a bare `--tier soft`. The deprecated `--headroom <R>` flag is a
+one-cycle alias for `--tier soft=<R>` (warns; removed at the next
+major) — it now promotes a hard run to the soft tier. Both tiers
+ratchet through the same `--baseline`, and `--print-effective-config`
+reports the resolved `tier` alongside the post-merge limits. See the
 [Local threshold gates](../recipes/local-gates.md#two-tier-thresholds)
 recipe for the migration tip and rationale.
 
@@ -375,8 +383,8 @@ common CI case needs zero explicit configuration.
 | -------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | `--since <ref>`            | Partition per-file footer into "Files in this range" + "Other offenders" | `BCA_DIFF_BASE`, `GITHUB_BASE_REF`, `GITHUB_EVENT_BEFORE`        |
 | `--changed-only`           | Drop violations outside the diff scope entirely                          | Requires a resolvable base (`--since` or one of the above)       |
-| `--github-annotations`     | Emit `::error file=…::msg` workflow commands for inline file annotations | `GITHUB_ACTIONS == "true"`                                       |
-| `--summary-file <path>`    | Append markdown digest (per-file rollup + breakdown + top-10 offenders)  | `GITHUB_STEP_SUMMARY`                                            |
+| `--github-annotations <auto\|always\|never>` | Emit `::error file=…::msg` workflow commands for inline file annotations (bare flag = `always`) | `auto` detects `GITHUB_ACTIONS == "true"` |
+| `--summary-file <path\|auto\|never>` | Append markdown digest (per-file rollup + breakdown + top-10 offenders); `never` suppresses it | `auto` detects `GITHUB_STEP_SUMMARY` |
 | `--no-remediation`         | Suppress the trailing `--- next steps ---` block                         | Block emitted on failure unless this flag is passed              |
 
 The per-violation stderr lines and the per-file rollup footer
