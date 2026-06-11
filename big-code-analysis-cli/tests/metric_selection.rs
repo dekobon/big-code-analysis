@@ -26,7 +26,7 @@ fn fixture() -> (TempDir, String) {
 /// Run `bca metrics --metrics <sel> -O json` and return the sorted set
 /// of metric keys present on the file-level space.
 fn metric_keys(path: &str, selector: &[&str]) -> BTreeSet<String> {
-    let mut args = vec!["--paths", path, "metrics", "-O", "json"];
+    let mut args = vec!["metrics", "--paths", path, "-O", "json"];
     for s in selector {
         args.push("--metrics");
         args.push(s);
@@ -95,7 +95,7 @@ fn absent_selector_computes_all_metrics() {
 fn unknown_metric_errors_with_suggestion() {
     let (_dir, path) = fixture();
     common::bca_command()
-        .args(["--paths", &path, "metrics", "--metrics", "cylomatic"])
+        .args(["metrics", "--paths", &path, "--metrics", "cylomatic"])
         .assert()
         .failure()
         .code(1)

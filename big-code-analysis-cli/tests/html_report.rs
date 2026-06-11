@@ -42,7 +42,7 @@ fn report_html_help_lists_format_top_and_strip_prefix() {
 #[test]
 fn report_html_to_stdout_is_well_formed() {
     let output = cli()
-        .args(["--paths", &fixture_path(), "report", "html"])
+        .args(["report", "--paths", &fixture_path(), "html"])
         .output()
         .expect("invocation succeeds");
     assert!(
@@ -68,9 +68,9 @@ fn report_html_to_file_is_well_formed() {
     let out = dir.path().join("report.html");
     cli()
         .args([
+            "report",
             "--paths",
             &fixture_path(),
-            "report",
             "html",
             "--output",
             out.to_str().expect("utf-8"),
@@ -88,7 +88,7 @@ fn report_html_top_zero_shows_all() {
     // Issue #602 unified `0 = all` across `vcs`/`report`/`trend`; `--top 0`
     // is now a valid "show every row" request, and the MI title says "all".
     let output = cli()
-        .args(["--paths", &fixture_path(), "report", "html", "--top", "0"])
+        .args(["report", "--paths", &fixture_path(), "html", "--top", "0"])
         .output()
         .expect("invocation succeeds");
     assert!(
@@ -116,10 +116,10 @@ fn report_html_with_no_matching_files_is_well_formed() {
     let empty = TempDir::new().expect("tempdir");
     let output = cli()
         .args([
+            "report",
             "--no-config",
             "--paths",
             empty.path().to_str().expect("utf-8"),
-            "report",
             "html",
         ])
         .output()
@@ -138,7 +138,7 @@ fn report_html_is_deterministic_across_runs() {
     let outputs: Vec<Vec<u8>> = (0..3)
         .map(|_| {
             cli()
-                .args(["--paths", &fp, "report", "html"])
+                .args(["report", "--paths", &fp, "html"])
                 .output()
                 .expect("invocation")
                 .stdout
@@ -160,7 +160,7 @@ fn report_html_strip_prefix_removes_path_prefix() {
         &fp[..idx]
     };
     let output = cli()
-        .args(["--paths", &fp, "report", "html", "--strip-prefix", prefix])
+        .args(["report", "--paths", &fp, "html", "--strip-prefix", prefix])
         .output()
         .expect("invocation");
     assert!(output.status.success());

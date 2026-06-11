@@ -18,18 +18,19 @@ fn no_subcommand_rejected() {
         .stderr(predicate::str::contains("Usage").or(predicate::str::contains("help")));
 }
 
-/// Subcommands are mutually exclusive by construction; clap rejects a
-/// second subcommand token as an unexpected positional argument at parse
-/// time. Asserting the offending token appears in stderr ensures we
-/// catch the *correct* failure — not, e.g., "no files to analyze" if
-/// `metrics` were ever silently swallowed as a path.
+/// Subcommands are mutually exclusive by construction. Since #651 freed
+/// the positional slot on walking subcommands for input `[PATHS]`, a
+/// second subcommand token after `dump` is consumed as a path rather
+/// than rejected at parse time. It must still fail loudly: the
+/// nonexistent `metrics` path is reported (exit 1, #596 fail-on-bad-path
+/// semantics), not silently swallowed into a "no files to analyze"
+/// no-op. Asserting the offending token names the path ensures we catch
+/// the *correct* failure.
 #[test]
 fn two_subcommands_rejected() {
-    cli()
-        .args(["dump", "metrics"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("unexpected argument 'metrics'"));
+    cli().args(["dump", "metrics"]).assert().failure().stderr(
+        predicate::str::contains("path does not exist").and(predicate::str::contains("metrics")),
+    );
 }
 
 /// `--top` lives only on `report`. Passing it to `metrics` is a parse-time
@@ -67,19 +68,19 @@ fn legacy_metrics_flag_emits_migration_hint() {
         .stderr(predicate::str::contains("subcommands"));
 }
 
-/// `find` requires at least one node-type argument. Asserting on the
-/// `<NODES>` metavar (which we control via the `nodes:` field name in
-/// `NodesArgs`) catches the *required-argument* failure specifically.
-/// Without this, a regression that made `nodes` optional could pass for
-/// the wrong reason — the program would fail later with "no files to
-/// analyze".
+/// `find` requires at least one node-type argument. The node kinds now
+/// live on the repeatable `-t`/`--type` flag (#651), whose value metavar
+/// is `<NODE_TYPE>`; asserting on it catches the *required-argument*
+/// failure specifically. Without this, a regression that made the flag
+/// optional could pass for the wrong reason — the program would fail
+/// later with "no files to analyze".
 #[test]
 fn find_without_nodes_rejected() {
     cli()
         .args(["find"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("<NODES>"));
+        .stderr(predicate::str::contains("<NODE_TYPE>"));
 }
 
 /// `count` requires at least one node-type argument. See
@@ -90,7 +91,7 @@ fn count_without_nodes_rejected() {
         .args(["count"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("<NODES>"));
+        .stderr(predicate::str::contains("<NODE_TYPE>"));
 }
 
 /// Issue #235 moved the offender formats off `metrics` / `ops` and

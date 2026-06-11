@@ -184,22 +184,52 @@ fn write_output_or_stdout(output: Option<&Path>, verb: &str, bytes: &[u8]) {
 )]
 pub struct Cli {
     #[clap(flatten)]
-    globals: GlobalOpts,
+    universal: UniversalArgs,
     #[command(subcommand)]
     command: Command,
 }
 
+/// Truly universal flags — meaningful for every subcommand and kept
+/// `global = true` so they parse in either position. Per the 2.0
+/// flag-scoping work (#597), every walk-, tuning-, preprocessor-, and
+/// output-specific flag instead lives in a `#[command(flatten)]` group
+/// ([`WalkSelectionArgs`], [`WalkTuningArgs`], [`PreprocArgs`],
+/// [`OutputArgs`]) attached only to the subcommands that consume it, so
+/// passing an inert flag to a subcommand that never read it is now a
+/// hard clap usage error (exit 1) instead of a silent no-op.
 #[derive(Args, Debug, Default, Clone)]
-struct GlobalOpts {
-    /// Input files or directories to analyze. Defaults to the current
-    /// directory (`.`) when omitted and no manifest `paths` is set; an
+struct UniversalArgs {
+    /// Print warnings (skipped files, unrecognized languages). `--warning`
+    /// (singular) is kept as a hidden alias for one release cycle (issue
+    /// #604) and is slated for removal in the next major.
+    #[clap(long = "warnings", short = 'w', global = true, alias = "warning")]
+    warning: bool,
+    /// Log a "skipped (generated): <path>" line to stderr for each file
+    /// auto-skipped by the generated-code detector. Useful for auditing
+    /// which files were excluded.
+    #[clap(long, global = true)]
+    report_skipped: bool,
+}
+
+/// Input-selection flags (#597). Flattened into every subcommand that
+/// walks a source tree (`metrics`, `ops`, `dump`, `find`, `count`,
+/// `functions`, `strip-comments`, `preproc`, `report`, `check`,
+/// `exemptions`, `vcs` ranking, `init`, `diff`). Subcommands that walk
+/// nothing (`list-metrics`, `diff-baseline`) and the commit-scoring
+/// `vcs commit` / `vcs trend` paths omit it, so an inert `--paths` /
+/// `--exclude` there is a usage error.
+#[derive(Args, Debug, Default, Clone)]
+struct WalkSelectionArgs {
+    /// Input files or directories to analyze. Unioned with any
+    /// positional `[PATHS]` (#651). Defaults to the current directory
+    /// (`.`) when omitted and no manifest `paths` is set; an
     /// explicitly-given path that does not exist is an error (exit 1).
-    #[clap(long, short, value_parser, global = true)]
+    #[clap(long, short, value_parser, help_heading = "Input selection")]
     paths: Vec<PathBuf>,
     /// Glob to include files. Repeat the flag to add multiple globs
     /// (`-I '*.rs' -I '*.toml'`); each occurrence takes exactly one
     /// value, so a positional argument that follows is never swallowed.
-    #[clap(long, short = 'I', num_args(1), action = clap::ArgAction::Append, global = true)]
+    #[clap(long, short = 'I', num_args(1), action = clap::ArgAction::Append, help_heading = "Input selection")]
     include: Vec<String>,
     /// Glob to exclude files. Repeat the flag to add multiple globs
     /// (`-X '*.tmp' -X '*.bak'`); each occurrence takes exactly one
@@ -210,8 +240,60 @@ struct GlobalOpts {
     /// CLI `--exclude` never silently un-excludes a directory the
     /// project config deliberately skipped. Pass `--no-config` to ignore
     /// the manifest entirely.
-    #[clap(long, short = 'X', num_args(1), action = clap::ArgAction::Append, global = true)]
+    #[clap(long, short = 'X', num_args(1), action = clap::ArgAction::Append, help_heading = "Input selection")]
     exclude: Vec<String>,
+    /// Force a language instead of inferring from extension. Accepts a
+    /// canonical language name (`rust`, `python`, `cpp`, …) or a file
+    /// extension (`rs`, `py`, …). An unrecognized value is a hard error.
+    #[clap(
+        long,
+        short = 'l',
+        alias = "language-type",
+        help_heading = "Input selection"
+    )]
+    language: Option<String>,
+    /// Disable auto-skip of files marked as generated (e.g. `@generated`,
+    /// `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI
+    /// skips such files so generated bindings do not skew metrics.
+    #[clap(long, help_heading = "Input selection")]
+    no_skip_generated: bool,
+    /// Read newline-separated input paths from a file. Use `-` to read
+    /// from stdin. Combined as a union with any `--paths` values; globs
+    /// still apply. Blank lines are skipped; `#` is treated as a path
+    /// character (not a comment). To pass a file literally named `-`,
+    /// use `./-`.
+    #[clap(long = "paths-from", value_parser, help_heading = "Input selection")]
+    paths_from: Option<PathBuf>,
+    /// Read additional `--exclude` glob patterns from a file (one per
+    /// line, `.gitignore`-style). Blank lines and lines whose first
+    /// non-whitespace character is `#` are skipped. Use `-` to read
+    /// from stdin; to pass a file literally named `-`, use `./-`.
+    /// Patterns are unioned with any `--exclude` values into a single
+    /// deny-set; order does not matter. Convention is a `.bcaignore`
+    /// at the repo root, mirroring `.gitignore` / `.dockerignore`.
+    #[clap(long = "exclude-from", value_parser, help_heading = "Input selection")]
+    exclude_from: Option<PathBuf>,
+    /// Disable `.gitignore` / `.ignore` / global gitignore awareness
+    /// when expanding directory seeds. Explicit file paths are always
+    /// honored regardless of this flag.
+    #[clap(long = "no-ignore", help_heading = "Input selection")]
+    no_ignore: bool,
+    /// Skip auto-discovery of a `bca.toml` manifest. By default `bca`
+    /// climbs from the working directory to the repo root looking for
+    /// `bca.toml` and merges its keys *under* any explicit CLI flags.
+    /// Pass this for raw, fully-explicit invocations that must not pick
+    /// up repo-level config (e.g. a reproducible CI one-liner). When no
+    /// manifest is discovered this flag is a no-op.
+    #[clap(long = "no-config", help_heading = "Input selection")]
+    no_config: bool,
+}
+
+/// Walker-tuning / analysis-option flags (#597). Flattened alongside
+/// [`WalkSelectionArgs`] into the walking subcommands. `--jobs` controls
+/// concurrency; `--exclude-tests` / `--no-cyclomatic-try` shape metric
+/// computation, so they ride with the commands that compute metrics.
+#[derive(Args, Debug, Default, Clone)]
+struct WalkTuningArgs {
     /// Number of jobs.
     ///
     /// Defaults to the effective CPU count as reported by the OS
@@ -222,57 +304,12 @@ struct GlobalOpts {
     #[clap(
         long = "jobs",
         short = 'j',
-        global = true,
         alias = "num-jobs",
         default_value = "auto",
-        value_name = "N|auto"
+        value_name = "N|auto",
+        help_heading = "Walker tuning"
     )]
     num_jobs: NumJobs,
-    /// Force a language instead of inferring from extension. Accepts a
-    /// canonical language name (`rust`, `python`, `cpp`, …) or a file
-    /// extension (`rs`, `py`, …). An unrecognized value is a hard error.
-    #[clap(long, short = 'l', global = true, alias = "language-type")]
-    language: Option<String>,
-    /// Print warnings (skipped files, unrecognized languages). `--warning`
-    /// (singular) is kept as a hidden alias for one release cycle (issue
-    /// #604) and is slated for removal in the next major.
-    #[clap(long = "warnings", short = 'w', global = true, alias = "warning")]
-    warning: bool,
-    /// Disable auto-skip of files marked as generated (e.g. `@generated`,
-    /// `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI
-    /// skips such files so generated bindings do not skew metrics.
-    #[clap(long, global = true)]
-    no_skip_generated: bool,
-    /// Log a "skipped (generated): <path>" line to stderr for each file
-    /// auto-skipped by the generated-code detector. Useful for auditing
-    /// which files were excluded.
-    #[clap(long, global = true)]
-    report_skipped: bool,
-    /// Existing preprocessor-data JSON to consume during C/C++ analysis.
-    /// Use `bca preproc` to produce one.
-    #[clap(long, value_parser, global = true)]
-    preproc_data: Option<PathBuf>,
-    /// Read newline-separated input paths from a file. Use `-` to read
-    /// from stdin. Combined as a union with any `--paths` values; globs
-    /// still apply. Blank lines are skipped; `#` is treated as a path
-    /// character (not a comment). To pass a file literally named `-`,
-    /// use `./-`.
-    #[clap(long = "paths-from", value_parser, global = true)]
-    paths_from: Option<PathBuf>,
-    /// Read additional `--exclude` glob patterns from a file (one per
-    /// line, `.gitignore`-style). Blank lines and lines whose first
-    /// non-whitespace character is `#` are skipped. Use `-` to read
-    /// from stdin; to pass a file literally named `-`, use `./-`.
-    /// Patterns are unioned with any `--exclude` values into a single
-    /// deny-set; order does not matter. Convention is a `.bcaignore`
-    /// at the repo root, mirroring `.gitignore` / `.dockerignore`.
-    #[clap(long = "exclude-from", value_parser, global = true)]
-    exclude_from: Option<PathBuf>,
-    /// Disable `.gitignore` / `.ignore` / global gitignore awareness
-    /// when expanding directory seeds. Explicit file paths are always
-    /// honored regardless of this flag.
-    #[clap(long = "no-ignore", global = true)]
-    no_ignore: bool,
     /// Exclude inline test code from metric computation. Currently
     /// applies to Rust only (skips `#[test]`, `#[cfg(test)]`,
     /// `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and
@@ -280,7 +317,7 @@ struct GlobalOpts {
     /// numbers match the pre-#182 behaviour byte-for-byte. Languages
     /// without a `Checker::should_skip_subtree` override ignore this
     /// flag.
-    #[clap(long = "exclude-tests", global = true)]
+    #[clap(long = "exclude-tests", help_heading = "Walker tuning")]
     exclude_tests: bool,
     /// Stop Rust's `?` operator (the `try_expression` node) from
     /// contributing to cyclomatic complexity (standard and modified).
@@ -291,16 +328,26 @@ struct GlobalOpts {
     /// linear code. Rust-only: no other language emits the node, so
     /// the flag is inert elsewhere. Mirrors the `cyclomatic_count_try`
     /// manifest key (the CLI flag wins when both are set).
-    #[clap(long = "no-cyclomatic-try", global = true)]
+    #[clap(long = "no-cyclomatic-try", help_heading = "Walker tuning")]
     no_cyclomatic_try: bool,
-    /// Skip auto-discovery of a `bca.toml` manifest. By default `bca`
-    /// climbs from the working directory to the repo root looking for
-    /// `bca.toml` and merges its keys *under* any explicit CLI flags.
-    /// Pass this for raw, fully-explicit invocations that must not pick
-    /// up repo-level config (e.g. a reproducible CI one-liner). When no
-    /// manifest is discovered this flag is a no-op.
-    #[clap(long = "no-config", global = true)]
-    no_config: bool,
+}
+
+/// Preprocessor flag (#597). Flattened only into the C/C++-consuming
+/// walking subcommands; `vcs`, `preproc` (which produces rather than
+/// consumes), and the non-walking subcommands omit it.
+#[derive(Args, Debug, Default, Clone)]
+struct PreprocConsumeArgs {
+    /// Existing preprocessor-data JSON to consume during C/C++ analysis.
+    /// Use `bca preproc` to produce one.
+    #[clap(long, value_parser, help_heading = "Preprocessor")]
+    preproc_data: Option<PathBuf>,
+}
+
+/// Output flag (#597). `--color` only affects the human-readable `text`
+/// dumps, so it is flattened only into the subcommands that render one
+/// (`metrics`, `ops`, `dump`, `find`, `functions`).
+#[derive(Args, Debug, Default, Clone)]
+struct OutputArgs {
     /// When to colorize the human-readable `text` dumps (`metrics` /
     /// `ops` default tree, `dump`, `find`, `functions`): `auto`
     /// (default — color only when stdout is a terminal and `NO_COLOR`
@@ -309,8 +356,88 @@ struct GlobalOpts {
     /// `toml` / `cbor` / `csv`) and file output are never colorized.
     /// Honors the `NO_COLOR` convention (<https://no-color.org>) unless
     /// `--color always` overrides it.
-    #[clap(long = "color", value_enum, default_value_t = ColorWhen::Auto, global = true, value_name = "WHEN")]
+    #[clap(long = "color", value_enum, default_value_t = ColorWhen::Auto, value_name = "WHEN", help_heading = "Output")]
     color: ColorWhen,
+}
+
+/// Runtime carrier assembled from the per-subcommand flag groups
+/// ([`WalkSelectionArgs`], [`WalkTuningArgs`], [`PreprocConsumeArgs`],
+/// [`OutputArgs`]) plus the [`UniversalArgs`] flags. The command runners
+/// and the walk plumbing (`run_walk`, `resolve_walk_files`, the manifest
+/// merge) all operate on this single shape, so splitting the clap surface
+/// into help-grouped, per-subcommand groups (#597) left their signatures
+/// unchanged. Built by the `WalkArgs::to_globals` accessors on each
+/// subcommand's Args struct.
+#[derive(Debug, Default, Clone)]
+struct GlobalOpts {
+    paths: Vec<PathBuf>,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    num_jobs: NumJobs,
+    language: Option<String>,
+    warning: bool,
+    no_skip_generated: bool,
+    report_skipped: bool,
+    preproc_data: Option<PathBuf>,
+    paths_from: Option<PathBuf>,
+    exclude_from: Option<PathBuf>,
+    no_ignore: bool,
+    exclude_tests: bool,
+    no_cyclomatic_try: bool,
+    no_config: bool,
+    color: ColorWhen,
+}
+
+/// Trailing positional `[PATHS]...` shared by the walking subcommands
+/// that can take a bare positional path (`bca metrics src/`) — every
+/// walker except `diff` (whose positional slots are already spent on the
+/// `<old> <new>` metric-output sets). Unioned with `--paths`/`-p` (#651).
+#[derive(Args, Debug, Default, Clone)]
+struct PositionalPaths {
+    /// Input files or directories to analyze, given positionally
+    /// (`bca metrics src/ tests/`). Unioned with any `--paths`/`-p`
+    /// values (#651). The clap arg id (`positional_paths`) is distinct
+    /// from the `--paths` flag's id so both can coexist on one command —
+    /// clap requires unique arg ids; the two are merged by
+    /// `assemble_globals`.
+    #[clap(value_name = "PATHS", value_parser, help_heading = "Input selection")]
+    positional_paths: Vec<PathBuf>,
+}
+
+/// Assemble a runtime [`GlobalOpts`] from a subcommand's flag groups.
+/// `tuning`, `preproc`, `output`, and the `language` source vary by
+/// subcommand (a command that does not flatten a group passes the group
+/// default), so the builder takes each piece explicitly. `positional`
+/// carries the trailing `[PATHS]` (#651), unioned positional-first with
+/// the group's `--paths` values.
+fn assemble_globals(
+    selection: &WalkSelectionArgs,
+    positional: &PositionalPaths,
+    tuning: &WalkTuningArgs,
+    preproc: &PreprocConsumeArgs,
+    output: &OutputArgs,
+    universal: &UniversalArgs,
+) -> GlobalOpts {
+    let mut paths = positional.positional_paths.clone();
+    paths.extend(selection.paths.iter().cloned());
+    GlobalOpts {
+        paths,
+        include: selection.include.clone(),
+        exclude: selection.exclude.clone(),
+        num_jobs: tuning.num_jobs,
+        language: selection.language.clone(),
+        warning: universal.warning,
+        no_skip_generated: selection.no_skip_generated,
+        report_skipped: universal.report_skipped,
+        preproc_data: preproc.preproc_data.clone(),
+        paths_from: selection.paths_from.clone(),
+        exclude_from: selection.exclude_from.clone(),
+        no_ignore: selection.no_ignore,
+        exclude_tests: tuning.exclude_tests,
+        no_cyclomatic_try: tuning.no_cyclomatic_try,
+        no_config: selection.no_config,
+        color: output.color,
+    }
 }
 
 /// `--color` flag values: when to emit ANSI color escapes in the
@@ -389,13 +516,13 @@ enum Command {
     /// (#690). Requires an explicit path — unlike the other walking
     /// subcommands, bare `bca dump` errors instead of dumping the whole
     /// current directory (a whole-tree AST dump has no plausible use).
-    Dump(LineRange),
+    Dump(DumpArgs),
     /// Find nodes of one or more types.
     Find(FindArgs),
     /// Count nodes of one or more types.
-    Count(NodesArgs),
+    Count(CountArgs),
     /// List functions/methods and their spans.
-    Functions,
+    Functions(FunctionsArgs),
     /// Remove comments from source files.
     StripComments(StripCommentsArgs),
     /// Generate preprocessor-data JSON for C/C++ analysis.
@@ -443,6 +570,16 @@ enum Command {
 /// semantics (directory of per-file emissions; stdout if omitted).
 #[derive(Args, Debug)]
 struct StructuredArgs {
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
+    #[clap(flatten)]
+    out: OutputArgs,
     /// Output format. When omitted, the default `text` format prints a
     /// human-readable colored metric tree to stdout; pass `--format text`
     /// to request that default explicitly (e.g. to override a `bca.toml`
@@ -462,6 +599,19 @@ struct StructuredArgs {
 }
 
 impl StructuredArgs {
+    /// Assemble the runtime [`GlobalOpts`] from this command's flattened
+    /// walk / tuning / preproc / output groups plus the universal flags.
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &self.out,
+            universal,
+        )
+    }
+
     /// Collapse an explicit `--format text` to `None`, the historical
     /// no-`--format` default (issue #604). `text` is a surface alias for
     /// the human-readable tree, so every downstream guard and the
@@ -484,6 +634,23 @@ enum RiskFormulaArg {
     Percentile,
 }
 
+impl VcsArgs {
+    /// Assemble the runtime [`GlobalOpts`] for the `vcs` ranking walk
+    /// from its flattened selection / tuning groups plus the universal
+    /// flags. `vcs` consumes no preprocessor data and renders no
+    /// colorized text dump, so those groups stay at their defaults.
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &PositionalPaths::default(),
+            &self.tuning,
+            &PreprocConsumeArgs::default(),
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+}
+
 impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
     fn from(arg: RiskFormulaArg) -> Self {
         match arg {
@@ -498,6 +665,16 @@ impl From<RiskFormulaArg> for big_code_analysis::vcs::RiskFormula {
 /// no-ignore are inherited from the global options.
 #[derive(Args, Debug)]
 struct VcsArgs {
+    // Walk-selection / tuning groups (#597) are flattened non-`global`,
+    // so `bca vcs --paths src` ranks that subtree but `bca vcs commit
+    // --paths …` / `bca vcs trend --exclude …` are hard usage errors:
+    // those subcommands score a commit / sample a time series, not a
+    // walked tree. `vcs` takes no positional `[PATHS]` (#651) because its
+    // positional slot is reserved for the subcommand token.
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
     /// Optional `vcs` subcommand. With none, `bca vcs` ranks files by
     /// change-history risk (the default). `commit` instead scores a single
     /// commit for just-in-time (JIT) defect-induction risk (issue #331);
@@ -748,6 +925,16 @@ struct MetricsArgs {
 
 #[derive(Args, Debug)]
 struct ReportArgs {
+    // `report` keeps its deprecated positional FORMAT (below) working
+    // for one more cycle, so it takes `--paths` for input selection
+    // rather than a positional `[PATHS]` (#651): a trailing path Vec
+    // would be ambiguous against the scalar FORMAT positional.
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
     /// Report format (`markdown` or `html`). Defaults to `markdown`
     /// when neither this flag nor the deprecated positional form is
     /// given (issue #513).
@@ -785,6 +972,17 @@ struct ReportArgs {
 }
 
 impl ReportArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &PositionalPaths::default(),
+            &self.tuning,
+            &self.preproc,
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+
     /// Resolve the effective report format. The `--format`/`-O` flag
     /// wins over the deprecated positional form; with neither present
     /// the default is Markdown (issue #513).
@@ -795,14 +993,26 @@ impl ReportArgs {
     }
 }
 
+/// Node-type selection for `find` / `count` (#651). The node kinds moved
+/// off a `<NODES>...` positional onto a repeatable `-t`/`--type` flag so
+/// the positional slot is free for input `[PATHS]`, matching every other
+/// walking subcommand. At least one `-t` is required (`bca find` with no
+/// `-t` is a usage error).
 #[derive(Args, Debug)]
-struct NodesArgs {
-    /// Node-type names. Pass one or more, space-separated.
-    #[clap(required = true, num_args = 1..)]
-    nodes: Vec<String>,
+struct NodeTypesArgs {
+    /// Node-type name to match. Repeat the flag to match several
+    /// (`-t function_item -t struct_item`). Required: pass at least one.
+    #[clap(
+        long = "type",
+        short = 't',
+        required = true,
+        action = clap::ArgAction::Append,
+        value_name = "NODE_TYPE"
+    )]
+    types: Vec<String>,
 }
 
-/// Line-range bounds shared by the `dump` and `find` subcommands. Scoped
+/// Line-range bounds for the `dump` and `find` subcommands. Scoped
 /// to those two commands rather than `global` (issue #518): every other
 /// subcommand silently ignored the range, and the cryptic `--ls`/`--le`
 /// names cluttered all of their help. The descriptive `--line-start` /
@@ -819,18 +1029,142 @@ struct LineRange {
     line_end: Option<usize>,
 }
 
-/// Arguments for the `find` subcommand: the node-type filters plus the
-/// shared [`LineRange`] bounds.
+/// Arguments for the `dump` subcommand: the [`LineRange`] bounds plus the
+/// walk / tuning / preproc / output groups and positional `[PATHS]`.
+#[derive(Args, Debug)]
+struct DumpArgs {
+    #[clap(flatten)]
+    line: LineRange,
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
+    #[clap(flatten)]
+    out: OutputArgs,
+}
+
+/// Arguments for the `find` subcommand: the `-t`/`--type` node filters,
+/// the [`LineRange`] bounds, and the walk / tuning / preproc / output
+/// groups plus positional `[PATHS]`.
 #[derive(Args, Debug)]
 struct FindArgs {
     #[clap(flatten)]
-    nodes: NodesArgs,
+    nodes: NodeTypesArgs,
     #[clap(flatten)]
     line: LineRange,
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
+    #[clap(flatten)]
+    out: OutputArgs,
+}
+
+/// Arguments for the `count` subcommand: the `-t`/`--type` node filters
+/// and the walk / tuning / preproc groups plus positional `[PATHS]`.
+/// `count` prints a single tally, so it carries no `--color` output
+/// group.
+#[derive(Args, Debug)]
+struct CountArgs {
+    #[clap(flatten)]
+    nodes: NodeTypesArgs,
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
+}
+
+/// Arguments for the `functions` subcommand (#597): no command-specific
+/// flags, just the shared walk / tuning / preproc / output groups and
+/// positional `[PATHS]`.
+#[derive(Args, Debug)]
+struct FunctionsArgs {
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
+    #[clap(flatten)]
+    out: OutputArgs,
+}
+
+impl DumpArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &self.out,
+            universal,
+        )
+    }
+}
+
+impl FindArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &self.out,
+            universal,
+        )
+    }
+}
+
+impl CountArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+}
+
+impl FunctionsArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &self.out,
+            universal,
+        )
+    }
 }
 
 #[derive(Args, Debug)]
 struct StripCommentsArgs {
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
     /// Rewrite each input file in place instead of writing to stdout.
     /// Use this for multi-file rewrites; it is mutually exclusive with
     /// `--output`.
@@ -851,13 +1185,62 @@ struct StripCommentsArgs {
 
 #[derive(Args, Debug)]
 struct PreprocArgs {
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
     /// Output JSON file. Stdout if omitted.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
 }
 
+impl PreprocArgs {
+    /// Assemble the runtime [`GlobalOpts`] for the producing walk.
+    /// `preproc` produces preprocessor data rather than consuming it, so
+    /// the preproc-consume group is omitted (defaulted).
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &PreprocConsumeArgs::default(),
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+}
+
+impl StripCommentsArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+}
+
+impl MetricsArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        self.structured.to_globals(universal)
+    }
+}
+
 #[derive(Args, Debug)]
 struct CheckArgs {
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
     /// Threshold expressed as `<metric>=<limit>`. Repeatable. Metric
     /// names match `bca list-metrics`; sub-metrics use a dotted form
     /// (e.g. `loc.lloc`, `halstead.volume`). The bare `bca diff --metric`
@@ -1132,6 +1515,21 @@ struct CheckArgs {
     check_exclude_from: Option<PathBuf>,
 }
 
+impl CheckArgs {
+    /// Assemble the runtime [`GlobalOpts`] for the check walk. `check`
+    /// emits no colorized text dump, so the output group is defaulted.
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+}
+
 /// Arguments for the `init` subcommand. Scaffolds the consolidated
 /// `bca.toml` manifest (`paths`, `exclude_from`, `baseline`, and a
 /// `[thresholds]` table) plus the `.bcaignore` and `.bca-baseline.toml`
@@ -1143,6 +1541,16 @@ struct CheckArgs {
 /// follow-up.
 #[derive(Args, Debug, Default)]
 struct InitArgs {
+    // `init` scaffolds into `--dir` (default `.`) and walks it to
+    // generate the baseline, so it consumes the walk / tuning / preproc
+    // groups (#597) but names its target via `--dir`, not a positional
+    // `[PATHS]`.
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
     /// Directory to scaffold into. Defaults to the current working
     /// directory. The directory must already exist; `init` will not
     /// create the project root itself.
@@ -1159,6 +1567,19 @@ struct InitArgs {
     /// Default: walk the target directory and pin today's offenders.
     #[clap(long = "no-baseline")]
     no_baseline: bool,
+}
+
+impl InitArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &PositionalPaths::default(),
+            &self.tuning,
+            &self.preproc,
+            &OutputArgs::default(),
+            universal,
+        )
+    }
 }
 
 /// Shared `text`/`markdown`/`json` output style for the read-only
@@ -1257,6 +1678,15 @@ struct DiffBaselineArgs {
 /// success; the diff is informational, not a gate.
 #[derive(Args, Debug)]
 struct DiffArgs {
+    // `diff --since` walks both trees, so it consumes the walk-selection
+    // and tuning flag groups (#597). Its positional slots are already
+    // spent on the `<old> <new>` metric-output sets (the `--since`-mode
+    // `<old>` doubles as a relative path scope), so it takes no
+    // positional `[PATHS]` (#651) — selection is via `--paths` / globs.
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
     /// In file/dir mode: the old (base) metric output — the "before"
     /// side (a per-file JSON file or a directory of per-file JSON).
     /// In `--since` mode: an optional *relative path scope* (a
@@ -1323,6 +1753,23 @@ struct DiffArgs {
     exit_code: bool,
 }
 
+impl DiffArgs {
+    /// Assemble the runtime [`GlobalOpts`] for the `--since` walk. `diff`
+    /// consumes no preprocessor data and renders no colorized dump, so
+    /// those groups default. Its `<old>` positional path scope is folded
+    /// in by `side_globals`, not here.
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &PositionalPaths::default(),
+            &self.tuning,
+            &PreprocConsumeArgs::default(),
+            &OutputArgs::default(),
+            universal,
+        )
+    }
+}
+
 /// Arguments for the `exemptions` subcommand (issue #386). Audits the
 /// three gate-skipping tiers — in-source markers, `[check.exclude]`
 /// globs, and `.bca-baseline.toml` entries — in one report.
@@ -1335,6 +1782,14 @@ struct DiffArgs {
 /// reflects exactly what the gate would skip.
 #[derive(Args, Debug)]
 struct ExemptionsArgs {
+    #[clap(flatten)]
+    positional: PositionalPaths,
+    #[clap(flatten)]
+    selection: WalkSelectionArgs,
+    #[clap(flatten)]
+    tuning: WalkTuningArgs,
+    #[clap(flatten)]
+    preproc: PreprocConsumeArgs,
     /// Output style: `text` (default), `markdown`, or `json`. JSON nests
     /// all three sections under a single `suppressions` envelope.
     #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Text)]
@@ -1375,6 +1830,19 @@ struct ExemptionsArgs {
     /// Use `-` for stdin. Unioned with any `--check-exclude` values.
     #[clap(long = "check-exclude-from", value_parser)]
     check_exclude_from: Option<PathBuf>,
+}
+
+impl ExemptionsArgs {
+    fn to_globals(&self, universal: &UniversalArgs) -> GlobalOpts {
+        assemble_globals(
+            &self.selection,
+            &self.positional,
+            &self.tuning,
+            &self.preproc,
+            &OutputArgs::default(),
+            universal,
+        )
+    }
 }
 
 /// Serialization format for `--print-effective-config`. TOML is the
@@ -2258,10 +2726,10 @@ fn legacy_hint(argv: impl IntoIterator<Item = OsString>) -> Option<String> {
         ("--comments", "bca strip-comments [--in-place]"),
         ("--function", "bca functions"),
         ("-F", "bca functions"),
-        ("--find", "bca find <NODE> [<NODE>...]"),
-        ("-f", "bca find <NODE> [<NODE>...]"),
-        ("--count", "bca count <NODE> [<NODE>...]"),
-        ("-C", "bca count <NODE> [<NODE>...]"),
+        ("--find", "bca find -t <NODE> [-t <NODE>...] [PATHS]..."),
+        ("-f", "bca find -t <NODE> [-t <NODE>...] [PATHS]..."),
+        ("--count", "bca count -t <NODE> [-t <NODE>...] [PATHS]..."),
+        ("-C", "bca count -t <NODE> [-t <NODE>...] [PATHS]..."),
         ("--list-metrics", "bca list-metrics [names|descriptions]"),
         (
             "--preproc",

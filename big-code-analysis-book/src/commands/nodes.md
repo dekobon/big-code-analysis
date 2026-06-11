@@ -13,33 +13,34 @@ source file.
 To detect syntactic errors in your code, run:
 
 ```bash
-bca -I "*.ext" -p /path/to/your/file/or/directory find ERROR
+bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
 ```
 
-- `-p, --paths`: file or directory (analyzes all files when given a
-  directory).
+- `[PATHS]...` / `-p, --paths`: file or directory to analyze (analyzes
+  all files when given a directory). Paths are given positionally or via
+  `--paths`; both are unioned. Flags follow the subcommand.
+- `-t, --type`: the node type to match. Repeat the flag for several
+  types (`-t function_item -t struct_item`); at least one is required.
 - `-I, --include`: glob filter for selecting files by extension (e.g.
-  `*.js`, `*.rs`). Variadic — put it **before** `-p` so the
-  subcommand isn't swallowed as another glob, or use the `-I=GLOB`
-  single-value form.
-- `find <NODE>`: search for nodes of a specific type (one or more
-  positional names).
+  `*.js`, `*.rs`). Each `-I` takes exactly one value, so a following
+  positional path is never swallowed.
 
 ## Counting nodes
 
 Count occurrences of one or more node types with the `count` command:
 
 ```bash
-bca -I "*.ext" -p /path/to/your/file/or/directory \
-    count <NODE_TYPE> [<NODE_TYPE>...]
+bca count -t <NODE_TYPE> [-t <NODE_TYPE>...] -I "*.ext" \
+    /path/to/your/file/or/directory
 ```
 
 ## Printing the AST
 
-To visualize the AST of a source file, use the `dump` command:
+To visualize the AST of a source file, use the `dump` command (which
+requires an explicit path — a whole-tree AST dump is never useful):
 
 ```bash
-bca -p /path/to/your/file/or/directory dump
+bca dump /path/to/your/file/or/directory
 ```
 
 ## Analyzing code portions
@@ -49,7 +50,7 @@ subcommand's `--line-start` and `--line-end` options. For example, to
 print the AST of a single function from line 5 to line 10:
 
 ```bash
-bca -p /path/to/your/file/or/directory dump --line-start 5 --line-end 10
+bca dump --line-start 5 --line-end 10 /path/to/your/file/or/directory
 ```
 
 These flags are specific to `dump` and `find`, so they must follow the
@@ -61,5 +62,5 @@ deprecated aliases but are slated for removal in 2.0.
 For a list of every function or method and its line span, use:
 
 ```bash
-bca -p /path/to/your/file/or/directory functions
+bca functions /path/to/your/file/or/directory
 ```

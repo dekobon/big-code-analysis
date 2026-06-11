@@ -50,7 +50,7 @@ fn has_escape(bytes: &[u8]) -> bool {
 #[test]
 fn metrics_default_piped_has_no_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--paths", &path, "metrics"]));
+    let out = stdout_of(cli().args(["metrics", "--paths", &path]));
     assert!(
         !has_escape(&out),
         "piped default metrics output must be escape-free, got: {out:?}"
@@ -63,7 +63,7 @@ fn metrics_format_text_default_piped_has_no_ansi_escapes() {
     // to the no-`--format` default: normalize_text_format maps it back
     // to the colored tree path, which must still respect color mode.
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--paths", &path, "metrics", "--format", "text"]));
+    let out = stdout_of(cli().args(["metrics", "--paths", &path, "--format", "text"]));
     assert!(
         !has_escape(&out),
         "piped `--format text` output must be escape-free, got: {out:?}"
@@ -73,7 +73,7 @@ fn metrics_format_text_default_piped_has_no_ansi_escapes() {
 #[test]
 fn metrics_color_always_forces_ansi_escapes_when_piped() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--color", "always", "--paths", &path, "metrics"]));
+    let out = stdout_of(cli().args(["metrics", "--color", "always", "--paths", &path]));
     assert!(
         has_escape(&out),
         "`--color always` must emit escapes even when piped, got: {out:?}"
@@ -83,7 +83,7 @@ fn metrics_color_always_forces_ansi_escapes_when_piped() {
 #[test]
 fn metrics_color_never_strips_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--color", "never", "--paths", &path, "metrics"]));
+    let out = stdout_of(cli().args(["metrics", "--color", "never", "--paths", &path]));
     assert!(
         !has_escape(&out),
         "`--color never` must never emit escapes, got: {out:?}"
@@ -100,7 +100,7 @@ fn metrics_no_color_env_strips_escapes_in_auto_mode() {
     let out = stdout_of(
         cli()
             .env("NO_COLOR", "1")
-            .args(["--paths", &path, "metrics"]),
+            .args(["metrics", "--paths", &path]),
     );
     assert!(
         !has_escape(&out),
@@ -117,7 +117,7 @@ fn metrics_color_always_overrides_no_color_env() {
     let out = stdout_of(
         cli()
             .env("NO_COLOR", "1")
-            .args(["--color", "always", "--paths", &path, "metrics"]),
+            .args(["metrics", "--color", "always", "--paths", &path]),
     );
     assert!(
         has_escape(&out),
@@ -128,35 +128,35 @@ fn metrics_color_always_overrides_no_color_env() {
 #[test]
 fn ops_default_piped_has_no_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--paths", &path, "ops"]));
+    let out = stdout_of(cli().args(["ops", "--paths", &path]));
     assert!(!has_escape(&out), "piped ops output must be escape-free");
 }
 
 #[test]
 fn ops_color_always_forces_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--color", "always", "--paths", &path, "ops"]));
+    let out = stdout_of(cli().args(["ops", "--color", "always", "--paths", &path]));
     assert!(has_escape(&out), "`ops --color always` must emit escapes");
 }
 
 #[test]
 fn dump_default_piped_has_no_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--paths", &path, "dump"]));
+    let out = stdout_of(cli().args(["dump", "--paths", &path]));
     assert!(!has_escape(&out), "piped dump output must be escape-free");
 }
 
 #[test]
 fn dump_color_always_forces_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--color", "always", "--paths", &path, "dump"]));
+    let out = stdout_of(cli().args(["dump", "--color", "always", "--paths", &path]));
     assert!(has_escape(&out), "`dump --color always` must emit escapes");
 }
 
 #[test]
 fn functions_default_piped_has_no_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--paths", &path, "functions"]));
+    let out = stdout_of(cli().args(["functions", "--paths", &path]));
     assert!(
         !has_escape(&out),
         "piped functions output must be escape-free"
@@ -166,7 +166,7 @@ fn functions_default_piped_has_no_ansi_escapes() {
 #[test]
 fn functions_color_always_forces_ansi_escapes() {
     let (_dir, path) = fixture();
-    let out = stdout_of(cli().args(["--color", "always", "--paths", &path, "functions"]));
+    let out = stdout_of(cli().args(["functions", "--color", "always", "--paths", &path]));
     assert!(
         has_escape(&out),
         "`functions --color always` must emit escapes"
@@ -177,11 +177,12 @@ fn functions_color_always_forces_ansi_escapes() {
 fn find_color_always_forces_ansi_escapes() {
     let (_dir, path) = fixture();
     let out = stdout_of(cli().args([
+        "find",
         "--color",
         "always",
         "--paths",
         &path,
-        "find",
+        "-t",
         "function_definition",
     ]));
     assert!(has_escape(&out), "`find --color always` must emit escapes");
@@ -193,7 +194,7 @@ fn invalid_color_value_is_a_usage_error() {
     // tool-error code, #594), not a silent fallthrough.
     let (_dir, path) = fixture();
     cli()
-        .args(["--color", "rainbow", "--paths", &path, "metrics"])
+        .args(["metrics", "--color", "rainbow", "--paths", &path])
         .assert()
         .code(1);
 }

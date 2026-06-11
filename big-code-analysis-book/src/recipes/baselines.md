@@ -318,7 +318,7 @@ To audit the un-filtered offender set — every violation regardless of
 suppression or baseline — pass `--no-suppress` and omit `--baseline`:
 
 ```bash
-bca --paths src/ check \
+bca check --paths src/ \
     --no-suppress \
     --no-fail
 ```
@@ -335,7 +335,7 @@ can see everything `bca check` is skipping without running three
 commands:
 
 ```bash
-bca --paths src/ exemptions
+bca exemptions --paths src/
 ```
 
 ```text

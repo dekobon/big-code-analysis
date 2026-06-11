@@ -55,7 +55,7 @@ fn write_rust_fixture(dir: &TempDir) -> String {
 
 fn run_metrics(dir: &TempDir, format: &str, fixture_path: &str) -> String {
     let output = cli(dir)
-        .args(["--paths", fixture_path, "metrics", "-O", format])
+        .args(["metrics", "--paths", fixture_path, "-O", format])
         .assert()
         .success()
         .get_output()
@@ -71,9 +71,9 @@ fn run_metrics(dir: &TempDir, format: &str, fixture_path: &str) -> String {
 fn run_check_offender_doc(dir: &TempDir, format: &str, fixture_path: &str) -> String {
     let output = cli(dir)
         .args([
+            "check",
             "--paths",
             fixture_path,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output-format",
@@ -101,9 +101,9 @@ fn metrics_ops_output_without_format_errors() {
         // `--output` under the default text format → exit 1, clear message.
         cli(&dir)
             .args([
+                command,
                 "--paths",
                 &fixture,
-                command,
                 "--output",
                 out_dir.to_str().unwrap(),
             ])
@@ -114,9 +114,9 @@ fn metrics_ops_output_without_format_errors() {
         // With a structured format, `--output` writes as before.
         cli(&dir)
             .args([
+                command,
                 "--paths",
                 &fixture,
-                command,
                 "-O",
                 "json",
                 "--output",
@@ -126,7 +126,7 @@ fn metrics_ops_output_without_format_errors() {
             .success();
         // The text default without `--output` still streams to stdout.
         cli(&dir)
-            .args(["--paths", &fixture, command])
+            .args([command, "--paths", &fixture])
             .assert()
             .success();
     }
@@ -351,9 +351,9 @@ fn run_metrics_to_file(
     let out_dir = TempDir::new().expect("create metrics output dir");
     cli(dir)
         .args([
+            "metrics",
             "--paths",
             fixture_path,
-            "metrics",
             "-O",
             format,
             "-o",

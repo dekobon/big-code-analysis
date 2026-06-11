@@ -53,11 +53,12 @@ fn exclude_does_not_swallow_find_positional() {
     let (dir, path) = fixture();
     cli(dir.path())
         .args([
+            "find",
             "--paths",
             &path,
             "--exclude",
             "*.tmp",
-            "find",
+            "-t",
             "function_item",
         ])
         .assert()
@@ -70,11 +71,12 @@ fn include_does_not_swallow_find_positional() {
     let (dir, path) = fixture();
     cli(dir.path())
         .args([
+            "find",
             "--paths",
             &path,
             "--include",
             "*.rs",
-            "find",
+            "-t",
             "function_item",
         ])
         .assert()
@@ -93,13 +95,13 @@ fn exclude_flag_repeats_accumulate() {
     let out = TempDir::new().unwrap();
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().to_str().unwrap(),
             "--exclude",
             "**/drop_a.rs",
             "--exclude",
             "**/drop_b.rs",
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -125,13 +127,13 @@ fn include_flag_repeats_accumulate() {
     let out = TempDir::new().unwrap();
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().to_str().unwrap(),
             "--include",
             "**/*.rs",
             "--include",
             "**/*.py",
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -187,11 +189,11 @@ fn exclude_value_with_comma_is_one_glob() {
     let out = TempDir::new().unwrap();
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().to_str().unwrap(),
             "--exclude",
             "**/{a,b}/**",
-            "metrics",
             "-O",
             "json",
             "-o",

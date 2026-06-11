@@ -43,13 +43,13 @@ use crate::thresholds::{
     ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
 };
 use crate::{
-    Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, ExemptionsArgs, FindArgs,
-    GlobalOpts, InitArgs, LineRange, ListMetricsArgs, MetricsArgs, NodesArgs, OutputFormat,
-    PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die,
-    die_io, group_files_by_basename, legacy_hint, load_baseline, load_preproc_data,
-    load_threshold_config, read_exclude_patterns_from, resolve_walk_files, run_walk,
-    run_walk_collecting, run_walk_resolved, validate_output_path, write_atomic,
-    write_output_or_stdout, write_stdout_or_die,
+    Action, CheckArgs, Cli, Command, Config, CountArgs, DiffBaselineArgs, ExemptionsArgs, FindArgs,
+    GlobalOpts, InitArgs, LineRange, ListMetricsArgs, MetricsArgs, OutputFormat, PreprocArgs,
+    PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die, die_io,
+    group_files_by_basename, legacy_hint, load_baseline, load_preproc_data, load_threshold_config,
+    read_exclude_patterns_from, resolve_walk_files, run_walk, run_walk_collecting,
+    run_walk_resolved, validate_output_path, write_atomic, write_output_or_stdout,
+    write_stdout_or_die,
 };
 
 fn run_check(
@@ -1433,66 +1433,121 @@ pub fn run() {
     // bca: suppress(cyclomatic)
     // Flat top-level subcommand dispatch (one arm per `Command` variant) —
     // cyclomatic is arm count, not nested branching; cognitive stays enforced.
-    let (mut cli, num_jobs_from_cli) = parse_cli_with_legacy_hint();
+    let (cli, num_jobs_from_cli) = parse_cli_with_legacy_hint();
+    let Cli { universal, command } = cli;
 
-    // Auto-discover a `bca.toml` manifest (unless `--no-config`) and
-    // merge its global keys *under* the parsed CLI flags. Check-only
-    // keys (baseline / headroom / thresholds) are merged later, inside
-    // `run_check`, where the resolved `CheckArgs` lives.
-    //
-    // `bca init` is deliberately excluded: it *scaffolds* configuration,
-    // so consuming an existing manifest would merge repo-level `paths`
-    // into init's baseline-generation walk and pin the wrong tree.
-    //
-    // `bca diff-baseline` and `bca diff` are excluded for the same
-    // reason from the other direction: they walk no source and read no
-    // global config, so manifest discovery would be pure overhead.
-    let manifest = if cli.globals.no_config
-        || matches!(
-            cli.command,
-            Command::Init(_) | Command::DiffBaseline(_) | Command::Diff(_)
-        ) {
+    // Each walking subcommand carries its own flattened walk / tuning /
+    // preproc / output flag groups (#597); `to_globals` assembles them
+    // (plus the universal flags) into the runtime `GlobalOpts` the walk
+    // plumbing consumes. The `bca.toml` manifest is then merged *under*
+    // those CLI flags by `with_manifest`. `init` (scaffolds config),
+    // `diff` (no global config), `diff-baseline`, and `list-metrics`
+    // (walk nothing) skip manifest discovery — see their arms.
+    match command {
+        Command::ListMetrics(args) => run_command_list_metrics(args),
+        Command::DiffBaseline(args) => run_command_diff_baseline(args),
+        Command::Diff(args) => {
+            let globals = args.to_globals(&universal);
+            run_command_diff(globals, args);
+        }
+        Command::Init(args) => {
+            let globals = args.to_globals(&universal);
+            let preproc = load_preproc(&globals);
+            run_command_init(globals, args, preproc);
+        }
+        Command::Dump(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_dump(globals, args.line, preproc);
+        }
+        Command::Functions(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_functions(globals, preproc);
+        }
+        Command::Metrics(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_metrics(globals, args, preproc);
+        }
+        Command::Ops(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_ops(globals, args, preproc);
+        }
+        Command::Vcs(mut args) => {
+            let (globals, manifest) = with_manifest(args.to_globals(&universal), num_jobs_from_cli);
+            if let Some(m) = &manifest {
+                m.merge_vcs(&mut args);
+            }
+            crate::vcs_command::run(globals, *args);
+        }
+        Command::Report(args) => {
+            let (globals, manifest) = with_manifest(args.to_globals(&universal), num_jobs_from_cli);
+            let preproc = load_preproc(&globals);
+            run_command_report(globals, args, manifest.as_ref(), preproc);
+        }
+        Command::Find(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_find(globals, args, preproc);
+        }
+        Command::Count(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_count(globals, args, preproc);
+        }
+        Command::StripComments(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            let preproc = load_preproc(&globals);
+            run_command_strip_comments(globals, args, preproc);
+        }
+        Command::Check(args) => {
+            let (globals, manifest) = with_manifest(args.to_globals(&universal), num_jobs_from_cli);
+            let preproc = load_preproc(&globals);
+            run_check(globals, *args, manifest.as_ref(), preproc);
+        }
+        Command::Preproc(args) => {
+            let globals = with_manifest(args.to_globals(&universal), num_jobs_from_cli).0;
+            run_command_preproc(globals, args);
+        }
+        Command::Exemptions(args) => {
+            let (globals, manifest) = with_manifest(args.to_globals(&universal), num_jobs_from_cli);
+            let preproc = load_preproc(&globals);
+            run_command_exemptions(globals, args, manifest.as_ref(), preproc);
+        }
+    }
+}
+
+/// Auto-discover a `bca.toml` manifest (unless `--no-config`) and merge
+/// its global keys *under* the parsed CLI flags, returning the merged
+/// [`GlobalOpts`] and the discovered manifest (so callers that also need
+/// the check-/vcs-/report-only keys can merge those at their own layer).
+///
+/// `num_jobs_from_cli` tells the merge whether `--jobs` was set on the
+/// command line (vs. left at its `auto` default) so a manifest value
+/// only overrides the default, never an explicit flag.
+fn with_manifest(
+    mut globals: GlobalOpts,
+    num_jobs_from_cli: bool,
+) -> (GlobalOpts, Option<Manifest>) {
+    let manifest = if globals.no_config {
         None
     } else {
         manifest::discover_and_load()
     };
     if let Some(m) = &manifest {
-        m.merge_globals(&mut cli.globals, num_jobs_from_cli);
+        m.merge_globals(&mut globals, num_jobs_from_cli);
     }
+    (globals, manifest)
+}
 
-    let preproc = cli
-        .globals
-        .preproc_data
-        .as_ref()
-        .map(|p| load_preproc_data(p));
-
-    match cli.command {
-        Command::ListMetrics(args) => run_command_list_metrics(args),
-        Command::Dump(line) => run_command_dump(cli.globals, line, preproc),
-        Command::Functions => run_command_functions(cli.globals, preproc),
-        Command::Metrics(args) => run_command_metrics(cli.globals, args, preproc),
-        Command::Ops(args) => run_command_ops(cli.globals, args, preproc),
-        Command::Vcs(mut args) => {
-            if let Some(m) = &manifest {
-                m.merge_vcs(&mut args);
-            }
-            crate::vcs_command::run(cli.globals, *args);
-        }
-        Command::Report(args) => {
-            run_command_report(cli.globals, args, manifest.as_ref(), preproc);
-        }
-        Command::Find(args) => run_command_find(cli.globals, args, preproc),
-        Command::Count(args) => run_command_count(cli.globals, args, preproc),
-        Command::StripComments(args) => run_command_strip_comments(cli.globals, args, preproc),
-        Command::Check(args) => run_check(cli.globals, *args, manifest.as_ref(), preproc),
-        Command::Preproc(args) => run_command_preproc(cli.globals, args),
-        Command::Init(args) => run_command_init(cli.globals, args, preproc),
-        Command::DiffBaseline(args) => run_command_diff_baseline(args),
-        Command::Diff(args) => run_command_diff(cli.globals, args),
-        Command::Exemptions(args) => {
-            run_command_exemptions(cli.globals, args, manifest.as_ref(), preproc);
-        }
-    }
+/// Load the consumer-side preprocessor data named by `--preproc-data`,
+/// if any. A subcommand whose flag group omits the preproc-consume field
+/// always has `preproc_data == None`, so this returns `None` there
+/// without a special case.
+fn load_preproc(globals: &GlobalOpts) -> Option<Arc<PreprocResults>> {
+    globals.preproc_data.as_ref().map(|p| load_preproc_data(p))
 }
 
 /// Parse the CLI from `std::env::args_os`, emitting a legacy-CLI
@@ -1555,12 +1610,17 @@ fn exit_clap_error(err: &clap::Error) -> ! {
     err.exit();
 }
 
-/// Whether `--num-jobs` was supplied on the command line (vs. left at
-/// its `auto` default). `num_jobs` is a `global = true` arg, so when it
-/// is passed after the subcommand its value source surfaces in the
-/// subcommand's matches, not the root's — walk the chain.
+/// Whether `--num-jobs` (now `--jobs`) was supplied on the command line
+/// (vs. left at its `auto` default). Since #597 `num_jobs` is scoped to
+/// the walking subcommands rather than `global = true`, so its value
+/// source surfaces in the subcommand's matches, not the root's — walk the
+/// chain. The arg id is absent at any level that does not define it
+/// (e.g. the root, or a `vcs commit`/`vcs trend` leaf that takes no walk
+/// flags), and `value_source` panics on an unknown id, so only query a
+/// level whose `ids()` actually carry `num_jobs`.
 fn num_jobs_set_on_cli(matches: &ArgMatches) -> bool {
-    if matches.value_source("num_jobs") == Some(ValueSource::CommandLine) {
+    let defined_here = matches.ids().any(|id| id.as_str() == "num_jobs");
+    if defined_here && matches.value_source("num_jobs") == Some(ValueSource::CommandLine) {
         return true;
     }
     match matches.subcommand() {
@@ -1819,10 +1879,8 @@ fn run_command_report(
 }
 
 fn run_command_find(globals: GlobalOpts, args: FindArgs, preproc: Option<Arc<PreprocResults>>) {
-    let FindArgs {
-        nodes: NodesArgs { nodes },
-        line,
-    } = args;
+    let line = args.line;
+    let nodes = args.nodes.types;
     let cfg = Config {
         line_start: line.line_start,
         line_end: line.line_end,
@@ -1831,11 +1889,11 @@ fn run_command_find(globals: GlobalOpts, args: FindArgs, preproc: Option<Arc<Pre
     run_walk(globals, cfg);
 }
 
-fn run_command_count(globals: GlobalOpts, args: NodesArgs, preproc: Option<Arc<PreprocResults>>) {
+fn run_command_count(globals: GlobalOpts, args: CountArgs, preproc: Option<Arc<PreprocResults>>) {
     let collector = CountCollector::new();
     let cfg = Config {
         count_lock: Some(collector.clone()),
-        ..Config::new(Action::Count(args.nodes.into()), &globals, preproc)
+        ..Config::new(Action::Count(args.nodes.types.into()), &globals, preproc)
     };
     run_walk(globals, cfg);
 
@@ -2099,6 +2157,10 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
         // loaded from the scaffolded `bca.toml` to keep this consistent
         // with what the user will use day-to-day.
         let check_args = CheckArgs {
+            positional: crate::PositionalPaths::default(),
+            selection: crate::WalkSelectionArgs::default(),
+            tuning: crate::WalkTuningArgs::default(),
+            preproc: crate::PreprocConsumeArgs::default(),
             thresholds: Vec::new(),
             config: Some(manifest_path.clone()),
             no_fail: false,

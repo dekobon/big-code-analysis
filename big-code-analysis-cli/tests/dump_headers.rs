@@ -28,7 +28,7 @@ fn fixture() -> (TempDir, String, String) {
 fn dump_emits_per_file_headers() {
     let (_dir, a, b) = fixture();
     let out = common::bca_command()
-        .args(["--paths", &a, "--paths", &b, "dump"])
+        .args(["dump", "--paths", &a, "--paths", &b])
         .assert()
         .success()
         .get_output()
@@ -50,7 +50,7 @@ fn dump_emits_per_file_headers() {
 fn find_emits_per_file_headers() {
     let (_dir, a, _b) = fixture();
     common::bca_command()
-        .args(["--paths", &a, "find", "function_item"])
+        .args(["find", "--paths", &a, "-t", "function_item"])
         .assert()
         .success()
         .stdout(predicate::str::contains(format!("== {a} ==")));
@@ -80,7 +80,7 @@ fn bare_dump_requires_an_explicit_path() {
 fn dump_with_explicit_path_works() {
     let (_dir, a, _b) = fixture();
     common::bca_command()
-        .args(["--paths", &a, "dump"])
+        .args(["dump", "--paths", &a])
         .assert()
         .success()
         .stdout(predicate::str::contains(format!("== {a} ==")));

@@ -8,9 +8,8 @@ analysis, or feed them into a database or dashboard.
 ## Export per-file metrics as JSON
 
 ```bash
-bca \
+bca metrics \
     --paths src/ \
-    metrics \
     -O json \
     -o /tmp/metrics
 ```
@@ -22,7 +21,7 @@ not `src/lib.json`. Use `--pretty` if you intend to read the files by
 hand:
 
 ```bash
-bca -p src/ metrics --pretty -O json -o /tmp/metrics
+bca metrics -p src/ --pretty -O json -o /tmp/metrics
 ```
 
 CBOR (`-O cbor`) is the most compact format; it is binary and
@@ -39,12 +38,12 @@ the common workflow is two `bca metrics` runs into separate directories:
 
 ```bash
 # Capture the "before" state.
-bca -p src/ metrics -O json -o /tmp/before
+bca metrics -p src/ -O json -o /tmp/before
 
 # ...make a change (e.g. bump a tree-sitter grammar)...
 
 # Capture the "after" state and diff.
-bca -p src/ metrics -O json -o /tmp/after
+bca metrics -p src/ -O json -o /tmp/after
 bca diff /tmp/before /tmp/after
 ```
 
@@ -115,7 +114,7 @@ chain used to validate that a grammar bump did not regress metrics; the
 Combine streamed JSON output with `jq` to extract one value per file:
 
 ```bash
-bca -p src/ metrics -O json \
+bca metrics -p src/ -O json \
   | jq -c '{file: .name, mi: .metrics.mi.visual_studio}'
 ```
 
@@ -143,10 +142,9 @@ input to Halstead-style metric calculations beyond what the built-in
 report shows:
 
 ```bash
-bca \
+bca ops \
     --include "*.rs" \
     --paths src/ \
-    ops \
     -O json --pretty \
     -o /tmp/ops
 ```
@@ -174,14 +172,14 @@ three modes:
 
 ```bash
 # Stream a single file with comments removed.
-bca --paths src/lib.rs strip-comments
+bca strip-comments --paths src/lib.rs
 
 # Write a single stripped file to a new path (input untouched).
-bca --paths src/lib.rs strip-comments --output src/lib.stripped.rs
+bca strip-comments --paths src/lib.rs --output src/lib.stripped.rs
 
 # Rewrite every Python file in src/ in place.
-bca --include "*.py" --paths src/ \
-    strip-comments --in-place
+bca strip-comments --include "*.py" --paths src/ \
+    --in-place
 ```
 
 `--in-place` is destructive — make sure the tree is committed or

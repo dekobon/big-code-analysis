@@ -32,7 +32,7 @@ fn metrics_skips_generated_file_by_default() {
     let (_dir, root) = make_mixed_fixture();
 
     cli()
-        .args(["--paths", root.to_str().unwrap(), "metrics", "-O", "json"])
+        .args(["metrics", "--paths", root.to_str().unwrap(), "-O", "json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("hand.rs"))
@@ -45,10 +45,10 @@ fn no_skip_generated_includes_generated_file() {
 
     cli()
         .args([
+            "metrics",
             "--no-skip-generated",
             "--paths",
             root.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -64,10 +64,10 @@ fn report_skipped_logs_each_skipped_file() {
 
     cli()
         .args([
+            "metrics",
             "--report-skipped",
             "--paths",
             root.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -94,7 +94,7 @@ fn marker_in_body_is_not_skipped() {
     std::fs::write(root.join("late_marker.rs"), content).unwrap();
 
     cli()
-        .args(["--paths", root.to_str().unwrap(), "metrics", "-O", "json"])
+        .args(["metrics", "--paths", root.to_str().unwrap(), "-O", "json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("late_marker.rs"));

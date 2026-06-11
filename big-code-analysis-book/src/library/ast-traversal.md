@@ -17,7 +17,7 @@ for a second parse.
 Reach for direct AST traversal when:
 
 - You want to **count or find syntactic constructs** in-process. The CLI
-  equivalents (`bca count <kind>`, `bca find <kind>`,
+  equivalents (`bca count -t <kind>`, `bca find -t <kind>`,
   [recipe](../recipes/ast-queries.md)) shell out per file; the library
   path is one parse and one Rust loop.
 - You want to **detect parse errors** programmatically. Tree-sitter
@@ -97,8 +97,8 @@ honest, so a refactor that broke an example would fail `cargo test`.
 
 ## Count nodes by kind
 
-Library equivalent of `bca count if_expression for_expression
-while_expression` from the
+Library equivalent of `bca count -t if_expression -t for_expression
+-t while_expression` from the
 [AST-queries recipe](../recipes/ast-queries.md):
 
 ```rust,ignore
@@ -122,7 +122,7 @@ assert_eq!(counts.get("for_expression").copied().unwrap_or(0), 1);
 
 The string keys (`"if_expression"`, `"for_expression"`, …) are the
 tree-sitter grammar's node-type names. The fastest way to discover them
-for a new language is `bca --paths sample.rs dump`, which prints the
+for a new language is `bca dump --paths sample.rs`, which prints the
 full AST.
 
 > **Anonymous tokens.** The walker visits every node tree-sitter emits,
@@ -137,7 +137,7 @@ full AST.
 
 ## Find nodes by kind
 
-Library equivalent of `bca find unsafe_block`:
+Library equivalent of `bca find -t unsafe_block`:
 
 ```rust,ignore
 use big_code_analysis::{Ast, LANG, Source};
@@ -210,7 +210,7 @@ assert!(!error_lines.is_empty());
 `Node::is_error()` flags the synthetic `ERROR` node tree-sitter inserts
 where it could not match the grammar; `Node::is_missing()` flags
 phantom nodes the parser invented to recover from a missing token. The
-CLI's `bca find ERROR` recipe uses the same nodes.
+CLI's `bca find -t ERROR` recipe uses the same nodes.
 
 ## Combine metrics with a custom walk
 

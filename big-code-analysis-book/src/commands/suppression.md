@@ -179,7 +179,7 @@ walk. Use it in audit pipelines that need the raw, un-silenced
 offender list:
 
 ```bash
-bca --paths src/ check --no-suppress
+bca check --paths src/ --no-suppress
 ```
 
 The flag has no effect on metric values themselves: raw `bca metrics`
@@ -243,7 +243,7 @@ report:
 ```bash
 # List every exemption in the tree (in-source markers honour
 # [walker.exclude] just like every other walking command).
-bca --paths src/ exemptions
+bca exemptions --paths src/
 ```
 
 ```text
@@ -270,7 +270,7 @@ nests all three tiers under a single `suppressions` envelope for
 dashboards and `jq` filtering:
 
 ```bash
-bca --paths src/ exemptions --format json | jq '.suppressions.markers[] | select(.dialect == "lizard")'
+bca exemptions --paths src/ --format json | jq '.suppressions.markers[] | select(.dialect == "lizard")'
 ```
 
 In the JSON form an omitted section is `null` (not requested via a

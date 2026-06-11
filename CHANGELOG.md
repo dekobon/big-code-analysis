@@ -23,6 +23,32 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** CLI flags are now scoped to the subcommands that consume
+  them, with sectioned `--help` output (#597). Every flag that used to be
+  `global = true` — `--paths`/`-p`, `--include`/`-I`, `--exclude`/`-X`,
+  `--language`/`-l`, `--jobs`/`-j` (alias `--num-jobs`), `--no-ignore`,
+  `--exclude-tests`, `--no-cyclomatic-try`, `--no-config`,
+  `--preproc-data`, `--color`, `--no-skip-generated`, `--paths-from`,
+  `--exclude-from` — now lives in a per-subcommand group
+  (Input selection / Walker tuning / Preprocessor / Output) and must be
+  passed **after** the subcommand: `bca metrics --paths src`, not
+  `bca --paths src metrics`. Only `-w`/`--warnings` and `--report-skipped`
+  stay universal. A flag passed to a subcommand that never consumed it is
+  now a hard usage error (exit 1) instead of a silent no-op — e.g.
+  `bca vcs commit --exclude-tests` and `bca list-metrics --paths` now
+  error, and `bca list-metrics --help` no longer advertises walker flags.
+  `vcs commit` / `vcs trend` take no walk or preproc flags. Migration:
+  move each affected flag to after the subcommand token. Deferred to
+  2.0.0 (#597).
+- **(breaking)** Input paths are now accepted as a trailing `[PATHS]...`
+  positional on the walking subcommands (#651): `bca metrics src/` works,
+  matching tokei / cloc / scc / rg. The positional is unioned with any
+  `--paths`/`-p` values (both remain valid). `bca find` and `bca count`
+  move their node kinds off the `<NODES>...` positional onto a repeatable
+  `-t`/`--type` flag to free the positional slot for paths —
+  `bca find function_item` becomes `bca find -t function_item [PATHS]...`,
+  and at least one `-t` is required. Script authors relying on positional
+  `<NODES>...` for `find`/`count` must add `-t`. Deferred to 2.0.0 (#651).
 - `bca dump` and `bca find` text output now print a `== <path> ==` banner
   before each file's tree, so a multi-file dump is attributable despite
   the parallel walk interleaving output (non-breaking; human debug

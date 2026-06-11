@@ -323,6 +323,10 @@ fn write_summary_footer_in_range_uses_source_label() {
 /// updating in exactly one place.
 fn base_check_args() -> CheckArgs {
     CheckArgs {
+        positional: crate::PositionalPaths::default(),
+        selection: crate::WalkSelectionArgs::default(),
+        tuning: crate::WalkTuningArgs::default(),
+        preproc: crate::PreprocConsumeArgs::default(),
         thresholds: Vec::new(),
         config: None,
         no_fail: false,

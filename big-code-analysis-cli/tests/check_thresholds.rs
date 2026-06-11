@@ -61,7 +61,7 @@ fn check_clean_exits_zero_with_no_offenders() {
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=10"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=10"])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -73,7 +73,7 @@ fn check_violation_exits_two_with_stable_stderr() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
         // The classify function exceeds cyclomatic=1; the offender line
@@ -92,9 +92,9 @@ fn check_no_fail_keeps_exit_zero_but_still_reports() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--no-fail",
@@ -111,7 +111,7 @@ fn check_unknown_metric_exits_one_with_clear_error() {
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "not_a_metric=1"])
+        .args(["check", "--paths", &path, "--threshold", "not_a_metric=1"])
         .assert()
         // Exit 1 (tool error), not 2 (threshold exceeded). This is the
         // pivot that lets CI distinguish "metric regression" from
@@ -129,7 +129,7 @@ fn check_requires_at_least_one_threshold() {
     // the repo, whose root `bca.toml` supplies a `[thresholds]` table
     // that would otherwise satisfy the "at least one threshold" check.
     cli(dir.path())
-        .args(["--no-config", "--paths", &path, "check"])
+        .args(["check", "--no-config", "--paths", &path])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("no thresholds configured"));
@@ -143,7 +143,7 @@ fn check_unknown_metric_close_typo_suggests_correction() {
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclic=15"])
+        .args(["check", "--paths", &path, "--threshold", "cyclic=15"])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("did you mean"))
@@ -159,7 +159,7 @@ fn check_unknown_metric_dotted_typo_suggests_correction() {
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "halstead.efort=1"])
+        .args(["check", "--paths", &path, "--threshold", "halstead.efort=1"])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("did you mean"))
@@ -175,7 +175,7 @@ fn check_unknown_metric_unrelated_input_omits_suggestion() {
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "xyznonexistent=1"])
+        .args(["check", "--paths", &path, "--threshold", "xyznonexistent=1"])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("unknown threshold metric"))
@@ -193,7 +193,7 @@ fn check_unknown_metric_in_toml_config_suggests_correction() {
     let config_str = config_path.to_str().expect("utf8 config path");
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--config", config_str])
+        .args(["check", "--paths", &path, "--config", config_str])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("did you mean"))
@@ -209,9 +209,9 @@ fn check_with_no_matching_files_exits_one() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             dir.path().to_str().unwrap(),
-            "check",
             "--threshold",
             "cyclomatic=10",
         ])
@@ -229,9 +229,9 @@ fn check_reads_thresholds_from_toml_config() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             cfg_path.to_str().unwrap(),
         ])
@@ -252,9 +252,9 @@ fn check_cli_threshold_overrides_config() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             cfg_path.to_str().unwrap(),
             "--threshold",
@@ -275,9 +275,9 @@ fn check_emits_one_line_per_metric_per_function() {
     // least two lines for `classify` — one for each metric.
     let assert = cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--threshold",
@@ -326,10 +326,10 @@ fn check_uses_file_sentinel_for_top_level_space() {
         // threshold of 1 is guaranteed to fire there for any
         // non-trivial fixture.
         .args([
+            "check",
             "--no-config",
             "--paths",
             &path,
-            "check",
             "--threshold",
             "loc.sloc=1",
         ])
@@ -372,9 +372,9 @@ fn check_sarif_output_to_file_with_violations_exits_two() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output-format",
@@ -408,9 +408,9 @@ fn check_no_fail_with_sarif_output_exits_zero() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output-format",
@@ -443,9 +443,9 @@ fn check_clean_run_emits_empty_sarif_document() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=10",
             "--output-format",
@@ -479,9 +479,9 @@ fn check_output_sarif_extension_infers_format_without_flag() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output",
@@ -512,9 +512,9 @@ fn check_output_xml_extension_infers_checkstyle_without_flag() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output",
@@ -542,9 +542,9 @@ fn check_output_unknown_extension_without_format_exits_one() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output",
@@ -570,9 +570,9 @@ fn check_output_no_extension_without_format_exits_one() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output",
@@ -596,9 +596,9 @@ fn check_explicit_format_overrides_output_extension() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--format",
@@ -624,9 +624,9 @@ fn check_clang_warning_output_streams_one_line_per_offender() {
 
     let output = cli(dir.path())
         .args([
+            "check",
             "--paths",
             &fixture,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--output-format",
@@ -666,7 +666,7 @@ pub fn outer() -> i32 {
     let path = write_fixture(&dir, "nested.rs", body);
 
     let assert = cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
@@ -708,11 +708,11 @@ fn check_recognised_after_single_value_exclude() {
     // as the subcommand. Pre-#601 this errored with a missing <COMMAND>.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
             "--exclude",
             "./nothing/**",
-            "check",
             "--threshold",
             "cyclomatic=10",
         ])
@@ -731,13 +731,13 @@ fn check_runs_with_num_jobs_separator() {
     // Pages workflow uses.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
             "--exclude",
             "./nothing/**",
             "--num-jobs",
             "1",
-            "check",
             "--threshold",
             "cyclomatic=10",
         ])
@@ -761,7 +761,7 @@ fn summary_footer_emitted_by_default() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("--- summary ---"))
@@ -775,9 +775,9 @@ fn summary_footer_suppressed_by_no_summary() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--no-summary",
@@ -795,7 +795,7 @@ fn summary_skipped_for_clean_run() {
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
     cli(dir.path())
-        .args(["--paths", &path, "check", "--threshold", "cyclomatic=10"])
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=10"])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -835,7 +835,7 @@ fn cli_helper_does_not_leak_to_github_step_summary() {
         // Regression: `cli()` strips the inherited env var, so
         // the child never sees a step-summary target.
         cli(dir.path())
-            .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+            .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
             .assert()
             .code(2);
 
@@ -871,13 +871,13 @@ fn summary_pluralizes_count() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &p1,
             "--paths",
             &p2,
             "--paths",
             &p3,
-            "check",
             "--threshold",
             "cyclomatic=1",
         ])
@@ -908,9 +908,9 @@ fn summary_worst_metric_uses_max_ratio() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--threshold",
@@ -931,11 +931,11 @@ fn summary_sorts_by_count_desc() {
 
     let output = cli(dir.path())
         .args([
+            "check",
             "--paths",
             &a,
             "--paths",
             &b,
-            "check",
             "--threshold",
             "cyclomatic=1",
             "--threshold",
@@ -1102,16 +1102,16 @@ fn check_headroom_scales_config_limit_into_offender() {
 
     // Sanity: clean at full scale (hard tier).
     cli(dir.path())
-        .args(["--paths", &path, "check", "--config", &cfg])
+        .args(["check", "--paths", &path, "--config", &cfg])
         .assert()
         .success();
 
     // Scaled to 1.0 at the soft tier → offender.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--tier",
@@ -1137,9 +1137,9 @@ fn check_headroom_ignored_at_hard_tier() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--headroom",
@@ -1166,9 +1166,9 @@ fn check_headroom_one_is_noop() {
 
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--tier",
@@ -1195,7 +1195,7 @@ fn check_headroom_out_of_range_exits_one() {
     // value to our validator instead of treating it as a flag.
     for ratio in ["--headroom=1.5", "--headroom=0", "--headroom=-0.5"] {
         cli(dir.path())
-            .args(["--paths", &path, "check", "--config", &cfg, ratio])
+            .args(["check", "--paths", &path, "--config", &cfg, ratio])
             .assert()
             .code(1)
             .stderr(predicate::str::contains("--headroom must be in (0, 1]"));
@@ -1220,9 +1220,9 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
     // draw the (here irrelevant) provenance warning (#486).
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--tier",
@@ -1251,10 +1251,10 @@ fn check_soft_tier_without_config_warns_and_noops() {
     // not fire.
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             &path,
-            "check",
             "--tier",
             "soft",
             "--threshold",
@@ -1283,9 +1283,9 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
     // Write a baseline at the scaled (1.0) limit: classify is captured.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--tier",
@@ -1306,9 +1306,9 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
     // Re-run filtered by that baseline at the same tier: suppressed.
     cli(dir.path())
         .args([
+            "check",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--tier",
@@ -1370,14 +1370,14 @@ fn check_soft_table_absolute_override_trips_at_soft_tier() {
 
     // Hard tier: limit 10, classify (5) is clean; the soft table is ignored.
     cli(dir.path())
-        .args(["--paths", &path, "check", "--config", &cfg])
+        .args(["check", "--paths", &path, "--config", &cfg])
         .assert()
         .success();
 
     // Soft tier: limit 3, classify (5) trips.
     cli(dir.path())
         .args([
-            "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
+            "check", "--paths", &path, "--config", &cfg, "--tier", "soft",
         ])
         .assert()
         .code(2)
@@ -1399,7 +1399,7 @@ fn check_soft_table_scale_relative_resolves_against_hard() {
 
     cli(dir.path())
         .args([
-            "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
+            "check", "--paths", &path, "--config", &cfg, "--tier", "soft",
         ])
         .assert()
         .code(2)
@@ -1486,10 +1486,10 @@ fn check_soft_table_scale_without_hard_base_errors() {
     // soft scale a base to multiply, masking the intended error.
     cli(dir.path())
         .args([
+            "check",
             "--no-config",
             "--paths",
             &path,
-            "check",
             "--config",
             &cfg,
             "--tier",

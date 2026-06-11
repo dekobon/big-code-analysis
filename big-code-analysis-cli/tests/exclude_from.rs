@@ -64,11 +64,11 @@ fn exclude_from_file_drops_listed_patterns() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -98,15 +98,15 @@ fn exclude_from_unions_with_exclude_flag() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
             // `--exclude` now takes exactly one value per occurrence
-            // (#601), so `metrics` is parsed as a positional, not a
-            // second exclude glob. The `=VAL` form is kept for clarity.
+            // (#601). With the subcommand leading, the exclude globs
+            // follow it unambiguously. The `=VAL` form is kept for clarity.
             "--exclude=**/drop_b.py",
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -153,11 +153,11 @@ fn exclude_from_skips_blank_and_comment_lines() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -182,11 +182,11 @@ fn exclude_from_missing_file_dies_with_path_in_message() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             missing.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -208,11 +208,11 @@ fn exclude_from_invalid_glob_in_file_dies_like_exclude_flag() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
         ])
@@ -239,11 +239,11 @@ fn exclude_from_stdin_reads_patterns() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             "-",
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -282,12 +282,12 @@ fn exclude_from_empty_file_leaves_inline_excludes_intact() {
     // the three tests triangulate the wiring.
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
             "--exclude=**/drop_a.py",
-            "metrics",
             "-O",
             "json",
             "-o",
@@ -324,11 +324,11 @@ fn exclude_from_strips_utf8_bom_on_first_line() {
 
     cli(dir.path())
         .args([
+            "metrics",
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
-            "metrics",
             "-O",
             "json",
             "-o",

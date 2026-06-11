@@ -4,10 +4,73 @@
 .SH NAME
 bca\-functions \- List functions/methods and their spans
 .SH SYNOPSIS
-\fBbca\-functions\fR [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-functions\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-cyclomatic\-try\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-color\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIPATHS\fR] 
 .SH DESCRIPTION
 List functions/methods and their spans
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.SH "INPUT SELECTION"
+.TP
+\fB\-p\fR, \fB\-\-paths\fR \fI<PATHS>\fR
+Input files or directories to analyze. Unioned with any positional `[PATHS]` (#651). Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
+.TP
+\fB\-I\fR, \fB\-\-include\fR \fI<INCLUDE>\fR
+Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed
+.TP
+\fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+.TP
+\fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
+Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
+.TP
+\fB\-\-no\-skip\-generated\fR
+Disable auto\-skip of files marked as generated (e.g. `@generated`, `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI skips such files so generated bindings do not skew metrics
+.TP
+\fB\-\-paths\-from\fR \fI<PATHS_FROM>\fR
+Read newline\-separated input paths from a file. Use `\-` to read from stdin. Combined as a union with any `\-\-paths` values; globs still apply. Blank lines are skipped; `#` is treated as a path character (not a comment). To pass a file literally named `\-`, use `./\-`
+.TP
+\fB\-\-exclude\-from\fR \fI<EXCLUDE_FROM>\fR
+Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`
+.TP
+\fB\-\-no\-ignore\fR
+Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding directory seeds. Explicit file paths are always honored regardless of this flag
+.TP
+\fB\-\-no\-config\fR
+Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the working directory to the repo root looking for `bca.toml` and merges its keys *under* any explicit CLI flags. Pass this for raw, fully\-explicit invocations that must not pick up repo\-level config (e.g. a reproducible CI one\-liner). When no manifest is discovered this flag is a no\-op
+.TP
+[\fIPATHS\fR]
+Input files or directories to analyze, given positionally (`bca metrics src/ tests/`). Unioned with any `\-\-paths`/`\-p` values (#651). The clap arg id (`positional_paths`) is distinct from the `\-\-paths` flag\*(Aqs id so both can coexist on one command — clap requires unique arg ids; the two are merged by `assemble_globals`
+.SH "WALKER TUNING"
+.TP
+\fB\-j\fR, \fB\-\-jobs\fR \fI<N|auto>\fR [default: auto]
+Number of jobs.
+
+Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major.
+.TP
+\fB\-\-exclude\-tests\fR
+Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
+.TP
+\fB\-\-no\-cyclomatic\-try\fR
+Stop Rust\*(Aqs `?` operator (the `try_expression` node) from contributing to cyclomatic complexity (standard and modified). By default `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass this to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\- linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (the CLI flag wins when both are set)
+.SH PREPROCESSOR
+.TP
+\fB\-\-preproc\-data\fR \fI<PREPROC_DATA>\fR
+Existing preprocessor\-data JSON to consume during C/C++ analysis. Use `bca preproc` to produce one
+.SH OUTPUT
+.TP
+\fB\-\-color\fR \fI<WHEN>\fR [default: auto]
+When to colorize the human\-readable `text` dumps (`metrics` / `ops` default tree, `dump`, `find`, `functions`): `auto` (default — color only when stdout is a terminal and `NO_COLOR` is unset), `always` (force escapes even when piped/redirected), or `never` (plain text). Structured formats (`json` / `yaml` / `toml` / `cbor` / `csv`) and file output are never colorized. Honors the `NO_COLOR` convention (<https://no\-color.org>) unless `\-\-color always` overrides it
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+auto: Color when stdout is a terminal and `NO_COLOR` is unset
+.IP \(bu 2
+always: Always emit color, even when piped or redirected
+.IP \(bu 2
+never: Never emit color
+.RE
