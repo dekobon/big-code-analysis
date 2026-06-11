@@ -215,8 +215,9 @@ markdown|html --vcs` "Change-history risk" section (#573) are **one-way
 rendered projections** (like the AST `bca report` output): the page
 *structure* is stable within `1.x`, but the exact bytes are not a
 round-trip format — do not parse them. `bca vcs --output` names a single
-file (a whole-repo report is one document), distinct from the per-file
-*directory* semantics of `bca metrics`/`bca ops --output`. The composite
+file (a whole-repo report is one document); as of 2.0 `bca metrics`/`bca
+ops --output` also names a single aggregate file, with the per-file
+*directory* tree now written by `--output-dir` (#669). The composite
 `risk_score` is **ordinal, not cardinal** — only
 relative ranks are meaningful — and is formula-versioned
 (`risk_score_version`): the formula may change within `1.x`, but any

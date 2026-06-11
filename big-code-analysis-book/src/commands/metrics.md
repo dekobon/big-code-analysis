@@ -1,7 +1,8 @@
 # Metrics
 
-`bca metrics` computes per-file metrics and emits them either to stdout
-or to a directory of structured files.
+`bca metrics` computes per-file metrics and emits them either to stdout,
+to a single aggregate file (`--output`), or to a directory of per-file
+structured files (`--output-dir`).
 
 > **Migrating?** This command replaces the pre-restructure `--metrics`
 > flag. The aggregated report previously selected with `-O markdown`
@@ -21,6 +22,18 @@ bca metrics --paths /path/to/your/file/or/directory
 
 - `--paths` (or `-p`): file or directory to analyze. If a directory is
   provided, metrics are computed for every supported file it contains.
+  Paths may also be given positionally (`bca metrics file.rs dir/`).
+
+> **Explicitly-named files must be parseable.** When you name a file
+> directly (positionally or via `--paths`/`--paths-from`) whose language
+> the tool cannot recognize, `bca` prints a warning on stderr and — if
+> the run produced no output at all — exits 1, mirroring the way a
+> nonexistent explicit path fails. A mixed run that analyzed at least one
+> file still exits 0 with the warning. Pass `--language <lang>` to force
+> a parser when a file's extension lies about its contents. Files reached
+> only by walking a *directory* are skipped silently (a tree full of
+> READMEs and configs must not be noisy); pass `-w` to surface those
+> skips too.
 
 ## Exporting metrics
 
@@ -58,7 +71,7 @@ To export metrics as JSON files:
 
 ```bash
 bca metrics --paths /path/to/your/file/or/directory \
-    -O json -o /path/to/output/directory
+    -O json --output metrics.json
 ```
 
 - `-O, --format`: output format. Defaults to `text` — a human-readable
@@ -67,12 +80,17 @@ bca metrics --paths /path/to/your/file/or/directory \
   a structured format). The structured per-file serializers are `cbor`,
   `csv`, `json`, `toml`, and `yaml`. `--output-format` is accepted as a
   deprecated alias and will be removed in 2.0.
-- `-o, --output`: directory to save output files. Filenames mirror
-  the input file plus the format extension. If omitted, results are
-  printed to stdout. CBOR is binary and therefore requires `-o`.
-  Passing `--output` without a structured `--format` is an error (the
-  default `text` format streams to stdout and writes no files), so an
-  explicit `--output` never silently no-ops (#661).
+- `-o, --output`: a single file holding one aggregate document for the
+  whole run — a top-level array of the per-file results (TOML wraps the
+  array under a `files` key; CSV concatenates each file's rows). If
+  omitted, results are printed to stdout.
+- `--output-dir`: a directory holding one document per input file, named
+  by the input path plus the format extension. Mutually exclusive with
+  `--output`; passing both is an error.
+- CBOR is binary and so requires a destination (`--output` or
+  `--output-dir`). Passing either destination without a structured
+  `--format` is an error (the default `text` format streams to stdout
+  and writes no files), so a destination never silently no-ops (#661).
 - `--metrics <name,…>`: restrict computation to a subset of metrics
   (comma-separated and/or repeated, e.g. `--metrics cyclomatic,cognitive
   --metrics loc`). Names are the canonical ids `bca list-metrics` prints
@@ -86,7 +104,7 @@ bca metrics --paths /path/to/your/file/or/directory \
 
 ```bash
 bca metrics --paths /path/to/your/code \
-    -O csv -o csv-output
+    -O csv --output-dir csv-output
 ```
 
 The CSV writer emits one row per `FuncSpace` (function, class,
@@ -112,8 +130,10 @@ bca metrics --paths /path/to/your/code -O csv \
     > metrics.csv
 ```
 
-CSV is a per-file format; with `--output <dir>` each input file
-produces a `<input>.csv` mirror under the output directory.
+CSV is a per-file format; with `--output-dir <dir>` each input file
+produces a `<input>.csv` mirror under the output directory. With
+`--output <file>` every file's rows are concatenated into one aggregate
+CSV.
 
 > An aggregated HTML *report* covering the whole walk is available
 > via [`bca report html`](report.md#html-format). The previous

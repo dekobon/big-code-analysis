@@ -87,7 +87,20 @@ use big_code_analysis::{
     ConcurrentRunner, CountCollector, FilesData, MetricsOptions, NumJobs, PreprocResults,
     SuppressionPolicy,
 };
-use big_code_analysis::{get_from_ext, read_file};
+use big_code_analysis::{FuncSpace, Ops, get_from_ext, read_file};
+
+/// One aggregated per-file result for the single-file `--output <FILE>`
+/// mode on `metrics` / `ops` (#669). Workers stream these through
+/// `Config::aggregate_tx`; the command runner collects them after the
+/// walk and serializes the whole set as one document. Boxed so the
+/// channel item stays small (a `FuncSpace` tree is large).
+pub(crate) enum AggregateItem {
+    /// A `metrics` file-level space plus its emitted path (the path is
+    /// needed for the CSV aggregate, whose rows are keyed by file).
+    Metrics(Box<FuncSpace>, PathBuf),
+    /// An `ops` operator/operand tree.
+    Ops(Box<Ops>),
+}
 
 /// `expect` message used at every `action::<_>` call site inside the
 /// extracted `dispatch` module. Kept in `lib.rs` so any module that
@@ -552,7 +565,7 @@ enum Command {
     /// Compare two metric-output runs and report, per metric, which
     /// files changed (old to new), plus files added/removed between the
     /// two sets. Each side is a per-file JSON file or a directory tree of
-    /// them (the form `bca metrics -O json --output DIR` writes).
+    /// them (the form `bca metrics -O json --output-dir DIR` writes).
     /// Replaces the grammar-bump glue chain — the external
     /// `json-minimal-tests` binary plus `split-minimal-tests.py` — with
     /// one native command. Always exits 0 on success; the diff is
@@ -589,10 +602,18 @@ struct StructuredArgs {
     /// slated for removal in 2.0.
     #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     output_format: Option<MetricsFormat>,
-    /// Output directory. Filenames mirror input paths plus the format
-    /// extension. Stdout if omitted (CBOR requires this flag).
+    /// Output file. Writes one aggregate document (a top-level array of
+    /// the per-file results; TOML wraps it under a `files` key) for the
+    /// whole run. Stdout if omitted (CBOR requires this flag). Use
+    /// `--output-dir` for the per-file directory tree; passing both is an
+    /// error.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
+    /// Output directory. Writes one document per input file, named by the
+    /// input path plus the format extension. Mutually exclusive with
+    /// `--output` (which writes a single aggregate file).
+    #[clap(long = "output-dir", value_parser)]
+    output_dir: Option<PathBuf>,
     /// Pretty-print JSON / TOML output.
     #[clap(long)]
     pretty: bool,
@@ -694,10 +715,9 @@ struct VcsArgs {
     /// alias (issue #513).
     #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     format: Option<VcsFormat>,
-    /// Output file. Unlike `metrics`/`ops` (which write a directory of
-    /// per-file emissions), a change-history report is a single
-    /// whole-repo document, so this names one file. Stdout if omitted
-    /// (CBOR requires this flag — it is binary).
+    /// Output file. A change-history report is a single whole-repo
+    /// document, so this names one file. Stdout if omitted (CBOR requires
+    /// this flag — it is binary).
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
     /// Pretty-print JSON / TOML output.
@@ -1928,7 +1948,19 @@ enum Action {
 #[derive(Debug)]
 struct Config {
     action: Action,
-    output: Option<PathBuf>,
+    /// Per-file output directory (`--output-dir <DIR>`) for `metrics` /
+    /// `ops` (#669) — the historical `--output` directory-tree semantics,
+    /// where each input file's document is written under this directory
+    /// named by its path plus the format extension. Mutually exclusive
+    /// with `output`. `None` for every other flow.
+    output_dir: Option<PathBuf>,
+    /// Sender for streaming each per-file result when `metrics` / `ops`
+    /// run in single-file aggregate mode (`--output <FILE>`, #669). The
+    /// command runner collects the records after the walk and writes one
+    /// document. `None` for the directory / stdout paths, which write
+    /// per-file inline. Wrapped in `Mutex` because `mpsc::Sender` is
+    /// `Send` but not `Sync`.
+    aggregate_tx: Option<Mutex<std::sync::mpsc::Sender<AggregateItem>>>,
     language: Option<LANG>,
     line_start: Option<usize>,
     line_end: Option<usize>,
@@ -1966,6 +1998,27 @@ struct Config {
     /// no violations) from "no files matched" (counter == 0), so a
     /// typo in `--paths` does not silently pass CI.
     files_dispatched: Option<Arc<AtomicUsize>>,
+    /// Seeds the user named *explicitly as files* on the command line
+    /// (or via `--paths-from` / a manifest `paths` key), in the emitted
+    /// path form. A file in this set whose language is unrecognized is a
+    /// user error — it warns on stderr unconditionally (not gated behind
+    /// `-w`) and bumps `explicit_unrecognized` (#663). A file discovered
+    /// by a directory walk is absent here and stays silently skipped.
+    /// Empty for every flow until `run_walk` populates it from
+    /// [`expand_seed_paths`].
+    explicit_seeds: Arc<std::collections::HashSet<PathBuf>>,
+    /// Counts explicit-seed files skipped because their language is
+    /// unrecognized (#663). Read after the walk together with
+    /// `output_produced`: a run that produced nothing *and* skipped at
+    /// least one explicitly-named file exits 1, mirroring the #596
+    /// nonexistent-explicit-path error. `None` for flows that do not
+    /// enforce the rule.
+    explicit_unrecognized: Option<Arc<AtomicUsize>>,
+    /// Counts files that resolved to a recognized language and were
+    /// handed to dispatch (#663). Distinct from `files_dispatched`, which
+    /// also counts empty / unrecognized / generated skips. A zero value
+    /// after the walk means the run produced no analyzable output.
+    output_produced: Option<Arc<AtomicUsize>>,
     /// Whether to honor or ignore in-source suppression markers when
     /// emitting threshold violations. Only meaningful for
     /// `Action::Check`; the field is defaulted to `Honor` for every
@@ -2045,7 +2098,8 @@ impl Config {
         let language = resolve_language(globals.language.as_deref(), &action);
         Self {
             action,
-            output: None,
+            output_dir: None,
+            aggregate_tx: None,
             language,
             // Set by the `dump`/`find` call sites from their `LineRange`
             // args; every other action leaves the range unbounded.
@@ -2061,6 +2115,9 @@ impl Config {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
+            explicit_seeds: Arc::new(std::collections::HashSet::new()),
+            explicit_unrecognized: None,
+            output_produced: None,
             suppression_policy: SuppressionPolicy::Honor,
             report_suppressed: false,
             warning: globals.warning,
@@ -2331,12 +2388,26 @@ impl WalkFilters<'_> {
     }
 }
 
+/// Resolved file set plus the subset of seeds that were *explicitly
+/// named files* (not products of a directory expansion).
+///
+/// `explicit_files` backs the #663 rule: an explicitly-named file whose
+/// language is unrecognized must warn on stderr and, when it is the sole
+/// reason the run produced nothing, exit 1 — mirroring the #596
+/// nonexistent-explicit-path error. A file discovered by walking a
+/// directory seed is *not* in this set, so a tree full of READMEs and
+/// configs stays silently skipped (gated behind `-w`).
+struct ResolvedFiles {
+    files: Vec<PathBuf>,
+    explicit_files: std::collections::HashSet<PathBuf>,
+}
+
 fn expand_seed_paths(
     mut paths: Vec<PathBuf>,
     paths_from: Option<PathBuf>,
     no_ignore: bool,
     filters: &WalkFilters<'_>,
-) -> Vec<PathBuf> {
+) -> ResolvedFiles {
     use ignore::WalkBuilder;
     if let Some(src) = paths_from {
         paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
@@ -2354,6 +2425,7 @@ fn expand_seed_paths(
         paths.push(PathBuf::from("."));
     }
     let mut out: Vec<PathBuf> = Vec::new();
+    let mut explicit_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for seed in paths.into_iter().map(walk_seed::reanchor_seed) {
         if !seed.exists() {
             // An explicitly-supplied seed that does not exist is a tool
@@ -2370,6 +2442,12 @@ fn expand_seed_paths(
             // `bca.analyze()` API), and is matched against the globs
             // as-is — the historical single-file filter behaviour.
             if filters.passes(&seed) {
+                // Record the explicit seed (in its emitted form) so the
+                // per-file dispatch can distinguish it from a
+                // directory-expansion product: an explicitly-named file
+                // with an unrecognized language must warn + may exit 1
+                // (#663), whereas a walked one stays silently skipped.
+                explicit_files.insert(seed.clone());
                 out.push(seed);
             }
             continue;
@@ -2407,7 +2485,10 @@ fn expand_seed_paths(
     if out.is_empty() {
         eprintln!("bca: warning: 0 files matched");
     }
-    out
+    ResolvedFiles {
+        files: out,
+        explicit_files,
+    }
 }
 
 /// Resolve the seeds into the terminal, walk-root-anchored file list
@@ -2417,7 +2498,7 @@ fn expand_seed_paths(
 /// walk and no second, emitted-path-form-sensitive glob match (the dead
 /// library globsets and re-walk were removed in #495). This anchored
 /// walk is the single filtering seam.
-fn resolve_walk_files(globals: GlobalOpts) -> (Vec<PathBuf>, usize) {
+fn resolve_walk_files(globals: GlobalOpts) -> (ResolvedFiles, usize) {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
     let exclude = build_exclude_globset(
         globals.exclude,
@@ -2429,21 +2510,22 @@ fn resolve_walk_files(globals: GlobalOpts) -> (Vec<PathBuf>, usize) {
         include: &include,
         exclude: &exclude,
     };
-    let paths = expand_seed_paths(
+    let resolved = expand_seed_paths(
         globals.paths,
         globals.paths_from,
         globals.no_ignore,
         &filters,
     );
-    (paths, num_jobs)
+    (resolved, num_jobs)
 }
 
 /// Resolve the seeds and process the file set concurrently. The common
 /// walk entry point; callers that also need the resolved file list (only
 /// `bca preproc`, for `#include` grouping) use [`run_walk_collecting`].
-fn run_walk(globals: GlobalOpts, cfg: Config) {
-    let (paths, num_jobs) = resolve_walk_files(globals);
-    run_walk_resolved(paths, num_jobs, cfg);
+fn run_walk(globals: GlobalOpts, mut cfg: Config) {
+    let (resolved, num_jobs) = resolve_walk_files(globals);
+    cfg.explicit_seeds = Arc::new(resolved.explicit_files);
+    run_walk_resolved(resolved.files, num_jobs, cfg);
 }
 
 /// Process an already-resolved terminal file list concurrently. Lets a
@@ -2460,8 +2542,10 @@ fn run_walk_resolved(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) {
 /// `bca preproc` needs it to group files by basename for cross-file
 /// `#include` resolution after the analysis (#495); it is the only
 /// caller that consumes the list, so only this variant clones it.
-fn run_walk_collecting(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
-    let (paths, num_jobs) = resolve_walk_files(globals);
+fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
+    let (resolved, num_jobs) = resolve_walk_files(globals);
+    cfg.explicit_seeds = Arc::new(resolved.explicit_files);
+    let paths = resolved.files;
     ConcurrentRunner::new(num_jobs, act_on_file)
         .run(
             cfg,
@@ -2503,7 +2587,10 @@ pub(crate) fn walk_metric_set(
         pretty: false,
     };
     let cfg = Config {
-        output: Some(json_out_dir.to_path_buf()),
+        // `bca diff --since` writes a per-file JSON tree it later reloads;
+        // that is the directory-tree mode, which now lives on `output_dir`
+        // (#669) rather than `output` (a single aggregate file).
+        output_dir: Some(json_out_dir.to_path_buf()),
         ..Config::new(action, &globals, None)
     };
 

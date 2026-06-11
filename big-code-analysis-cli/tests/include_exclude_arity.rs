@@ -104,7 +104,7 @@ fn exclude_flag_repeats_accumulate() {
             "**/drop_b.rs",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.path().to_str().unwrap(),
         ])
         .assert()
@@ -136,7 +136,7 @@ fn include_flag_repeats_accumulate() {
             "**/*.py",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.path().to_str().unwrap(),
         ])
         .assert()
@@ -196,7 +196,7 @@ fn exclude_value_with_comma_is_one_glob() {
             "**/{a,b}/**",
             "-O",
             "json",
-            "-o",
+            "--output-dir",
             out.path().to_str().unwrap(),
         ])
         .assert()

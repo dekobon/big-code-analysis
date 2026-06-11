@@ -336,12 +336,14 @@ const CYCLOMATIC_KEY: (&str, &str) = ("cyclomatic", "sum");
 /// Top-level `FuncSpace` keys every serializer must preserve.
 const STRUCTURAL_KEYS: &[&str] = &["name", "kind", "spaces", "metrics"];
 
-/// Run `bca metrics -O <format> -o <outdir>` and return the single
-/// emitted file's bytes. Output filenames mirror the (path-cleaned)
-/// input path under `outdir`, so rather than reconstruct the production
-/// `handle_path` mapping we walk `outdir` for the one file with
-/// `extension`. CBOR has no stdout path, so this file route is the only
-/// way to smoke it.
+/// Run `bca metrics -O <format> --output-dir <outdir>` and return the
+/// single emitted file's bytes. Output filenames mirror the
+/// (path-cleaned) input path under `outdir`, so rather than reconstruct
+/// the production `handle_path` mapping we walk `outdir` for the one file
+/// with `extension`. CBOR has no stdout path, so this file route is the
+/// only way to smoke it. Uses `--output-dir` (the per-file-tree mode,
+/// #669) so each document keeps its single-`FuncSpace` shape — `--output`
+/// would emit one aggregate array instead.
 fn run_metrics_to_file(
     dir: &TempDir,
     format: &str,
@@ -356,7 +358,7 @@ fn run_metrics_to_file(
             fixture_path,
             "-O",
             format,
-            "-o",
+            "--output-dir",
             out_dir.path().to_str().expect("outdir path is utf-8"),
         ])
         .assert()

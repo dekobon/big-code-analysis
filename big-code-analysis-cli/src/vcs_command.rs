@@ -270,7 +270,8 @@ fn rank(
     // Reuse the standard walk so `--paths/--include/--exclude/--no-ignore`
     // behave exactly as elsewhere; intersect the result with the tracked
     // set (untracked / binary files are simply absent from the index).
-    let (selected, _jobs) = crate::resolve_walk_files(globals.clone());
+    let (resolved, _jobs) = crate::resolve_walk_files(globals.clone());
+    let selected = resolved.files;
 
     let mut covered: HashSet<PathBuf> = HashSet::new();
     let mut entries: Vec<FileEntry> = selected

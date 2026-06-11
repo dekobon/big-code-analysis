@@ -11,7 +11,7 @@ analysis, or feed them into a database or dashboard.
 bca metrics \
     --paths src/ \
     -O json \
-    -o /tmp/metrics
+    --output-dir /tmp/metrics
 ```
 
 This writes one JSON file per analyzed source file under
@@ -21,29 +21,39 @@ not `src/lib.json`. Use `--pretty` if you intend to read the files by
 hand:
 
 ```bash
-bca metrics -p src/ --pretty -O json -o /tmp/metrics
+bca metrics -p src/ --pretty -O json --output-dir /tmp/metrics
 ```
 
-CBOR (`-O cbor`) is the most compact format; it is binary and
-therefore requires `-o`. JSON, TOML, and YAML can all be streamed to
-stdout when `-o` is omitted, which is useful for pipelines.
+To collect the whole run into one file instead of a tree, use
+`--output <file>`; it writes a single aggregate document (a top-level
+JSON array of the per-file results):
+
+```bash
+bca metrics -p src/ -O json --output /tmp/metrics.json
+```
+
+CBOR (`-O cbor`) is the most compact format; it is binary and so
+requires a destination (`--output` or `--output-dir`). JSON, TOML, and
+YAML can all be streamed to stdout when no destination is given, which
+is useful for pipelines.
 
 ## Compare two metric runs with `bca diff`
 
 `bca diff` compares two JSON metric runs and reports, per metric, which
 files changed (old → new), plus any files added or removed between the
 two sets. Each side is either a single per-file JSON document or a whole
-directory tree of them (the form `metrics -O json -o <dir>` writes), so
-the common workflow is two `bca metrics` runs into separate directories:
+directory tree of them (the form `metrics -O json --output-dir <dir>`
+writes), so the common workflow is two `bca metrics` runs into separate
+directories:
 
 ```bash
 # Capture the "before" state.
-bca metrics -p src/ -O json -o /tmp/before
+bca metrics -p src/ -O json --output-dir /tmp/before
 
 # ...make a change (e.g. bump a tree-sitter grammar)...
 
 # Capture the "after" state and diff.
-bca metrics -p src/ -O json -o /tmp/after
+bca metrics -p src/ -O json --output-dir /tmp/after
 bca diff /tmp/before /tmp/after
 ```
 
@@ -146,7 +156,7 @@ bca ops \
     --include "*.rs" \
     --paths src/ \
     -O json --pretty \
-    -o /tmp/ops
+    --output-dir /tmp/ops
 ```
 
 > **Flag ordering.** Variadic flags like `--include` and `--exclude`

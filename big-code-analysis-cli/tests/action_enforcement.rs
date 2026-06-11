@@ -136,12 +136,42 @@ fn ops_rejects_csv_format_at_runtime() {
         .stderr(predicate::str::contains("metric-shaped"));
 }
 
-/// `bca metrics -O <fmt> -o <existing-file>` must die: the per-file
-/// formats expect a directory output target so each input file gets its
-/// own output sibling. Pointing at a file (an existing non-directory)
-/// is a configuration error caught by `require_output_is_dir`.
+/// Under the unified #669 semantics `bca metrics -o <file>` is a single
+/// aggregate file, so pointing `--output` at an existing regular file is
+/// no longer an error: it is overwritten with the aggregate document. The
+/// per-file directory-tree mode that *did* require a directory target
+/// moved to `--output-dir` (see `metrics_output_dir_rejects_regular_file`).
 #[test]
-fn metrics_rejects_non_directory_output() {
+fn metrics_output_file_overwrites_regular_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = dir.path().join("a.rs");
+    std::fs::write(&src, b"fn main() {}\n").expect("seed source");
+    let file_path = dir.path().join("out.json");
+    std::fs::write(&file_path, b"stale").expect("seed file");
+
+    cli()
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            file_path.to_str().expect("utf8"),
+            src.to_str().expect("utf8"),
+        ])
+        .assert()
+        .success();
+    let written = std::fs::read_to_string(&file_path).expect("read aggregate");
+    assert!(
+        written.trim_start().starts_with('['),
+        "aggregate --output must be a top-level JSON array, got: {written}"
+    );
+}
+
+/// `--output-dir <existing-file>` must die: the per-file-tree mode needs a
+/// directory target so each input file gets its own sibling document.
+/// Pointing it at a regular file is a configuration error (#669).
+#[test]
+fn metrics_output_dir_rejects_regular_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file_path = dir.path().join("not_a_dir.json");
     std::fs::write(&file_path, b"").expect("seed file");
@@ -153,22 +183,21 @@ fn metrics_rejects_non_directory_output() {
             "json",
             "--paths",
             ".",
-            "-o",
+            "--output-dir",
             file_path.to_str().expect("utf8"),
         ])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--output must be a directory for `metrics`",
+            "--output-dir must be a directory for `metrics`",
         ));
 }
 
-/// Symmetric check for `ops`. The guard is shared via the
-/// `require_output_is_dir` helper; this test pins the per-command error
-/// message so a refactor that swaps the wrong command name into the
-/// shared helper's `format_args!` would fail loudly.
+/// Symmetric `--output-dir` directory-target check for `ops`, pinning the
+/// per-command error message so a refactor that swaps the wrong command
+/// name into the shared helper's `format_args!` fails loudly (#669).
 #[test]
-fn ops_rejects_non_directory_output() {
+fn ops_output_dir_rejects_regular_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file_path = dir.path().join("not_a_dir.json");
     std::fs::write(&file_path, b"").expect("seed file");
@@ -180,12 +209,12 @@ fn ops_rejects_non_directory_output() {
             "json",
             "--paths",
             ".",
-            "-o",
+            "--output-dir",
             file_path.to_str().expect("utf8"),
         ])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--output must be a directory for `ops`",
+            "--output-dir must be a directory for `ops`",
         ));
 }

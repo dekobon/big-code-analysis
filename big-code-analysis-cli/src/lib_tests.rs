@@ -126,6 +126,7 @@ fn normalize_text_format_collapses_text_to_none() {
         out: OutputArgs::default(),
         output_format: Some(MetricsFormat::Text),
         output: None,
+        output_dir: None,
         pretty: false,
     };
     explicit_text.normalize_text_format();
@@ -139,6 +140,7 @@ fn normalize_text_format_collapses_text_to_none() {
         out: OutputArgs::default(),
         output_format: Some(MetricsFormat::Json),
         output: None,
+        output_dir: None,
         pretty: false,
     };
     json.normalize_text_format();

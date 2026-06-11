@@ -74,6 +74,25 @@ for historical reference.
   cycle, then are removed in the next major. "Just-in-time (JIT)" stays
   in the long help and book as the defect-prediction-literature
   cross-reference. Deferred to 2.0.0 (#603).
+- **(breaking)** `bca metrics`/`ops`: `--output <FILE>` now means a
+  single aggregate file everywhere (a top-level array of the per-file
+  documents; TOML wraps it under a `files` key, CSV concatenates each
+  file's rows), matching every other subcommand. The per-file directory
+  tree that `--output` used to imply moved to a new `--output-dir <DIR>`;
+  `--output out.json` used to create a *directory* named `out.json`.
+  Passing both `--output` and `--output-dir` is a usage error (exit 1).
+  Migration: scripts that relied on `metrics -o <dir>` / `ops -o <dir>`
+  for the per-file tree must switch to `--output-dir <dir>`. Deferred to
+  2.0.0 (#669).
+- **(breaking)** `bca metrics`/`ops`: an *explicitly-named* file whose
+  language is unrecognized now warns on stderr unconditionally (no longer
+  gated behind `-w`) and exits 1 when the run produced no analyzable
+  output — mirroring the nonexistent-explicit-path rule (#596). A mixed
+  run that analyzed at least one file still exits 0 with the warning;
+  `--language` forces a parser for files whose extension lies.
+  Directory-walk skips for unrecognized languages stay silently gated
+  behind `-w`. Previously such an explicit file was skipped silently with
+  exit 0. Deferred to 2.0.0 (#663).
 
 ### Added
 
