@@ -55,9 +55,9 @@ where
             (
                 text,
                 Some(Span {
-                    start_row: spos_row + 1,
+                    start_line: spos_row + 1,
                     start_col: spos_column + 1,
-                    end_row: epos_row + 1,
+                    end_line: epos_row + 1,
                     end_col: epos_column + 1,
                 }),
             )
@@ -547,6 +547,7 @@ mod tests {
         let parser = P::new(code.to_vec(), &path, None);
         let cfg = crate::AstCfg {
             id: String::new(),
+            language: String::new(),
             comment: false,
             span: false,
         };

@@ -157,6 +157,7 @@ fn ast_dump_produces_serializable_tree() {
     };
     let cfg = AstCfg {
         id: payload.id.clone(),
+        language: "rust".to_owned(),
         comment: payload.comment,
         span: payload.span,
     };
