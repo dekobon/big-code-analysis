@@ -338,11 +338,33 @@ table.hotspot tr:nth-child(even) td.risk-heat-3,table.hotspot td.risk-heat-3\
 table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4\
 {background:#bfe3c0;color:#222}\
 @media (prefers-color-scheme:dark){\
-table.hotspot td.risk-heat-0{background:#7a1f17;color:#f0f0f0}\
-table.hotspot td.risk-heat-1{background:#7a4a12;color:#f0f0f0}\
-table.hotspot td.risk-heat-2{background:#6b5e12;color:#f0f0f0}\
-table.hotspot td.risk-heat-3{background:#33591f;color:#f0f0f0}\
-table.hotspot td.risk-heat-4{background:#1f5a2e;color:#f0f0f0}\
+body{color:#e0e0e0;background:#121212}\
+a{color:#6aa3e0}\
+h2{border-bottom-color:#333}\
+h3{color:#bbb}\
+.summary{color:#bbb}\
+.summary strong{color:#e0e0e0}\
+.note{color:#999}\
+footer.provenance{color:#888;border-top-color:#333}\
+p.sort-hint{color:#999}\
+details.legend{color:#bbb}\
+details.legend summary{color:#e0e0e0}\
+details.legend dd{color:#999}\
+table.hotspot{background:#1e1e1e}\
+table.hotspot th,table.hotspot td{border-bottom-color:#333}\
+table.hotspot th{background:#2a2a2a}\
+table.hotspot th:hover{background:#383838}\
+table.hotspot tr:nth-child(even) td{background:#232323}\
+table.hotspot tr:nth-child(even) td.risk-heat-0,table.hotspot td.risk-heat-0\
+{background:#7a1f17;color:#f0f0f0}\
+table.hotspot tr:nth-child(even) td.risk-heat-1,table.hotspot td.risk-heat-1\
+{background:#7a4a12;color:#f0f0f0}\
+table.hotspot tr:nth-child(even) td.risk-heat-2,table.hotspot td.risk-heat-2\
+{background:#6b5e12;color:#f0f0f0}\
+table.hotspot tr:nth-child(even) td.risk-heat-3,table.hotspot td.risk-heat-3\
+{background:#33591f;color:#f0f0f0}\
+table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4\
+{background:#1f5a2e;color:#f0f0f0}\
 }\
 ";
 
