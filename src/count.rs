@@ -159,11 +159,15 @@ impl fmt::Display for Count {
             "Found nodes: {}",
             self.good.to_formatted_string(&Locale::en)
         )?;
-        write!(
-            f,
-            "Percentage: {:.2}%",
+        // Guard the empty case: a zero-match `bca count` leaves the default
+        // `Count { good: 0, total: 0 }`, and `0.0 / 0.0` is `NaN`, which would
+        // render as the meaningless "Percentage: NaN%". Report 0% instead.
+        let percentage = if self.total == 0 {
+            0.0
+        } else {
             (self.good as f64) / (self.total as f64) * 100.
-        )
+        };
+        write!(f, "Percentage: {percentage:.2}%")
     }
 }
 
@@ -258,5 +262,32 @@ mod tests {
         let count = collector.into_count();
         assert_eq!(count.good, 3, "poison recovery must preserve the tally");
         assert_eq!(count.total, 7, "poison recovery must preserve the tally");
+    }
+
+    // Regression test for issue #709: the default `Count { good: 0, total: 0 }`
+    // (a zero-match `bca count` run) used to render "Percentage: NaN%" because
+    // `0.0 / 0.0` is NaN. The empty case must report 0.00% instead.
+    #[test]
+    fn display_reports_zero_percent_for_empty_count() {
+        let rendered = Count::default().to_string();
+        assert!(
+            rendered.contains("Percentage: 0.00%"),
+            "empty Count must render 0.00%, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains("NaN"),
+            "empty Count must not render NaN, got: {rendered}"
+        );
+    }
+
+    // A non-empty Count still renders the true ratio (3/7 ≈ 42.86%), so the
+    // zero-guard does not accidentally clamp populated tallies to 0%.
+    #[test]
+    fn display_reports_true_percentage_for_nonempty_count() {
+        let rendered = Count { good: 3, total: 7 }.to_string();
+        assert!(
+            rendered.contains("Percentage: 42.86%"),
+            "3/7 must render 42.86%, got: {rendered}"
+        );
     }
 }

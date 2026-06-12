@@ -236,6 +236,43 @@ fn test_guess_language() {
 }
 
 #[test]
+fn guess_language_emacs_mode_on_fifth_line() {
+    // Regression test for issue #709. The forward scan used `splitn(5)`
+    // with an `i == 3` break, so it inspected only the first 4 lines while
+    // splitting off an unbounded 5th remainder it never matched against —
+    // a mode-line on the 5th line was silently missed. With four blank
+    // leading lines, the emacs header sits on the 5th line and must now be
+    // detected against an extension-free path so the mode drives the result.
+    let buf = b"\n\n\n\n// -*- mode: c++ -*-\n";
+    assert_eq!(guess_language(buf, "noext"), (Some(LANG::Cpp), "cpp"));
+
+    // A mode-line on the 6th line is outside the window and must NOT match;
+    // the off-by-one fix widens the window to exactly 5 real lines, not the
+    // unbounded remainder the old `splitn` tail used to (accidentally) span.
+    let buf = b"\n\n\n\n\n// -*- mode: c++ -*-\n";
+    assert_eq!(guess_language(buf, "noext"), (None, ""));
+}
+
+#[test]
+fn guess_language_vim_modeline_with_trailing_blank_lines() {
+    // Regression test for issue #709. The backward scan used `rsplitn(5)`,
+    // whose first slot is the empty piece after the file's trailing
+    // newline; trailing blank lines then consumed the rest of the window
+    // before a real modeline was reached. Filtering empty pieces lets the
+    // scan cover five real trailing lines regardless of trailing blanks.
+    //
+    // The six leading body lines push the modeline past the forward
+    // scan window (first five lines), so the match can only come from the
+    // *backward* scan — the path the fix changed. The three trailing
+    // blank lines then fill the old `rsplitn(5)` window's first slots
+    // with empty pieces, so the unfiltered scan broke before reaching the
+    // modeline. This buffer therefore fails against the pre-fix
+    // `rsplitn(5)` and passes only with the empty-piece filter.
+    let buf = b"a\nb\nc\nd\ne\nf\n// vim: set ft=c++\n\n\n\n";
+    assert_eq!(guess_language(buf, "noext"), (Some(LANG::Cpp), "cpp"));
+}
+
+#[test]
 fn guess_language_name_outlives_input_buffer() {
     // The returned name is `&'static str`: it must remain valid after
     // the owned input buffer is dropped. This pins the honest lifetime
