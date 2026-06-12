@@ -224,7 +224,12 @@ fn collect_results<'a>(
                     region: Region {
                         start_line: record.start_line.max(1),
                         end_line: Some(record.end_line.max(record.start_line.max(1))),
-                        start_column: record.start_col,
+                        // SARIF §3.30.6 requires `startColumn >= 1`;
+                        // clamp symmetrically with `startLine` so a
+                        // future 0-based-column producer can never emit
+                        // `startColumn: 0` (#698). `start_col` is `None`
+                        // in production today, so this is latent.
+                        start_column: record.start_col.map(|c| c.max(1)),
                     },
                 },
                 logical_locations,
@@ -535,6 +540,22 @@ mod tests {
         r.function = None;
         let out = render(&[r]);
         assert!(!out.contains("logicalLocations"), "{out}");
+    }
+
+    #[test]
+    fn start_column_zero_is_clamped_to_one() {
+        // SARIF §3.30.6 requires `startColumn >= 1`. A 0-based-column
+        // producer feeding `start_col = Some(0)` must be clamped to 1,
+        // symmetric with the already-clamped `startLine` (#698).
+        let mut r = rec("a.rs", "cyclomatic", 17.0, 15.0);
+        r.start_col = Some(0);
+        let out = render(&[r]);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let region = &v["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"];
+        assert_eq!(
+            region["startColumn"], 1,
+            "startColumn must clamp 0 -> 1, got: {region}"
+        );
     }
 
     #[test]

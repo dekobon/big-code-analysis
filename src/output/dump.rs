@@ -97,6 +97,24 @@ struct DumpState<'a> {
     stdout: &'a mut dyn WriteColor,
 }
 
+/// One pending node in the iterative AST walk: the node, the box-drawing
+/// prefix accumulated from its ancestors, whether it is the last child of
+/// its parent (which selects its connector glyph), and the remaining
+/// depth budget.
+struct Frame<'a> {
+    node: Node<'a>,
+    prefix: String,
+    last: bool,
+    depth: i32,
+}
+
+/// Render the subtree rooted at `node` with an explicit work stack rather
+/// than recursion. A pathologically deep AST (thousands of nested
+/// expressions, which the iterative *builder* in tree-sitter accepts
+/// without bound) would otherwise overflow the thread stack at dump time
+/// — an uncatchable abort, forbidden by the no-panic rule. The traversal
+/// order, per-node glyphs, and depth semantics are byte-identical to the
+/// prior recursive form (#700).
 fn dump_tree_helper(
     state: &mut DumpState,
     node: &Node,
@@ -104,17 +122,54 @@ fn dump_tree_helper(
     last: bool,
     depth: i32,
 ) -> std::io::Result<()> {
-    if depth == 0 {
-        return Ok(());
+    let mut stack: Vec<Frame> = vec![Frame {
+        node: *node,
+        prefix: prefix.to_owned(),
+        last,
+        depth,
+    }];
+
+    while let Some(Frame {
+        node,
+        prefix,
+        last,
+        depth,
+    }) = stack.pop()
+    {
+        if depth == 0 {
+            continue;
+        }
+
+        let (pref_child, pref) = branch_glyphs(&node, last);
+
+        if line_in_range(node.start_row() + 1, state.line_start, state.line_end) {
+            write_node_line(state.stdout, state.code, &node, &prefix, pref)?;
+        }
+
+        let count = node.child_count();
+        if count == 0 {
+            continue;
+        }
+
+        // Children share one extended prefix. Push them in reverse so
+        // `pop()` visits them in source order, matching the recursive
+        // form's pre-order traversal. `Children` is not a
+        // `DoubleEndedIterator`, so collect first, then walk the indices
+        // backwards.
+        let child_prefix = format!("{prefix}{pref_child}");
+        let child_depth = depth - 1;
+        let children: Vec<Node> = node.children().collect();
+        for (i, child) in children.into_iter().enumerate().rev() {
+            stack.push(Frame {
+                node: child,
+                prefix: child_prefix.clone(),
+                last: i + 1 == count,
+                depth: child_depth,
+            });
+        }
     }
 
-    let (pref_child, pref) = branch_glyphs(node, last);
-
-    if line_in_range(node.start_row() + 1, state.line_start, state.line_end) {
-        write_node_line(state.stdout, state.code, node, prefix, pref)?;
-    }
-
-    dump_children(state, node, prefix, pref_child, depth)
+    Ok(())
 }
 
 /// Box-drawing prefixes for `node` as `(pref_child, pref)`. The root
@@ -211,29 +266,6 @@ fn write_node_snippet(
         Ok(text) => write!(stdout, "{text} "),
         Err(_) => stdout.write_all(snippet),
     }
-}
-
-/// Recurse into `node`'s children, extending the prefix and marking the
-/// final child so it renders with the closing `╰─` glyph. Leaves
-/// allocate no prefix string.
-fn dump_children(
-    state: &mut DumpState,
-    node: &Node,
-    prefix: &str,
-    pref_child: &str,
-    depth: i32,
-) -> std::io::Result<()> {
-    let count = node.child_count();
-    if count == 0 {
-        return Ok(());
-    }
-
-    let prefix = format!("{prefix}{pref_child}");
-    for (i, child) in node.children().enumerate() {
-        dump_tree_helper(state, &child, &prefix, i + 1 == count, depth - 1)?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -375,6 +407,49 @@ mod tests {
         assert!(
             rendered.contains("int b = 2;"),
             "row-2 declaration should show:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn deeply_nested_ast_dumps_without_stack_overflow() {
+        // The dump walk is iterative (#700): a pathologically deep AST —
+        // here ~4000 nested parentheses, which tree-sitter builds with an
+        // iterative parser — must dump without overflowing the thread
+        // stack. The pre-fix recursive `dump_tree_helper` aborted the
+        // process here; an abort is uncatchable, so reaching the
+        // assertion at all is the regression guard. Run on a small-stack
+        // thread so a latent re-introduction of recursion fails loudly
+        // rather than relying on the (large) test-runner stack.
+        const DEPTH: usize = 4_000;
+        let mut src = Vec::with_capacity(DEPTH * 2 + 8);
+        src.extend_from_slice(b"int a = ");
+        src.extend(std::iter::repeat_n(b'(', DEPTH));
+        src.push(b'1');
+        src.extend(std::iter::repeat_n(b')', DEPTH));
+        src.extend_from_slice(b";\n");
+
+        let handle = std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(move || {
+                let parser = CppParser::new(src.clone(), &PathBuf::from("deep.c"), None);
+                let root = parser.root();
+                let no_start: Option<usize> = None;
+                let no_end: Option<usize> = None;
+                let mut sink = NoColor::new(Vec::new());
+                let mut state = DumpState {
+                    code: &src,
+                    line_start: &no_start,
+                    line_end: &no_end,
+                    stdout: &mut sink,
+                };
+                dump_tree_helper(&mut state, &root, "", true, -1).is_ok()
+            })
+            .expect("spawn dump thread");
+        assert!(
+            handle
+                .join()
+                .expect("dump thread must not overflow the stack"),
+            "deep AST must dump successfully"
         );
     }
 

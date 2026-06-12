@@ -41,14 +41,14 @@
 //! offenders triggered.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::metric_catalog::{Direction, lookup};
-use crate::output::numfmt::MessageMetric;
+use crate::metric_catalog::lookup;
 use crate::output::offenders::{OffenderRecord, Severity, TOOL_ID, warn_non_utf8_path};
 
 /// Number of leading SHA-256 bytes retained in each fingerprint
@@ -79,6 +79,16 @@ pub fn write_code_climate<W: Write>(offenders: &[OffenderRecord], mut writer: W)
         return writer.write_all(b"[]\n");
     }
     let mut issues: Vec<CodeClimateIssue> = Vec::with_capacity(offenders.len());
+    // Disambiguate findings that share the same `path \0 function \0
+    // metric` triple — two same-named functions (overloads, a trait-impl
+    // `fn new`, sibling closures) each breaching the same metric. Without
+    // a discriminator they hash identically, GitLab's MR widget dedups
+    // them, and the second offender silently vanishes (#703). The ordinal
+    // is the count of prior same-triple findings in the (deterministic,
+    // source-order) offender stream; the first occurrence keeps ordinal 0
+    // so unique findings — the overwhelming majority — retain their
+    // historical fingerprint and the frozen dedup contract is unbroken.
+    let mut seen: HashMap<(String, Option<String>, String), u32> = HashMap::new();
     for record in offenders {
         let Some(path_raw) = warn_non_utf8_path("code-climate", &record.path) else {
             continue;
@@ -98,10 +108,14 @@ pub fn write_code_climate<W: Write>(offenders: &[OffenderRecord], mut writer: W)
                 column,
             },
         });
+        let key = (path.clone(), record.function.clone(), record.metric.clone());
+        let ordinal = seen.entry(key).or_insert(0);
+        let fingerprint = fingerprint(&path, record.function.as_deref(), &record.metric, *ordinal);
+        *ordinal += 1;
         issues.push(CodeClimateIssue {
             description: build_description(record),
             check_name: format!("{TOOL_ID}/{}", record.metric),
-            fingerprint: fingerprint(&path, record.function.as_deref(), &record.metric),
+            fingerprint,
             severity: severity_band(&record.metric, record.value, record.limit, record.severity),
             location: Location {
                 path,
@@ -164,7 +178,14 @@ struct Position {
 /// "how many times the threshold did we breach by" is `limit /
 /// value`, not `value / limit`.
 fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'static str {
-    let fallback = || match severity {
+    // The declared `Severity` is a floor, not just a fallback: an
+    // offender the threshold engine marked `Error` must never render as
+    // the cosmetic `minor` band, even when its breach ratio is small
+    // (#698). `Warning` floors at `minor` (the lowest band we emit),
+    // `Error` at `major`, so a 1.1x `Error` reads as `major`, not
+    // `minor`. The computed ratio band can only raise the level above
+    // this floor, never lower it.
+    let floor = match severity {
         Severity::Warning => "minor",
         Severity::Error => "major",
     };
@@ -173,16 +194,15 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
     // guard would let `mi.*` reach the inverted ratio with `value <=
     // 0.0` and divide-by-zero. Keep the guards here.
     if !value.is_finite() || !limit.is_finite() || limit <= 0.0 || value <= 0.0 {
-        return fallback();
+        return floor;
     }
-    let lower_is_worse =
-        lookup(metric).is_some_and(|i| matches!(i.direction, Direction::LowerIsWorse));
+    let lower_is_worse = crate::metric_catalog::lower_is_worse(metric);
     let ratio = if lower_is_worse {
         limit / value
     } else {
         value / limit
     };
-    if ratio <= 1.5 {
+    let band = if ratio <= 1.5 {
         "minor"
     } else if ratio <= 2.0 {
         "major"
@@ -190,6 +210,31 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
         "critical"
     } else {
         "blocker"
+    };
+    worst_severity(band, floor)
+}
+
+/// GitLab's severity enum as an ordered scale, lowest-first. Used to
+/// take the worst of the ratio-derived band and the declared-severity
+/// floor so a higher declared severity is never downgraded by a small
+/// breach ratio (#698). An unrecognized token ranks below `minor` so it
+/// never wins a comparison.
+fn severity_rank(level: &str) -> u8 {
+    match level {
+        "minor" => 1,
+        "major" => 2,
+        "critical" => 3,
+        "blocker" => 4,
+        _ => 0,
+    }
+}
+
+/// The more-severe of two GitLab severity tokens.
+fn worst_severity(a: &'static str, b: &'static str) -> &'static str {
+    if severity_rank(a) >= severity_rank(b) {
+        a
+    } else {
+        b
     }
 }
 
@@ -199,17 +244,33 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
 /// metric value — both shift on cosmetic edits that should not
 /// re-surface a known violation.
 ///
+/// `ordinal` disambiguates findings that share the same `path \0
+/// function \0 metric` triple (two same-named functions each breaching
+/// the same metric). The first occurrence (`ordinal == 0`) is hashed
+/// exactly as before so unique findings keep their historical
+/// fingerprint and the frozen GitLab-dedup contract is preserved; only a
+/// genuine collision folds the ordinal into the digest, giving the
+/// second and later same-triple findings distinct fingerprints so
+/// GitLab no longer drops them (#703). An ordinal survives cosmetic
+/// edits as long as the relative source order of the same-named
+/// functions is unchanged — preferred over `end_line`, which shifts on
+/// any edit above the function.
+///
 /// Truncated to [`FINGERPRINT_BYTE_LEN`] bytes per the issue spec
 /// (32 hex chars by construction). Leading-zero bytes are preserved
 /// by [`hex_lower_bytes`] (which a `format!("{:x}", u128)` rendering
 /// would silently drop).
-fn fingerprint(path: &str, function: Option<&str>, metric: &str) -> String {
+fn fingerprint(path: &str, function: Option<&str>, metric: &str, ordinal: u32) -> String {
     let mut h = Sha256::new();
     h.update(path.as_bytes());
     h.update(b"\0");
     h.update(function.unwrap_or("").as_bytes());
     h.update(b"\0");
     h.update(metric.as_bytes());
+    if ordinal > 0 {
+        h.update(b"\0");
+        h.update(ordinal.to_le_bytes());
+    }
     let digest = h.finalize();
     hex_lower_bytes(&digest[..FINGERPRINT_BYTE_LEN])
 }
@@ -250,20 +311,16 @@ fn build_description(record: &OffenderRecord) -> String {
     let Some(long_form) = lookup(&record.metric).map(|i| i.long_description) else {
         return record.default_message();
     };
-    // Single-allocation render: write the long-form prefix and the
-    // default-message components directly into one String instead of
-    // round-tripping through `record.default_message()` + `format!`.
-    let mut out = String::with_capacity(long_form.len() + record.metric.len() + 32);
+    // Prefix the catalog's long-form sentence, then reuse the offender's
+    // direction-aware `default_message` tail so the breach phrasing
+    // ("exceeds limit" vs the `mi.*` "falls below limit", #698) stays in
+    // lockstep with the SARIF / Checkstyle / warning-line surfaces
+    // instead of hardcoding "exceeds limit" here.
+    let tail = record.default_message();
+    let mut out = String::with_capacity(long_form.len() + 1 + tail.len());
     out.push_str(long_form);
     out.push(' ');
-    // SAFETY: writing to a String is infallible.
-    let _ = write!(
-        &mut out,
-        "{} {} exceeds limit {}",
-        record.metric,
-        MessageMetric(record.value),
-        MessageMetric(record.limit),
-    );
+    out.push_str(&tail);
     out
 }
 
@@ -435,6 +492,48 @@ mod tests {
     }
 
     #[test]
+    fn declared_error_severity_is_a_floor_not_overridden_by_band() {
+        // An offender the engine marked `Error` must never render as the
+        // cosmetic `minor` band, even at a 1.1x breach ratio (#698).
+        // Before the fix the ratio band always won, so a 1.1x `Error`
+        // emitted `minor`.
+        assert_eq!(
+            severity_band("cyclomatic", 11.0, 10.0, Severity::Error),
+            "major",
+            "Error must floor at major even at a sub-1.5x ratio"
+        );
+        // A higher ratio still raises the level above the Error floor.
+        assert_eq!(
+            severity_band("cyclomatic", 30.0, 10.0, Severity::Error),
+            "critical"
+        );
+        // A Warning at the same small ratio stays minor (floor unchanged).
+        assert_eq!(
+            severity_band("cyclomatic", 11.0, 10.0, Severity::Warning),
+            "minor"
+        );
+    }
+
+    #[test]
+    fn description_lower_is_worse_uses_falls_below() {
+        // The Code Climate description tail must match the offender's
+        // direction-aware wording: an `mi.*` offender reads "falls below
+        // limit", not "exceeds limit" (#698).
+        let mut r = rec("a.rs", "mi.original", 30.0, 50.0);
+        r.start_col = None;
+        let v = render_value(&[r]);
+        let desc = v[0]["description"].as_str().expect("string");
+        assert!(
+            desc.contains("falls below limit 50"),
+            "mi.* description must say 'falls below limit', got: {desc}"
+        );
+        assert!(
+            desc.starts_with("Maintainability Index falls below the configured threshold."),
+            "mi.* long-form prefix expected, got: {desc}"
+        );
+    }
+
+    #[test]
     fn severity_band_falls_back_when_limit_zero() {
         assert_eq!(
             severity_band("cyclomatic", 5.0, 0.0, Severity::Warning),
@@ -512,9 +611,48 @@ mod tests {
 
     #[test]
     fn fingerprint_handles_none_function() {
-        let none_fp = fingerprint("a.rs", None, "cyclomatic");
-        let empty_fp = fingerprint("a.rs", Some(""), "cyclomatic");
+        let none_fp = fingerprint("a.rs", None, "cyclomatic", 0);
+        let empty_fp = fingerprint("a.rs", Some(""), "cyclomatic", 0);
         assert_eq!(none_fp, empty_fp);
+    }
+
+    #[test]
+    fn same_named_offenders_get_distinct_fingerprints() {
+        // Two same-named functions (overloads, sibling closures, a
+        // trait-impl `fn new`) each breaching the same metric in the same
+        // file share the `path \0 function \0 metric` triple. Before #703
+        // they hashed identically and GitLab's MR widget dropped the
+        // second; now the ordinal disambiguates them.
+        let mut a = rec("src/foo.rs", "cyclomatic", 17.0, 15.0);
+        let mut b = rec("src/foo.rs", "cyclomatic", 22.0, 15.0);
+        a.function = Some("new".into());
+        b.function = Some("new".into());
+        a.start_line = 10;
+        b.start_line = 40;
+        let v = render_value(&[a, b]);
+        let arr = v.as_array().expect("array");
+        assert_eq!(arr.len(), 2, "both offenders must be emitted");
+        assert_ne!(
+            arr[0]["fingerprint"], arr[1]["fingerprint"],
+            "distinct same-named offenders must get distinct fingerprints"
+        );
+    }
+
+    #[test]
+    fn first_same_triple_offender_keeps_historical_fingerprint() {
+        // Ordinal 0 must hash exactly as the pre-#703 three-field form so
+        // unique findings keep their frozen GitLab-dedup fingerprint.
+        let legacy = fingerprint("src/foo.rs", Some("f"), "cyclomatic", 0);
+        let r = rec("src/foo.rs", "cyclomatic", 17.0, 15.0);
+        let v = render_value(&[r]);
+        assert_eq!(v[0]["fingerprint"], legacy);
+    }
+
+    #[test]
+    fn fingerprint_ordinal_changes_hash() {
+        let zero = fingerprint("a.rs", Some("f"), "cyclomatic", 0);
+        let one = fingerprint("a.rs", Some("f"), "cyclomatic", 1);
+        assert_ne!(zero, one);
     }
 
     #[test]
@@ -541,7 +679,7 @@ mod tests {
         // Lock the constant against drift. If `FINGERPRINT_BYTE_LEN`
         // changes, the truncation width in fingerprints changes too;
         // we want a loud failure rather than a silent shift.
-        let fp = fingerprint("a.rs", Some("fn"), "cyclomatic");
+        let fp = fingerprint("a.rs", Some("fn"), "cyclomatic", 0);
         assert_eq!(fp.len(), FINGERPRINT_BYTE_LEN * 2);
         assert!(
             fp.chars()
@@ -551,8 +689,8 @@ mod tests {
 
     #[test]
     fn fingerprint_is_deterministic() {
-        let a = fingerprint("src/x.rs", Some("f"), "cyclomatic");
-        let b = fingerprint("src/x.rs", Some("f"), "cyclomatic");
+        let a = fingerprint("src/x.rs", Some("f"), "cyclomatic", 0);
+        let b = fingerprint("src/x.rs", Some("f"), "cyclomatic", 0);
         assert_eq!(a, b);
     }
 
