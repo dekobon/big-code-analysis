@@ -65,9 +65,15 @@ EXTENSIONS = {
     ],
 }
 
-# Run a subprocess.
+# Run a subprocess, aborting the script if it exits non-zero.
+#
+# `check=True` makes a failed clone / cargo build / `bca` run stop the
+# pipeline immediately (CalledProcessError) instead of silently moving
+# on to compare metrics that were never produced — the former behaviour
+# masked a failed grammar-update run as an empty (and misleadingly
+# "clean") diff.
 def run_subprocess(cmd: str, *args: T.Union[str, pathlib.Path]) -> None:
-    subprocess.run([cmd, *args])
+    subprocess.run([cmd, *args], check=True)
 
 
 # Run big-code-analysis on the chosen repository to compute metrics.
@@ -163,8 +169,15 @@ def compute_metrics(args: argparse.Namespace) -> None:
         print(args.grammar, "is not a valid tree-sitter grammar")
         sys.exit(1)
 
-    # Repository local directory
-    repo_dir = WORKDIR / args.path
+    # Repository local directory. `pathlib.Path.__truediv__` discards
+    # the WORKDIR prefix when `args.path` is absolute (e.g.
+    # `WORKDIR / "/abs"` -> "/abs"), so a relative path lands under
+    # `/tmp` while an absolute one is honoured verbatim. Resolve the
+    # path the same way `compute_ci_metrics` does (`Path(args.path)`)
+    # so an absolute `-p` is honoured consistently across subcommands;
+    # relative paths are anchored under WORKDIR as before.
+    arg_path = pathlib.Path(args.path)
+    repo_dir = arg_path if arg_path.is_absolute() else WORKDIR / arg_path
     # Old metrics directory
     old_dir = WORKDIR / (args.grammar + OLD_SUFFIX)
     # New metrics directory
@@ -362,6 +375,13 @@ def main() -> None:
 
     # Parse arguments
     args = parser.parse_args()
+
+    # Without a subcommand, `args` has no `func` attribute. Print help
+    # and exit 2 (the argparse usage-error convention) rather than
+    # crashing with an opaque `AttributeError`.
+    if not hasattr(args, "func"):
+        parser.print_help(sys.stderr)
+        sys.exit(2)
 
     # Call the command
     args.func(args)

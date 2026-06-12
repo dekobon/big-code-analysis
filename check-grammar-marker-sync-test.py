@@ -580,6 +580,50 @@ class GrammarMarkerSyncTest(unittest.TestCase):
             updated,
         )
 
+    def test_update_preserves_value_with_escaped_quote(self) -> None:
+        # A baseline field whose value contains an escaped quote is
+        # legal TOML (`marker = "a\"b"`). `_replace_field_value`'s
+        # basic-string matcher must consume the escaped quote as a
+        # unit, rewriting the whole value — a naive `[^"]*` truncates
+        # at the inner quote and emits corrupt TOML. The marker here is
+        # contrived (real markers are crate names) but pins the parser
+        # against that truncation class.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.24.0"\n'
+            "# annotation with an escaped quote: \"q\"\n"
+            'note = "a\\"b"\n'
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
+        # The escaped-quote annotation survives untouched and the
+        # version was rewritten to the current Cargo.toml value.
+        self.assertIn('note = "a\\"b"', updated)
+        self.assertIn('version = "0.25.0"', updated)
+        post = _run(script)
+        self.assertEqual(post.returncode, 0, post.stderr)
+
+    def test_replace_field_value_handles_escaped_quote(self) -> None:
+        # Unit-level guard on `_replace_field_value`: rewriting a
+        # field whose existing value carries an escaped quote must
+        # replace the entire value, not truncate at the inner quote.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "gms", SCRIPT_SRC
+        )
+        assert spec is not None and spec.loader is not None
+        gms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gms)
+        rewritten = gms._replace_field_value('version = "a\\"b"\n', "version", "0.25.0")
+        self.assertEqual(rewritten, 'version = "0.25.0"\n')
+
     def test_marker_at_recursion_depth_limit_resolved(self) -> None:
         # 6 segments → recursion lands at depth=6, which is at the
         # inclusive boundary of _DEP_SCAN_MAX_DEPTH = 6.

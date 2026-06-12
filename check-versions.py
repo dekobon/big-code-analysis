@@ -68,9 +68,20 @@ PACKAGE_VERSION_RE = re.compile(
     r"^\[package\][^\[]*?^version\s*=\s*\"([^\"]+)\"",
     re.MULTILINE | re.DOTALL,
 )
+# Match an internal-crate pin in either layout:
+#   single-line: `<dep> = { ..., version = "=X.Y.Z", ... }`
+#   multi-line:  `<dep> = {\n  path = "..",\n  version = "=X.Y.Z",\n}`
+# Anchoring on the inline-table opener `{` (rather than allowing any
+# trailing text) is what makes the multi-line form safe: `[^}]*?`
+# scans across newlines *inside* the table but stops at its closing
+# `}`, so a `version = "..."` on its own line is found, yet the scan
+# can never bleed past the brace into an unrelated later dependency.
+# (Internal crates are always path-deps pinned via the `{ … }` table
+# form; the bare-string `<dep> = "X.Y.Z"` snippet form is a doc pin,
+# handled separately by DOC_PIN_RE.)
 INTERNAL_PIN_RE = re.compile(
-    r"(?:bca-tree-sitter-\w+|big-code-analysis)\s*="
-    r"[^\n}]*\bversion\s*=\s*\"=([^\"]+)\""
+    r"(?:bca-tree-sitter-\w+|big-code-analysis)\s*=\s*\{"
+    r"[^}]*?\bversion\s*=\s*\"=([^\"]+)\""
 )
 # Match: `big-code-analysis = "X.Y.Z"`, `bca-tree-sitter-* = "X.Y"`,
 # or `big-code-analysis = "= X.Y.Z"` style snippets in doc prose.

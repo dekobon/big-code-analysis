@@ -53,12 +53,65 @@ def _is_subcommand_man(basename: str) -> bool:
     return basename.startswith("bca-") and basename.endswith(".1")
 
 
+class AssetShapeError(Exception):
+    """An asset entry did not match the expected deb / rpm shape.
+
+    Carries a human-readable message naming the manifest, table, and
+    offending entry so ``main`` can fail loud with a structured exit
+    code instead of letting a ``KeyError`` / ``IndexError`` /
+    ``TypeError`` traceback leak when a packaging table is hand-edited
+    into an unexpected layout.
+    """
+
+
+def _asset_source(entry: object) -> str:
+    """Extract the source path from one deb or rpm asset entry.
+
+    Accepts both documented shapes without assuming which table it
+    came from, so a future restructure (deb table-style, rpm
+    array-style, or either with the source under ``src``/``source``)
+    is tolerated rather than crashing:
+
+    * sequence form ``["src", "dest", "mode"]`` -> first element.
+    * table form ``{ source = "src", … }`` or ``{ src = "…", … }``.
+
+    Raises ``AssetShapeError`` for any other shape (empty array,
+    table missing both keys, a bare string, …).
+    """
+    if isinstance(entry, str):
+        # A bare string is ambiguous — packaging tables always wrap
+        # the source in an array or table — so treat it as malformed.
+        raise AssetShapeError(f"asset entry is a bare string: {entry!r}")
+    if isinstance(entry, dict):
+        source = entry.get("source") or entry.get("src")
+        if isinstance(source, str):
+            return source
+        raise AssetShapeError(
+            f"asset table has no string `source`/`src` key: {entry!r}"
+        )
+    if isinstance(entry, (list, tuple)):
+        if entry and isinstance(entry[0], str):
+            return entry[0]
+        raise AssetShapeError(
+            f"asset array is empty or its first element is not a "
+            f"path string: {entry!r}"
+        )
+    raise AssetShapeError(
+        f"unrecognized asset entry shape ({type(entry).__name__}): {entry!r}"
+    )
+
+
 def asset_basenames(manifest: pathlib.Path) -> dict[str, set[str]]:
     """Return ``{"deb": {basenames…}, "rpm": {basenames…}}``.
 
     Reads both metadata asset tables and reduces each source path to
-    its basename. deb assets are ``[src, dest, mode]`` arrays; rpm
-    assets are ``{source, dest, …}`` tables.
+    its basename. deb assets are conventionally ``[src, dest, mode]``
+    arrays and rpm assets ``{source, dest, …}`` tables, but each entry
+    is parsed shape-agnostically via :func:`_asset_source`, so a
+    restructured table (e.g. deb switched to the table form) is
+    tolerated rather than crashing with a ``KeyError``/``IndexError``.
+
+    Raises :class:`AssetShapeError` if an entry matches no known shape.
     """
     data = tomllib.loads(manifest.read_text(encoding="utf-8"))
     metadata = data.get("package", {}).get("metadata", {})
@@ -66,8 +119,24 @@ def asset_basenames(manifest: pathlib.Path) -> dict[str, set[str]]:
     deb_assets = metadata.get("deb", {}).get("assets", [])
     rpm_assets = metadata.get("generate-rpm", {}).get("assets", [])
 
-    deb = {pathlib.PurePosixPath(entry[0]).name for entry in deb_assets}
-    rpm = {pathlib.PurePosixPath(entry["source"]).name for entry in rpm_assets}
+    def basenames(assets: object, table: str) -> set[str]:
+        if not isinstance(assets, list):
+            raise AssetShapeError(
+                f"{table}.assets is not an array (got "
+                f"{type(assets).__name__})"
+            )
+        out: set[str] = set()
+        for entry in assets:
+            try:
+                out.add(pathlib.PurePosixPath(_asset_source(entry)).name)
+            except AssetShapeError as exc:
+                raise AssetShapeError(
+                    f"{manifest.name} [{table}]: {exc}"
+                ) from exc
+        return out
+
+    deb = basenames(deb_assets, "package.metadata.deb")
+    rpm = basenames(rpm_assets, "package.metadata.generate-rpm")
     return {"deb": deb, "rpm": rpm}
 
 
@@ -83,8 +152,17 @@ def main() -> int:
     cli_pages = [p for p in pages if p != WEB_PAGE]
     web_pages = [p for p in pages if p == WEB_PAGE]
 
-    cli_assets = asset_basenames(CLI_MANIFEST)
-    web_assets = asset_basenames(WEB_MANIFEST)
+    try:
+        cli_assets = asset_basenames(CLI_MANIFEST)
+        web_assets = asset_basenames(WEB_MANIFEST)
+    except AssetShapeError as exc:
+        sys.stderr.write(
+            f"error: could not parse a packaging asset table: {exc}\n"
+            "       deb assets are `[\"src\", \"dest\", \"mode\"]` arrays;\n"
+            "       rpm assets are `{ source = \"src\", … }` tables.\n"
+            "       Fix the offending entry in the named Cargo.toml.\n"
+        )
+        return 2
 
     # (page, owning crate label, deb set, rpm set)
     checks: list[tuple[str, str, set[str], set[str]]] = []
