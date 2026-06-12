@@ -42,7 +42,7 @@ Output file. Stdout if omitted
 Path prefix to strip from displayed file paths in the TTY and Markdown per\-file tables. No\-op for `\-\-format json`, whose paths are a stable machine identity
 .TP
 \fB\-\-exit\-code\fR
-Exit with the metric\-gate code (`2`) when the diff is non\-empty in any section the active `\-\-metric` / `\-\-min\-change` filtering keeps; exit `0` when it is empty. Opt\-in (`git diff \-\-exit\-code`\-style) for grammar\-bump CI that wants a boolean "anything changed". Default (flag absent) always exits `0` on success. A tool error still exits `1` regardless (issue #692)
+Exit with the metric\-gate code (`2`) when the diff is non\-empty in any section the active `\-\-metric` / `\-\-min\-change` filtering keeps; exit `0` when it is empty. Opt\-in (`git diff \-\-exit\-code`\-style) for grammar\-bump CI that wants a boolean "anything changed". Default (flag absent) always exits `0` on success. A tool error still exits `1` regardless
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
@@ -55,13 +55,13 @@ In file/dir mode: the new (after) metric output (a per\-file JSON file or a dire
 .SH "INPUT SELECTION"
 .TP
 \fB\-p\fR, \fB\-\-paths\fR \fI<PATHS>\fR
-Input files or directories to analyze. Unioned with any positional `[PATHS]` (#651). Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
+Input files or directories to analyze. Unioned with any positional `[PATHS]`. Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
 .TP
 \fB\-I\fR, \fB\-\-include\fR \fI<INCLUDE>\fR
 Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed
 .TP
 \fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
-Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
@@ -76,7 +76,7 @@ Read newline\-separated input paths from a file. Use `\-` to read from stdin. Co
 Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`
 .TP
 \fB\-\-no\-ignore\fR
-Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding directory seeds. Explicit file paths are always honored regardless of this flag
+Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding input directories. Explicit file paths are always honored regardless of this flag
 .TP
 \fB\-\-no\-config\fR
 Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the working directory to the repo root looking for `bca.toml` and merges its keys *under* any explicit CLI flags. Pass this for raw, fully\-explicit invocations that must not pick up repo\-level config (e.g. a reproducible CI one\-liner). When no manifest is discovered this flag is a no\-op
@@ -85,13 +85,13 @@ Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the 
 \fB\-j\fR, \fB\-\-jobs\fR \fI<N|auto>\fR [default: auto]
 Number of jobs.
 
-Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major.
+Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle and is slated for removal in the next major.
 .TP
 \fB\-\-exclude\-tests\fR
-Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
+Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers stay byte\-for\-byte stable. Languages without a test\-subtree skip rule ignore this flag
 .TP
 \fB\-\-cyclomatic\-count\-try\fR[=\fI<BOOL>\fR]
-Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (issue #666); the CLI value overrides the manifest in either direction
+Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key; the CLI value overrides the manifest in either direction
 .br
 
 .br

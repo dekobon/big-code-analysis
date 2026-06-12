@@ -125,13 +125,17 @@ fn auto_detect_base_precedence_ladder() {
 
     // Scenario 5: all-zeroes SHA suppresses GithubPush detection (the
     // documented "no previous commit" sentinel for force-pushed or
-    // brand-new branches).
-    clear_diff_envs();
-    set_env(GITHUB_EVENT_BEFORE_ENV, NULL_SHA);
-    assert!(
-        auto_detect_base().is_none(),
-        "scenario 5 (NULL_SHA): all-zeroes SHA should not auto-detect"
-    );
+    // brand-new branches). Both the SHA-1 (40 zeros) and SHA-256 (64
+    // zeros) object-format null refs must be treated as absent (#704);
+    // the old fixed-length literal compare missed the 64-char form.
+    for width in [40_usize, 64] {
+        clear_diff_envs();
+        set_env(GITHUB_EVENT_BEFORE_ENV, &"0".repeat(width));
+        assert!(
+            auto_detect_base().is_none(),
+            "scenario 5 (null sha {width} chars): all-zeroes SHA should not auto-detect",
+        );
+    }
 
     // Scenario 6: empty-string GITHUB_BASE_REF is the documented
     // non-PR state and must be treated as absent, not as an empty
@@ -254,4 +258,38 @@ fn clear_diff_envs() {
     clear_one(BCA_DIFF_BASE_ENV);
     clear_one(GITHUB_BASE_REF_ENV);
     clear_one(GITHUB_EVENT_BEFORE_ENV);
+}
+
+#[test]
+fn is_null_sha_matches_both_object_formats() {
+    // The all-zeroes sentinel exists in two widths: SHA-1 (40) and
+    // SHA-256 (64). Both must be recognized (#704).
+    assert!(is_null_sha(&"0".repeat(40)), "SHA-1 null ref");
+    assert!(is_null_sha(&"0".repeat(64)), "SHA-256 null ref");
+    // A real ref (any non-`0` byte) is not the sentinel.
+    assert!(!is_null_sha("deadbeef"));
+    assert!(
+        !is_null_sha(&format!("{}1", "0".repeat(39))),
+        "a single non-zero digit makes it a real ref"
+    );
+    // The empty string is not a null SHA (it is "no signal", handled by
+    // `non_empty_env` before `is_null_sha` is ever consulted).
+    assert!(!is_null_sha(""), "empty string is not the sentinel");
+}
+
+#[test]
+fn materialize_tree_rejects_non_empty_dest() {
+    // The empty-dest contract is now enforced, not just documented
+    // (#704): a populated dest would mix leftover files into the
+    // extracted ref tree. We can exercise the guard without a git repo
+    // because the dest check precedes any git invocation only after
+    // `git_repo_root` — so run it from inside this checkout (a real git
+    // repo) with a dest that already has a file.
+    let dest = tempfile::TempDir::new().expect("tempdir");
+    std::fs::write(dest.path().join("leftover.txt"), b"x").expect("seed leftover");
+    let err = materialize_tree("HEAD", dest.path()).expect_err("non-empty dest must be rejected");
+    assert!(
+        err.contains("is not empty"),
+        "error names the empty-dest violation, got: {err}"
+    );
 }

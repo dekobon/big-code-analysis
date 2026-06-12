@@ -21,6 +21,7 @@ use std::borrow::Cow;
 
 use big_code_analysis::{Metric, SuppressionPolicy};
 
+use super::advisory::AdvisoryThresholds;
 use super::{FunctionSummary, is_class_like, sort_by_metric_asc, sort_by_metric_desc, thousands};
 use crate::format_util::{MetricScalar, thousands_round};
 
@@ -110,7 +111,16 @@ pub(crate) struct Column {
 // specs the single source of truth.
 pub(crate) const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
 pub(crate) const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
-pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
+pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescale, clamped to 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score.";
+
+/// The trailing note rendered under the MI hotspot table in both formats
+/// (issue #627). States which MI variant the column shows, the rating bands,
+/// and the clamping caveat, so a reader does not mistake a table of all-0.0
+/// clamped values for a catastrophically unmaintainable codebase. The final
+/// sentence warns that `bca check` may gate on a *different* MI variant
+/// (`mi.original` / `mi.sei`), so the column number and the gate number are
+/// not one-to-one comparable.
+pub(crate) const MI_NOTE: &str = "MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0\u{2013}100: GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column.";
 pub(crate) const SLOC_TOOLTIP: &str =
     "Source Lines Of Code: total physical lines, including blanks and comments.";
 pub(crate) const PLOC_TOOLTIP: &str =
@@ -252,6 +262,20 @@ pub(crate) struct HotspotSpec {
     pub(crate) rank_col: usize,
     /// Cyclomatic is the one section with a trailing summary note.
     pub(crate) cc_note: bool,
+    /// The MI section carries a trailing note ([`MI_NOTE`]) explaining the
+    /// rendered variant, the rating bands, and the 0-100 clamping caveat
+    /// (issue #627) — the dominant signal in a real MI table is "files are
+    /// larger than the formula's useful range", not "catastrophically
+    /// unmaintainable", and the note says so.
+    pub(crate) mi_note: bool,
+    /// Optional secondary sort key applied when `metric` ties, ahead of the
+    /// path/line/name [`tiebreak`]. The MI table uses the *unclamped*
+    /// `mi_original` here so its ranking stays informative even when the
+    /// displayed `mi_visual_studio` values all saturate to `0.0` on large
+    /// files — those rows would otherwise tie and fall back to alphabetical
+    /// order, conveying nothing (issue #627). The displayed value is still
+    /// the clamped `metric`; only the ordering consults this key.
+    pub(crate) secondary_metric: Option<fn(&FunctionSummary) -> f64>,
 }
 
 // Reusable column descriptors. Each `cell` carries the SAME value formatting
@@ -335,6 +359,10 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: true,
+        // Tie-break on the unclamped MI so the lowest-MI ranking stays
+        // meaningful when every displayed value clamps to 0.0 (issue #627).
+        secondary_metric: Some(|s| s.mi_original),
     },
     // 1 — Cyclomatic Complexity (carries the summary note).
     HotspotSpec {
@@ -355,6 +383,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: true,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 2 — Cognitive Complexity.
     HotspotSpec {
@@ -375,6 +405,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 3 — Halstead Effort.
     HotspotSpec {
@@ -415,6 +447,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 4 — Largest Functions by SLOC.
     HotspotSpec {
@@ -435,6 +469,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_COGNITIVE,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 5 — Many parameters. The `>3` floor (the `keep` predicate below) is a
     // legend/Args-column detail, not part of the title; the template names
@@ -461,6 +497,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 6 — Types (WMC). Drawn from the FULL slice (`Source::All`), since
     // class-likes are excluded from both the unit and function buckets. The
@@ -514,6 +552,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 7 — Exit points. The internal `(NEXITS)` ID is dropped from the title
     // (it matched neither the `Exits` column nor the `nexits` JSON key — issue
@@ -549,6 +589,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
     // 8 — ABC Magnitude.
     HotspotSpec {
@@ -573,6 +615,8 @@ pub(crate) const SPECS: &[HotspotSpec] = &[
             COL_TOKENS,
         ],
         cc_note: false,
+        mi_note: false,
+        secondary_metric: None,
     },
 ];
 
@@ -671,32 +715,49 @@ pub(crate) fn dedup_legend(
 
 /// Cyclomatic summary stats for the CC note, computed over the FULL
 /// suppression-filtered set (before top-N truncation), as both renderers did.
+///
+/// `over_primary` / `over_severe` count functions over the *resolved* advisory
+/// CC cutoff and its severe multiple (issue #630): with the built-in defaults
+/// these are `CC > 10` / `CC > 20`, but a manifest `cyclomatic = N` shifts
+/// both bands so the note matches the configured gate. The cutoffs are carried
+/// alongside the counts so the renderers can label the bands with the actual
+/// numbers.
 pub(crate) struct CyclomaticStats {
     pub(crate) sum: f64,
     pub(crate) count: usize,
     pub(crate) max: f64,
-    pub(crate) gt10: usize,
-    pub(crate) gt20: usize,
+    pub(crate) primary_cutoff: f64,
+    pub(crate) severe_cutoff: f64,
+    pub(crate) over_primary: usize,
+    pub(crate) over_severe: usize,
 }
 
 impl CyclomaticStats {
     /// Entries are already `cyclomatic > 0.0` (the CC `keep`), so no internal
     /// guard is needed — matching the pre-unification stats in both formats.
-    fn from_entries(entries: &[&FunctionSummary]) -> Self {
+    ///
+    /// `max` seeds at `0.0` not `f64::NAN` so an empty set renders `Max: 0`
+    /// not `Max: NaN`; renderers only emit the note for a non-empty table, so
+    /// this is a defensive fallback (`f64::max(0.0, c)` is exact, #704).
+    fn from_entries(entries: &[&FunctionSummary], advisory: AdvisoryThresholds) -> Self {
+        let primary_cutoff = advisory.cc;
+        let severe_cutoff = advisory.cc_severe();
         let mut s = Self {
             sum: 0.0,
             count: 0,
-            max: f64::NAN,
-            gt10: 0,
-            gt20: 0,
+            max: 0.0,
+            primary_cutoff,
+            severe_cutoff,
+            over_primary: 0,
+            over_severe: 0,
         };
         for f in entries {
             let c = f.cyclomatic;
             s.sum += c;
             s.count += 1;
             s.max = f64::max(s.max, c);
-            s.gt10 += usize::from(c > 10.0);
-            s.gt20 += usize::from(c > 20.0);
+            s.over_primary += usize::from(c > primary_cutoff);
+            s.over_severe += usize::from(c > severe_cutoff);
         }
         s
     }
@@ -772,11 +833,24 @@ where
 /// suppression filter for its metric. The single definition shared by
 /// [`select`] and [`select_cc`] so the two cannot diverge on what a section
 /// includes.
+///
+/// `advisory` lets the Many-Parameters section honor a manifest-sourced nargs
+/// cutoff (issue #630): the spec's static `keep` is `nargs > 3`, but when the
+/// manifest sets `nargs = N` the advisory cutoff overrides that floor so the
+/// report's filter matches the configured gate. Every other section's `keep`
+/// is independent of `advisory`.
 fn section_keep(
     spec: &HotspotSpec,
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) -> impl Fn(&FunctionSummary) -> bool + '_ {
-    move |s| (spec.keep)(s) && !s.is_hidden_for(spec.metric_kind, policy)
+    move |s| {
+        let passes_floor = match spec.metric_kind {
+            Metric::Nargs => s.nargs as u64 > advisory.nargs,
+            _ => (spec.keep)(s),
+        };
+        passes_floor && !s.is_hidden_for(spec.metric_kind, policy)
+    }
 }
 
 /// Suppression-filter + sort + top-N for one section. The single entry point
@@ -786,13 +860,20 @@ pub(crate) fn select<'a>(
     base: &[&'a FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) -> Vec<&'a FunctionSummary> {
-    let keep = section_keep(spec, policy);
+    let keep = section_keep(spec, policy, advisory);
     match spec.dir {
         SortDir::Desc => top_n_desc(base, top_n, keep, spec.metric).unwrap_or_default(),
         SortDir::Asc => {
             let mut v: Vec<&FunctionSummary> = base.iter().copied().filter(|s| keep(s)).collect();
-            sort_by_metric_asc(&mut v, spec.metric);
+            match spec.secondary_metric {
+                // The MI table tie-breaks on the unclamped `mi_original` so a
+                // table of all-0.0 clamped values still ranks the worst files
+                // first instead of alphabetically (issue #627).
+                Some(secondary) => super::sort_by_metric_asc_then(&mut v, spec.metric, secondary),
+                None => sort_by_metric_asc(&mut v, spec.metric),
+            }
             // `cap()` yields `None` for `top_n == 0` (show all); otherwise cap.
             if let Some(c) = cap(top_n) {
                 v.truncate(v.len().min(c));
@@ -817,10 +898,18 @@ pub(crate) fn fully_suppressed_count(
     spec: &HotspotSpec,
     base: &[&FunctionSummary],
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) -> usize {
+    // Membership mirrors the table's own floor — advisory-aware for the
+    // Many-Parameters section (issue #630) — so the "fully suppressed" tally
+    // never counts rows the advisory cutoff already excluded.
+    let on_floor = |s: &FunctionSummary| match spec.metric_kind {
+        Metric::Nargs => s.nargs as u64 > advisory.nargs,
+        _ => (spec.keep)(s),
+    };
     let mut matched = 0usize;
     let mut hidden = 0usize;
-    for s in base.iter().filter(|s| (spec.keep)(s)) {
+    for s in base.iter().filter(|s| on_floor(s)) {
         matched += 1;
         if s.is_hidden_for(spec.metric_kind, policy) {
             hidden += 1;
@@ -879,10 +968,11 @@ pub(crate) fn select_cc<'a>(
     base: &[&'a FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) -> (Vec<&'a FunctionSummary>, CyclomaticStats) {
-    let keep = section_keep(spec, policy);
+    let keep = section_keep(spec, policy, advisory);
     let mut v: Vec<&FunctionSummary> = base.iter().copied().filter(|s| keep(s)).collect();
-    let stats = CyclomaticStats::from_entries(&v);
+    let stats = CyclomaticStats::from_entries(&v, advisory);
     partial_top_n_desc(&mut v, top_n, spec.metric);
     (v, stats)
 }
@@ -934,6 +1024,45 @@ mod tests {
             .into_iter()
             .filter(|s| s.language == LANG::Rust && s.kind == SpaceKind::Function)
             .collect()
+    }
+
+    /// Build a file-level `Unit` for the MI table with the given clamped
+    /// (`mi_visual_studio`) and unclamped (`mi_original`) MI values.
+    fn mi_unit(file: &str, visual_studio: f64, original: f64) -> FunctionSummary {
+        let mut u = summary("unit", file, 1, 1.0);
+        u.kind = SpaceKind::Unit;
+        // The MI `keep` is `halstead_volume > 0 && sloc > 0`, already true.
+        u.mi_visual_studio = visual_studio;
+        u.mi_original = original;
+        u
+    }
+
+    #[test]
+    fn mi_table_ties_break_on_unclamped_mi_original() {
+        // Issue #627: when the displayed `mi_visual_studio` clamps to 0.0 for
+        // every file, the ranking must still order the worst files first by
+        // the unclamped `mi_original`, not degenerate to alphabetical order.
+        // Two files with equal clamped MI but different `mi_original`: the
+        // lower `mi_original` (more unmaintainable) must rank first, even
+        // though its filename sorts later alphabetically.
+        let units = [
+            mi_unit("z_worse.rs", 0.0, 3.0),  // worse (lower) unclamped MI
+            mi_unit("a_better.rs", 0.0, 9.0), // better unclamped MI, sorts first by name
+        ];
+        let refs: Vec<&FunctionSummary> = units.iter().collect();
+        let ranked = select(
+            &SPECS[0],
+            &refs,
+            20,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
+        let order: Vec<&str> = ranked.iter().map(|s| s.file.as_str()).collect();
+        assert_eq!(
+            order,
+            ["z_worse.rs", "a_better.rs"],
+            "MI ties must order by unclamped mi_original, not alphabetically"
+        );
     }
 
     // The canonical spec order both renderers depend on.
@@ -990,7 +1119,13 @@ mod tests {
         let fx = rust_funcs();
         let refs: Vec<&FunctionSummary> = fx.iter().collect();
         // 7 non-suppressed cyclomatic funcs + 1 suppressed (secret_internal).
-        let rows = select(&SPECS[1], &refs, 5, SuppressionPolicy::Honor);
+        let rows = select(
+            &SPECS[1],
+            &refs,
+            5,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(rows.len(), 5, "top-5 truncation");
         assert!(
             !rows.iter().any(|s| s.name == "secret_internal"),
@@ -1105,22 +1240,52 @@ mod tests {
     fn select_cc_stats_cover_full_filtered_set() {
         let fx = rust_funcs();
         let refs: Vec<&FunctionSummary> = fx.iter().collect();
-        let (rows, stats) = select_cc(&SPECS[1], &refs, 5, SuppressionPolicy::Honor);
+        let (rows, stats) = select_cc(
+            &SPECS[1],
+            &refs,
+            5,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(rows.len(), 5, "display truncated to top-5");
         // Stats over all 7 non-suppressed (25,20,15,12,8,5,3): 4 > 10, 1 > 20.
         assert_eq!(stats.count, 7);
-        assert_eq!(stats.gt10, 4);
-        assert_eq!(stats.gt20, 1);
+        assert_eq!(stats.over_primary, 4);
+        assert_eq!(stats.over_severe, 1);
         assert_eq!(stats.max, 25.0);
+    }
+
+    #[test]
+    fn from_entries_empty_set_seeds_max_at_zero_not_nan() {
+        // The CC note is only rendered for a non-empty table, but the
+        // `max` seed must still be `0.0` (not `f64::NAN`) so an empty set
+        // never produces `Max: NaN` (#704). Reverting the seed to
+        // `f64::NAN` fails this `== 0.0` assertion.
+        let stats = CyclomaticStats::from_entries(&[], AdvisoryThresholds::DEFAULT);
+        assert_eq!(stats.max, 0.0);
+        assert_eq!(stats.sum, 0.0);
+        assert_eq!(stats.count, 0);
     }
 
     #[test]
     fn select_cc_note_excludes_suppressed_but_audit_includes_it() {
         let fx = rust_funcs();
         let refs: Vec<&FunctionSummary> = fx.iter().collect();
-        let (_, stats) = select_cc(&SPECS[1], &refs, 20, SuppressionPolicy::Honor);
+        let (_, stats) = select_cc(
+            &SPECS[1],
+            &refs,
+            20,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(stats.max, 25.0, "note excludes the suppressed cc=99");
-        let (_, audit) = select_cc(&SPECS[1], &refs, 20, SuppressionPolicy::Ignore);
+        let (_, audit) = select_cc(
+            &SPECS[1],
+            &refs,
+            20,
+            SuppressionPolicy::Ignore,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(audit.max, 99.0);
     }
 
@@ -1148,7 +1313,13 @@ mod tests {
         sloc_only.halstead_volume = 0.0;
         sloc_only.sloc = 50;
         let refs = vec![&worst, &empty, &vol_only, &sloc_only];
-        let rows = select(&SPECS[0], &refs, 20, SuppressionPolicy::Honor);
+        let rows = select(
+            &SPECS[0],
+            &refs,
+            20,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         let kept: Vec<&str> = rows.iter().map(|s| s.file.as_str()).collect();
         assert_eq!(
             kept,
@@ -1196,12 +1367,30 @@ mod tests {
         let fx = rust_funcs();
         let refs: Vec<&FunctionSummary> = fx.iter().collect();
         // 7 non-suppressed cyclomatic funcs survive `keep`; `--top 0` keeps all.
-        let desc = select(&SPECS[1], &refs, 0, SuppressionPolicy::Honor);
+        let desc = select(
+            &SPECS[1],
+            &refs,
+            0,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(desc.len(), 7, "Desc: top 0 keeps every survivor");
-        let trunc = select(&SPECS[1], &refs, 3, SuppressionPolicy::Honor);
+        let trunc = select(
+            &SPECS[1],
+            &refs,
+            3,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(trunc.len(), 3, "nonzero still truncates");
 
-        let (cc_all, _) = select_cc(&SPECS[1], &refs, 0, SuppressionPolicy::Honor);
+        let (cc_all, _) = select_cc(
+            &SPECS[1],
+            &refs,
+            0,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(cc_all.len(), 7, "select_cc: top 0 keeps every survivor");
     }
 

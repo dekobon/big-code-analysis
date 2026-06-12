@@ -44,6 +44,24 @@ struct MetricExtractor {
 
 /// Source of truth for accepted threshold names. Order matters only for
 /// `--help`-style listings; lookup is by name.
+///
+/// **Accessor convention (issue #709).** Each metric is thresholded
+/// against the accessor that matches how that metric is conventionally
+/// reported, and the registry deliberately mixes two shapes:
+///
+/// - *Per-space own* value — `cognitive()`, `cyclomatic()`,
+///   `cyclomatic_modified()`, the `halstead.*`, `mi.*`, `loc.*`, and
+///   `abc` accessors. These read the value for the single function space
+///   under test, without rolling up nested children.
+/// - *Sum / total over the subtree* — `tokens_sum()`, `nexits_sum()`,
+///   `nom.total()`, `nargs.total()`, `wmc.total_wmc()`, `npm.total_npm()`,
+///   `npa.total_npa()`. These aggregate the space and its descendants, so
+///   a threshold on, e.g., `nom` bounds the whole subtree's method count.
+///
+/// The split follows each metric's library accessor and its natural unit
+/// of measurement; it is intentional, not an oversight. When adding a new
+/// extractor, pick the accessor that matches the metric's reported figure
+/// and note which side of this split it falls on.
 const EXTRACTORS: &[MetricExtractor] = &[
     MetricExtractor {
         name: "cognitive",
@@ -421,6 +439,12 @@ pub(crate) struct Violation {
     pub(crate) value: f64,
     /// Configured limit.
     pub(crate) limit: f64,
+    /// `true` when this metric is lower-is-worse (the `mi.*`
+    /// Maintainability Index family): the value breached by falling
+    /// *below* the limit, and [`Violation::ratio`] inverts to
+    /// `limit / value` so severity ranking still reads "bigger ratio =
+    /// worse" (#698).
+    pub(crate) lower_is_worse: bool,
     /// Normalized hash of the function body, populated only when
     /// `--baseline-fuzzy-match` is active (see [`crate::baseline`]).
     /// `None` otherwise. Used as the last-resort baseline matcher when
@@ -455,14 +479,29 @@ impl Violation {
         )
     }
 
-    /// The `value / limit` ratio used to rank violation severity.
-    /// Saturates to `f64::INFINITY` when the configured limit is
-    /// zero ("no value permitted") so a NaN never escapes into
-    /// downstream sorts — `total_cmp` then ranks the violation
-    /// above all finite-ratio ones, which matches the user
-    /// intuition that "0 is the strictest possible limit".
+    /// The breach ratio used to rank violation severity, normalized so a
+    /// larger ratio is always a worse violation regardless of metric
+    /// direction.
+    ///
+    /// For higher-is-worse metrics this is `value / limit`. For the
+    /// lower-is-worse `mi.*` family it inverts to `limit / value` (#698)
+    /// — a Maintainability Index of 5 against a limit of 50 is a 10x
+    /// breach, far worse than 45-against-50, and must sort above it.
+    ///
+    /// Saturates to `f64::INFINITY` for the degenerate denominators
+    /// (`limit == 0` in the higher-is-worse case, `value <= 0` in the
+    /// lower-is-worse case) so a NaN never escapes into downstream
+    /// `total_cmp` sorts — the violation then ranks above all
+    /// finite-ratio ones, matching the intuition that the strictest
+    /// possible breach is the worst.
     pub(crate) fn ratio(&self) -> f64 {
-        if self.limit > 0.0 {
+        if self.lower_is_worse {
+            if self.value > 0.0 {
+                self.limit / self.value
+            } else {
+                f64::INFINITY
+            }
+        } else if self.limit > 0.0 {
             self.value / self.limit
         } else {
             f64::INFINITY
@@ -615,11 +654,35 @@ fn qualified_symbol(space: &FuncSpace, parent_prefix: &str) -> String {
     }
 }
 
+/// One resolved threshold: the registry extractor, the configured limit,
+/// and whether the metric is lower-is-worse (the `mi.*` family). The
+/// direction is resolved once at [`ThresholdSet::build`] time from
+/// [`big_code_analysis::metric_catalog`] so the per-function evaluation
+/// loop never re-derives it (#698).
+#[derive(Debug)]
+struct ResolvedThreshold {
+    extractor: &'static MetricExtractor,
+    limit: f64,
+    /// `true` for the lower-is-worse `mi.*` family: a value *below* the
+    /// limit is the violation, and the breach ratio inverts to
+    /// `limit / value`.
+    lower_is_worse: bool,
+}
+
+/// Whether the metric named `name` is lower-is-worse (the `mi.*`
+/// Maintainability Index family). Thin alias for the library catalog's
+/// [`big_code_analysis::metric_catalog::lower_is_worse`] — the single
+/// source of truth shared with the offender wording and Code Climate
+/// severity inversion.
+fn metric_is_lower_is_worse(name: &str) -> bool {
+    big_code_analysis::metric_catalog::lower_is_worse(name)
+}
+
 /// Pre-resolved set of thresholds: every name has been validated against
 /// the registry, so evaluation can skip name lookups.
 #[derive(Debug)]
 pub(crate) struct ThresholdSet {
-    entries: Vec<(&'static MetricExtractor, f64)>,
+    entries: Vec<ResolvedThreshold>,
 }
 
 impl ThresholdSet {
@@ -648,7 +711,11 @@ impl ThresholdSet {
                     "limit for {name:?} must be a finite non-negative number; got {limit}"
                 ));
             }
-            entries.push((extractor, *limit));
+            entries.push(ResolvedThreshold {
+                extractor,
+                limit: *limit,
+                lower_is_worse: metric_is_lower_is_worse(extractor.name),
+            });
         }
         Ok(Self { entries })
     }
@@ -665,7 +732,9 @@ impl ThresholdSet {
     /// without re-deriving the order or duplicating the registry's
     /// canonical metric names.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&'static str, f64)> + '_ {
-        self.entries.iter().map(|(e, limit)| (e.name, *limit))
+        self.entries
+            .iter()
+            .map(|entry| (entry.extractor.name, entry.limit))
     }
 
     /// Walk `space`, comparing each function's metrics against every
@@ -732,9 +801,26 @@ impl ThresholdSet {
         let mut stack: Vec<(&FuncSpace, Rc<str>)> = vec![(space, Rc::from(""))];
         while let Some((current, parent_prefix)) = stack.pop() {
             let qualified = qualified_symbol(current, &parent_prefix);
-            for (extractor, limit) in &self.entries {
+            for entry in &self.entries {
+                let ResolvedThreshold {
+                    extractor,
+                    limit,
+                    lower_is_worse,
+                } = entry;
                 let value = (extractor.extract)(&current.metrics);
-                if value <= *limit {
+                // Direction-aware gate (#698): for the lower-is-worse
+                // `mi.*` family a value *below* the limit is the
+                // violation; every other metric breaches by going
+                // *above* it. A NaN value (degenerate Halstead-derived
+                // MI on a trivial space) fails both comparisons and is
+                // never flagged, matching the prior `value <= limit`
+                // higher-is-worse behavior.
+                let breached = if *lower_is_worse {
+                    value < *limit
+                } else {
+                    value > *limit
+                };
+                if !breached {
                     continue;
                 }
                 // A metric is suppressed when policy honors markers and an
@@ -759,6 +845,7 @@ impl ThresholdSet {
                     metric: extractor.name,
                     value,
                     limit: *limit,
+                    lower_is_worse: *lower_is_worse,
                     body_hash: None,
                     suppressed,
                 });

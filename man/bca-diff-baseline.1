@@ -43,7 +43,7 @@ Output file. Stdout if omitted
 Path prefix to strip from displayed file paths in the TTY and Markdown per\-file tables. No\-op for `\-\-format json`, whose paths are a stable machine identity
 .TP
 \fB\-\-exit\-code\fR
-Exit with the metric\-gate code (`2`) when the diff — after the active `\-\-*\-only` section filtering — is non\-empty; exit `0` when it is empty. Opt\-in (`git diff \-\-exit\-code`\-style) for grammar\-bump CI that wants a boolean "anything changed" without parsing the output. Default (flag absent) always exits `0` on success. A tool error still exits `1` regardless (issue #692)
+Exit with the metric\-gate code (`2`) when the diff — after the active `\-\-*\-only` section filtering — is non\-empty; exit `0` when it is empty. Opt\-in (`git diff \-\-exit\-code`\-style) for grammar\-bump CI that wants a boolean "anything changed" without parsing the output. Default (flag absent) always exits `0` on success. A tool error still exits `1` regardless
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

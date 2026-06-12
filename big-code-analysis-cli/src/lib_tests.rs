@@ -1007,18 +1007,14 @@ fn collect_lines_handles_bom_then_whitespace_then_pattern() {
 }
 
 #[test]
-fn path_pattern_filter_keeps_hash_prefixed_lines_as_literal_paths() {
+fn split_path_lines_keeps_hash_prefixed_lines_as_literal_paths() {
     // Pins the doc claim on `read_paths_from`: `#` is a path
-    // character, not a comment. The test calls
-    // `path_pattern_filter` directly so a refactor that
-    // accidentally swapped in `exclude_pattern_filter` (the two
-    // are adjacent and share the signature) would silently
-    // filter `#`-prefixed paths AND fail this test.
-    let input = "/tmp/normal/path\n#weird-but-valid-path\n";
-    let got = collect_lines(std::io::Cursor::new(input), "test", path_pattern_filter)
-        .expect("ASCII fixture decodes cleanly");
+    // character, not a comment. `--paths-from` now goes through the
+    // byte-level `split_path_lines` (so it tolerates non-UTF-8 paths,
+    // #704), so this exercises that splitter directly.
+    let input = b"/tmp/normal/path\n#weird-but-valid-path\n";
     assert_eq!(
-        got,
+        split_path_lines(input),
         vec![
             PathBuf::from("/tmp/normal/path"),
             PathBuf::from("#weird-but-valid-path"),
@@ -1028,20 +1024,50 @@ fn path_pattern_filter_keeps_hash_prefixed_lines_as_literal_paths() {
 }
 
 #[test]
-fn path_pattern_filter_direct_policy_check() {
-    // Symmetric to `exclude_pattern_filter_direct_policy_check`
-    // — exercises the helper in isolation, outside the
-    // `collect_lines` integration path.
-    assert_eq!(path_pattern_filter(""), None, "blank line skipped");
+fn split_path_lines_policy_check() {
+    // Exercises the splitter's retention/trimming policy in isolation.
     assert_eq!(
-        path_pattern_filter("# foo"),
-        Some(PathBuf::from("# foo")),
-        "`#`-prefix retained as path char (inverse of exclude_pattern_filter)",
+        split_path_lines(b""),
+        Vec::<PathBuf>::new(),
+        "empty input yields no paths",
     );
     assert_eq!(
-        path_pattern_filter("/tmp/x"),
-        Some(PathBuf::from("/tmp/x")),
-        "absolute path retained",
+        split_path_lines(b"\n   \n\t\n"),
+        Vec::<PathBuf>::new(),
+        "blank / whitespace-only lines skipped",
+    );
+    assert_eq!(
+        split_path_lines(b"  # foo  \n"),
+        vec![PathBuf::from("# foo")],
+        "`#`-prefix retained as path char; surrounding ASCII whitespace trimmed",
+    );
+    assert_eq!(
+        split_path_lines(b"/tmp/x\r\n"),
+        vec![PathBuf::from("/tmp/x")],
+        "trailing CR (CRLF) stripped from the path",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn split_path_lines_preserves_non_utf8_bytes() {
+    // The whole point of routing `--paths-from` through bytes (#704):
+    // a path whose bytes are not valid UTF-8 must survive verbatim
+    // rather than abort the entire list. `0x80` is a lone
+    // continuation byte — invalid UTF-8.
+    use std::os::unix::ffi::OsStrExt;
+    let input = b"src/valid.rs\nsrc/\x80bad.rs\n";
+    let got = split_path_lines(input);
+    assert_eq!(
+        got.len(),
+        2,
+        "both lines retained despite the non-UTF-8 byte"
+    );
+    assert_eq!(got[0], PathBuf::from("src/valid.rs"));
+    assert_eq!(
+        got[1].as_os_str().as_bytes(),
+        b"src/\x80bad.rs",
+        "non-UTF-8 path bytes preserved exactly",
     );
 }
 
@@ -1593,4 +1619,46 @@ fn baseline_fuzzy_match_value_taking_both_directions() {
         Some(true)
     );
     assert_eq!(check_args(&["check"]).baseline_fuzzy_match, None);
+}
+
+#[cfg(unix)]
+#[test]
+fn seed_kind_classifies_symlinks_by_target() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("real.rs");
+    std::fs::write(&file, "fn f() {}\n").expect("write file");
+    let subdir = dir.path().join("realdir");
+    std::fs::create_dir(&subdir).expect("mkdir");
+
+    // A symlink to a file classifies as a file seed (the one deliberate
+    // follow — the user explicitly named the link as a seed, #704).
+    let link_to_file = dir.path().join("link_file");
+    symlink(&file, &link_to_file).expect("symlink to file");
+    assert!(
+        seed_kind(&link_to_file)
+            .expect("link target exists")
+            .is_file(),
+        "symlink-to-file seed classifies as a file",
+    );
+
+    // A symlink to a directory classifies as a directory (walk) seed.
+    let link_to_dir = dir.path().join("link_dir");
+    symlink(&subdir, &link_to_dir).expect("symlink to dir");
+    assert!(
+        !seed_kind(&link_to_dir)
+            .expect("link target exists")
+            .is_file(),
+        "symlink-to-dir seed classifies as a directory",
+    );
+
+    // A DANGLING symlink must error (treated as nonexistent) rather than
+    // pass the existence probe — the TOCTOU/asymmetry the fix closes.
+    let dangling = dir.path().join("dangling");
+    symlink(dir.path().join("does-not-exist"), &dangling).expect("dangling symlink");
+    assert!(
+        seed_kind(&dangling).is_err(),
+        "a dangling symlink seed must be reported as nonexistent",
+    );
 }

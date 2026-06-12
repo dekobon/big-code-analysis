@@ -18,6 +18,7 @@ fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
         metric: "cyclomatic",
         value,
         limit,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     }
@@ -573,6 +574,7 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             manifest: None,
             no_fail: false,
             no_suppress: false,
+            report_suppressed: false,
             no_ignore: false,
             no_skip_generated: false,
             exclude_tests: true,
@@ -623,6 +625,7 @@ fn effective_config_json_serializes_threshold_overrides() {
             manifest: None,
             no_fail: false,
             no_suppress: false,
+            report_suppressed: false,
             no_ignore: false,
             no_skip_generated: false,
             exclude_tests: false,

@@ -19,6 +19,7 @@
     clippy::too_many_lines
 )]
 
+pub(crate) mod advisory;
 pub(crate) mod hotspot;
 mod sections;
 
@@ -73,7 +74,6 @@ pub(crate) struct FunctionSummary {
     pub halstead_bugs: f64,
     #[expect(dead_code)]
     pub halstead_time: f64,
-    #[expect(dead_code)]
     pub mi_original: f64,
     #[expect(dead_code)]
     pub mi_sei: f64,
@@ -312,6 +312,24 @@ pub(super) fn sort_by_metric_asc(
     metric: impl Fn(&FunctionSummary) -> f64,
 ) {
     items.sort_by(|a, b| metric(a).total_cmp(&metric(b)).then_with(|| tiebreak(a, b)));
+}
+
+/// Ascending sort by `metric`, breaking ties on `secondary` (also ascending)
+/// before the path/line/name [`tiebreak`]. The MI hotspot uses this so a
+/// table whose displayed `mi_visual_studio` values all clamp to `0.0` still
+/// ranks the worst files first by their unclamped `mi_original`, instead of
+/// degenerating to alphabetical order (issue #627).
+pub(super) fn sort_by_metric_asc_then(
+    items: &mut [&FunctionSummary],
+    metric: impl Fn(&FunctionSummary) -> f64,
+    secondary: impl Fn(&FunctionSummary) -> f64,
+) {
+    items.sort_by(|a, b| {
+        metric(a)
+            .total_cmp(&metric(b))
+            .then_with(|| secondary(a).total_cmp(&secondary(b)))
+            .then_with(|| tiebreak(a, b))
+    });
 }
 
 pub(super) fn is_class_like(kind: SpaceKind) -> bool {
@@ -627,7 +645,14 @@ pub(crate) fn generate_report(
     top_n: usize,
     policy: SuppressionPolicy,
 ) -> String {
-    generate_report_with_vcs(summaries, top_n, policy, None, None)
+    generate_report_with_vcs(
+        summaries,
+        top_n,
+        policy,
+        &advisory::AdvisoryThresholds::DEFAULT,
+        None,
+        None,
+    )
 }
 
 /// As [`generate_report`], optionally appending a "Change-history risk"
@@ -639,6 +664,7 @@ pub(crate) fn generate_report_with_vcs(
     summaries: &[FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
+    advisory: &advisory::AdvisoryThresholds,
     vcs: Option<&crate::vcs_command::Report>,
     prov: Option<&crate::provenance::Provenance<'_>>,
 ) -> String {
@@ -654,7 +680,14 @@ pub(crate) fn generate_report_with_vcs(
         write_per_language_overview(&mut out, &by_lang);
 
         for (&lang_name, lang_summaries) in &by_lang {
-            write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
+            write_language_section(
+                &mut out,
+                lang_name,
+                lang_summaries,
+                top_n,
+                policy,
+                *advisory,
+            );
         }
         // Footer legend at `##` so it gets its own TOC entry and stops
         // nesting under the last language's `##` section, though it defines
@@ -858,6 +891,7 @@ fn write_language_section(
     entries: &[&FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
+    advisory: advisory::AdvisoryThresholds,
 ) {
     let display_name = language_display_name(lang_name);
     let _ = writeln!(out, "\n## {display_name}\n");
@@ -870,7 +904,7 @@ fn write_language_section(
     // directly after `### Summary`, before any hotspot table — rather than
     // being buried mid-stream where a reader who stops after one or two
     // tables never sees it (issue #678).
-    sections::write_actionable_summary(out, &funcs, policy);
+    sections::write_actionable_summary(out, &funcs, policy, advisory);
 
     // Drive every hotspot section from the shared `SPECS` table (the same
     // table the HTML report uses) so the two formats cannot diverge in
@@ -883,27 +917,30 @@ fn write_language_section(
             hotspot::Source::All => entries,
         };
         if spec.cc_note {
-            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
+            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy, advisory);
             if rows.is_empty() {
                 // Mirror the non-CC branch: a CC table emptied purely by
                 // suppression earns the same "table omitted" caption, or the
                 // Actionable Summary's raw CC bullets would dangle (#616).
-                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
                 sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
             } else {
                 sections::emit_section_md(out, spec, top_n, &rows);
                 sections::emit_cc_note_md(out, &stats, policy);
             }
         } else {
-            let rows = hotspot::select(spec, base, top_n, policy);
+            let rows = hotspot::select(spec, base, top_n, policy, advisory);
             if rows.is_empty() {
                 // An empty table here is either a genuinely-absent metric or a
                 // table whose every matching row was suppressed; only the
                 // latter earns a caption so a summary bullet never dangles.
-                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
                 sections::emit_fully_suppressed_note_md(out, &spec.title.render(top_n), suppressed);
             } else {
                 sections::emit_section_md(out, spec, top_n, &rows);
+                if spec.mi_note {
+                    sections::emit_mi_note_md(out);
+                }
             }
         }
     }
@@ -1448,8 +1485,14 @@ mod tests {
             top: 10,
             policy: SuppressionPolicy::Honor,
         };
-        let with =
-            generate_report_with_vcs(&summaries, 10, SuppressionPolicy::Honor, None, Some(&prov));
+        let with = generate_report_with_vcs(
+            &summaries,
+            10,
+            SuppressionPolicy::Honor,
+            &advisory::AdvisoryThresholds::DEFAULT,
+            None,
+            Some(&prov),
+        );
         assert!(
             with.contains(
                 "Generated by bca 9.9.9 on 2026-06-11 over src/ \u{2014} top 10 per table, \
@@ -1753,6 +1796,101 @@ mod tests {
         assert!(report.contains("functions with SLOC > 100"));
         assert!(report.contains("functions with more than 3 parameters"));
         assert!(report.contains("functions with estimated Halstead bugs > 1.0"));
+        // Default provenance line is emitted unconditionally (issue #630).
+        assert!(
+            report.contains("Advisory thresholds: built-in defaults"),
+            "default advisory provenance must be present:\n{report}"
+        );
+    }
+
+    /// Issue #630: when a manifest sets per-metric thresholds, the report's
+    /// advisory cutoffs (Actionable Summary bullets, CC note bands, Many-
+    /// Parameters filter) use them instead of the hardcoded defaults, and the
+    /// provenance line names the manifest. A function with CC=12 and 4 args is
+    /// over the default cutoffs (CC>10, nargs>3) but under a manifest gating at
+    /// cyclomatic=15 / nargs=5, so it must NOT be flagged.
+    #[test]
+    fn actionable_summary_uses_manifest_thresholds() {
+        use advisory::AdvisoryThresholds;
+        use std::collections::BTreeMap;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut f = make_summary("borderline", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        f.cyclomatic = 12.0;
+        f.nargs = 4;
+        let summaries = [unit, f];
+
+        // Default advisory: CC>10 and nargs>3 both flag the function.
+        let default = generate_report_with_vcs(
+            &summaries,
+            20,
+            SuppressionPolicy::Honor,
+            &AdvisoryThresholds::DEFAULT,
+            None,
+            None,
+        );
+        assert!(default.contains("functions with CC > 10"), "{default}");
+        assert!(
+            default.contains("functions with more than 3 parameters"),
+            "{default}"
+        );
+
+        // Manifest gating at cyclomatic=15 / nargs=5: the same function clears
+        // both bars, so neither bullet appears, and the CC-note primary band is
+        // `CC > 15` (severe `> 30`, the 2x default multiple).
+        let mut hard = BTreeMap::new();
+        hard.insert("cyclomatic".to_string(), 15.0);
+        hard.insert("nargs".to_string(), 5.0);
+        let advisory = AdvisoryThresholds::from_manifest_hard(&hard);
+        let manifest = generate_report_with_vcs(
+            &summaries,
+            20,
+            SuppressionPolicy::Honor,
+            &advisory,
+            None,
+            None,
+        );
+        assert!(
+            manifest.contains("Advisory thresholds: sourced from the `bca.toml`"),
+            "manifest provenance must be present:\n{manifest}"
+        );
+        assert!(
+            !manifest.contains("functions with CC > 15"),
+            "CC=12 is under the manifest cyclomatic=15 cutoff, so no CC bullet:\n{manifest}"
+        );
+        assert!(
+            !manifest.contains("more than 5 parameters"),
+            "nargs=4 is under the manifest nargs=5 cutoff, so no params bullet:\n{manifest}"
+        );
+        // The CC note's bands reflect the manifest cutoff and its 2x severe band.
+        assert!(
+            manifest.contains("CC > 15") && manifest.contains("CC > 30"),
+            "CC note bands must reflect the manifest cutoff (15) and 2x severe (30):\n{manifest}"
+        );
+    }
+
+    /// Issue #627: the MI section carries the explanatory note (variant,
+    /// rating bands, clamping caveat, gate-variant caveat) in the Markdown
+    /// report.
+    #[test]
+    fn mi_section_renders_explanatory_note() {
+        let report = generate_report(&rich_fixture(), 20, SuppressionPolicy::Honor);
+        assert!(
+            report.contains("Visual Studio rescale (mi_visual_studio)"),
+            "MI note must name the rendered variant:\n{report}"
+        );
+        assert!(
+            report.contains("GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW"),
+            "MI note must state the rating bands:\n{report}"
+        );
+        assert!(
+            report.contains("Large files commonly clamp to 0"),
+            "MI note must state the clamping caveat:\n{report}"
+        );
+        assert!(
+            report.contains("bca check gate may evaluate a different MI variant"),
+            "MI note must warn the gate may use a different variant (issue #627 comment):\n{report}"
+        );
     }
 
     /// Issue #616: the three differently-filtered CC statistics must each be

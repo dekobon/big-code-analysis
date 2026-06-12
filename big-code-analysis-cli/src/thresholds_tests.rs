@@ -240,6 +240,29 @@ fn soft_scale_string_must_end_in_x_and_be_in_range() {
 }
 
 #[test]
+fn is_valid_scale_ratio_rejects_boundary_and_nan() {
+    // Pins the `(0, 1]` contract (issue #709): the open lower bound and
+    // the closed upper bound, plus the non-finite cases that all fail
+    // both `0.0 < ratio` and `ratio <= 1.0` comparisons.
+    //
+    // Valid interior and the inclusive upper boundary.
+    assert!(is_valid_scale_ratio(0.5));
+    assert!(is_valid_scale_ratio(1.0), "1.0 is in range (inclusive)");
+    assert!(is_valid_scale_ratio(f64::MIN_POSITIVE), "smallest positive");
+    // Zero is excluded (open lower bound), and negatives never qualify.
+    assert!(!is_valid_scale_ratio(0.0), "0.0 is excluded (open bound)");
+    assert!(!is_valid_scale_ratio(-0.0), "negative zero is excluded");
+    assert!(!is_valid_scale_ratio(-0.5));
+    // Above the inclusive upper bound is rejected.
+    assert!(!is_valid_scale_ratio(1.000_000_1));
+    // Non-finite inputs: every comparison against NaN is false, and the
+    // infinities fall outside the range, so none are valid.
+    assert!(!is_valid_scale_ratio(f64::NAN), "NaN must be rejected");
+    assert!(!is_valid_scale_ratio(f64::INFINITY));
+    assert!(!is_valid_scale_ratio(f64::NEG_INFINITY));
+}
+
+#[test]
 fn hard_limit_must_be_numeric() {
     let cfg: ThresholdConfig =
         toml::from_str("[thresholds]\ncyclomatic = \"15\"\n").expect("parses");
@@ -260,6 +283,7 @@ fn violation_display_is_stable() {
         metric: "cyclomatic",
         value: 17.0,
         limit: 15.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     };
@@ -279,6 +303,7 @@ fn violation_display_keeps_fractional_precision() {
         metric: "halstead.volume",
         value: 12.5,
         limit: 10.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     };
@@ -313,6 +338,7 @@ fn violation_path_preserves_non_utf8_bytes() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     };
@@ -496,7 +522,11 @@ fn tokens_threshold_never_suppressed() {
         .find(|e| e.name == "tokens")
         .expect("tokens extractor exists");
     let set = ThresholdSet {
-        entries: vec![(extractor, -0.5)],
+        entries: vec![ResolvedThreshold {
+            extractor,
+            limit: -0.5,
+            lower_is_worse: false,
+        }],
     };
 
     let mut out = Vec::new();
@@ -583,6 +613,7 @@ fn sample_violation() -> Violation {
         metric: "cyclomatic",
         value: 30.0,
         limit: 10.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     }
@@ -764,5 +795,157 @@ fn edit_distance_with_cutoff_handles_equal_strings() {
     assert_eq!(
         crate::threshold_suggestion::edit_distance_with_cutoff("cyclomatic", "cyclomatic", 2),
         0
+    );
+}
+
+/// Analyze a real snippet and return its deepest leaf `FuncSpace` (all
+/// child spaces stripped) together with that leaf's computed
+/// `mi.original` and `cyclomatic`. Evaluating a leaf means
+/// [`ThresholdSet::evaluate_with_policy`] touches exactly one space, so a
+/// gate test can assert an exact offender count without the root/child
+/// magnitudes interfering. The MI value is derived (no public setter), so
+/// the tests bracket the threshold around the value read here (#698).
+fn analyzed_leaf() -> (FuncSpace, f64, f64) {
+    let mut space = big_code_analysis::analyze(
+        big_code_analysis::Source::new(
+            big_code_analysis::LANG::Rust,
+            b"fn f(x: i32) -> i32 { if x > 0 { x + 1 } else { x - 1 } }",
+        ),
+        big_code_analysis::MetricsOptions::default(),
+    )
+    .expect("snippet has a top-level FuncSpace");
+    // Descend to the deepest single child and detach it as a standalone
+    // leaf so evaluation visits one space only.
+    while let Some(child) = space.spaces.pop() {
+        space = child;
+    }
+    space.spaces.clear();
+    let mi = space.metrics.mi.original();
+    let cyclo = space.metrics.cyclomatic.cyclomatic() as f64;
+    (space, mi, cyclo)
+}
+
+#[test]
+fn mi_low_value_is_flagged_high_value_is_not() {
+    // `mi.*` is lower-is-worse: a value BELOW the limit is the violation.
+    // A limit set ABOVE the observed MI must flag it; a limit set BELOW
+    // must not. The pre-#698 `value <= limit` gate did the exact
+    // opposite (flagged healthy/high MI, ignored unhealthy/low MI).
+    let (space, mi, _) = analyzed_leaf();
+    assert!(mi.is_finite(), "fixture MI must be finite, got {mi}");
+
+    // Limit comfortably above the value -> value falls below -> flagged.
+    let high_limit = mi + 50.0;
+    let mut flagged = Vec::new();
+    threshold_set("mi.original", high_limit).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &space,
+        SuppressionPolicy::Honor,
+        false,
+        &mut flagged,
+    );
+    assert_eq!(
+        flagged.len(),
+        1,
+        "MI {mi} below limit {high_limit} must be flagged, got {flagged:?}"
+    );
+    assert_eq!(flagged[0].metric, "mi.original");
+    assert!(flagged[0].lower_is_worse, "mi offender must carry the flag");
+
+    // Limit at/below the value (clamped to a valid non-negative limit)
+    // -> value is healthy -> not flagged.
+    let low_limit = (mi - 50.0).max(0.0);
+    let mut clean = Vec::new();
+    threshold_set("mi.original", low_limit).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &space,
+        SuppressionPolicy::Honor,
+        false,
+        &mut clean,
+    );
+    assert!(
+        clean.is_empty(),
+        "MI {mi} at/above limit {low_limit} must NOT be flagged, got {clean:?}"
+    );
+
+    // Boundary: a value EXACTLY at the limit is acceptable (not a
+    // violation) for lower-is-worse too — the gate is `value < limit`,
+    // not `<=`, mirroring the `>`/healthy semantics of higher-is-worse.
+    let mut at_limit = Vec::new();
+    threshold_set("mi.original", mi).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &space,
+        SuppressionPolicy::Honor,
+        false,
+        &mut at_limit,
+    );
+    assert!(
+        at_limit.is_empty(),
+        "MI {mi} exactly at limit {mi} must NOT be flagged, got {at_limit:?}"
+    );
+}
+
+#[test]
+fn higher_is_worse_metric_keeps_above_limit_gate() {
+    // The direction-aware gate must not disturb higher-is-worse metrics:
+    // cyclomatic still fires only when the value EXCEEDS the limit.
+    let (space, _, cyclo) = analyzed_leaf();
+    assert!(cyclo >= 1.0, "fixture cyclomatic must be >= 1, got {cyclo}");
+
+    // Limit below the value -> exceeds -> flagged.
+    let mut flagged = Vec::new();
+    threshold_set("cyclomatic", cyclo - 0.5).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &space,
+        SuppressionPolicy::Honor,
+        false,
+        &mut flagged,
+    );
+    assert_eq!(flagged.len(), 1, "cyclomatic above limit must flag");
+    assert!(!flagged[0].lower_is_worse);
+
+    // Limit above the value -> within budget -> not flagged.
+    let mut clean = Vec::new();
+    threshold_set("cyclomatic", cyclo + 5.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &space,
+        SuppressionPolicy::Honor,
+        false,
+        &mut clean,
+    );
+    assert!(clean.is_empty(), "cyclomatic below limit must not flag");
+}
+
+#[test]
+fn mi_ratio_inverts_so_lower_value_ranks_worse() {
+    // `Violation::ratio` normalizes so a bigger ratio is always worse.
+    // For MI (lower-is-worse) that means `limit / value`: MI 5 against
+    // limit 50 (10x) must outrank MI 45 against limit 50 (~1.1x).
+    let severe = Violation {
+        path: PathBuf::from("a.rs"),
+        start_line: 1,
+        end_line: 2,
+        function: "f".into(),
+        metric: "mi.original",
+        value: 5.0,
+        limit: 50.0,
+        lower_is_worse: true,
+        body_hash: None,
+        suppressed: false,
+    };
+    let mild = Violation {
+        value: 45.0,
+        ..severe.clone()
+    };
+    assert!(
+        severe.ratio() > mild.ratio(),
+        "a lower MI must produce a larger breach ratio: {} vs {}",
+        severe.ratio(),
+        mild.ratio()
+    );
+    assert!(
+        Violation::pick_worst(&[&mild, &severe])
+            .is_some_and(|w| (w.value - 5.0).abs() < f64::EPSILON),
+        "pick_worst must rank the lower MI as worse"
     );
 }

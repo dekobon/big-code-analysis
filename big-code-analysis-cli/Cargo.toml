@@ -37,6 +37,10 @@ serde_yaml = "^0.9"
 # auto-cleaning TempDir (#492), so tempfile is a runtime dependency, not
 # just a test helper.
 tempfile.workspace = true
+# In-process extraction of the `git archive` tar stream for
+# `bca diff --since` (#704): replaces the system-`tar` shell-out so the
+# path is portable and free of the BSD-tar empty-archive quirk.
+tar.workspace = true
 toml = "^1.1"
 
 [lints]

@@ -17,6 +17,7 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
         metric,
         value,
         limit: 1.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     }
@@ -715,6 +716,7 @@ fn from_str_defensive_anchor_normalization() {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            lower_is_worse: false,
             body_hash: None,
             suppressed: false,
         }),
@@ -965,6 +967,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     };
@@ -976,6 +979,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        lower_is_worse: false,
         body_hash: None,
         suppressed: false,
     };

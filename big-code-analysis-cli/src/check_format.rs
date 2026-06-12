@@ -578,6 +578,10 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         metric,
         value,
         limit,
+        // Metric direction is re-derived from the catalog by the
+        // offender formatters (`OffenderRecord::default_message`,
+        // Code Climate severity), so it is not carried on the record.
+        lower_is_worse: _,
         // The body hash is an internal baseline-matching aid, not part
         // of the serialized offender record.
         body_hash: _,
@@ -635,6 +639,7 @@ mod tests {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            lower_is_worse: false,
             body_hash: None,
             suppressed: false,
         }
@@ -680,6 +685,7 @@ mod tests {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            lower_is_worse: false,
             body_hash: None,
             suppressed: false,
         };
@@ -699,6 +705,7 @@ mod tests {
             metric,
             value: 17.0,
             limit: 5.0,
+            lower_is_worse: false,
             body_hash: None,
             suppressed: false,
         }
@@ -840,6 +847,7 @@ mod tests {
             metric: "cyclomatic",
             value: 17.0,
             limit: 5.0,
+            lower_is_worse: false,
             body_hash: None,
             suppressed: false,
         };
@@ -908,6 +916,7 @@ mod tests {
             metric: "cyclomatic",
             value: 17.0,
             limit: 5.0,
+            lower_is_worse: false,
             body_hash: None,
             suppressed: false,
         };

@@ -25,7 +25,7 @@ fn explicit_unrecognized_warns_and_exits_one() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains(
-            "skipping explicitly-named file with unrecognized language:",
+            "warning: skipping explicitly-named file with unrecognized language:",
         ));
 }
 
@@ -43,7 +43,7 @@ fn explicit_unrecognized_warns_even_with_warning_flag() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains(
-            "skipping explicitly-named file with unrecognized language:",
+            "warning: skipping explicitly-named file with unrecognized language:",
         ));
 }
 

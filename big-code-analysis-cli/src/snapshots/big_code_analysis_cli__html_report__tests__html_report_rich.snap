@@ -55,6 +55,7 @@ expression: out
 </nav>
 <div class="summary global-actionable">
 <p><strong>Actionable summary (all languages)</strong></p>
+<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
 <ul>
 <li><strong>5</strong> functions with CC &gt; 10</li>
 <li><strong>4</strong> functions with cognitive complexity &gt; 15</li>
@@ -67,7 +68,7 @@ expression: out
 <p class="sort-hint">Click a column header to sort any table.</p>
 <div class="table-wrap">
 <table class="hotspot">
-<thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
+<thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
 <tbody>
 <tr><td>Python</td><td class="numeric">1</td><td class="numeric">120</td><td class="numeric">2</td><td class="numeric">28.0</td><td class="numeric">8.5</td><td class="numeric">9.0</td></tr>
 <tr><td>Rust</td><td class="numeric">2</td><td class="numeric">280</td><td class="numeric">8</td><td class="numeric">28.5</td><td class="numeric">23.4</td><td class="numeric">22.6</td></tr>
@@ -79,6 +80,7 @@ expression: out
 <p class="note">Files: 1 | SLOC: 120 | PLOC: 25 | Comment ratio: 4.2%</p>
 <p class="note">Average MI: 28.0 (GOOD)</p>
 <h3 id="python-actionable-summary">Actionable Summary</h3>
+<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
 <p class="note">Raw counts across all functions, ignoring suppression markers.</p>
 <ul>
 <li><strong>1</strong> functions with more than 3 parameters</li>
@@ -86,12 +88,13 @@ expression: out
 <h3 id="python-maintainability-index-hotspots">Maintainability Index hotspots (lowest 5 by MI)</h3>
 <div class="table-wrap">
 <table class="hotspot">
-<thead><tr><th>File</th><th data-numeric="1" aria-sort="ascending" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi">MI</a></th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#tokens">Tokens</a></th></tr></thead>
+<thead><tr><th>File</th><th data-numeric="1" aria-sort="ascending" title="Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi">MI</a></th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#tokens">Tokens</a></th></tr></thead>
 <tbody>
 <tr><td>src/main.py</td><td class="numeric">28.0</td><td class="numeric">120</td><td class="numeric">800</td></tr>
 </tbody>
 </table>
 </div>
+<p class="note">MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0–100: GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column.</p>
 <h3 id="python-cyclomatic-complexity-hotspots">Cyclomatic complexity hotspots (top 5 by CC)</h3>
 <div class="table-wrap">
 <table class="hotspot">
@@ -158,6 +161,7 @@ expression: out
 <p class="note">Files: 2 | SLOC: 280 | PLOC: 265 | Comment ratio: 8.9%</p>
 <p class="note">Average MI: 28.5 (GOOD)</p>
 <h3 id="rust-actionable-summary">Actionable Summary</h3>
+<p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
 <p class="note">Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.</p>
 <ul>
 <li><strong>5</strong> functions with CC &gt; 10</li>
@@ -169,13 +173,14 @@ expression: out
 <h3 id="rust-maintainability-index-hotspots">Maintainability Index hotspots (lowest 5 by MI)</h3>
 <div class="table-wrap">
 <table class="hotspot">
-<thead><tr><th>File</th><th data-numeric="1" aria-sort="ascending" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi">MI</a></th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#tokens">Tokens</a></th></tr></thead>
+<thead><tr><th>File</th><th data-numeric="1" aria-sort="ascending" title="Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi">MI</a></th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) of the function or file."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#tokens">Tokens</a></th></tr></thead>
 <tbody>
 <tr><td>src/lib.rs</td><td class="numeric">12.0</td><td class="numeric">200</td><td class="numeric">1,500</td></tr>
 <tr><td>src/util.rs</td><td class="numeric">45.0</td><td class="numeric">80</td><td class="numeric">600</td></tr>
 </tbody>
 </table>
 </div>
+<p class="note">MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0–100: GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column.</p>
 <h3 id="rust-cyclomatic-complexity-hotspots">Cyclomatic complexity hotspots (top 5 by CC)</h3>
 <div class="table-wrap">
 <table class="hotspot">
@@ -279,7 +284,7 @@ expression: out
 <details class="legend" open>
 <summary>Legend</summary>
 <dl>
-<dt><a href="https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi">MI</a></dt><dd>Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.</dd>
+<dt><a href="https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi">MI</a></dt><dd>Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score.</dd>
 <dt><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></dt><dd>Source Lines Of Code: total physical lines, including blanks and comments.</dd>
 <dt><a href="https://dekobon.github.io/big-code-analysis/metrics.html#tokens">Tokens</a></dt><dd>Total lexical tokens (AST leaves excluding comments) of the function or file.</dd>
 <dt><a href="https://dekobon.github.io/big-code-analysis/metrics.html#cyclomatic-complexity-cc">CC</a></dt><dd>Cyclomatic Complexity: number of linearly independent control-flow paths through the function.</dd>

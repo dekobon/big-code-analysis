@@ -2,22 +2,22 @@
 .el .ds Aq '
 .TH BCA-VCS 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
 .SH NAME
-bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
+bca\-vcs \- Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree. Errors clearly outside a repo
 .SH SYNOPSIS
 \fBbca\-vcs\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-l\fR|\fB\-\-language\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-no\-config\fR] [\fB\-j\fR|\fB\-\-jobs\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-cyclomatic\-count\-try\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-\-long\-window\fR] [\fB\-\-recent\-window\fR] [\fB\-\-top\fR] [\fB\-\-file\-types\fR] [\fB\-\-ref\fR] [\fB\-\-full\-history\fR] [\fB\-\-include\-merges\fR] [\fB\-\-no\-follow\-renames\fR] [\fB\-\-no\-exclude\-bots\fR] [\fB\-\-bot\-pattern\fR] [\fB\-\-as\-of\fR] [\fB\-\-risk\-formula\fR] [\fB\-\-emit\-author\-details\fR] [\fB\-\-include\-deleted\fR] [\fB\-\-bus\-factor\-threshold\fR] [\fB\-\-no\-cache\fR] [\fB\-\-clear\-cache\fR] [\fB\-\-cache\-dir\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIsubcommands\fR]
 .SH DESCRIPTION
-Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
+Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree. Errors clearly outside a repo
 .SH OPTIONS
 .TP
 \fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR
-Output format. When omitted, the human\-readable ranked `text` table is printed; pass `\-\-format text` to request it explicitly (#659). `markdown` / `html` render a sortable report page like `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit structured data. `\-\-output\-format` is accepted as a deprecated alias (issue #513)
+Output format. When omitted, the human\-readable ranked `text` table is printed; pass `\-\-format text` to request it explicitly. `markdown` / `html` render a sortable report page like `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit structured data. `\-\-output\-format` is accepted as a deprecated alias
 .br
 
 .br
 \fIPossible values:\fR
 .RS 14
 .IP \(bu 2
-text: The human\-readable ranked table — the same output a bare `bca vcs` prints, now explicitly selectable so the human format is named and requestable everywhere (#659)
+text: The human\-readable ranked table — the same output a bare `bca vcs` prints, now explicitly selectable so the human format is named and requestable everywhere
 .IP \(bu 2
 cbor
 .IP \(bu 2
@@ -41,19 +41,19 @@ Output file. A change\-history report is a single whole\-repo document, so this 
 Pretty\-print JSON / TOML output
 .TP
 \fB\-\-long\-window\fR \fI<LONG_WINDOW>\fR [default: 12mo]
-Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). Accepted in the parent or subcommand position (issue #598)
+Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601 `P1Y`). Accepted in the parent or subcommand position
 .TP
 \fB\-\-recent\-window\fR \fI<RECENT_WINDOW>\fR [default: 90d]
-Recent observation window. Accepted in the parent or subcommand position (issue #598)
+Recent observation window. Accepted in the parent or subcommand position
 .TP
 \fB\-\-top\fR \fI<TOP>\fR [default: 50]
 Show only the top N files by risk score (`0` = all)
 .TP
 \fB\-\-file\-types\fR \fI<SCOPE>\fR
-Which tracked files to rank (issue #576): `metrics` (only files bca has metrics for — the default), `all` (every tracked text file), or a comma\-separated extension allow\-list (`rs,py,toml`). Applied on top of `\-\-paths`/`\-\-include`/`\-\-exclude` (AND semantics). When omitted, the `bca.toml` `[vcs] file_types` key is used if present, else `metrics`. Setting it here replaces the manifest value
+Which tracked files to rank: `metrics` (only files bca has metrics for — the default), `all` (every tracked text file), or a comma\-separated extension allow\-list (`rs,py,toml`). Applied on top of `\-\-paths`/`\-\-include`/`\-\-exclude` (AND semantics). When omitted, the `bca.toml` `[vcs] file_types` key is used if present, else `metrics`. Setting it here replaces the manifest value
 .TP
 \fB\-\-ref\fR \fI<REFERENCE>\fR
-Revision to analyze (defaults to `HEAD`). Accepted in the parent or `trend` subcommand position, but rejected under `jit`, which names its commit positionally (issue #598)
+Revision to analyze (defaults to `HEAD`). Accepted in the parent or `trend` subcommand position, but rejected under `commit`, which names its commit positionally
 .TP
 \fB\-\-full\-history\fR
 Walk the full commit DAG rather than first\-parent only
@@ -93,10 +93,10 @@ Emit SHA\-256\-hashed canonical author identities
 Emit stats for files deleted at the target ref
 .TP
 \fB\-\-bus\-factor\-threshold\fR \fI<BUS_FACTOR_THRESHOLD>\fR [default: 0.5]
-Bus\-factor coverage (abandonment) threshold — the fraction of a directory\*(Aqs files that must be orphaned for the truck\-factor greedy removal to stop (issue #332). Must be in `(0, 1)`; default `0.5` per Avelino. Ignored by `bca vcs commit`
+Bus\-factor coverage (abandonment) threshold — the fraction of a directory\*(Aqs files that must be orphaned for the truck\-factor greedy removal to stop. Must be in `(0, 1)`; default `0.5` per Avelino. Ignored by `bca vcs commit`
 .TP
 \fB\-\-no\-cache\fR
-Disable the persistent change\-history cache for the file ranking: always walk fresh, and neither read nor write the cache (issue #334). The cache otherwise reuses prior work on an unchanged tree and walks only new commits when `HEAD` has advanced
+Disable the persistent change\-history cache for the file ranking: always walk fresh, and neither read nor write the cache. The cache otherwise reuses prior work on an unchanged tree and walks only new commits when `HEAD` has advanced
 .TP
 \fB\-\-clear\-cache\fR
 Remove this repository\*(Aqs cached history before ranking, forcing a full rebuild. Combine with `\-\-no\-cache` to wipe without re\-priming
@@ -109,13 +109,13 @@ Print help (see a summary with \*(Aq\-h\*(Aq)
 .SH "INPUT SELECTION"
 .TP
 \fB\-p\fR, \fB\-\-paths\fR \fI<PATHS>\fR
-Input files or directories to analyze. Unioned with any positional `[PATHS]` (#651). Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
+Input files or directories to analyze. Unioned with any positional `[PATHS]`. Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
 .TP
 \fB\-I\fR, \fB\-\-include\fR \fI<INCLUDE>\fR
 Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed
 .TP
 \fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
-Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
@@ -130,7 +130,7 @@ Read newline\-separated input paths from a file. Use `\-` to read from stdin. Co
 Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`
 .TP
 \fB\-\-no\-ignore\fR
-Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding directory seeds. Explicit file paths are always honored regardless of this flag
+Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding input directories. Explicit file paths are always honored regardless of this flag
 .TP
 \fB\-\-no\-config\fR
 Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the working directory to the repo root looking for `bca.toml` and merges its keys *under* any explicit CLI flags. Pass this for raw, fully\-explicit invocations that must not pick up repo\-level config (e.g. a reproducible CI one\-liner). When no manifest is discovered this flag is a no\-op
@@ -139,13 +139,13 @@ Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the 
 \fB\-j\fR, \fB\-\-jobs\fR \fI<N|auto>\fR [default: auto]
 Number of jobs.
 
-Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major.
+Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle and is slated for removal in the next major.
 .TP
 \fB\-\-exclude\-tests\fR
-Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
+Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers stay byte\-for\-byte stable. Languages without a test\-subtree skip rule ignore this flag
 .TP
 \fB\-\-cyclomatic\-count\-try\fR[=\fI<BOOL>\fR]
-Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (issue #666); the CLI value overrides the manifest in either direction
+Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key; the CLI value overrides the manifest in either direction
 .br
 
 .br
@@ -159,10 +159,10 @@ false
 .SH SUBCOMMANDS
 .TP
 bca\-vcs\-commit(1)
-Score a single commit for defect\-induction risk — the just\-in\-time (JIT) defect\-prediction unit a CI gate reviews at check\-in (issue #331). Emits a JSON breakdown of size / diffusion / history / experience / purpose features, their contributions, and an ordinal composite score. Window / `\-\-ref` / bot / merge / rename behaviour comes from the parent `vcs` flags. The old `jit` spelling stays a hidden alias for one release cycle (issue #603)
+Score a single commit for defect\-induction risk — the just\-in\-time (JIT) defect\-prediction unit a CI gate reviews at check\-in. Emits a JSON breakdown of size / diffusion / history / experience / purpose features, their contributions, and an ordinal composite score. Window / `\-\-ref` / bot / merge / rename behaviour comes from the parent `vcs` flags. The old `jit` spelling stays a hidden alias for one release cycle
 .TP
 bca\-vcs\-trend(1)
-Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life (issue #333). Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags
+Sample the change\-history metrics at several points in time and emit a per\-file time series, surfacing whether code is improving or degrading over the project\*(Aqs life. Each point re\-anchors at the mainline tip of that moment, so it is a faithful historical snapshot. Window / `\-\-ref` / bot / merge / rename / as\-of (the most\-recent anchor) and `\-\-top` (files kept) come from the parent `vcs` flags
 .TP
 bca\-vcs\-help(1)
 Print this message or the help of the given subcommand(s)

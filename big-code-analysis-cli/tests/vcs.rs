@@ -178,6 +178,10 @@ fn vcs_cache_dir_persists_and_replays_identically() {
     let cache = tempfile::tempdir().expect("cache dir");
     let cache_arg = cache.path().to_str().expect("utf8 cache path");
 
+    // No `--as-of`: an `--as-of` predating HEAD legitimately re-anchors and
+    // bypasses the HEAD-keyed cache (issue #648), so a cache-persistence
+    // test must run the live (HEAD-anchored) walk. The two runs share one
+    // wall-clock second, so their output is byte-identical regardless.
     let run = || {
         let assert = cli()
             .current_dir(repo.path())
@@ -187,8 +191,6 @@ fn vcs_cache_dir_persists_and_replays_identically() {
                 ".",
                 "--format",
                 "json",
-                "--as-of",
-                "@1700000000",
                 "--cache-dir",
                 cache_arg,
             ])
@@ -346,7 +348,9 @@ fn metrics_vcs_per_function_attaches_nested_blocks() {
         "both nested functions carry a per-function vcs block"
     );
     // Every nested block must carry a per-function hotspot score derived
-    // from that function's own cyclomatic sum.
+    // from that function's *own* cyclomatic complexity (not the subtree
+    // `cyclomatic_sum`, so nested branches are not re-counted at every
+    // enclosing level — issue #709).
     for space in with_vcs {
         assert!(
             space["metrics"]["vcs"]["hotspot_score"].is_number(),
@@ -557,6 +561,65 @@ fn vcs_json_output_writes_a_single_file() {
     assert!(
         files.iter().any(|f| f["path"] == "src/work.rs"),
         "single-file report ranks the tracked file"
+    );
+}
+
+#[test]
+fn vcs_output_creates_missing_parent_directory() {
+    // Regression guard for #709 at the *command* level: the `vcs` emit
+    // path must create a missing `--output` parent directory, not fail
+    // with "No such file or directory". The `formats::write_text` unit
+    // test covers the helper in isolation; this proves `vcs emit` actually
+    // routes through it (text/markdown path). Before the dedup fix, `vcs`
+    // wrote straight to `std::fs::write` and this command failed.
+    let repo = repo_two_commits();
+    let out = repo.path().join("missing").join("dir").join("vcs.md");
+    assert!(
+        !out.parent().expect("has parent").exists(),
+        "parent must be absent before the run"
+    );
+    cli()
+        .current_dir(repo.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--format",
+            "markdown",
+            "--output",
+            out.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success();
+    let md = std::fs::read_to_string(&out).expect("report written to created dir");
+    assert!(
+        md.contains("src/work.rs"),
+        "the created file holds the rendered report"
+    );
+
+    // The CSV arm writes through a separate `File::create` sink, so it
+    // needs its own parent-dir guard — pin it too (it was the one arm the
+    // dedup pass initially missed).
+    let csv_out = repo.path().join("csv").join("nested").join("vcs.csv");
+    assert!(!csv_out.parent().expect("has parent").exists());
+    cli()
+        .current_dir(repo.path())
+        .args([
+            "vcs",
+            "--paths",
+            ".",
+            "--format",
+            "csv",
+            "--output",
+            csv_out.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success();
+    assert!(
+        std::fs::read_to_string(&csv_out)
+            .expect("csv written to created dir")
+            .contains("src/work.rs"),
+        "the created CSV holds the rendered rows"
     );
 }
 

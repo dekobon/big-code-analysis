@@ -36,6 +36,8 @@ expression: out
 
 ### Actionable Summary
 
+_Advisory thresholds: built-in defaults (distinct from `bca check`'s gate)._
+
 Raw counts across all functions, ignoring suppression markers.
 
 - **1** functions with more than 3 parameters
@@ -45,6 +47,8 @@ Raw counts across all functions, ignoring suppression markers.
 | File        |   MI | SLOC | Tokens |
 | ----------- | ---: | ---: | -----: |
 | src/main.py | 28.0 |  120 |    800 |
+
+_MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0–100: GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column._
 
 ### Cyclomatic complexity hotspots (top 5 by CC)
 
@@ -103,6 +107,8 @@ Average CC: 8.5 | Max: 10 | CC > 10: 0 functions | CC > 20: 0 functions (excludi
 
 ### Actionable Summary
 
+_Advisory thresholds: built-in defaults (distinct from `bca check`'s gate)._
+
 Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.
 
 - **5** functions with CC > 10
@@ -117,6 +123,8 @@ Raw counts across all functions; the hotspot tables hide suppressed rows (cyclom
 | ----------- | ---: | ---: | -----: |
 | src/lib.rs  | 12.0 |  200 |  1,500 |
 | src/util.rs | 45.0 |   80 |    600 |
+
+_MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0–100: GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column._
 
 ### Cyclomatic complexity hotspots (top 5 by CC)
 
@@ -196,7 +204,7 @@ Average CC: 12.6 | Max: 25 | CC > 10: 4 functions | CC > 20: 1 functions (exclud
 
 ## Legend
 
-- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.
+- **[MI](https://dekobon.github.io/big-code-analysis/metrics.html#maintainability-index-mi)** — Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula's range, not a meaningful score.
 - **[SLOC](https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code)** — Source Lines Of Code: total physical lines, including blanks and comments.
 - **[Tokens](https://dekobon.github.io/big-code-analysis/metrics.html#tokens)** — Total lexical tokens (AST leaves excluding comments) of the function or file.
 - **[CC](https://dekobon.github.io/big-code-analysis/metrics.html#cyclomatic-complexity-cc)** — Cyclomatic Complexity: number of linearly independent control-flow paths through the function.

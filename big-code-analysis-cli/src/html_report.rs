@@ -42,6 +42,7 @@ use std::fmt::Write;
 
 use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
+use crate::markdown_report::advisory::{AdvisoryCounts, AdvisoryThresholds};
 use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS, Source};
 use crate::markdown_report::{
     FunctionSummary, is_class_like, language_display_name, mi_rating, thousands,
@@ -900,7 +901,14 @@ pub(crate) fn generate_html_report(
     top_n: usize,
     policy: SuppressionPolicy,
 ) -> String {
-    generate_html_report_with_vcs(summaries, top_n, policy, None, None)
+    generate_html_report_with_vcs(
+        summaries,
+        top_n,
+        policy,
+        &AdvisoryThresholds::DEFAULT,
+        None,
+        None,
+    )
 }
 
 /// As [`generate_html_report`], optionally inserting a "Change-history
@@ -911,6 +919,7 @@ pub(crate) fn generate_html_report_with_vcs(
     summaries: &[FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
+    advisory: &AdvisoryThresholds,
     vcs: Option<&crate::vcs_command::Report>,
     prov: Option<&crate::provenance::Provenance<'_>>,
 ) -> String {
@@ -947,6 +956,7 @@ pub(crate) fn generate_html_report_with_vcs(
                 lang_summaries,
                 top_n,
                 policy,
+                *advisory,
             );
         }
         // A visible legend so the column definitions survive print, mobile,
@@ -973,7 +983,7 @@ pub(crate) fn generate_html_report_with_vcs(
     // so a multi-language report gives one top-of-page signal before the
     // per-language sections (issue #678).
     if !by_lang.is_empty() {
-        write_global_actionable_summary(&mut out, summaries);
+        write_global_actionable_summary(&mut out, summaries, *advisory);
     }
     out.push_str(&body);
     write_html_tail(&mut out);
@@ -986,40 +996,33 @@ pub(crate) fn generate_html_report_with_vcs(
 /// Actionable Summary, this is a raw whole-codebase health signal, not a
 /// gate (issue #501). Renders the "no concerns" line when nothing clears a
 /// threshold, mirroring the per-language block.
-fn write_global_actionable_summary(out: &mut String, summaries: &[FunctionSummary]) {
+fn write_global_actionable_summary(
+    out: &mut String,
+    summaries: &[FunctionSummary],
+    advisory: AdvisoryThresholds,
+) {
     let funcs: Vec<&FunctionSummary> = summaries
         .iter()
         .filter(|s| s.kind == SpaceKind::Function)
         .collect();
-    let counts = ActionableCounts::from_funcs(&funcs);
+    let counts = advisory.count_over(&funcs);
     let _ = out.write_str(
         "<div class=\"summary global-actionable\">\n<p><strong>Actionable summary \
          (all languages)</strong></p>\n",
+    );
+    // Provenance so the global roll-up's cutoffs are attributable (issue #630).
+    let _ = writeln!(
+        out,
+        "<p class=\"note\">{}</p>",
+        escape_html(advisory.provenance_line())
     );
     if counts.all_clear() {
         let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
         let _ = out.write_str("</div>\n");
         return;
     }
-    let _ = out.write_str("<ul>\n");
-    for (count, label) in [
-        (counts.cc_gt10, "functions with CC &gt; 10"),
-        (
-            counts.cog_gt15,
-            "functions with cognitive complexity &gt; 15",
-        ),
-        (counts.sloc_gt100, "functions with SLOC &gt; 100"),
-        (counts.nargs_gt3, "functions with more than 3 parameters"),
-        (
-            counts.bugs_gt1,
-            "functions with estimated Halstead bugs &gt; 1.0",
-        ),
-    ] {
-        if count > 0 {
-            let _ = writeln!(out, "<li><strong>{count}</strong> {label}</li>");
-        }
-    }
-    let _ = out.write_str("</ul>\n</div>\n");
+    write_actionable_bullets(out, counts, advisory);
+    let _ = out.write_str("</div>\n");
 }
 
 /// Emit a visible legend listing each metric column's abbreviation and its
@@ -1188,51 +1191,67 @@ fn emit_cc_note_html(
     let caption = hotspot::cc_note_caption(policy)
         .map(|c| format!(" ({})", escape_html(c)))
         .unwrap_or_default();
+    // Bands use the resolved advisory CC cutoff and its severe multiple
+    // (issue #630): `> 10` / `> 20` by default, shifted by a manifest
+    // `cyclomatic = N`.
     let _ = writeln!(
         out,
-        "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions{caption}</p>",
+        "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; {:.0}: {} functions | CC &gt; {:.0}: {} functions{caption}</p>",
         stats.avg(),
         stats.max,
-        stats.gt10,
-        stats.gt20,
+        stats.primary_cutoff,
+        stats.over_primary,
+        stats.severe_cutoff,
+        stats.over_severe,
     );
 }
 
-/// Bucket counts behind the `<h3>Actionable Summary</h3>` block.
-struct ActionableCounts {
-    cc_gt10: usize,
-    cog_gt15: usize,
-    sloc_gt100: usize,
-    nargs_gt3: usize,
-    bugs_gt1: usize,
-}
-
-impl ActionableCounts {
-    fn from_funcs(funcs: &[&FunctionSummary]) -> Self {
-        let mut a = Self {
-            cc_gt10: 0,
-            cog_gt15: 0,
-            sloc_gt100: 0,
-            nargs_gt3: 0,
-            bugs_gt1: 0,
-        };
-        for s in funcs {
-            a.cc_gt10 += usize::from(s.cyclomatic > 10.0);
-            a.cog_gt15 += usize::from(s.cognitive > 15.0);
-            a.sloc_gt100 += usize::from(s.sloc > 100);
-            a.nargs_gt3 += usize::from(s.nargs > 3);
-            a.bugs_gt1 += usize::from(s.halstead_bugs > 1.0);
-        }
-        a
+/// Emit the `<ul>` of advisory bullets shared by the per-language and global
+/// Actionable Summaries, the resolved advisory cutoff embedded in each label
+/// (issue #630). The caller has already emitted the heading / provenance /
+/// caption and confirmed `!counts.all_clear()`.
+fn write_actionable_bullets(
+    out: &mut String,
+    counts: AdvisoryCounts,
+    advisory: AdvisoryThresholds,
+) {
+    let _ = out.write_str("<ul>\n");
+    if counts.cc > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with CC &gt; {:.0}</li>",
+            counts.cc, advisory.cc
+        );
     }
-
-    fn all_clear(&self) -> bool {
-        self.cc_gt10 == 0
-            && self.cog_gt15 == 0
-            && self.sloc_gt100 == 0
-            && self.nargs_gt3 == 0
-            && self.bugs_gt1 == 0
+    if counts.cognitive > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with cognitive complexity &gt; {:.0}</li>",
+            counts.cognitive, advisory.cognitive
+        );
     }
+    if counts.sloc > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with SLOC &gt; {}</li>",
+            counts.sloc, advisory.sloc
+        );
+    }
+    if counts.nargs > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with more than {} parameters</li>",
+            counts.nargs, advisory.nargs
+        );
+    }
+    if counts.bugs > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with estimated Halstead bugs &gt; {:.1}</li>",
+            counts.bugs, advisory.bugs
+        );
+    }
+    let _ = out.write_str("</ul>\n");
 }
 
 fn write_actionable_summary(
@@ -1241,12 +1260,19 @@ fn write_actionable_summary(
     id_prefix: &str,
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) {
-    let counts = ActionableCounts::from_funcs(funcs);
+    let counts = advisory.count_over(funcs);
     headings.emit_h3(
         out,
         &format!("{id_prefix}-actionable-summary"),
         "Actionable Summary",
+    );
+    // Provenance so the cutoffs are always attributable (issue #630).
+    let _ = writeln!(
+        out,
+        "<p class=\"note\">{}</p>",
+        escape_html(advisory.provenance_line())
     );
     let breakdown = hotspot::suppressed_metric_breakdown(funcs, policy);
     let _ = writeln!(
@@ -1258,43 +1284,7 @@ fn write_actionable_summary(
         let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
         return;
     }
-    let _ = out.write_str("<ul>\n");
-    if counts.cc_gt10 > 0 {
-        let _ = writeln!(
-            out,
-            "<li><strong>{}</strong> functions with CC &gt; 10</li>",
-            counts.cc_gt10
-        );
-    }
-    if counts.cog_gt15 > 0 {
-        let _ = writeln!(
-            out,
-            "<li><strong>{}</strong> functions with cognitive complexity &gt; 15</li>",
-            counts.cog_gt15
-        );
-    }
-    if counts.sloc_gt100 > 0 {
-        let _ = writeln!(
-            out,
-            "<li><strong>{}</strong> functions with SLOC &gt; 100</li>",
-            counts.sloc_gt100
-        );
-    }
-    if counts.nargs_gt3 > 0 {
-        let _ = writeln!(
-            out,
-            "<li><strong>{}</strong> functions with more than 3 parameters</li>",
-            counts.nargs_gt3
-        );
-    }
-    if counts.bugs_gt1 > 0 {
-        let _ = writeln!(
-            out,
-            "<li><strong>{}</strong> functions with estimated Halstead bugs &gt; 1.0</li>",
-            counts.bugs_gt1
-        );
-    }
-    let _ = out.write_str("</ul>\n");
+    write_actionable_bullets(out, counts, advisory);
 }
 
 /// Emit the section heading (`<h3>` + id) followed by the "table omitted: all
@@ -1340,6 +1330,7 @@ fn write_language_section(
     entries: &[&FunctionSummary],
     top_n: usize,
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) {
     write_language_header(out, headings, lang_name);
     // Slug-based id prefix for this language's `h3` headings, so a hotspot
@@ -1352,7 +1343,7 @@ fn write_language_section(
     // The Actionable Summary leads the section (directly after Summary,
     // before any hotspot table) so a reader sees the highest-altitude counts
     // first (issue #678).
-    write_actionable_summary(out, headings, &id_prefix, &funcs, policy);
+    write_actionable_summary(out, headings, &id_prefix, &funcs, policy, advisory);
 
     // Drive every hotspot section from the shared `SPECS` table so the HTML
     // and Markdown reports cannot diverge in membership/order/suppression.
@@ -1364,27 +1355,34 @@ fn write_language_section(
             Source::All => entries,
         };
         if spec.cc_note {
-            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
+            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy, advisory);
             if rows.is_empty() {
                 // Mirror the non-CC branch: a CC table emptied purely by
                 // suppression earns the same "table omitted" caption, or the
                 // Actionable Summary's raw CC bullets would dangle (#616).
-                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
                 emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
             } else {
                 emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
                 emit_cc_note_html(out, &stats, policy);
             }
         } else {
-            let rows = hotspot::select(spec, base, top_n, policy);
+            let rows = hotspot::select(spec, base, top_n, policy, advisory);
             if rows.is_empty() {
                 // An empty table here is either a genuinely-absent metric or a
                 // table whose every matching row was suppressed; only the
                 // latter earns a caption so a summary bullet never dangles.
-                let suppressed = hotspot::fully_suppressed_count(spec, base, policy);
+                let suppressed = hotspot::fully_suppressed_count(spec, base, policy, advisory);
                 emit_fully_suppressed_note_html(out, headings, &id_prefix, spec, top_n, suppressed);
             } else {
                 emit_html_section(out, headings, &id_prefix, spec, top_n, &rows);
+                if spec.mi_note {
+                    let _ = writeln!(
+                        out,
+                        "<p class=\"note\">{}</p>",
+                        escape_html(hotspot::MI_NOTE)
+                    );
+                }
             }
         }
     }
@@ -1716,8 +1714,14 @@ mod tests {
             top: 0,
             policy: SuppressionPolicy::Ignore,
         };
-        let out =
-            generate_html_report_with_vcs(&s, 0, SuppressionPolicy::Ignore, None, Some(&prov));
+        let out = generate_html_report_with_vcs(
+            &s,
+            0,
+            SuppressionPolicy::Ignore,
+            &AdvisoryThresholds::DEFAULT,
+            None,
+            Some(&prov),
+        );
         assert!(out.contains("<footer class=\"provenance\">"));
         assert!(out.contains(
             "Generated by bca 9.9.9 on 2026-06-11 over src/ \u{2014} all entries per table, \

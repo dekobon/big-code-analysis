@@ -46,9 +46,17 @@ pub(crate) const GITHUB_BASE_REF_ENV: &str = "GITHUB_BASE_REF";
 /// absent.
 pub(crate) const GITHUB_EVENT_BEFORE_ENV: &str = "GITHUB_EVENT_BEFORE";
 
-/// All-zeroes git SHA emitted by GitHub Actions when there is no
-/// previous commit to diff against (force push, brand-new branch).
-const NULL_SHA: &str = "0000000000000000000000000000000000000000";
+/// Is `sha` the all-zeroes "no previous commit" sentinel GitHub Actions
+/// emits in `GITHUB_EVENT_BEFORE` on a force-push or brand-new branch?
+///
+/// Matching "all ASCII `0`s, non-empty" rather than a fixed 40-char
+/// literal covers both SHA-1 (40 zeros) and SHA-256 (64 zeros)
+/// object-format repos (#704): a SHA-256 repo's null ref is 64 zeros, so
+/// the old exact-length literal compare let it slip through as a real ref
+/// and the resolver tried to diff against an unreachable object.
+fn is_null_sha(sha: &str) -> bool {
+    !sha.is_empty() && sha.bytes().all(|b| b == b'0')
+}
 
 /// Origin remote name assumed when expanding `GITHUB_BASE_REF`
 /// (`main` → `origin/main`). GitHub Actions always names the remote
@@ -201,7 +209,7 @@ fn auto_detect_base() -> Option<(String, DiffSource)> {
         // sentinel for force-pushed or brand-new branches; treat it
         // as no signal so the caller falls back instead of trying to
         // diff against an unreachable ref.
-        if v != NULL_SHA {
+        if !is_null_sha(&v) {
             return Some((v, DiffSource::GithubPush));
         }
     }
@@ -339,13 +347,30 @@ impl GitError {
     }
 }
 
-fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, GitError> {
+/// Run `git` and return its raw stdout bytes (no UTF-8 decoding). Used
+/// for `git archive`, whose output is a binary tar stream that
+/// [`run_git`]'s UTF-8 decode would reject. Shares the spawn / non-zero
+/// classification with [`run_git`].
+fn run_git_bytes(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GitError> {
+    let output = git_output(args, cwd)?;
+    if !output.status.success() {
+        return Err(GitError::NonZero {
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+    Ok(output.stdout)
+}
+
+/// Spawn `git` with `args` in `cwd`, mapping spawn failures to the
+/// discriminated [`GitError::Spawn`] diagnostics. Returns the raw
+/// `Output` so byte and text callers can each interpret stdout.
+fn git_output(args: &[&str], cwd: Option<&Path>) -> Result<std::process::Output, GitError> {
     let mut cmd = Command::new("git");
     cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let output = cmd.output().map_err(|e| {
+    cmd.output().map_err(|e| {
         // Discriminate the common spawn failure modes so the
         // diagnostic names the actionable problem instead of a
         // generic "failed to invoke git". `NotFound` = git not on
@@ -358,7 +383,11 @@ fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, GitError> {
             _ => "failed to invoke git",
         };
         GitError::Spawn(format!("{context}: {e}"))
-    })?;
+    })
+}
+
+fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, GitError> {
+    let output = git_output(args, cwd)?;
     if !output.status.success() {
         return Err(GitError::NonZero {
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
@@ -426,44 +455,58 @@ pub(crate) fn validate_since_ref(since_ref: &str) -> Result<(), String> {
 /// empty directory — typically a [`tempfile::TempDir`] the caller owns
 /// so it auto-cleans on every exit path, including errors).
 ///
-/// Uses `git archive --format=tar <ref> -o <tarfile>` into a sibling
-/// temp file, then `tar -xf <tarfile> -C <dest>`. The archive route
-/// (vs `git worktree add`) needs no checkout-state bookkeeping and
-/// conflicts with no existing worktree; the only artifacts are the
-/// caller-owned `dest` dir and the internally-owned tarball, both
-/// auto-removed on drop.
+/// Runs `git archive --format=tar <ref>` and extracts the resulting tar
+/// stream with the **in-process `tar` crate** rather than shelling out to
+/// a system `tar`. The previous shell-out depended on a `tar` binary on
+/// `PATH` and on its flavour: BSD `tar` (the macOS default) rejects an
+/// *empty* archive — exactly what `git archive` produces for an
+/// empty-tree ref — failing a diff that should have yielded an empty
+/// before-side. The in-process extractor has no such quirk and needs no
+/// external binary, removing both the portability and the empty-tree
+/// fragility (#704).
+///
+/// The archive route (vs `git worktree add`) needs no checkout-state
+/// bookkeeping and conflicts with no existing worktree; the only artifact
+/// is the caller-owned `dest` dir, auto-removed on drop.
+///
+/// `dest` MUST be empty: the extractor writes archive entries verbatim,
+/// so a pre-populated `dest` would silently mix the ref tree with
+/// leftover files. This is enforced (not merely documented) below.
 pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), String> {
     let repo_root =
         git_repo_root().map_err(|reason| format!("diff --since {since_ref}: {reason}"))?;
-    // Hold the tarball in its own NamedTempFile so it is removed on every
-    // return path, including the extraction-failure `?` below.
-    let tarball = tempfile::NamedTempFile::new()
-        .map_err(|e| format!("diff --since: failed to create temp archive file: {e}"))?;
-    let tar_path = tarball.path();
-    let tar_path_str = tar_path
-        .to_str()
-        .ok_or_else(|| "diff --since: temp archive path is not valid UTF-8".to_string())?;
-    run_git(
-        &["archive", "--format=tar", "-o", tar_path_str, since_ref],
+
+    // Enforce the empty-dest contract: a non-empty `dest` would let
+    // leftover files masquerade as part of the extracted ref tree,
+    // corrupting the before-side metric set. `read_dir().next().is_some()`
+    // is a cheap "any entry?" probe.
+    let mut entries = std::fs::read_dir(dest).map_err(|e| {
+        format!(
+            "diff --since: cannot read extraction dir {}: {e}",
+            dest.display()
+        )
+    })?;
+    if entries.next().is_some() {
+        return Err(format!(
+            "diff --since: extraction dir {} is not empty; refusing to mix the \
+             extracted <ref> tree with existing files",
+            dest.display()
+        ));
+    }
+
+    let archive = run_git_bytes(
+        &["archive", "--format=tar", since_ref],
         Some(Path::new(&repo_root)),
     )
     .map_err(|e| e.into_message(&format!("diff --since: git archive {since_ref}")))?;
 
-    let dest_str = dest
-        .to_str()
-        .ok_or_else(|| "diff --since: extraction dir path is not valid UTF-8".to_string())?;
-    let status = Command::new("tar")
-        .args(["-xf", tar_path_str, "-C", dest_str])
-        .status()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => "tar binary not found on PATH".to_string(),
-            _ => format!("diff --since: failed to invoke tar: {e}"),
-        })?;
-    if !status.success() {
-        return Err(format!(
-            "diff --since: tar failed to extract the archive for {since_ref}"
-        ));
-    }
+    // Extract in-process. `git archive` emits a well-formed tar with only
+    // regular files / dirs from the tracked tree (no absolute paths, no
+    // `..`), so the default `tar` unpack — which already refuses entries
+    // that escape `dest` — is safe here.
+    let mut ar = tar::Archive::new(std::io::Cursor::new(archive));
+    ar.unpack(dest)
+        .map_err(|e| format!("diff --since: failed to extract the archive for {since_ref}: {e}"))?;
     Ok(())
 }
 

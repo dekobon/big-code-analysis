@@ -39,6 +39,7 @@ mod baseline_diff;
 mod check_flags;
 mod check_format;
 mod commands;
+mod deprecations;
 mod diff;
 mod dispatch;
 mod exemptions;
@@ -129,19 +130,45 @@ pub(crate) const EXIT_TOOL_ERROR: i32 = 1;
 /// `vcs commit --fail-above`.
 pub(crate) const EXIT_GATE_BREACH: i32 = 2;
 
-fn die(msg: impl Display) -> ! {
-    eprintln!("Error: {msg}");
+/// Print an `error:`-prefixed diagnostic and exit with [`EXIT_TOOL_ERROR`].
+///
+/// The bare lowercase `error:` prefix matches clap's own usage-error
+/// formatter (#609) so every stderr line — clap's and ours — reads in the
+/// one rustc/cargo/git diagnostic family. Routing all fatal tool errors
+/// through this single helper keeps the prefix structurally enforced
+/// rather than re-spelled at each call site.
+pub(crate) fn die(msg: impl Display) -> ! {
+    eprintln!("error: {msg}");
     process::exit(EXIT_TOOL_ERROR);
 }
 
-/// Emit a one-line stderr deprecation notice when a retired flag is used
-/// in place of its replacement (issues #688/#666; the one-cycle alias
-/// horizon). Mirrors the bare `warning:` prefix the manifest's
-/// deprecated-key notices use, so all deprecation chatter reads alike.
-fn warn_deprecated_flag(old: &str, new: &str) {
-    eprintln!(
-        "warning: `{old}` is deprecated; use `{new}` instead (removed in the next major release)"
-    );
+/// Print a `warning:`-prefixed diagnostic to stderr (non-fatal). The
+/// counterpart to [`die`] / [`note`]: one helper per severity so the
+/// lowercase `warning:` prefix is enforced structurally (#609).
+pub(crate) fn warn(msg: impl Display) {
+    eprintln!("warning: {msg}");
+}
+
+/// Print a `note:`-prefixed diagnostic to stderr — supplementary context
+/// attached to a warning or to surprising-but-valid input. The lowest of
+/// the three diagnostic severities (#609).
+pub(crate) fn note(msg: impl Display) {
+    eprintln!("note: {msg}");
+}
+
+/// Emit a one-line stderr deprecation notice when a deprecated flag (or
+/// subcommand) spelling is used in place of its replacement (issues
+/// #688/#666/#646; the one-cycle alias horizon). The shared emission
+/// point for the CLI flag/subcommand deprecations: the resolution-time
+/// folds (`--headroom`, `--strict-exit-codes`) and the argv-scan alias
+/// detector in [`crate::deprecations`] both route through here, so all
+/// flag-deprecation chatter reads alike under the one `warning:` prefix
+/// (via [`warn`]). The manifest's deprecated-key notices
+/// ([`crate::manifest`]) are emitted at their own site but share it.
+pub(crate) fn warn_deprecated_flag(old: &str, new: &str) {
+    warn(format_args!(
+        "`{old}` is deprecated; use `{new}` instead (removed in the next major release)"
+    ));
 }
 
 /// Die with `failed to <verb> <path>: <err>`. Centralizes the most common
@@ -226,8 +253,9 @@ pub struct Cli {
 #[derive(Args, Debug, Default, Clone)]
 struct UniversalArgs {
     /// Print warnings (skipped files, unrecognized languages). `--warning`
-    /// (singular) is kept as a hidden alias for one release cycle (issue
-    /// #604) and is slated for removal in the next major.
+    /// (singular) is kept as a hidden alias for one release cycle and is
+    /// slated for removal in the next major.
+    // The singular `--warning` alias dates to issue #604.
     #[clap(long = "warnings", short = 'w', global = true, alias = "warning")]
     warning: bool,
     /// Log a "skipped (generated): <path>" line to stderr for each file
@@ -247,7 +275,7 @@ struct UniversalArgs {
 #[derive(Args, Debug, Default, Clone)]
 struct WalkSelectionArgs {
     /// Input files or directories to analyze. Unioned with any
-    /// positional `[PATHS]` (#651). Defaults to the current directory
+    /// positional `[PATHS]`. Defaults to the current directory
     /// (`.`) when omitted and no manifest `paths` is set; an
     /// explicitly-given path that does not exist is an error (exit 1).
     #[clap(long, short, value_parser, help_heading = "Input selection")]
@@ -260,8 +288,7 @@ struct WalkSelectionArgs {
     /// Glob to exclude files. Repeat the flag to add multiple globs
     /// (`-X '*.tmp' -X '*.bak'`); each occurrence takes exactly one
     /// value, so a positional argument that follows is never swallowed.
-    /// As a negative filter key (#539), CLI
-    /// values are *merged with* (unioned, not a replacement for) any
+    /// CLI values are *merged with* (unioned, not a replacement for) any
     /// `bca.toml` `exclude` list and any `--exclude-from` patterns, so a
     /// CLI `--exclude` never silently un-excludes a directory the
     /// project config deliberately skipped. Pass `--no-config` to ignore
@@ -300,7 +327,7 @@ struct WalkSelectionArgs {
     #[clap(long = "exclude-from", value_parser, help_heading = "Input selection")]
     exclude_from: Option<PathBuf>,
     /// Disable `.gitignore` / `.ignore` / global gitignore awareness
-    /// when expanding directory seeds. Explicit file paths are always
+    /// when expanding input directories. Explicit file paths are always
     /// honored regardless of this flag.
     #[clap(long = "no-ignore", help_heading = "Input selection")]
     no_ignore: bool,
@@ -326,7 +353,8 @@ struct WalkTuningArgs {
     /// (cgroup-quota- and cpuset-aware on Linux). Pass an explicit
     /// integer or `auto` to override. `--jobs 1` forces serial mode for
     /// debugging. `--num-jobs` is kept as a hidden alias for one release
-    /// cycle (issue #604) and is slated for removal in the next major.
+    /// cycle and is slated for removal in the next major.
+    // The `--num-jobs` alias dates to issue #604.
     #[clap(
         long = "jobs",
         short = 'j',
@@ -340,9 +368,10 @@ struct WalkTuningArgs {
     /// applies to Rust only (skips `#[test]`, `#[cfg(test)]`,
     /// `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and
     /// their subtrees). Default is off — every node is counted, so
-    /// numbers match the pre-#182 behaviour byte-for-byte. Languages
-    /// without a `Checker::should_skip_subtree` override ignore this
-    /// flag.
+    /// numbers stay byte-for-byte stable. Languages without a
+    /// test-subtree skip rule ignore this flag.
+    // The "off by default" guarantee preserves the pre-#182 numbers;
+    // the skip hook is `Checker::should_skip_subtree`.
     #[clap(long = "exclude-tests", help_heading = "Walker tuning")]
     exclude_tests: bool,
     /// Whether Rust's `?` operator (the `try_expression` node)
@@ -353,8 +382,8 @@ struct WalkTuningArgs {
     /// propagation — useful when cyclomatic is used as a maintainability
     /// gate that should not penalize fallible-but-linear code. Rust-only:
     /// no other language emits the node, so the flag is inert elsewhere.
-    /// Mirrors the `cyclomatic_count_try` manifest key (issue #666); the
-    /// CLI value overrides the manifest in either direction.
+    /// Mirrors the `cyclomatic_count_try` manifest key; the CLI value
+    /// overrides the manifest in either direction.
     #[clap(
         long = "cyclomatic-count-try",
         value_name = "BOOL",
@@ -365,9 +394,10 @@ struct WalkTuningArgs {
         help_heading = "Walker tuning"
     )]
     cyclomatic_count_try: Option<bool>,
-    /// Deprecated alias for `--cyclomatic-count-try=false` (issue #666).
-    /// Retained for one release cycle; pass `--cyclomatic-count-try
-    /// false` instead. Conflicts with the value-taking form.
+    /// Deprecated alias for `--cyclomatic-count-try=false`. Retained for
+    /// one release cycle; pass `--cyclomatic-count-try false` instead.
+    /// Conflicts with the value-taking form.
+    // The `--cyclomatic-count-try` flag pair was introduced in issue #666.
     #[clap(
         long = "no-cyclomatic-try",
         hide = true,
@@ -463,10 +493,10 @@ struct GlobalOpts {
 struct PositionalPaths {
     /// Input files or directories to analyze, given positionally
     /// (`bca metrics src/ tests/`). Unioned with any `--paths`/`-p`
-    /// values (#651). The clap arg id (`positional_paths`) is distinct
-    /// from the `--paths` flag's id so both can coexist on one command —
-    /// clap requires unique arg ids; the two are merged by
-    /// `assemble_globals`.
+    /// values.
+    // The clap arg id (`positional_paths`, #651) is distinct from the
+    // `--paths` flag's id so both can coexist on one command — clap
+    // requires unique arg ids; the two are merged by `assemble_globals`.
     #[clap(value_name = "PATHS", value_parser, help_heading = "Input selection")]
     positional_paths: Vec<PathBuf>,
 }
@@ -574,13 +604,14 @@ enum Command {
     Ops(StructuredArgs),
     /// Rank files by change-history (VCS) risk: churn, commit and author
     /// counts, ownership dilution, and bug- / security-fix history over a
-    /// git working tree (issue #328). Errors clearly outside a repo.
+    /// git working tree. Errors clearly outside a repo.
+    // Change-history ranking landed in issue #328.
     Vcs(Box<VcsArgs>),
     /// Generate an aggregated report across the analyzed source.
     Report(ReportArgs),
     /// Dump the AST to stdout. Each file's tree is prefixed with a
-    /// `== <path> ==` banner so a multi-file dump is attributable
-    /// (#690). Requires an explicit path — unlike the other walking
+    /// `== <path> ==` banner so a multi-file dump is attributable.
+    /// Requires an explicit path — unlike the other walking
     /// subcommands, bare `bca dump` errors instead of dumping the whole
     /// current directory (a whole-tree AST dump has no plausible use).
     Dump(DumpArgs),
@@ -648,13 +679,21 @@ struct StructuredArgs {
     #[clap(flatten)]
     out: OutputArgs,
     /// Output format. When omitted, the default `text` format prints a
-    /// human-readable colored metric tree to stdout; pass `--format text`
+    /// human-readable colored tree to stdout (`metrics` shows the metric
+    /// tree, `ops` the operator/operand tree); pass `--format text`
     /// to request that default explicitly (e.g. to override a `bca.toml`
     /// that set a structured format). `json` / `yaml` / `toml` / `cbor` /
     /// `csv` emit structured per-file data. `--output-format` is accepted
-    /// as a deprecated alias (issue #513); it is hidden from help and
-    /// slated for removal in 2.0.
-    #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
+    /// as a deprecated alias; it is hidden from help and slated for
+    /// removal in 2.0.
+    // The `--output-format` alias is the pre-rename spelling from issue #513.
+    #[clap(
+        long = "format",
+        short = 'O',
+        alias = "output-format",
+        value_name = "FORMAT",
+        value_enum
+    )]
     output_format: Option<MetricsFormat>,
     /// Output file. Writes one aggregate document (a top-level array of
     /// the per-file results; TOML wraps it under a `files` key) for the
@@ -752,21 +791,23 @@ struct VcsArgs {
     tuning: WalkTuningArgs,
     /// Optional `vcs` subcommand. With none, `bca vcs` ranks files by
     /// change-history risk (the default). `commit` instead scores a single
-    /// commit for just-in-time (JIT) defect-induction risk (issue #331);
-    /// it reuses the window / bot / merge / rename / as-of flags below
-    /// (which are accepted in either position — `bca vcs --long-window 6mo
-    /// commit` or `bca vcs commit --long-window 6mo`). `commit` names its
-    /// commit positionally, so passing `--ref` with it is a usage error
-    /// (issue #598). The old `jit` spelling is a hidden alias for one
-    /// release cycle (issue #603).
+    /// commit for just-in-time (JIT) defect-induction risk; it reuses the
+    /// window / bot / merge / rename / as-of flags below (which are
+    /// accepted in either position — `bca vcs --long-window 6mo commit` or
+    /// `bca vcs commit --long-window 6mo`). `commit` names its commit
+    /// positionally, so passing `--ref` with it is a usage error. The old
+    /// `jit` spelling is a hidden alias for one release cycle.
+    // commit scoring: #331; either-position flags: #598; `jit`->`commit`
+    // rename: #603.
     #[command(subcommand)]
     command: Option<VcsSubcommand>,
     /// Output format. When omitted, the human-readable ranked `text`
-    /// table is printed; pass `--format text` to request it explicitly
-    /// (#659). `markdown` / `html` render a sortable report page like
+    /// table is printed; pass `--format text` to request it explicitly.
+    /// `markdown` / `html` render a sortable report page like
     /// `bca report`; `json` / `yaml` / `toml` / `cbor` / `csv` emit
     /// structured data. `--output-format` is accepted as a deprecated
-    /// alias (issue #513).
+    /// alias.
+    // `text` unification: #659; `--output-format` alias: #513.
     #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     format: Option<VcsFormat>,
     /// Output file. A change-history report is a single whole-repo
@@ -778,17 +819,17 @@ struct VcsArgs {
     #[clap(long)]
     pretty: bool,
     /// Long observation window (`12mo`, `2y`, `52w`, `365d`, or ISO 8601
-    /// `P1Y`). Accepted in the parent or subcommand position (issue #598).
+    /// `P1Y`). Accepted in the parent or subcommand position.
     #[clap(long, default_value = "12mo", global = true)]
     long_window: String,
     /// Recent observation window. Accepted in the parent or subcommand
-    /// position (issue #598).
+    /// position.
     #[clap(long, default_value = "90d", global = true)]
     recent_window: String,
     /// Show only the top N files by risk score (`0` = all).
     #[clap(long, default_value_t = 50)]
     top: usize,
-    /// Which tracked files to rank (issue #576): `metrics` (only files
+    /// Which tracked files to rank: `metrics` (only files
     /// bca has metrics for — the default), `all` (every tracked text
     /// file), or a comma-separated extension allow-list (`rs,py,toml`).
     /// Applied on top of `--paths`/`--include`/`--exclude` (AND
@@ -798,9 +839,11 @@ struct VcsArgs {
     #[clap(long, value_name = "SCOPE")]
     file_types: Option<String>,
     /// Revision to analyze (defaults to `HEAD`). Accepted in the parent
-    /// or `trend` subcommand position, but rejected under `jit`, which
-    /// names its commit positionally (issue #598).
+    /// or `trend` subcommand position, but rejected under `commit`, which
+    /// names its commit positionally.
     //
+    // Either-position acceptance and the `commit` positional conflict
+    // landed in issue #598.
     // Stored as an `Option` (rather than a `default_value = "HEAD"`
     // `String`) so an explicit `--ref` is distinguishable from the
     // default — the `jit` conflict check keys off `Some`, and
@@ -838,14 +881,14 @@ struct VcsArgs {
     include_deleted: bool,
     /// Bus-factor coverage (abandonment) threshold — the fraction of a
     /// directory's files that must be orphaned for the truck-factor
-    /// greedy removal to stop (issue #332). Must be in `(0, 1)`; default
+    /// greedy removal to stop. Must be in `(0, 1)`; default
     /// `0.5` per Avelino. Ignored by `bca vcs commit`.
     #[clap(long, default_value_t = big_code_analysis::vcs::options::DEFAULT_BUS_FACTOR_THRESHOLD)]
     bus_factor_threshold: f64,
     /// Disable the persistent change-history cache for the file ranking:
-    /// always walk fresh, and neither read nor write the cache (issue
-    /// #334). The cache otherwise reuses prior work on an unchanged tree
-    /// and walks only new commits when `HEAD` has advanced.
+    /// always walk fresh, and neither read nor write the cache. The cache
+    /// otherwise reuses prior work on an unchanged tree and walks only new
+    /// commits when `HEAD` has advanced.
     #[clap(long)]
     no_cache: bool,
     /// Remove this repository's cached history before ranking, forcing a
@@ -859,33 +902,35 @@ struct VcsArgs {
     cache_dir: Option<PathBuf>,
 }
 
-/// Subcommands of `bca vcs`: `jit` (issue #331) and `trend` (issue #333);
-/// the bare `bca vcs` ranking path is the `None` case.
+/// Subcommands of `bca vcs`: `commit` (issue #331) and `trend` (issue
+/// #333); the bare `bca vcs` ranking path is the `None` case.
 #[derive(Subcommand, Debug)]
 enum VcsSubcommand {
     /// Score a single commit for defect-induction risk — the
     /// just-in-time (JIT) defect-prediction unit a CI gate reviews at
-    /// check-in (issue #331). Emits a JSON breakdown of size / diffusion /
+    /// check-in. Emits a JSON breakdown of size / diffusion /
     /// history / experience / purpose features, their contributions, and
     /// an ordinal composite score. Window / `--ref` / bot / merge /
     /// rename behaviour comes from the parent `vcs` flags. The old `jit`
-    /// spelling stays a hidden alias for one release cycle (issue #603).
+    /// spelling stays a hidden alias for one release cycle.
+    // commit scoring: #331; `jit`->`commit` rename: #603.
     #[command(name = "commit", alias = "jit")]
     Commit(JitArgs),
     /// Sample the change-history metrics at several points in time and
     /// emit a per-file time series, surfacing whether code is improving or
-    /// degrading over the project's life (issue #333). Each point
-    /// re-anchors at the mainline tip of that moment, so it is a faithful
-    /// historical snapshot. Window / `--ref` / bot / merge / rename / as-of
+    /// degrading over the project's life. Each point re-anchors at the
+    /// mainline tip of that moment, so it is a faithful historical
+    /// snapshot. Window / `--ref` / bot / merge / rename / as-of
     /// (the most-recent anchor) and `--top` (files kept) come from the
     /// parent `vcs` flags.
+    // Historical trend sampling landed in issue #333.
     Trend(TrendArgs),
 }
 
 /// Flags for `bca vcs commit` (issue #331). The history-window, bot, merge,
 /// rename, and as-of options come from the parent [`VcsArgs`] (`--ref`
 /// does not apply — the commit is named positionally); these are the
-/// jit-only additions.
+/// commit-only additions.
 #[derive(Args, Debug)]
 struct JitArgs {
     /// Commit / revision to score (any git revision spelling: a SHA, a
@@ -893,7 +938,7 @@ struct JitArgs {
     /// exclusive with `--diff`.
     #[clap(value_name = "COMMIT", default_value = "HEAD", conflicts_with = "diff")]
     commit: String,
-    /// Score a `git diff` instead of a commit (issue #580). Reads the diff
+    /// Score a `git diff` instead of a commit. Reads the diff
     /// from the given file, or from stdin when the value is `-`. The input
     /// must be a git-style unified diff with `diff --git` file headers (as
     /// produced by `git diff` / `git format-patch`); plain `diff -u` output
@@ -919,8 +964,8 @@ struct JitArgs {
     /// when the composite score is at or above this threshold. For use as
     /// a CI gate. The score is ordinal, so calibrate the threshold against
     /// the repository's own commit-score distribution. The old
-    /// `--fail-over` spelling stays a hidden alias for one release cycle
-    /// (issue #603).
+    /// `--fail-over` spelling stays a hidden alias for one release cycle.
+    // The `--fail-over`->`--fail-above` rename landed in issue #603.
     #[clap(long = "fail-above", alias = "fail-over", value_name = "SCORE")]
     fail_above: Option<f64>,
 }
@@ -933,8 +978,11 @@ struct JitArgs {
 struct TrendArgs {
     /// Number of evenly-spaced sample points across `--span`, inclusive of
     /// both endpoints (the oldest is `as-of − span`, the newest is
-    /// `as-of`). Minimum 2; capped (see the error message) to bound the
-    /// per-point history walks on deep histories.
+    /// `as-of`). Minimum 2, maximum 120 — the cap bounds the per-point
+    /// history walks on deep histories.
+    // The 120 cap is `big_code_analysis::vcs::trend::MAX_TREND_POINTS`;
+    // keep this prose in sync if that constant changes (validated in
+    // `validate_points`).
     #[clap(long, default_value_t = 12)]
     points: usize,
     /// Total look-back window the points span (`12mo`, `2y`, `52w`, `365d`,
@@ -974,7 +1022,7 @@ struct MetricsArgs {
     /// spellings are accepted too. An unknown name errors (exit 1) with a
     /// "did you mean" hint. Derived metrics auto-pull their dependencies
     /// (selecting `mi` also computes `loc` / `cyclomatic` / `halstead`).
-    /// When omitted, every metric is computed (issue #691).
+    /// When omitted, every metric is computed.
     #[clap(long = "metrics", value_delimiter = ',', action = clap::ArgAction::Append, value_name = "NAME")]
     metrics: Vec<String>,
     /// Also compute change-history (VCS) metrics and attach a `vcs`
@@ -987,7 +1035,7 @@ struct MetricsArgs {
     vcs: bool,
     /// Additionally attach a `vcs` block to every nested function /
     /// method / class space, via `git blame` of each file's surviving
-    /// lines (issue #329). Implies `--vcs`. The per-function numbers are
+    /// lines. Implies `--vcs`. The per-function numbers are
     /// a current-blame snapshot — `churn` is surviving-line count, not
     /// the file-level added+deleted churn — so they rank functions
     /// within a file but are not directly comparable to the file block.
@@ -1011,13 +1059,13 @@ struct ReportArgs {
     preproc: PreprocConsumeArgs,
     /// Report format (`markdown` or `html`). Defaults to `markdown`
     /// when neither this flag nor the deprecated positional form is
-    /// given (issue #513).
+    /// given.
     #[clap(long = "format", short = 'O', value_enum)]
     format: Option<ReportFormat>,
     /// Deprecated positional form of the report format, kept working
-    /// for one release cycle (issue #513). Hidden from help; use
-    /// `--format`/`-O` instead. The flag wins when both are given. To
-    /// be removed in 2.0.
+    /// for one release cycle. Hidden from help; use `--format`/`-O`
+    /// instead. The flag wins when both are given. To be removed in 2.0.
+    // The `--format`/`-O` flag superseded the positional form in issue #513.
     #[clap(value_enum, hide = true, value_name = "FORMAT")]
     format_positional: Option<ReportFormat>,
     /// Output file. Stdout if omitted.
@@ -1035,7 +1083,7 @@ struct ReportArgs {
     /// omits a function from a metric's hotspot table when that metric is
     /// suppressed for it — matching `bca check` and the SARIF emitter.
     /// Pass this for the raw audit view that lists every offender.
-    /// Value-taking (issue #683): a bare `--no-suppress` means `true`;
+    /// Value-taking: a bare `--no-suppress` means `true`;
     /// `--no-suppress=false` forces the marker-honoring default even when
     /// the `[report] no_suppress` key in `bca.toml` enabled it. The CLI
     /// value overrides the manifest in either direction.
@@ -1345,14 +1393,26 @@ struct CheckArgs {
     /// `0` is allowed and means "no value permitted".
     #[clap(long = "threshold", value_parser = parse_cli_threshold)]
     thresholds: Vec<(String, f64)>,
-    /// Path to a TOML config with a `[thresholds]` table:
-    ///
-    /// ```toml
-    /// [thresholds]
-    /// cyclomatic = 15
-    /// "loc.lloc" = 200
-    /// ```
-    #[clap(long, value_parser)]
+    /// Path to a TOML config with a `[thresholds]` table; CLI
+    /// `--threshold` flags override values read from it.
+    // The indented example lives in `long_help`, not the `///` doc
+    // comment: an indented block in a doc comment is compiled by rustdoc
+    // as a Rust doctest and the TOML `[thresholds]` then fails to parse
+    // (#608). `long_help` feeds clap's `--help` verbatim while the
+    // rustdoc-visible doc comment stays plain prose. A ```toml fence is
+    // not an option — clap renders the fence markers literally into help.
+    #[clap(
+        long,
+        value_parser,
+        long_help = "\
+Path to a TOML config with a `[thresholds]` table. Example:
+
+    [thresholds]
+    cyclomatic = 15
+    \"loc.lloc\" = 200
+
+CLI `--threshold` flags override values read from this file."
+    )]
     config: Option<PathBuf>,
     /// Print offenders to stderr but exit 0 even when thresholds are
     /// exceeded. Useful while adopting baselines without flipping CI red.
@@ -1381,19 +1441,22 @@ struct CheckArgs {
     /// SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning
     /// lines, MSVC warning lines). Named `--report-format` to separate
     /// "which CI report dialect" from the data-serialization `--format`
-    /// the structured subcommands use (#659). When omitted *and*
+    /// the structured subcommands use. When omitted *and*
     /// `--output` is also omitted, only the human-readable stderr stream
     /// is emitted; the exit-code contract is unaffected. When omitted but
     /// `--output` is given, the dialect is inferred from the output
     /// extension (`.sarif` → sarif, `.xml` → checkstyle); an extension
     /// with no unique dialect is a usage error. The old `--format` / `-O`
     /// / `--output-format` spellings stay hidden aliases for one release
-    /// cycle (issues #513, #659) and are slated for removal in 2.0.
+    /// cycle and are slated for removal in 2.0.
+    // `--report-format` split from the data `--format` in issue #659; the
+    // `--format`/`-O`/`--output-format` aliases trace to issues #513/#659.
     #[clap(
         long = "report-format",
         alias = "format",
         alias = "output-format",
         short_alias = 'O',
+        value_name = "FORMAT",
         value_enum
     )]
     output_format: Option<AggregatedFormat>,
@@ -1415,8 +1478,8 @@ struct CheckArgs {
     /// values as the baseline; subsequent `--baseline <path>` runs
     /// ratchet down from there. Takes an optional path: `--write-baseline
     /// <path>` writes there; a bare `--write-baseline` (no value) writes
-    /// to the `baseline` key from the auto-discovered `bca.toml` manifest
-    /// (errors if no manifest `baseline` is set). Conflicts with
+    /// to the `[check] baseline` key from the auto-discovered `bca.toml`
+    /// manifest (errors if no manifest baseline is set). Conflicts with
     /// `--baseline`, `--report-format`, `--output`, `--since`, and
     /// `--changed-only` — diff-scope filtering would write a *partial*
     /// baseline that the next non-`--changed-only` run would treat as a
@@ -1464,7 +1527,7 @@ struct CheckArgs {
     /// inline annotations on the file-diff view. Additive to the
     /// human-readable stderr stream — annotations ride on top, they
     /// don't replace it. Tri-state `<auto|always|never>` mirroring
-    /// `--color` (issue #683): `auto` (default) emits annotations when
+    /// `--color`: `auto` (default) emits annotations when
     /// `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never`
     /// suppresses them even inside a GHA step (so a workflow that runs
     /// `bca check` twice can annotate from only one run). A bare
@@ -1487,7 +1550,7 @@ struct CheckArgs {
     /// `value / limit` ratio. Mirrors the format `bca report markdown`
     /// produces so a reader skimming the GHA step-summary panel sees a
     /// familiar table layout. Accepts a file path, or the keywords
-    /// `auto` / `never` (issue #683): `auto` (the default when the flag
+    /// `auto` / `never`: `auto` (the default when the flag
     /// is omitted) appends to `$GITHUB_STEP_SUMMARY` when that env var is
     /// set; `never` suppresses the digest even inside a GHA step; a path
     /// appends there unconditionally. The block is bracketed by
@@ -1521,7 +1584,7 @@ struct CheckArgs {
         conflicts_with = "write_baseline",
     )]
     print_effective_config: Option<PrintConfigFormat>,
-    /// Which threshold tier to gate against (issue #688). Accepts
+    /// Which threshold tier to gate against. Accepts
     /// `hard`, `soft`, or `soft=<RATIO>`:
     ///
     /// - `hard` (default) — flag a function only when a metric is at or
@@ -1549,14 +1612,15 @@ struct CheckArgs {
         default_missing_value = "soft"
     )]
     tier: TierSpec,
-    /// Deprecated alias for `--tier=soft=<RATIO>` (issue #688). Retained
+    /// Deprecated alias for `--tier=soft=<RATIO>`. Retained
     /// for one release cycle; pass `--tier=soft=<RATIO>` instead. When
     /// `--tier` is left at its `hard` default, `--headroom <R>` is
     /// promoted to `--tier=soft=<R>` with a deprecation warning; passing
     /// both `--headroom` and an explicit `--tier=soft=<R>` is a conflict.
+    // The `--tier` gate and its `--headroom` alias landed in issue #688.
     #[clap(long = "headroom", value_name = "RATIO", hide = true)]
     headroom: Option<f64>,
-    /// Exit-code style (issue #385/#666): `default` keeps the stable
+    /// Exit-code style: `default` keeps the stable
     /// 0/1/2 contract; `tiered` splits exit `2` by severity so CI can
     /// branch without parsing the `[new]` / `[regr +N%]` stderr tags:
     ///
@@ -1584,8 +1648,9 @@ struct CheckArgs {
         default_missing_value = "tiered"
     )]
     exit_codes: Option<ExitCodes>,
-    /// Deprecated alias for `--exit-codes=tiered` (issue #666). Retained
+    /// Deprecated alias for `--exit-codes=tiered`. Retained
     /// for one release cycle; pass `--exit-codes=tiered` instead.
+    // The `--exit-codes` flag and the tiered split trace to issues #385/#666.
     #[clap(long = "strict-exit-codes", hide = true, conflicts_with = "exit_codes")]
     strict_exit_codes: bool,
     /// Tolerance, in lines, for matching a `--baseline` entry whose
@@ -1602,7 +1667,7 @@ struct CheckArgs {
     /// normalised body hash instead. Off by default. The hash is also
     /// written into the baseline by `--write-baseline` when this flag is
     /// set, so populate it once with a fuzzy write to enable fuzzy reads.
-    /// Value-taking (issue #683): a bare `--baseline-fuzzy-match` means
+    /// Value-taking: a bare `--baseline-fuzzy-match` means
     /// `true`; `--baseline-fuzzy-match=false` forces it off even when the
     /// `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value
     /// overrides the manifest in either direction.
@@ -1623,8 +1688,8 @@ struct CheckArgs {
     /// (test fixtures, generated code, macro-dispatch modules) stay out
     /// of `.bca-baseline.toml`. Precedence: in-source `bca: suppress`
     /// markers win first, then these globs, then the baseline. Unioned
-    /// with `--check-exclude-from` and — as a negative filter key (#539)
-    /// — with the `bca.toml` `[check] exclude` list: CLI values are
+    /// with `--check-exclude-from` and with the `bca.toml` `[check]
+    /// exclude` list: CLI values are
     /// *added to* (merged with), not a replacement for, the manifest's
     /// exemptions, so a CLI `--check-exclude` never silently re-gates a
     /// path the project config deliberately exempted. Pass `--no-config`
@@ -1834,7 +1899,7 @@ struct DiffBaselineArgs {
     /// it is empty. Opt-in (`git diff --exit-code`-style) for grammar-bump
     /// CI that wants a boolean "anything changed" without parsing the
     /// output. Default (flag absent) always exits `0` on success. A tool
-    /// error still exits `1` regardless (issue #692).
+    /// error still exits `1` regardless.
     #[clap(long = "exit-code")]
     exit_code: bool,
 }
@@ -1924,7 +1989,7 @@ struct DiffArgs {
     /// exit `0` when it is empty. Opt-in (`git diff --exit-code`-style) for
     /// grammar-bump CI that wants a boolean "anything changed". Default
     /// (flag absent) always exits `0` on success. A tool error still exits
-    /// `1` regardless (issue #692).
+    /// `1` regardless.
     #[clap(long = "exit-code")]
     exit_code: bool,
 }
@@ -1988,17 +2053,16 @@ struct ExemptionsArgs {
     /// `--only-baseline` spelling stays a hidden alias for one cycle.
     #[clap(long = "baseline-only", alias = "only-baseline", conflicts_with_all = ["markers_only", "excludes_only"])]
     baseline_only: bool,
-    /// Baseline file to audit. Defaults to `bca.toml`'s top-level
-    /// `baseline` key, then `.bca-baseline.toml` in the working
-    /// directory when present. A path given here must exist.
+    /// Baseline file to audit. Defaults to `bca.toml`'s `[check] baseline`
+    /// key, then `.bca-baseline.toml` in the working directory when
+    /// present. A path given here must exist.
     #[clap(long = "baseline", value_parser)]
     baseline: Option<PathBuf>,
     /// Glob exempting files from the check gate, mirroring
-    /// `bca check --check-exclude`. Repeatable. As a negative filter
-    /// key (#539), CLI values are *added to* (merged with), not a
-    /// replacement for, the `bca.toml` `[check] exclude` list, so a CLI
-    /// `--check-exclude` never silently re-gates a path the project
-    /// config deliberately exempted.
+    /// `bca check --check-exclude`. Repeatable. CLI values are
+    /// *added to* (merged with), not a replacement for, the `bca.toml`
+    /// `[check] exclude` list, so a CLI `--check-exclude` never silently
+    /// re-gates a path the project config deliberately exempted.
     #[clap(long = "check-exclude", value_name = "GLOB")]
     check_exclude: Vec<String>,
     /// Read newline-separated `--check-exclude` globs from a file
@@ -2408,16 +2472,103 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
 /// failure with the failing line number; the CLI caller translates
 /// this into a `die` exit.
 pub(crate) fn read_paths_from(src: &Path) -> Result<Vec<PathBuf>, String> {
-    read_lines_from(src, "--paths-from", path_pattern_filter)
+    // Read raw bytes and split on `\n` rather than going through
+    // `BufRead::lines` (which decodes UTF-8 and errors on the first
+    // invalid byte). A `--paths-from` list may name files whose paths are
+    // not valid UTF-8 — exactly the non-UTF-8 paths the rest of the crate
+    // tolerates (the baseline encoder, `handle_path`, the walker all
+    // preserve raw bytes). Failing the whole list because one entry has a
+    // non-UTF-8 byte is the inconsistency #704 flags. Each line is turned
+    // into a `PathBuf` from its raw bytes on Unix (lossless); on other
+    // platforms there is no stable byte→OsStr view, so UTF-8 decoding is
+    // unavoidable there.
+    let label = format!("--paths-from {}", src.display());
+    let bytes = read_paths_from_bytes(src).map_err(|e| format!("{label}: {e}"))?;
+    Ok(split_path_lines(&bytes))
 }
 
-/// Retention policy for `--paths-from` lines: keep the trimmed
-/// non-blank text as a literal path. `#` is a path character, not
-/// a comment — paired with [`exclude_pattern_filter`] (the inverse
-/// policy) by the unit tests so the two `read_*_from` wrappers
-/// cannot accidentally swap predicates.
-fn path_pattern_filter(trimmed: &str) -> Option<PathBuf> {
-    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+/// Read the entire `--paths-from` source (`-` for stdin, else a file) as
+/// raw bytes. Kept separate from the line-splitting so the splitter can
+/// be unit-tested on synthetic byte input.
+fn read_paths_from_bytes(src: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    if src.as_os_str() == "-" {
+        std::io::stdin().lock().read_to_end(&mut buf)?;
+    } else {
+        std::fs::File::open(src)?.read_to_end(&mut buf)?;
+    }
+    Ok(buf)
+}
+
+/// The three bytes of a UTF-8 byte-order mark (U+FEFF encoded as
+/// `EF BB BF`). Stripped from the front of each `--paths-from` line so an
+/// editor that saved the list as UTF-8-with-BOM does not turn the first
+/// path into a literal `\u{feff}/path` that matches no real file (the
+/// per-line BOM strip the previous `collect_lines` reader applied).
+const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+
+/// Split a `--paths-from` byte buffer into one `PathBuf` per non-blank
+/// line, preserving non-UTF-8 bytes verbatim on Unix. Newline-delimited;
+/// a leading UTF-8 BOM, a trailing `\r` (CRLF input), and ASCII
+/// surrounding whitespace are trimmed, but interior bytes are kept
+/// untouched so a path containing a non-UTF-8 byte survives. `#` is a
+/// path character, not a comment (mirrors the prior `path_pattern_filter`
+/// policy).
+fn split_path_lines(bytes: &[u8]) -> Vec<PathBuf> {
+    bytes
+        .split(|&b| b == b'\n')
+        .filter_map(|line| {
+            let trimmed = trim_ws_and_bom(strip_trailing_cr(line));
+            (!trimmed.is_empty()).then(|| os_path_from_bytes(trimmed))
+        })
+        .collect()
+}
+
+/// Drop a single trailing `\r` so a CRLF-terminated `--paths-from` line
+/// does not carry the carriage return into the path.
+fn strip_trailing_cr(line: &[u8]) -> &[u8] {
+    line.strip_suffix(b"\r").unwrap_or(line)
+}
+
+/// Trim leading and trailing ASCII whitespace bytes and UTF-8 BOMs from
+/// both ends, interleaved (so `<BOM>  /path`, `  <BOM>/path`, and
+/// `/path<BOM>` all reduce to `/path`). Interior and non-ASCII bytes are
+/// preserved, so a non-UTF-8 path survives the trim. Mirrors the
+/// whitespace-and-BOM char class the previous `collect_lines` reader
+/// trimmed, but at the byte level so it does not require valid UTF-8.
+fn trim_ws_and_bom(mut s: &[u8]) -> &[u8] {
+    loop {
+        let start = s;
+        if let Some(rest) = s.strip_prefix(&UTF8_BOM[..]) {
+            s = rest;
+        }
+        s = s.trim_ascii_start();
+        if let Some(rest) = s.strip_suffix(&UTF8_BOM[..]) {
+            s = rest;
+        }
+        s = s.trim_ascii_end();
+        // Fixed point: another pass removed nothing.
+        if s.len() == start.len() {
+            return s;
+        }
+    }
+}
+
+/// Build a `PathBuf` from raw path bytes. On Unix this is lossless (paths
+/// are arbitrary byte sequences); on other platforms there is no stable
+/// byte→`OsStr` view, so the bytes are decoded as UTF-8 lossily — the
+/// non-UTF-8 tolerance is a Unix property, matching where the rest of the
+/// crate's byte-preserving path handling applies.
+#[cfg(unix)]
+fn os_path_from_bytes(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn os_path_from_bytes(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// Read newline-separated `--exclude` glob patterns from `src` (a
@@ -2537,6 +2688,49 @@ struct ResolvedFiles {
     explicit_files: std::collections::HashSet<PathBuf>,
 }
 
+/// What kind of on-disk object a `--paths` seed resolves to, used to
+/// route a seed into the single-file or directory-walk branch of
+/// [`expand_seed_paths`]. A symlink is classified by its *target* (the
+/// one deliberate follow — the user named the link as a seed), so the
+/// returned kind is always `File` or `Dir`; anything else (a FIFO,
+/// socket, …) is treated as a directory walk root, which discovers no
+/// regular files and is harmless.
+#[derive(Clone, Copy)]
+enum SeedKind {
+    File,
+    Dir,
+}
+
+impl SeedKind {
+    fn is_file(self) -> bool {
+        matches!(self, Self::File)
+    }
+}
+
+/// Classify `seed` without letting a *missing* path masquerade as a
+/// real one. `symlink_metadata` first establishes the seed exists at all
+/// (it stats the link itself, so a dangling symlink correctly errors
+/// here — symmetric with the walk's `follow_links(false)`, #704); a live
+/// symlink is then resolved through `metadata` exactly once to classify
+/// its target. Returns `Err` only when the seed (or a symlink's target)
+/// does not exist, which the caller turns into the #596 "path does not
+/// exist" hard error.
+fn seed_kind(seed: &Path) -> std::io::Result<SeedKind> {
+    let link_meta = seed.symlink_metadata()?;
+    let meta = if link_meta.file_type().is_symlink() {
+        // Explicitly-named symlink seed: resolve its target once. A
+        // dangling target propagates the `Err` (treated as nonexistent).
+        seed.metadata()?
+    } else {
+        link_meta
+    };
+    Ok(if meta.is_file() {
+        SeedKind::File
+    } else {
+        SeedKind::Dir
+    })
+}
+
 fn expand_seed_paths(
     mut paths: Vec<PathBuf>,
     paths_from: Option<PathBuf>,
@@ -2560,23 +2754,38 @@ fn expand_seed_paths(
         paths.push(PathBuf::from("."));
     }
     let mut out: Vec<PathBuf> = Vec::new();
+    // Track which emitted paths we have already pushed so overlapping
+    // seeds (`--paths src --paths src/lib.rs`, or two seeds whose trees
+    // intersect) contribute each file exactly once. Without this a file
+    // reachable from two seeds was analyzed and counted twice (#704).
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     let mut explicit_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for seed in paths.into_iter().map(walk_seed::reanchor_seed) {
-        if !seed.exists() {
-            // An explicitly-supplied seed that does not exist is a tool
-            // error (exit 1), not a skipped warning (#596): a typo in
-            // `--paths` / `--paths-from` / manifest `paths` must fail
-            // loudly rather than silently analyze nothing. Only the
-            // auto-injected `.` default reaches the walk without being
-            // explicitly supplied, and it always exists.
+        // Classify the seed *without* following a final symlink so the
+        // seed-level existence/kind check is symmetric with the walk's
+        // `follow_links(false)` (#704): the previous `exists()` /
+        // `is_file()` / `is_dir()` trio each followed symlinks, so a
+        // dangling symlink seed passed the existence guard yet produced
+        // no files (TOCTOU / asymmetry). `seed_kind` inspects the link
+        // itself via `symlink_metadata`, then resolves a live symlink
+        // once — the user *explicitly* named it as a seed and expects it
+        // honored, so that single follow is the documented exception.
+        let Ok(kind) = seed_kind(&seed) else {
+            // An explicitly-supplied seed that does not exist (or whose
+            // symlink dangles) is a tool error (exit 1), not a skipped
+            // warning (#596): a typo in `--paths` / `--paths-from` /
+            // manifest `paths` must fail loudly rather than silently
+            // analyze nothing. Only the auto-injected `.` default reaches
+            // the walk without being explicitly supplied, and it always
+            // exists.
             die(format_args!("path does not exist: {}", seed.display()));
-        }
-        if seed.is_file() {
+        };
+        if kind.is_file() {
             // A single explicit file seed keeps the form the caller
             // spelled (its emitted `name` must match the single-file
             // `bca.analyze()` API), and is matched against the globs
             // as-is — the historical single-file filter behaviour.
-            if filters.passes(&seed) {
+            if filters.passes(&seed) && seen.insert(seed.clone()) {
                 // Record the explicit seed (in its emitted form) so the
                 // per-file dispatch can distinguish it from a
                 // directory-expansion product: an explicitly-named file
@@ -2597,15 +2806,32 @@ fn expand_seed_paths(
             .ignore(!no_ignore)
             .parents(!no_ignore);
         for entry in wb.build() {
-            let entry = entry
-                .unwrap_or_else(|e| die(format_args!("walk error in {}: {e}", seed.display())));
+            // A per-entry walk error (an unreadable subdirectory, a
+            // broken symlink, a racing unlink) skips-with-warning rather
+            // than aborting the entire run (#704): a single EACCES
+            // directory deep in a large tree previously took down every
+            // file the walk had yet to reach. This mirrors the per-file
+            // tolerance the worker pool already applies to unparseable
+            // files.
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    eprintln!(
+                        "bca: warning: skipping walk entry in {}: {e}",
+                        seed.display()
+                    );
+                    continue;
+                }
+            };
             if entry.file_type().is_some_and(|t| t.is_file()) {
                 let path = entry.into_path();
                 // Anchor the glob match to the walk root rather than the
                 // emitted (possibly absolute) path, so `./`-anchored
                 // excludes match regardless of how the seed resolved —
                 // including a manifest root above the CWD (#489).
-                if filters.passes(&walk_seed::match_path_for(&seed, &path)) {
+                if filters.passes(&walk_seed::match_path_for(&seed, &path))
+                    && seen.insert(path.clone())
+                {
                     out.push(path);
                 }
             }
@@ -2618,7 +2844,7 @@ fn expand_seed_paths(
     // Non-gate commands still exit 0; `check` layers its own hard error
     // (`no input files matched`) on top for CI safety.
     if out.is_empty() {
-        eprintln!("bca: warning: 0 files matched");
+        warn("0 files matched");
     }
     ResolvedFiles {
         files: out,
