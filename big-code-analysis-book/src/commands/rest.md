@@ -22,6 +22,44 @@ bca-web --host 127.0.0.1 --port 9090
 - `--host` specifies the IP address where the server should run (default is 127.0.0.1).
 - `--port` specifies the port to be used (default is 8080).
 - `-j` specifies the number of parallel jobs (optional).
+- `--cors` enables [CORS](#cors) for browser-based tooling (off by default).
+
+## CORS
+
+By default **bca-web emits no CORS headers**: a browser script served from
+a different origin cannot read the API's responses. This keeps a local
+`bca-web` (the default `127.0.0.1` bind) from exposing its repository paths
+and metrics to any website the operator happens to be visiting.
+
+Pass `--cors` to opt in. The argument is an explicit, comma-separated
+allow-list of [origins](https://developer.mozilla.org/en-US/docs/Glossary/Origin);
+only those origins receive an
+[`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin)
+header, and the matched origin is echoed back verbatim (a request from any
+other origin gets no header and is blocked by the browser):
+
+```sh
+bca-web --cors https://app.example,https://tools.example
+```
+
+To answer **every** origin with `Access-Control-Allow-Origin: *`, pass a
+literal `*`:
+
+```sh
+bca-web --cors '*'
+```
+
+A wide-open `*` exposes the server's metrics and repository paths to any
+origin, so use it only on trusted networks.
+
+When CORS is enabled, a preflight
+[`OPTIONS`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS)
+request is answered `204 No Content` with `Access-Control-Allow-Origin`,
+`Access-Control-Allow-Methods` (the resource's own accepted methods, the same
+set the `Allow` header advertises), and `Access-Control-Allow-Headers`
+(echoing the request's `Access-Control-Request-Headers`, or `Content-Type,
+Accept` for a bare probe). The API has no authentication or cookies, so
+`Access-Control-Allow-Credentials` is **never** sent.
 
 ## API Versioning
 
@@ -86,6 +124,11 @@ Status codes:
 - `405 Method Not Allowed` — a known endpoint was called with the wrong
   HTTP method (the analysis endpoints are `POST`-only; `/ping`,
   `/version`, and `/languages` are `GET`-only).
+- `406 Not Acceptable` — the request `Accept` header named only media
+  types the server cannot produce. The structured analysis endpoints
+  serve `application/json`, `application/yaml`, and `application/cbor`;
+  any other concrete type (e.g. `application/xml`) is a `406` carrying the
+  `not_acceptable` token. See [Content negotiation](#content-negotiation).
 - `413 Payload Too Large` — the request body exceeded the server limit.
 - `500 Internal Server Error` — metric computation or AST construction
   failed for an otherwise-valid request, or a `/vcs` history walk failed
@@ -94,6 +137,59 @@ Status codes:
   (timed-out) tasks; retry later.
 - `504 Gateway Timeout` — the parse (or history walk) exceeded the
   server's configured deadline.
+
+## Content negotiation
+
+The structured analysis endpoints — `/v1/ast`, `/v1/comment` (JSON
+variant), `/v1/function`, `/v1/metrics`, `/v1/vcs`, `/v1/vcs/trend`, and
+`/v1/vcs/jit` — choose their response serialization from the request
+`Accept` header, mirroring the CLI's `-O json|yaml|cbor` outputs. The
+same value serializes byte-for-byte identically whether it comes from
+the CLI or the server.
+
+| `Accept` value                                   | Response `Content-Type` |
+| ------------------------------------------------ | ----------------------- |
+| absent, `*/*`, `application/*`, `application/json`| `application/json`      |
+| `application/yaml` (or `text/yaml`, `application/x-yaml`) | `application/yaml` |
+| `application/cbor`                                | `application/cbor`      |
+| any other concrete type                          | **`406 Not Acceptable`**|
+
+Rules:
+
+- **JSON is the default.** A request with no `Accept` header, or one that
+  includes `*/*` / `application/*` / `application/json`, gets JSON — the
+  same body and `Content-Type` earlier releases always returned, so
+  existing clients need no change.
+- **`q` weights are honored.** Among the supported types the highest
+  `q`-weighted entry wins (`Accept: application/json;q=0.5,
+  application/yaml;q=0.9` returns YAML); `q=0` refuses a type. Ties keep
+  the first-listed entry.
+- **Unsupported types are a `406`,** not a silent JSON fallback. The body
+  is the uniform `{error, error_kind, id}` envelope with
+  `error_kind: "not_acceptable"`, and the message lists the supported
+  media types.
+- **Only structured serializations are offered.** TOML and CSV are
+  excluded: TOML is awkward for the deeply nested space tree and CSV is
+  flat/tabular. The error-envelope body and the `/v1/comment`
+  octet-stream variant (raw byte-in / byte-out) are always JSON / raw
+  bytes respectively and do not negotiate. The introspection routes
+  (`/v1`, `/v1/version`, `/v1/languages`) return JSON metadata only.
+
+```sh
+# YAML metrics
+curl --silent \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/yaml' \
+  --data '{"file_name": "foo.py", "code": "def f():\n    pass\n"}' \
+  http://127.0.0.1:8080/v1/metrics
+
+# CBOR metrics (binary; pipe to a decoder)
+curl --silent \
+  --header 'Content-Type: application/json' \
+  --header 'Accept: application/cbor' \
+  --data '{"file_name": "foo.py", "code": "def f():\n    pass\n"}' \
+  http://127.0.0.1:8080/v1/metrics --output metrics.cbor
+```
 
 ## Endpoints
 
@@ -138,7 +234,9 @@ POST http://127.0.0.1:8080/v1/comment
 }
 ```
 
-- `id`: A unique identifier for the request.
+- `id`: A unique identifier for the request. Optional (issue #645);
+  omitting it defaults to an empty string (treated as "no correlation
+  id").
 - `file_name`: The name of the file being analyzed.
 - `code`: The source code with comments.
 
@@ -191,7 +289,9 @@ POST http://127.0.0.1:8080/v1/function
 }
 ```
 
-- `id`: A unique identifier for the request.
+- `id`: A unique identifier for the request. Optional (issue #645);
+  omitting it defaults to an empty string (treated as "no correlation
+  id").
 - `file_name`: The name of the file being analyzed.
 - `code`: The source code with functions.
 
@@ -239,15 +339,18 @@ POST http://127.0.0.1:8080/v1/ast
 }
 ```
 
-- `id`: A unique identifier for the request.
+- `id`: A unique identifier for the request. Optional; omitting it
+  defaults to an empty string (treated as "no correlation id").
 - `file_name`: The name of the file being analyzed.
 - `code`: The source code to parse.
 - `comment`: When `true`, comment nodes are omitted from the tree.
+  Optional; defaults to `false`.
 - `span`: When `true`, each node carries its source `span`; when
-  `false`, `span` is `null`.
+  `false`, `span` is `null`. Optional; defaults to `false`.
 
-Both `comment` and `span` are required fields. Unknown keys are rejected
-with `400` (issue #633).
+`id`, `comment`, and `span` are optional and default as noted above
+(issue #645); `file_name` and `code` are required. Unknown keys are
+rejected with `400` (issue #633).
 
 **Response:**
 
@@ -323,7 +426,9 @@ POST http://127.0.0.1:8080/v1/metrics
 }
 ```
 
-- `id`: Unique identifier for the request.
+- `id`: Unique identifier for the request. Optional (issue #645);
+  omitting it defaults to an empty string (treated as "no correlation
+  id").
 - `file_name`: The filename of the source code file.
 - `code`: The source code to analyze.
 - `scope`: How much of the space tree to return. `full` (the default)
@@ -492,10 +597,14 @@ All three endpoints are `POST`-only, accept `application/json`, echo the
 request `id`, and report errors with the uniform `{error, error_kind,
 id}` body (its `error_kind` tokens are the `vcs_*` family — e.g.
 `vcs_not_a_repository`, `vcs_invalid_window`). A
-client mistake — `repo_path` is not a git working tree, an unresolvable
-`ref`/`commit`, a malformed diff, or a malformed window / timestamp /
-formula / file-type / threshold / trend parameter — is a `400`; a
-failure of the history walk itself is a `500`.
+client mistake — `repo_path` does not exist or is not a git working tree
+(both carry `vcs_not_a_repository`), an unresolvable
+`ref`/`commit`, a malformed or non-diff `diff`, or a malformed window /
+timestamp / formula / file-type / threshold / trend parameter — is a
+`400`; a failure of the history walk itself is a `500`. A nonexistent
+`repo_path` is a typo — the most common client error here — so it answers
+`400` like a path that exists but is not a repository, not a `500`
+(issue 653).
 
 ### 9. Rank files by risk — `/vcs`
 
@@ -517,8 +626,10 @@ POST http://127.0.0.1:8080/v1/vcs
 }
 ```
 
-`id` and `repo_path` are required; every other field is optional and
-defaults to the `bca vcs` default. The optional fields are:
+`repo_path` is required; every other field is optional and defaults to
+the `bca vcs` default. `id` is optional too (issue #645) — omitting it
+defaults to an empty string, echoed back unchanged. The optional fields
+are:
 
 - `long_window` / `recent_window`: window specs (e.g. `12mo`, `90d`).
   Defaults `12mo` / `90d`.
@@ -708,3 +819,13 @@ is rejected with a `400` rather than silently honouring the diff and
 dropping the rest — the two modes answer different, non-comparable
 questions, so the combination is treated as a client mistake (issue
 number 632).
+
+**Non-diff `diff`.** A `diff` value that is not a git unified diff —
+the wrong field, an accidentally-mangled string, arbitrary text — is
+rejected with a `400` (`vcs_invalid_diff`) rather than scored as a
+confident `partial_risk_score` of `0.0`. On a risk-*gating* endpoint a
+spurious "zero risk" is the most dangerous failure mode, so non-diff
+input is a hard error (issue 652). An **empty** or whitespace-only `diff`
+is the one exception: it legitimately means "no changes", so it still
+returns a valid `0.0` — a CI step that computed an empty diff gets the
+zero-risk answer it expects.

@@ -38,6 +38,7 @@
   - [Flat-record iteration](python/flat-records.md)
   - [Metric selection](python/metrics.md)
   - [SARIF output](python/sarif.md)
+  - [Change-history (VCS) metrics](python/vcs.md)
   - [Error handling](python/errors.md)
   - [Async patterns](python/async.md)
 - [Developers Guide](developers/README.md)
