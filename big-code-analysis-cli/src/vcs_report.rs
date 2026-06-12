@@ -11,8 +11,10 @@
 //! Produces the Markdown and HTML pages for `bca vcs --format
 //! markdown|html`. Mirrors the AST report's shared-spec design: the
 //! column set lives in one [`VCS_SPECS`] table that both formats
-//! consume, so Markdown and HTML cannot drift (guarded by
-//! `markdown_and_html_columns_match`). Table markup and escaping are
+//! consume. HTML renders the full (sortable) set; Markdown renders the
+//! curated [`VcsColumn::in_markdown`] subset of that same slice, so the
+//! two cannot drift on a shared column (guarded by
+//! `markdown_columns_are_a_curated_subset_of_html`). Table markup and escaping are
 //! delegated to the existing renderers' `write_table` helpers
 //! (`crate::markdown_report::write_table` /
 //! `crate::html_report::write_table`, or `write_table_classed` for the
@@ -46,6 +48,15 @@ struct VcsColumn {
     align: Align,
     cell: fn(rank: usize, &FileEntry) -> Cell,
     tooltip: Option<&'static str>,
+    /// Whether this column appears in the *Markdown* table. HTML always
+    /// renders the full set (it is genuinely sortable, so width costs the
+    /// reader nothing); Markdown renders a curated triage core plus a pointer
+    /// to `--format csv|json` for the complete record, because a 21-column
+    /// Markdown table scrolls past any GitHub viewport with no sortability to
+    /// recover the hidden columns (issue #621). Markdown selects a *subset* of
+    /// this one spec slice — never a parallel column list — so the two formats
+    /// still cannot drift on a shared column's definition.
+    in_markdown: bool,
 }
 
 // Plain-English definitions for the change-history columns. Window-relevant
@@ -90,130 +101,155 @@ fn num_cell(n: u64) -> Cell {
     Cell::Num(thousands(usize::try_from(n).unwrap_or(usize::MAX)))
 }
 
-/// The change-history columns, defined once and rendered identically by
-/// both formats. Order and content mirror the structured CSV record (so
-/// the rendered page is the complete, sortable view of the same data),
-/// with a leading Rank column.
+/// The change-history columns, defined once for both formats, with a leading
+/// Rank column. Order and content mirror the structured CSV record. HTML
+/// renders the full set (it is genuinely sortable, so the page is the
+/// complete view); Markdown renders the [`VcsColumn::in_markdown`] subset — a
+/// curated triage core — because a 21-column Markdown table is unreadable
+/// where Markdown is most viewed (GitHub) and offers no sortability to recover
+/// the width. Markdown selects a subset of THIS slice, never a parallel list,
+/// so a shared column cannot drift; the full per-file record stays one
+/// `--format csv|json` away (issue #621).
 const VCS_SPECS: &[VcsColumn] = &[
     VcsColumn {
         header: "Rank",
         align: Align::Right,
         cell: |rank, _| num_cell(rank as u64),
         tooltip: None,
+        in_markdown: true,
     },
     VcsColumn {
         header: "File",
         align: Align::Left,
         cell: |_, e| Cell::Path(e.path.clone()),
         tooltip: None,
+        in_markdown: true,
     },
     VcsColumn {
         header: "Risk",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.1}", e.vcs.risk_score)),
         tooltip: Some(RISK_TOOLTIP),
+        in_markdown: true,
     },
     VcsColumn {
         header: "Commits (recent)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.commits_recent.into()),
         tooltip: Some(COMMITS_RECENT_TOOLTIP),
+        in_markdown: true,
     },
     VcsColumn {
         header: "Commits (long)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.commits_long.into()),
         tooltip: Some(COMMITS_LONG_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Churn (recent)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.churn_recent),
         tooltip: Some(CHURN_RECENT_TOOLTIP),
+        in_markdown: true,
     },
     VcsColumn {
         header: "Churn (long)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.churn_long),
         tooltip: Some(CHURN_LONG_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Authors (recent)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.authors_recent.into()),
         tooltip: Some(AUTHORS_RECENT_TOOLTIP),
+        in_markdown: true,
     },
     VcsColumn {
         header: "Authors (long)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.authors_long.into()),
         tooltip: Some(AUTHORS_LONG_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Ownership",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.ownership_top_share)),
         tooltip: Some(OWNERSHIP_TOOLTIP),
+        in_markdown: true,
     },
     VcsColumn {
         header: "Burst",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.burst)),
         tooltip: Some(BURST_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Bug fixes",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.bug_fix_commits.into()),
         tooltip: Some(BUG_FIXES_TOOLTIP),
+        in_markdown: true,
     },
     VcsColumn {
         header: "Sec fixes",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.security_fix_commits.into()),
         tooltip: Some(SEC_FIXES_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Reverts",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.revert_commits.into()),
         tooltip: Some(REVERTS_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Age (d)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.age_days.into()),
         tooltip: Some(AGE_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Last mod (d)",
         align: Align::Right,
         cell: |_, e| num_cell(e.vcs.last_modified_days.into()),
         tooltip: Some(LAST_MOD_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Change entropy (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_recent)),
         tooltip: Some(CHANGE_ENTROPY_RECENT_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Change entropy (long)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.change_entropy_long)),
         tooltip: Some(CHANGE_ENTROPY_LONG_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Co-change entropy (recent)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_recent)),
         tooltip: Some(COCHANGE_ENTROPY_RECENT_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: "Co-change entropy (long)",
         align: Align::Right,
         cell: |_, e| Cell::Num(format!("{:.2}", e.vcs.cochange_entropy_long)),
         tooltip: Some(COCHANGE_ENTROPY_LONG_TOOLTIP),
+        in_markdown: false,
     },
     VcsColumn {
         header: HOTSPOT_HEADER,
@@ -230,6 +266,7 @@ const VCS_SPECS: &[VcsColumn] = &[
             )
         },
         tooltip: Some(HOTSPOT_TOOLTIP),
+        in_markdown: true,
     },
 ];
 
@@ -240,10 +277,10 @@ const VCS_SPECS: &[VcsColumn] = &[
 /// [`active_specs`] can match it structurally rather than by position.
 const HOTSPOT_HEADER: &str = "Hotspot";
 
-/// The columns to render for `report`: every spec, minus the Hotspot column
-/// when no row carries a score. Both formats and the legend draw from this
-/// one function so they cannot drift (the cross-format parity guard checks
-/// the result, not the raw `VCS_SPECS`).
+/// The columns to render for the **HTML** report: every spec, minus the
+/// Hotspot column when no row carries a score. HTML is genuinely sortable, so
+/// it shows the full record; the legend draws from this too (the cross-format
+/// parity guard checks the result, not the raw [`VCS_SPECS`]).
 fn active_specs(report: &Report) -> Vec<&'static VcsColumn> {
     let any_hotspot = report.files.iter().any(|e| e.vcs.hotspot_score.is_some());
     VCS_SPECS
@@ -251,6 +288,22 @@ fn active_specs(report: &Report) -> Vec<&'static VcsColumn> {
         .filter(|c| any_hotspot || c.header != HOTSPOT_HEADER)
         .collect()
 }
+
+/// The columns to render for the **Markdown** table: the curated triage core
+/// ([`VcsColumn::in_markdown`]), intersected with the same Hotspot-presence
+/// rule [`active_specs`] applies. A subset of the single spec slice — never a
+/// parallel list — so a shared column cannot drift between formats; the full
+/// per-file record stays one `--format csv|json` away (issue #621).
+fn markdown_specs(report: &Report) -> Vec<&'static VcsColumn> {
+    active_specs(report)
+        .into_iter()
+        .filter(|c| c.in_markdown)
+        .collect()
+}
+
+/// Appended after the curated Markdown table, pointing the reader at the
+/// structured formats for the columns Markdown omits (issue #621).
+const MARKDOWN_FULL_RECORD_POINTER: &str = "Full per-file change-history record (all columns): re-run with `--format csv` or `--format json`.";
 
 /// Header of the column that carries the severity-heat tint in the HTML
 /// report. Matched structurally against [`VCS_SPECS`] (see
@@ -404,7 +457,9 @@ fn write_markdown_body(out: &mut String, report: &Report, subsection_level: usiz
         let _ = writeln!(out, "\n> **Note:** {SHALLOW_NOTE}");
     }
     out.push('\n');
-    let specs = active_specs(report);
+    // Markdown renders the curated triage subset (issue #621); the full record
+    // stays one `--format csv|json` away (pointer line below).
+    let specs = markdown_specs(report);
     if report.files.is_empty() {
         let _ = writeln!(out, "{EMPTY_MESSAGE}");
     } else {
@@ -413,6 +468,7 @@ fn write_markdown_body(out: &mut String, report: &Report, subsection_level: usiz
             .map(|row| row.into_iter().map(render_cell_md).collect())
             .collect();
         write_md_table(out, &headers(&specs), &aligns(&specs), &rows);
+        let _ = writeln!(out, "\n{MARKDOWN_FULL_RECORD_POINTER}");
     }
     if let Some(aggregate) = &report.vcs_aggregate {
         write_markdown_bus_factor(out, &aggregate.bus_factor, subsection_level);
@@ -855,41 +911,85 @@ mod tests {
     }
 
     #[test]
-    fn markdown_and_html_columns_match() {
-        // The cross-format parity guard (mirrors the AST report's
-        // `html_and_markdown_report_identical_section_membership`): both
-        // renderers consume the one `VCS_SPECS`, so headers and row order
-        // must be identical. A renderer that dropped or reordered a
-        // column would diverge here.
+    fn markdown_columns_are_a_curated_subset_of_html() {
+        // Issue #621: HTML renders the full record (it is genuinely sortable);
+        // Markdown renders a curated triage subset of the SAME `VCS_SPECS`,
+        // never a parallel column list. This guards both halves of that
+        // contract: every Markdown column is a member of HTML's active set
+        // (the drift-guard — a Markdown-only header could not exist), and the
+        // wide windowed columns HTML keeps are absent from Markdown.
         let report = rich_report();
         let md = render_markdown(&report);
         let html = render_html(&report);
-        let specs = active_specs(&report);
+        let active = active_specs(&report);
+        let md_specs = markdown_specs(&report);
 
-        for header in headers(&specs) {
+        // Subset: every column flagged `in_markdown` is part of the active
+        // HTML set, so Markdown can never name a column HTML does not define.
+        for col in &md_specs {
             assert!(
-                md.contains(header),
-                "Markdown missing column header {header:?}"
+                active.iter().any(|a| a.header == col.header),
+                "Markdown column {:?} is not a member of the active HTML specs",
+                col.header
             );
+        }
+
+        // HTML carries every active header; Markdown carries the curated core.
+        for header in headers(&active) {
             assert!(
                 html.contains(&format!(">{header}</th>")),
                 "HTML missing column header {header:?}"
             );
         }
+        for header in headers(&md_specs) {
+            assert!(
+                md.contains(header),
+                "Markdown missing curated column header {header:?}"
+            );
+        }
 
-        // File column appears at the same index in every row of both
-        // formats, so the ordered File lists must match. Scope to the
+        // The curated set is the agreed triage core (issue #621): the wide
+        // long-window / entropy / age columns are HTML-only.
+        let curated: Vec<&str> = headers(&md_specs);
+        assert_eq!(
+            curated,
+            [
+                "Rank",
+                "File",
+                "Risk",
+                "Commits (recent)",
+                "Churn (recent)",
+                "Authors (recent)",
+                "Ownership",
+                "Bug fixes",
+                "Hotspot",
+            ],
+            "curated Markdown VCS column set drifted"
+        );
+        // Representative omitted columns must NOT appear in the Markdown table.
+        for omitted in ["Change entropy (long)", "Last mod (d)", "Sec fixes"] {
+            assert!(
+                !md.contains(omitted),
+                "Markdown table should omit the wide column {omitted:?}"
+            );
+        }
+        // The pointer to the complete record is present.
+        assert!(
+            md.contains("--format csv"),
+            "Markdown must point at the structured formats for the full record"
+        );
+
+        // File column order still matches across formats (the curated subset
+        // keeps File, so row order is comparable). Scope HTML to the
         // ranked-files table, before the bus-factor section's own table.
         let files_html = html
             .split("<section class=\"bus-factor\">")
             .next()
             .unwrap_or(&html);
         let html_files: Vec<String> = html_cell_texts(files_html)
-            .chunks(specs.len())
+            .chunks(active.len())
             .map(|row| row[1].clone())
             .collect();
-        // Both extractors return the logical (unescaped) path, so the
-        // parity check is about row order, not per-format escaping.
         let md_files = md_file_column(&md);
         assert_eq!(md_files, html_files);
         assert_eq!(md_files, ["src/hot.rs", "src/warm.rs", "docs/with|pipe.md"]);
@@ -998,6 +1098,40 @@ mod tests {
     }
 
     #[test]
+    fn bus_factor_files_tooltip_is_distinct_from_ast_files_tooltip() {
+        // Issue #693 (sub-item 2): the AST hotspot/overview tables and the
+        // bus-factor table share the literal "Files" header. Tooltips are
+        // keyed per-table, so the bus-factor "Files" column carries its own
+        // files-per-directory definition rather than inheriting the AST
+        // "Number of source files analysed." wording. Pin both halves: the
+        // bus-factor tooltip says files-in-this-directory, and it is not the
+        // analysed-files string. A regression would re-key on the global
+        // header string and these would converge.
+        assert!(
+            BUS_FACTOR_FILES_TOOLTIP.contains("directory"),
+            "bus-factor Files tooltip must describe files-per-directory"
+        );
+        assert_ne!(
+            BUS_FACTOR_FILES_TOOLTIP, "Number of source files analysed.",
+            "bus-factor Files tooltip must not reuse the AST analysed-files definition (issue #693)"
+        );
+        // The distinct tooltip actually reaches the rendered bus-factor table.
+        let report = rich_report();
+        let html = render_html(&report);
+        let bus_factor_html = html
+            .split("<section class=\"bus-factor\">")
+            .nth(1)
+            .expect("rich report renders a bus-factor section");
+        assert!(
+            bus_factor_html.contains(&format!(
+                " title=\"{}\">Files</th>",
+                crate::html_report::escape_html(BUS_FACTOR_FILES_TOOLTIP)
+            )),
+            "bus-factor Files column must carry its own tooltip"
+        );
+    }
+
+    #[test]
     fn legend_renders_in_both_formats() {
         // Issue #611: the column definitions must reach a Markdown reader
         // (PR comment, pasted issue) and survive HTML print/mobile/screen
@@ -1013,17 +1147,22 @@ mod tests {
             html.contains("<summary>Legend</summary>"),
             "HTML legend missing"
         );
-        for (header, tip) in legend_entries(&active_specs(&report)) {
+        // The Markdown legend defines the curated columns it actually renders
+        // (issue #621); the HTML legend defines the full active set.
+        for (header, tip) in legend_entries(&markdown_specs(&report)) {
             assert!(
                 md.contains(&format!("**{header}**")),
-                "Markdown legend missing header {header:?}"
+                "Markdown legend missing curated header {header:?}"
             );
-            // The definition text (minus any escaping) reaches both.
             let snippet: String = tip.chars().take(20).collect();
             assert!(
                 md.contains(&snippet),
                 "Markdown legend missing definition for {header:?}"
             );
+        }
+        for (header, tip) in legend_entries(&active_specs(&report)) {
+            let _ = header;
+            let snippet: String = tip.chars().take(20).collect();
             assert!(
                 html.contains(&snippet),
                 "HTML legend missing definition for {header:?}"

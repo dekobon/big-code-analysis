@@ -73,7 +73,7 @@ fn report_skipped_logs_each_skipped_file() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("skipped (generated):"))
+        .stderr(predicate::str::contains("note: skipped (generated):"))
         .stderr(predicate::str::contains("generated.rs"));
 }
 

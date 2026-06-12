@@ -4,7 +4,7 @@
 .SH NAME
 bca\-web \- Run a web server.
 .SH SYNOPSIS
-\fBbca\-web\fR [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-parse\-timeout\-secs\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] 
+\fBbca\-web\fR [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-parse\-timeout\-secs\fR] [\fB\-\-cors\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] 
 .SH DESCRIPTION
 Run a web server.
 .SH OPTIONS
@@ -21,7 +21,12 @@ Host for the web server
 Port for the web server
 .TP
 \fB\-\-parse\-timeout\-secs\fR \fI<PARSE_TIMEOUT_SECS>\fR [default: 30]
-Timeout in seconds for each parse operation (0 = no timeout)
+Timeout in seconds for each parse operation. `0` disables the deadline *and* the orphaned\-task admission gate it feeds: with no timeout a parse never times out, so no task is ever orphaned and the `503` back\-pressure that sheds load under sustained pathological input never engages. Use `0` only when an unbounded parse is acceptable (issue #707)
+.TP
+\fB\-\-cors\fR \fI<ORIGINS>\fR
+Enable CORS for the given origins (off by default).
+
+Pass a comma\-separated allow\-list of origins (`\-\-cors https://app.example,https://tools.example`); only those origins receive `Access\-Control\-Allow\-Origin`, and the matched origin is echoed back. Pass a literal `*` (`\-\-cors \*(Aq*\*(Aq`) to opt into a wide\-open policy that answers every origin — this exposes the server\*(Aqs metrics and repository paths to any website the operator\*(Aqs browser visits, so use it only on trusted networks. Omitting the flag leaves CORS off: no `Access\-Control\-*` headers are emitted. No `Access\-Control\-Allow\-Credentials` is ever sent (the API has no auth or cookies).
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

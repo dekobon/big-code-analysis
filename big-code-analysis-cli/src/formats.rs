@@ -30,13 +30,14 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
 pub(crate) enum MetricsFormat {
-    /// Human-readable colored metric tree printed to stdout — the
-    /// default when `--format` is omitted (issue #604). Selecting it
-    /// explicitly produces byte-identical output to omitting the flag,
-    /// so it is the way to request the default in a script or to
-    /// override a `bca.toml` that set a structured format. Unlike the
-    /// structured serializers it ignores `--output` (it only ever
-    /// streams to stdout).
+    /// Human-readable colored tree printed to stdout (`metrics` shows the
+    /// metric tree, `ops` the operator/operand tree) — the default when
+    /// `--format` is omitted. Selecting it explicitly produces
+    /// byte-identical output to omitting the flag, so it is the way to
+    /// request the default in a script or to override a `bca.toml` that
+    /// set a structured format. Unlike the structured serializers it
+    /// ignores `--output` (it only ever streams to stdout).
+    // The named `text` default was introduced in issue #604.
     Text,
     Cbor,
     Csv,
@@ -65,7 +66,8 @@ pub(crate) enum ReportFormat {
 pub(crate) enum VcsFormat {
     /// The human-readable ranked table — the same output a bare `bca vcs`
     /// prints, now explicitly selectable so the human format is named and
-    /// requestable everywhere (#659).
+    /// requestable everywhere.
+    // The named, requestable `text` format was unified in issue #659.
     Text,
     Cbor,
     Csv,
@@ -390,11 +392,22 @@ fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
     // not get overridden by an absolute input filename.
     //
     // Components are escaped through `push_escaped_component` (which keeps
-    // non-UTF-8 bytes intact), so two distinct input paths never collapse
-    // onto the same output filename. `..` becomes `PARENT_DIR_MARKER`
-    // rather than the no-op `.` it used to (issue #423), and any literal
-    // `%` is doubled to `%25` so the marker can never alias a real
-    // directory name.
+    // non-UTF-8 bytes intact). `..` becomes `PARENT_DIR_MARKER` rather
+    // than the no-op `.` it used to (issue #423), and any literal `%` is
+    // doubled to `%25` so the marker can never alias a real directory
+    // name. Within a single *normalized form* the mapping is injective:
+    // distinct relative inputs yield distinct output filenames.
+    //
+    // The mapping is NOT injective *across* forms, because the leading
+    // `Prefix` / `RootDir` / `CurDir` components are stripped (so the
+    // output stays inside `output_path` rather than being overridden by
+    // an absolute input filename): an absolute `/a/x.rs` and a relative
+    // `a/x.rs` both collapse to `a/x.rs<ext>` (#704). The walker no longer
+    // feeds both forms for the same file — `reanchor_seed` rewrites
+    // under-CWD absolute seeds to their relative tail and
+    // `expand_seed_paths` de-duplicates the emitted set — so this residual
+    // cross-form collision is not reachable from a normal walk; it remains
+    // a property of `handle_path` in isolation, not a guarantee it makes.
     let mut cleaned = PathBuf::new();
     for component in path.components() {
         match component {
@@ -555,6 +568,32 @@ impl WriteFile for Cbor {
     }
 }
 
+/// Create the parent directory of `path` if it does not yet exist, so a
+/// `--output sub/dir/report.json` to a missing directory succeeds rather
+/// than failing with "No such file or directory" (issue #709).
+pub(crate) fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
+/// Write a rendered single-document text report (Markdown / HTML / JSON /
+/// YAML / TOML) to a single file — creating its parent directory — or to
+/// stdout when `output` is `None`. Shared by the `vcs commit` / `vcs trend`
+/// / `vcs` single-file emit paths so they cannot drift.
+pub(crate) fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Result<()> {
+    match output {
+        Some(path) => {
+            ensure_parent_dir(path)?;
+            std::fs::write(path, content)
+        }
+        None => std::io::stdout().lock().write_all(content.as_bytes()),
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -568,6 +607,27 @@ impl WriteFile for Cbor {
 )]
 mod tests {
     use super::*;
+
+    // Regression test for issue #709: `write_text` with `--output
+    // sub/dir/report.json` to a not-yet-existing directory must create the
+    // parents and write the file (was "No such file or directory"). Shared
+    // by `vcs commit` / `vcs trend` / `vcs`, so one guard covers all three.
+    #[test]
+    fn write_text_creates_missing_parent_directories() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let nested = dir.path().join("a").join("b").join("report.json");
+        assert!(
+            !nested.parent().expect("has parent").exists(),
+            "parent must be absent before the write"
+        );
+
+        write_text("{}", Some(&nested)).expect("write must create parents");
+
+        assert_eq!(
+            std::fs::read_to_string(&nested).expect("file written"),
+            "{}"
+        );
+    }
 
     #[test]
     fn handle_path_strips_root_slash() {

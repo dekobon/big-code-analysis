@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -39,6 +39,7 @@ use crate::formats::{
 };
 use crate::html_report::generate_html_report_with_vcs;
 use crate::manifest::{self, Manifest};
+use crate::markdown_report::advisory::AdvisoryThresholds;
 use crate::markdown_report::{FunctionSummary, generate_report_with_vcs};
 use crate::metric_catalog::write_metrics;
 use crate::thresholds::{
@@ -51,8 +52,8 @@ use crate::{
     ExemptionsArgs, FindArgs, GlobalOpts, InitArgs, LineRange, ListMetricsArgs, MetricsArgs,
     OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs,
     SummaryFile, Tier, TierSpec, die, die_io, group_files_by_basename, legacy_hint, load_baseline,
-    load_preproc_data, load_threshold_config, read_exclude_patterns_from, resolve_walk_files,
-    run_walk, run_walk_collecting, run_walk_resolved, validate_output_path, write_atomic,
+    load_preproc_data, load_threshold_config, note, read_exclude_patterns_from, resolve_walk_files,
+    run_walk, run_walk_collecting, run_walk_resolved, validate_output_path, warn, write_atomic,
     write_output_or_stdout, write_stdout_or_die,
 };
 
@@ -289,6 +290,12 @@ struct EffectiveCheck {
     manifest: Option<String>,
     no_fail: bool,
     no_suppress: bool,
+    /// Whether `--report-suppressed` is active: suppressed/baselined debt
+    /// is kept in the SARIF offender document (as `suppressions` entries)
+    /// instead of dropped. Surfaced here because it changes the emitted
+    /// offender set — a gate-relevant input the resolved view previously
+    /// omitted (#704).
+    report_suppressed: bool,
     no_ignore: bool,
     no_skip_generated: bool,
     exclude_tests: bool,
@@ -363,6 +370,7 @@ impl EffectiveConfig {
             manifest: manifest.map(|m| m.path().display().to_string()),
             no_fail: args.no_fail,
             no_suppress: args.no_suppress,
+            report_suppressed: args.report_suppressed,
             no_ignore: globals.no_ignore,
             no_skip_generated: globals.no_skip_generated,
             exclude_tests: globals.exclude_tests,
@@ -581,10 +589,10 @@ fn resolve_tier(
         TierSpec::Soft(r) => r.unwrap_or(DEFAULT_SOFT_HEADROOM),
     };
     if hard.is_empty() {
-        eprintln!(
-            "note: --tier=soft has no effect without configured thresholds \
+        note(
+            "--tier=soft has no effect without configured thresholds \
              (bca.toml [thresholds] or --config); --threshold limits are \
-             absolute and are not scaled"
+             absolute and are not scaled",
         );
     }
     let mut out = hard;
@@ -729,7 +737,7 @@ fn provenance_warning(
             current: cur,
             baseline: base,
         } => Some(format!(
-            "warning: this check's effective limits (strictness {cur}) are \
+            "this check's effective limits (strictness {cur}) are \
              stricter than the baseline was written against (strictness \
              {base}); the baseline may under-cover and the gate can fire on \
              untouched files. Refresh it at the matching tier, e.g. \
@@ -756,7 +764,7 @@ fn filter_by_baseline(
     // the gate can fire on untouched files). Silent in the safe
     // directions (hard reading soft, equal, absent provenance).
     if let Some(msg) = provenance_warning(provenance, baseline.provenance()) {
-        eprintln!("{msg}");
+        warn(msg);
     }
     let before = violations.len();
     let kept: Vec<_> = violations
@@ -1589,6 +1597,11 @@ fn parse_cli_with_legacy_hint() -> (Cli, bool) {
         }
     };
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| exit_clap_error(&err));
+    // clap accepted the input, so any deprecated *spelling* was honored
+    // silently — emit the one-cycle migration warning now (#646). The scan
+    // runs on the raw argv because clap normalizes each `alias =` to its
+    // canonical id before `matches` is built.
+    crate::deprecations::warn_deprecated_aliases(std::env::args_os());
     (cli, num_jobs_set_on_cli(&matches))
 }
 
@@ -1800,9 +1813,9 @@ fn run_command_metrics(
             (index, blame)
         }
         (true, false) => {
-            eprintln!(
-                "warning: --vcs / --vcs-per-function has no effect without --format: the \
-                 human-readable metrics view does not render the vcs block"
+            warn(
+                "--vcs / --vcs-per-function has no effect without --format: the \
+                 human-readable metrics view does not render the vcs block",
             );
             (None, None)
         }
@@ -2050,19 +2063,35 @@ fn run_command_report(
         policy,
     };
 
+    // Source the report's advisory cutoffs (Actionable Summary, CC note,
+    // Many-Parameters filter) from the manifest `[thresholds]` table when one
+    // is present, so the report's advice matches the configured `bca check`
+    // gate; fall back to the built-in defaults otherwise (issue #630). This
+    // reads the manifest hard-threshold scalars for *presentation* only — it
+    // does not touch the offender-gating path.
+    let advisory = match manifest {
+        Some(m) => AdvisoryThresholds::from_manifest_hard(&m.thresholds().hard),
+        None => AdvisoryThresholds::DEFAULT,
+    };
+
     let report = match (format, vcs.as_ref()) {
         (ReportFormat::Markdown, None) => {
-            generate_report_with_vcs(&summaries, top, policy, None, Some(&prov))
+            generate_report_with_vcs(&summaries, top, policy, &advisory, None, Some(&prov))
         }
         (ReportFormat::Markdown, Some(vcs)) => {
-            generate_report_with_vcs(&summaries, top, policy, Some(vcs), Some(&prov))
+            generate_report_with_vcs(&summaries, top, policy, &advisory, Some(vcs), Some(&prov))
         }
         (ReportFormat::Html, None) => {
-            generate_html_report_with_vcs(&summaries, top, policy, None, Some(&prov))
+            generate_html_report_with_vcs(&summaries, top, policy, &advisory, None, Some(&prov))
         }
-        (ReportFormat::Html, Some(vcs)) => {
-            generate_html_report_with_vcs(&summaries, top, policy, Some(vcs), Some(&prov))
-        }
+        (ReportFormat::Html, Some(vcs)) => generate_html_report_with_vcs(
+            &summaries,
+            top,
+            policy,
+            &advisory,
+            Some(vcs),
+            Some(&prov),
+        ),
     };
     write_output_or_stdout(args.output.as_deref(), "write report to", report.as_bytes());
 }
@@ -2161,7 +2190,12 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
         .expect("all worker threads have joined; Arc refcount is 1")
         .into_inner()
         .expect("mutex not poisoned");
-    fix_includes(&mut data.files, &all_files);
+    // Include-resolution diagnostics (self-inclusion, cycles, non-UTF-8
+    // paths, un-preprocessed files) are returned rather than written to
+    // stderr by the library, so the CLI surfaces them here.
+    for diagnostic in fix_includes(&mut data.files, &all_files) {
+        eprintln!("{diagnostic}");
+    }
 
     let serialized = serde_json::to_string(&data)
         .unwrap_or_else(|e| die(format_args!("failed to serialize preproc data: {e}")));
@@ -2541,18 +2575,34 @@ fn compute_since_diff(
     // yield a silent all-zero diff. Reject any absolute selector with a
     // clear message rather than mis-pair.
     let scope = args.old.as_deref();
-    let absolute_selector = globals
-        .paths
-        .iter()
-        .map(PathBuf::as_path)
-        .chain(scope)
-        .find(|p| p.is_absolute());
+    let selectors = || globals.paths.iter().map(PathBuf::as_path).chain(scope);
+    let absolute_selector = selectors().find(|p| p.is_absolute());
     if let Some(abs) = absolute_selector {
         die(format_args!(
             "diff --since: paths must be relative (got {}); an absolute \
              path cannot address the extracted <ref> tree — scope with a \
              relative --paths / positional instead",
             abs.display()
+        ));
+    }
+    // A relative selector that escapes its walk root via `..` is just as
+    // unpairable as an absolute one (#704): on the before side it climbs
+    // out of the `/tmp/…` extraction of `<ref>` (reaching unrelated host
+    // files or nothing), while on the after side it climbs out of the
+    // repo root — so the two sides walk different trees and the diff
+    // silently mis-pairs. `git archive` extractions never contain `..`
+    // path components, so any `..` in a selector cannot address real
+    // tracked files on the before side regardless. Reject it with the
+    // same clear message rather than produce a bogus all-zero / partial
+    // diff.
+    let escaping_selector = selectors().find(|p| escapes_root(p));
+    if let Some(esc) = escaping_selector {
+        die(format_args!(
+            "diff --since: paths must stay within the tree (got {}); a `..` \
+             component escapes the extracted <ref> tree and the working \
+             tree differently, mis-pairing the diff — scope with an in-tree \
+             relative --paths / positional instead",
+            esc.display()
         ));
     }
 
@@ -2599,6 +2649,32 @@ fn compute_since_diff(
         args.min_change,
         &args.metric,
     ))
+}
+
+/// Does relative `path` lexically escape its walk root? Walks the
+/// components tracking depth: a `..` at depth 0 (or that drives depth
+/// below 0 at any point) reaches above the root. `CurDir` and `Normal`
+/// components stay at or below it. Used to reject `bca diff --since`
+/// selectors that would address different trees on the before/after
+/// sides (#704). Absolute paths are rejected earlier, so this only sees
+/// relative ones.
+fn escapes_root(path: &Path) -> bool {
+    let mut depth: i32 = 0;
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    return true;
+                }
+            }
+            Component::Normal(_) => depth += 1,
+            // `CurDir` is a no-op; `RootDir`/`Prefix` cannot appear in a
+            // relative path (absolute selectors are rejected upstream).
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    false
 }
 
 fn side_globals(globals: &GlobalOpts, scope: Option<&Path>) -> GlobalOpts {

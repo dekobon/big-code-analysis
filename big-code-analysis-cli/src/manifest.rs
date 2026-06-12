@@ -42,7 +42,7 @@ use serde::Deserialize;
 use crate::thresholds::{ParsedThresholds, split_thresholds_table};
 use crate::{
     CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, ReportArgs, VcsArgs, die, die_io,
-    read_utf8_file,
+    read_utf8_file, warn,
 };
 
 /// Filename discovered by convention at (or above) the working directory.
@@ -255,10 +255,10 @@ fn warn_deprecated_renamed_keys(text: &str) {
     };
     for (old, new) in RENAMED {
         if table.contains_key(*old) {
-            eprintln!(
-                "warning: bca.toml: key `{old}` is deprecated and has been renamed \
+            warn(format_args!(
+                "bca.toml: key `{old}` is deprecated and has been renamed \
                  to `{new}`; the old spelling will be removed in the next major release"
-            );
+            ));
         }
     }
 }
@@ -279,11 +279,11 @@ fn warn_deprecated_top_level_check_keys(raw: &RawManifest) {
     ];
     for (key, present) in legacy {
         if present {
-            eprintln!(
-                "warning: bca.toml: top-level `{key}` is deprecated and has \
+            warn(format_args!(
+                "bca.toml: top-level `{key}` is deprecated and has \
                  moved under `[check]`; the top-level spelling will be removed \
                  in the next major release"
-            );
+            ));
         }
     }
 }
@@ -293,10 +293,10 @@ fn warn_deprecated_top_level_check_keys(raw: &RawManifest) {
 /// [`RawManifest`] silently drops anything it does not name.
 fn warn_unknown_keys(text: &str) {
     for key in unknown_top_level_keys(text) {
-        eprintln!(
-            "warning: bca.toml: ignoring unrecognized key `{key}` \
+        warn(format_args!(
+            "bca.toml: ignoring unrecognized key `{key}` \
              (unknown option, or a feature not yet released)"
-        );
+        ));
     }
 }
 

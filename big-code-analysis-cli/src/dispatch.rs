@@ -34,7 +34,7 @@ use big_code_analysis::{
 use crate::exemptions::FileMarkers;
 use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};
 use crate::markdown_report::extract_summaries;
-use crate::{Action, Config, FEATURES_PINNED};
+use crate::{Action, Config, FEATURES_PINNED, note, warn};
 
 /// Analyze one already-read file via the explicit-name [`Source`] seam.
 ///
@@ -119,7 +119,7 @@ fn validate_and_resolve_file(
 
     let Some(source) = read_file_with_eol(&path)? else {
         if cfg.warning {
-            eprintln!("warning: skipping empty file: {}", path.display());
+            warn(format_args!("skipping empty file: {}", path.display()));
         }
         return Ok(None);
     };
@@ -127,7 +127,7 @@ fn validate_and_resolve_file(
     if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
     {
         if cfg.report_skipped || cfg.warning {
-            eprintln!("skipped (generated): {}", path.display());
+            note(format_args!("skipped (generated): {}", path.display()));
         }
         return Ok(None);
     }
@@ -141,19 +141,19 @@ fn validate_and_resolve_file(
         // (#663). A directory-expanded file stays silently skipped unless
         // `-w` is set — a tree of READMEs/configs must not be noisy.
         if cfg.explicit_seeds.contains(&path) {
-            eprintln!(
-                "warning: skipping explicitly-named file with unrecognized \
+            warn(format_args!(
+                "skipping explicitly-named file with unrecognized \
                  language: {} (pass --language to force a parser)",
                 path.display()
-            );
+            ));
             if let Some(counter) = &cfg.explicit_unrecognized {
                 counter.fetch_add(1, Ordering::Relaxed);
             }
         } else if cfg.warning {
-            eprintln!(
-                "warning: skipping file with unrecognized language: {}",
+            warn(format_args!(
+                "skipping file with unrecognized language: {}",
                 path.display()
-            );
+            ));
         }
         return Ok(None);
     };
@@ -410,10 +410,10 @@ fn dispatch_report(
         // preserve raw bytes.
         let Some(file_str) = path.to_str() else {
             if cfg.warning {
-                eprintln!(
-                    "warning: skipping non-UTF-8 path in report: {}",
+                warn(format_args!(
+                    "skipping non-UTF-8 path in report: {}",
                     path.display()
-                );
+                ));
             }
             return Ok(());
         };
@@ -427,10 +427,10 @@ fn dispatch_report(
         );
         let Ok(sender) = tx.lock() else {
             if cfg.warning {
-                eprintln!(
-                    "warning: skipping {}: report channel lock poisoned",
+                warn(format_args!(
+                    "skipping {}: report channel lock poisoned",
                     path.display()
-                );
+                ));
             }
             return Ok(());
         };
@@ -502,10 +502,10 @@ fn dispatch_check_file(
         if !violations.is_empty() {
             let Ok(sender) = tx.lock() else {
                 if cfg.warning {
-                    eprintln!(
-                        "warning: skipping {}: check channel lock poisoned",
+                    warn(format_args!(
+                        "skipping {}: check channel lock poisoned",
                         path.display()
-                    );
+                    ));
                 }
                 return Ok(());
             };
@@ -547,10 +547,10 @@ fn dispatch_exemptions(
     // with a warning rather than lossily mangling the identifier.
     let Some(file_str) = path.to_str() else {
         if cfg.warning {
-            eprintln!(
-                "warning: skipping non-UTF-8 path in exemptions audit: {}",
+            warn(format_args!(
+                "skipping non-UTF-8 path in exemptions audit: {}",
                 path.display()
-            );
+            ));
         }
         return Ok(());
     };
@@ -565,10 +565,10 @@ fn dispatch_exemptions(
     }
     let Ok(sender) = tx.lock() else {
         if cfg.warning {
-            eprintln!(
-                "warning: skipping {}: exemptions channel lock poisoned",
+            warn(format_args!(
+                "skipping {}: exemptions channel lock poisoned",
                 path.display()
-            );
+            ));
         }
         return Ok(());
     };
@@ -593,10 +593,10 @@ fn dispatch_preproc(source: Vec<u8>, path: PathBuf, cfg: &Config) -> std::io::Re
     {
         let Ok(mut results) = preproc_lock.lock() else {
             if cfg.warning {
-                eprintln!(
-                    "warning: skipping {}: preproc results lock poisoned",
+                warn(format_args!(
+                    "skipping {}: preproc results lock poisoned",
                     path.display()
-                );
+                ));
             }
             return Ok(());
         };

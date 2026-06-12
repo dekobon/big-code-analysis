@@ -334,6 +334,50 @@ fn since_rejects_absolute_paths() {
 }
 
 #[test]
+fn since_rejects_dotdot_escaping_paths() {
+    // A relative `--paths` that escapes its walk root via `..` addresses
+    // different trees on the before/after sides (the `/tmp/…` extraction
+    // vs the repo root), silently mis-pairing the diff. Reject it with a
+    // clear message rather than emit a bogus all-zero / partial diff
+    // (#704).
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths", "../escape"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("must stay within the tree"));
+}
+
+#[test]
+fn since_rejects_dotdot_escaping_positional() {
+    // The same `..`-escape guard applies to the optional positional
+    // scope, not just `--paths` (#704).
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", ".."])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("must stay within the tree"));
+}
+
+#[test]
+fn since_allows_interior_dotdot_that_stays_in_tree() {
+    // A `..` that nets back inside the tree (`src/../src`) does NOT
+    // escape, so it must be accepted — the guard rejects only net escapes
+    // (#704). The diff succeeds (no offenders, exit 0 without --exit-code).
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths", "src/../src"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn since_rejects_dash_leading_ref() {
     // A dash-leading ref would reach git's option parser; the explicit
     // `--since=-x` form binds the value, so the dash guard (not clap)

@@ -10,7 +10,7 @@ Analyze source code.
 .SH OPTIONS
 .TP
 \fB\-w\fR, \fB\-\-warnings\fR
-Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major
+Print warnings (skipped files, unrecognized languages). `\-\-warning` (singular) is kept as a hidden alias for one release cycle and is slated for removal in the next major
 .TP
 \fB\-\-report\-skipped\fR
 Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
@@ -29,13 +29,13 @@ bca\-ops(1)
 Extract per\-file operands and operators
 .TP
 bca\-vcs(1)
-Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree (issue #328). Errors clearly outside a repo
+Rank files by change\-history (VCS) risk: churn, commit and author counts, ownership dilution, and bug\- / security\-fix history over a git working tree. Errors clearly outside a repo
 .TP
 bca\-report(1)
 Generate an aggregated report across the analyzed source
 .TP
 bca\-dump(1)
-Dump the AST to stdout. Each file\*(Aqs tree is prefixed with a `== <path> ==` banner so a multi\-file dump is attributable (#690). Requires an explicit path — unlike the other walking subcommands, bare `bca dump` errors instead of dumping the whole current directory (a whole\-tree AST dump has no plausible use)
+Dump the AST to stdout. Each file\*(Aqs tree is prefixed with a `== <path> ==` banner so a multi\-file dump is attributable. Requires an explicit path — unlike the other walking subcommands, bare `bca dump` errors instead of dumping the whole current directory (a whole\-tree AST dump has no plausible use)
 .TP
 bca\-find(1)
 Find nodes of one or more types

@@ -217,7 +217,13 @@ fn check_with_no_matching_files_exits_one() {
         ])
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("no input files matched"));
+        // #609: fatal tool errors carry the unified bare lowercase
+        // `error:` prefix (matching clap's own usage errors), never the
+        // old capitalized `Error:`.
+        .stderr(predicate::str::contains(
+            "error: bca check: no input files matched",
+        ))
+        .stderr(predicate::str::contains("Error:").not());
 }
 
 #[test]

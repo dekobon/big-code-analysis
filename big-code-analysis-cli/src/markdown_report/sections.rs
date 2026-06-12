@@ -15,6 +15,7 @@ use std::fmt::Write as _;
 
 use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
+use super::advisory::AdvisoryThresholds;
 use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
 use super::{Align, FunctionSummary, escape_cell, escape_name, mi_rating, thousands, write_table};
 
@@ -115,14 +116,27 @@ pub(super) fn emit_cc_note_md(
     let caption = super::hotspot::cc_note_caption(policy)
         .map(|c| format!(" ({c})"))
         .unwrap_or_default();
+    // The bands use the resolved advisory CC cutoff and its severe multiple
+    // (issue #630) — `> 10` / `> 20` by default, shifted when a manifest sets
+    // `cyclomatic = N`.
     let _ = writeln!(
         out,
-        "Average CC: {:.1} | Max: {:.0} | CC > 10: {} functions | CC > 20: {} functions{caption}",
+        "Average CC: {:.1} | Max: {:.0} | CC > {:.0}: {} functions | CC > {:.0}: {} functions{caption}",
         stats.avg(),
         stats.max,
-        stats.gt10,
-        stats.gt20,
+        stats.primary_cutoff,
+        stats.over_primary,
+        stats.severe_cutoff,
+        stats.over_severe,
     );
+}
+
+/// The MI note under the MI hotspot table: a blank line then the shared
+/// [`super::hotspot::MI_NOTE`] text in italics, explaining the rendered
+/// variant, rating bands, and 0-100 clamping caveat so a table of all-0.0
+/// clamped values is not misread as catastrophic (issue #627).
+pub(super) fn emit_mi_note_md(out: &mut String) {
+    let _ = writeln!(out, "\n_{}_", super::hotspot::MI_NOTE);
 }
 
 /// Emits the advisory "functions over threshold" roll-up.
@@ -139,53 +153,60 @@ pub(super) fn write_actionable_summary(
     out: &mut String,
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) {
-    let (cc_gt10, cog_gt15, sloc_gt100, nargs_gt3, bugs_gt1) = funcs.iter().fold(
-        (0usize, 0usize, 0usize, 0usize, 0usize),
-        |(a, b, c, d, e), s| {
-            (
-                a + usize::from(s.cyclomatic > 10.0),
-                b + usize::from(s.cognitive > 15.0),
-                c + usize::from(s.sloc > 100),
-                d + usize::from(s.nargs > 3),
-                e + usize::from(s.halstead_bugs > 1.0),
-            )
-        },
-    );
+    // Cutoffs come from the resolved advisory thresholds (issue #630): the
+    // built-in defaults, or the manifest `[thresholds]` values when present, so
+    // a project gating at `cyclomatic = 15` is not scolded at `CC > 10`. The
+    // counting is single-sourced with the HTML report via `count_over`.
+    let counts = advisory.count_over(funcs);
 
     let _ = writeln!(out, "\n### Actionable Summary\n");
+    // Provenance so the cutoffs are always attributable (issue #630).
+    let _ = writeln!(out, "_{}_\n", advisory.provenance_line());
     let breakdown = super::hotspot::suppressed_metric_breakdown(funcs, policy);
     let _ = writeln!(
         out,
         "{}\n",
         super::hotspot::actionable_summary_caption(&breakdown)
     );
-    if cc_gt10 == 0 && cog_gt15 == 0 && sloc_gt100 == 0 && nargs_gt3 == 0 && bugs_gt1 == 0 {
+    if counts.all_clear() {
         let _ = writeln!(out, "No major quality concerns detected.");
         return;
     }
-    if cc_gt10 > 0 {
-        let _ = writeln!(out, "- **{cc_gt10}** functions with CC > 10");
-    }
-    if cog_gt15 > 0 {
+    if counts.cc > 0 {
         let _ = writeln!(
             out,
-            "- **{cog_gt15}** functions with cognitive complexity > 15"
+            "- **{}** functions with CC > {:.0}",
+            counts.cc, advisory.cc
         );
     }
-    if sloc_gt100 > 0 {
-        let _ = writeln!(out, "- **{sloc_gt100}** functions with SLOC > 100");
-    }
-    if nargs_gt3 > 0 {
+    if counts.cognitive > 0 {
         let _ = writeln!(
             out,
-            "- **{nargs_gt3}** functions with more than 3 parameters"
+            "- **{}** functions with cognitive complexity > {:.0}",
+            counts.cognitive, advisory.cognitive
         );
     }
-    if bugs_gt1 > 0 {
+    if counts.sloc > 0 {
         let _ = writeln!(
             out,
-            "- **{bugs_gt1}** functions with estimated Halstead bugs > 1.0"
+            "- **{}** functions with SLOC > {}",
+            counts.sloc, advisory.sloc
+        );
+    }
+    if counts.nargs > 0 {
+        let _ = writeln!(
+            out,
+            "- **{}** functions with more than {} parameters",
+            counts.nargs, advisory.nargs
+        );
+    }
+    if counts.bugs > 0 {
+        let _ = writeln!(
+            out,
+            "- **{}** functions with estimated Halstead bugs > {:.1}",
+            counts.bugs, advisory.bugs
         );
     }
 }

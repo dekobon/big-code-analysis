@@ -460,10 +460,200 @@ fn empty_match_emits_stderr_notice() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("0 files matched"));
+        // #609: the notice carries the unified bare lowercase `warning:`
+        // prefix — not the old redundant `bca: warning:` double prefix.
+        .stderr(predicate::str::contains("warning: 0 files matched"))
+        .stderr(predicate::str::contains("bca: warning:").not());
 
     assert!(
         json_files(&out).is_empty(),
         "no files should be emitted when nothing matched",
+    );
+}
+
+/// Read a `metrics --output <FILE>` aggregate document and return the
+/// number of per-file records (the top-level array length). One element
+/// per analyzed file, so a double-counted file inflates this.
+fn aggregate_len(path: &Path) -> usize {
+    let doc: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).expect("aggregate is valid JSON");
+    doc.as_array()
+        .expect("aggregate is a top-level array")
+        .len()
+}
+
+/// #704: overlapping seeds (a directory plus an explicit file already
+/// inside it) must contribute each file exactly once. Before the dedup
+/// fix the file reachable from both seeds was analyzed and counted twice,
+/// inflating every file-level aggregate.
+#[test]
+fn overlapping_seeds_do_not_double_count() {
+    let dir = TempDir::new().unwrap();
+    let (keep, _skip) = make_tree(dir.path());
+    let out = dir.path().join("agg.json");
+
+    cli(dir.path())
+        .args([
+            "metrics",
+            "--no-config",
+            "--no-ignore", // so skip.py is not filtered; we control the set via seeds
+            "--paths",
+            keep.parent().unwrap().to_str().unwrap(), // the src/ directory
+            "--paths",
+            keep.to_str().unwrap(), // and the same file again, explicitly
+            "-O",
+            "json",
+            "--output",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // src/ holds exactly keep.py + skip.py = 2 unique files; the duplicate
+    // explicit `keep.py` seed must NOT add a third record.
+    assert_eq!(
+        aggregate_len(&out),
+        2,
+        "overlapping dir + file seeds must yield 2 unique records, not 3",
+    );
+}
+
+/// #704: the same file named twice via two explicit `--paths` seeds is
+/// also deduplicated.
+#[test]
+fn duplicate_explicit_file_seed_is_deduped() {
+    let dir = TempDir::new().unwrap();
+    let (keep, _skip) = make_tree(dir.path());
+    let out = dir.path().join("agg.json");
+
+    cli(dir.path())
+        .args([
+            "metrics",
+            "--no-config",
+            "--paths",
+            keep.to_str().unwrap(),
+            "--paths",
+            keep.to_str().unwrap(),
+            "-O",
+            "json",
+            "--output",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        aggregate_len(&out),
+        1,
+        "the same file named twice must produce one record",
+    );
+}
+
+/// #704: a `--paths-from` line whose bytes are not valid UTF-8 must not
+/// abort the whole list — the rest of the crate tolerates non-UTF-8
+/// paths, so `--paths-from` must too. Unix-only: there is no stable
+/// byte→path view on other platforms.
+#[cfg(unix)]
+#[test]
+fn paths_from_tolerates_non_utf8_line() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+
+    // A valid file plus one whose name carries a non-UTF-8 byte (0x80, a
+    // lone continuation byte). Both must be analyzed.
+    let good = src.join("good.py");
+    std::fs::write(&good, "def f(): return 1\n").unwrap();
+    let mut bad_name = std::ffi::OsString::from("bad");
+    bad_name.push(std::ffi::OsStr::from_bytes(b"\x80"));
+    bad_name.push(".py");
+    let bad = src.join(&bad_name);
+    if std::fs::write(&bad, "def g(): return 2\n").is_err() {
+        // Some filesystems (notably macOS APFS) reject non-UTF-8 file
+        // names outright, so the non-UTF-8 `--paths-from` tolerance can
+        // only be exercised where the OS can represent such a path. Skip
+        // rather than fail where the scenario is unrepresentable.
+        return;
+    }
+
+    // Build the listfile from raw bytes so the non-UTF-8 path survives.
+    let mut listing = Vec::new();
+    listing.extend_from_slice(good.as_os_str().as_bytes());
+    listing.push(b'\n');
+    listing.extend_from_slice(bad.as_os_str().as_bytes());
+    listing.push(b'\n');
+    let listfile = dir.path().join("paths.txt");
+    std::fs::write(&listfile, &listing).unwrap();
+
+    let out = dir.path().join("agg.json");
+    cli(dir.path())
+        .args([
+            "metrics",
+            "--no-config",
+            "--paths-from",
+            listfile.to_str().unwrap(),
+            "-O",
+            "json",
+            "--output",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Both files analyzed: the non-UTF-8 line did not abort the list.
+    assert_eq!(
+        aggregate_len(&out),
+        2,
+        "both the UTF-8 and non-UTF-8 --paths-from entries must be analyzed",
+    );
+}
+
+/// #704: a per-entry walk error (here, an unreadable subdirectory) must
+/// skip-with-warning and keep processing the rest of the tree, not abort
+/// the whole run. Unix-only: it relies on POSIX directory permissions.
+#[cfg(unix)]
+#[test]
+fn unreadable_subdir_warns_but_continues() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("ok.py"), "def f(): return 1\n").unwrap();
+
+    // A subdirectory the walk cannot descend into (mode 000). `ignore`
+    // surfaces the EACCES as a per-entry error.
+    let locked = src.join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(locked.join("hidden.py"), "def g(): return 2\n").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let out = dir.path().join("agg.json");
+    let result = cli(dir.path())
+        .args([
+            "metrics",
+            "--no-config",
+            "--paths",
+            src.to_str().unwrap(),
+            "-O",
+            "json",
+            "--output",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("skipping walk entry"));
+
+    // Restore permissions so the TempDir can be cleaned up on drop.
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // The readable sibling was still analyzed despite the locked subdir.
+    let _ = result;
+    assert_eq!(
+        aggregate_len(&out),
+        1,
+        "ok.py must still be analyzed after the unreadable subdir is skipped",
     );
 }

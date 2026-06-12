@@ -20,14 +20,14 @@
 //! absent (not zero) and whose score is **not comparable** to a commit
 //! score.
 
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 use std::process;
 
 use big_code_analysis::vcs::{score_commit, score_diff};
 use serde::Serialize;
 
-use crate::formats::{CBOR_STDOUT_ERROR, JitFormat};
+use crate::formats::{CBOR_STDOUT_ERROR, JitFormat, ensure_parent_dir, write_text};
 use crate::{JitArgs, VcsArgs, die};
 
 /// Entry point for `bca vcs commit`. `root` is the repository-discovery
@@ -146,16 +146,11 @@ fn emit<R: Serialize>(report: &R, jit: &JitArgs) -> std::io::Result<()> {
                 std::io::ErrorKind::InvalidInput,
                 CBOR_STDOUT_ERROR,
             )),
-            Some(path) => ciborium::into_writer(report, std::fs::File::create(path)?)
-                .map_err(std::io::Error::other),
+            Some(path) => {
+                ensure_parent_dir(path)?;
+                ciborium::into_writer(report, std::fs::File::create(path)?)
+                    .map_err(std::io::Error::other)
+            }
         },
-    }
-}
-
-/// Write a rendered text document to a single file or stdout.
-fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Result<()> {
-    match output {
-        Some(path) => std::fs::write(path, content),
-        None => std::io::stdout().lock().write_all(content.as_bytes()),
     }
 }

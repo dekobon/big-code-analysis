@@ -29,8 +29,8 @@ use big_code_analysis::vcs::{
 };
 use big_code_analysis::wire;
 
-use crate::formats::{CBOR_STDOUT_ERROR, VcsFormat};
-use crate::{GlobalOpts, VcsArgs, die};
+use crate::formats::{CBOR_STDOUT_ERROR, VcsFormat, ensure_parent_dir, write_text};
+use crate::{GlobalOpts, VcsArgs, die, warn};
 
 /// One ranked file in the report: its repo-relative path plus the VCS
 /// metric block, nested under a `vcs` key like every other metric group
@@ -92,9 +92,7 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     let index = build_history_index_cached(&root, &options, &cache_config)
         .unwrap_or_else(|e| die(format_args!("{e}")));
     if index.truncated_shallow_clone() {
-        eprintln!(
-            "Warning: shallow clone detected — history is truncated, so counts are lower bounds"
-        );
+        warn("shallow clone detected — history is truncated, so counts are lower bounds");
     }
 
     let entries = rank(&globals, &index, args.top, args.include_deleted);
@@ -375,7 +373,7 @@ fn path_to_string(path: &Path) -> Option<String> {
     path.to_str()
         .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
         .or_else(|| {
-            eprintln!("Warning: skipping non-UTF-8 path {}", path.display());
+            warn(format_args!("skipping non-UTF-8 path {}", path.display()));
             None
         })
 }
@@ -423,18 +421,12 @@ fn emit(report: &Report, args: &VcsArgs) -> std::io::Result<()> {
                 std::io::ErrorKind::InvalidInput,
                 CBOR_STDOUT_ERROR,
             )),
-            Some(path) => ciborium::into_writer(report, std::fs::File::create(path)?)
-                .map_err(std::io::Error::other),
+            Some(path) => {
+                ensure_parent_dir(path)?;
+                ciborium::into_writer(report, std::fs::File::create(path)?)
+                    .map_err(std::io::Error::other)
+            }
         },
-    }
-}
-
-/// Write a rendered text document (Markdown / HTML / JSON / YAML / TOML)
-/// to a single file or stdout.
-fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Result<()> {
-    match output {
-        Some(path) => std::fs::write(path, content),
-        None => std::io::stdout().lock().write_all(content.as_bytes()),
     }
 }
 
@@ -504,7 +496,10 @@ fn write_bus_factor(out: &mut impl Write, bf: &vcs::BusFactor) -> std::io::Resul
 /// the `csv` crate's record model.
 fn write_csv(report: &Report, output: Option<&PathBuf>) -> std::io::Result<()> {
     let sink: Box<dyn Write> = match output {
-        Some(path) => Box::new(std::fs::File::create(path)?),
+        Some(path) => {
+            ensure_parent_dir(path)?;
+            Box::new(std::fs::File::create(path)?)
+        }
         None => Box::new(std::io::stdout().lock()),
     };
     let mut wtr = csv::Writer::from_writer(sink);
@@ -598,7 +593,7 @@ pub(crate) fn default_index(globals: &GlobalOpts) -> Option<Arc<vcs::HistoryInde
 /// so the wording cannot drift between `report --vcs` and
 /// `metrics --vcs`.
 fn warn_vcs_unavailable(e: &vcs::Error) {
-    eprintln!("warning: --vcs: {e}; change-history metrics omitted");
+    warn(format_args!("--vcs: {e}; change-history metrics omitted"));
 }
 
 /// Resolve the repository-discovery seed to a directory: `gix::discover`
@@ -636,16 +631,21 @@ pub(crate) fn inject(space: &mut FuncSpace, path: &Path, index: &vcs::HistoryInd
         return;
     };
     let mut stat = stat.clone();
-    set_hotspot_score(&mut stat, space);
+    // The file-level hotspot uses the whole-file cyclomatic *sum* so the
+    // `bca vcs` column matches the file-level `bca metrics --vcs` value.
+    set_hotspot_score(&mut stat, space.metrics.cyclomatic.cyclomatic_sum());
     space.metrics.vcs = Some(stat);
 }
 
-/// Fill a `vcs` block's `hotspot_score` from `space`'s own cyclomatic sum
-/// (complexity × recent churn). Shared by the file-level [`inject`] and
-/// the per-function [`assign_child_stats`] so both compute it identically.
-fn set_hotspot_score(stat: &mut vcs::Stats, space: &FuncSpace) {
+/// Fill a `vcs` block's `hotspot_score` from a `complexity` value
+/// (complexity × recent churn). The caller chooses which cyclomatic
+/// figure to pass: file-level [`inject`] passes the subtree `*_sum`,
+/// while the per-function [`assign_child_stats`] passes each function's
+/// *own* cyclomatic so nested complexity is not re-counted at every
+/// enclosing level (issue #709).
+fn set_hotspot_score(stat: &mut vcs::Stats, cyclomatic: u64) {
     #[allow(clippy::cast_precision_loss)]
-    let complexity = space.metrics.cyclomatic.cyclomatic_sum() as f64;
+    let complexity = cyclomatic as f64;
     stat.hotspot_score = Some(hotspot::hotspot_score(complexity, stat.churn_recent));
 }
 
@@ -661,7 +661,9 @@ pub(crate) fn default_blame(globals: &GlobalOpts) -> Option<Arc<vcs::PerFunction
     match vcs::PerFunctionBlame::open(&resolve_root(globals), Options::default()) {
         Ok(engine) => Some(Arc::new(engine)),
         Err(e) => {
-            eprintln!("warning: --vcs-per-function: {e}; per-function change-history omitted");
+            warn(format_args!(
+                "--vcs-per-function: {e}; per-function change-history omitted"
+            ));
             None
         }
     }
@@ -704,10 +706,10 @@ pub(crate) fn inject_per_function(
             );
         }
         Err(e) => {
-            eprintln!(
-                "warning: --vcs-per-function: skipping {}: {e}",
+            warn(format_args!(
+                "--vcs-per-function: skipping {}: {e}",
                 path.display()
-            );
+            ));
         }
     }
 }
@@ -726,11 +728,16 @@ fn collect_child_spans(space: &FuncSpace, out: &mut Vec<vcs::LineSpan>) {
 
 /// Replay the [`collect_child_spans`] pre-order, attaching one blame
 /// [`vcs::Stats`] to each descendant space and filling its per-function
-/// `hotspot_score` from that function's own cyclomatic sum.
+/// `hotspot_score` from that function's *own* cyclomatic complexity.
+///
+/// Uses the per-space `cyclomatic()` (own), not `cyclomatic_sum()`
+/// (subtree rollup): a function's hotspot should reflect its own logic
+/// complexity, otherwise a nested function's complexity is re-counted at
+/// every enclosing level and the outer scores are inflated (issue #709).
 fn assign_child_stats(space: &mut FuncSpace, stats: &mut impl Iterator<Item = vcs::Stats>) {
     for child in &mut space.spaces {
         if let Some(mut stat) = stats.next() {
-            set_hotspot_score(&mut stat, child);
+            set_hotspot_score(&mut stat, child.metrics.cyclomatic.cyclomatic());
             child.metrics.vcs = Some(stat);
         }
         assign_child_stats(child, stats);
@@ -853,6 +860,94 @@ mod tests {
         };
         default.join_hotspot_scores(&[(PathBuf::from("/whatever/src/a.rs"), 7.0)]);
         assert_eq!(default.report.files[0].vcs.hotspot_score, None);
+    }
+
+    #[test]
+    fn per_function_hotspot_uses_own_not_subtree_cyclomatic() {
+        use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+
+        // Recent churn shared by both probes so the only varying factor is
+        // the cyclomatic figure fed to `set_hotspot_score`.
+        const CHURN: u64 = 12;
+
+        // Regression test for issue #709. A nested function inflates the
+        // *outer* function's `cyclomatic_sum()` (subtree rollup) but not
+        // its own `cyclomatic()`. The per-function hotspot must score each
+        // function by its own complexity, otherwise the nested branches are
+        // re-counted at every enclosing level. The `if`/`match` arms below
+        // give the outer function branches *and* a nested function with its
+        // own branches, so own ≠ sum at the outer level.
+        let code = br"
+fn outer(x: i32) -> i32 {
+    fn inner(y: i32) -> i32 {
+        if y > 0 { 1 } else if y < 0 { -1 } else { 0 }
+    }
+    if x > 10 { inner(x) } else { 0 }
+}
+";
+        let ast = Ast::parse(Source::new(LANG::Rust, code)).expect("parse rust");
+        let space = ast
+            .metrics(MetricsOptions::default())
+            .expect("metrics walk");
+
+        // The outer function is the first child space of the synthetic unit.
+        let outer = space.spaces.first().expect("outer function space");
+        let own = outer.metrics.cyclomatic.cyclomatic();
+        let subtree = outer.metrics.cyclomatic.cyclomatic_sum();
+        assert!(
+            subtree > own,
+            "the nested function must make subtree ({subtree}) exceed own ({own})"
+        );
+
+        // `set_hotspot_score` consumes whichever figure the caller passes,
+        // and the two figures yield different scores for the same churn —
+        // so the inject (sum) and per-function (own) paths are distinct.
+        let mut own_stat = vcs::Stats {
+            churn_recent: CHURN,
+            ..Default::default()
+        };
+        let mut sum_stat = vcs::Stats {
+            churn_recent: CHURN,
+            ..Default::default()
+        };
+        set_hotspot_score(&mut own_stat, own);
+        set_hotspot_score(&mut sum_stat, subtree);
+        assert!(
+            own_stat.hotspot_score.is_some_and(|score| score > 0.0),
+            "own-cyclomatic path yields a positive hotspot score"
+        );
+        assert_ne!(
+            own_stat.hotspot_score, sum_stat.hotspot_score,
+            "own vs subtree complexity must produce distinct hotspot scores"
+        );
+
+        // Drive the real `assign_child_stats` call site (not just
+        // `set_hotspot_score` in isolation): a regression that reverts the
+        // outer-space scoring to `cyclomatic_sum()` is invisible to the
+        // isolated probes above, since they pass `own`/`subtree`
+        // themselves. Feed one stat with the shared churn and assert the
+        // attached outer-function score equals the *own*-based score and
+        // differs from the *subtree*-based one.
+        let mut driven = space;
+        let mut stats = std::iter::once(vcs::Stats {
+            churn_recent: CHURN,
+            ..Default::default()
+        });
+        assign_child_stats(&mut driven, &mut stats);
+        let attached = driven.spaces[0]
+            .metrics
+            .vcs
+            .as_ref()
+            .expect("outer space received a vcs block")
+            .hotspot_score;
+        assert_eq!(
+            attached, own_stat.hotspot_score,
+            "assign_child_stats must score the outer function by its own cyclomatic"
+        );
+        assert_ne!(
+            attached, sum_stat.hotspot_score,
+            "assign_child_stats must not score by the subtree cyclomatic_sum"
+        );
     }
 
     #[test]

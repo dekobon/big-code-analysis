@@ -14,14 +14,13 @@
 //! summary. The window / bot / merge / rename / `--ref` / `--as-of` flags
 //! and `--top` come from the parent `bca vcs` options.
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use big_code_analysis::vcs::{build_trend, parse_window};
 use big_code_analysis::wire;
 
-use crate::formats::{CBOR_STDOUT_ERROR, TrendFormat};
-use crate::{TrendArgs, VcsArgs, die};
+use crate::formats::{CBOR_STDOUT_ERROR, TrendFormat, ensure_parent_dir, write_text};
+use crate::{TrendArgs, VcsArgs, die, warn};
 
 /// Entry point for `bca vcs trend`. `root` is the repository-discovery
 /// seed already resolved by [`crate::vcs_command::run`]; `args` carries the
@@ -34,9 +33,7 @@ pub(crate) fn run(root: &Path, args: &VcsArgs, trend: &TrendArgs) {
     let result = build_trend(root, &base, trend.points, span_secs)
         .unwrap_or_else(|e| die(format_args!("{e}")));
     if result.truncated_shallow_clone() {
-        eprintln!(
-            "Warning: shallow clone detected — history is truncated, so counts are lower bounds"
-        );
+        warn("shallow clone detected — history is truncated, so counts are lower bounds");
     }
 
     // `args.top` (parent `--top`) keeps the riskiest files; `top_deltas`
@@ -68,16 +65,11 @@ fn emit(report: &wire::VcsTrend, trend: &TrendArgs) -> std::io::Result<()> {
                 std::io::ErrorKind::InvalidInput,
                 CBOR_STDOUT_ERROR,
             )),
-            Some(path) => ciborium::into_writer(report, std::fs::File::create(path)?)
-                .map_err(std::io::Error::other),
+            Some(path) => {
+                ensure_parent_dir(path)?;
+                ciborium::into_writer(report, std::fs::File::create(path)?)
+                    .map_err(std::io::Error::other)
+            }
         },
-    }
-}
-
-/// Write a rendered text document to a single file or stdout.
-fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Result<()> {
-    match output {
-        Some(path) => std::fs::write(path, content),
-        None => std::io::stdout().lock().write_all(content.as_bytes()),
     }
 }

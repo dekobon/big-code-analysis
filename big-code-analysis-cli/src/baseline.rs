@@ -640,14 +640,14 @@ pub(crate) fn from_violations(
         .into_iter()
         .filter_map(|v| {
             if !v.value.is_finite() {
-                eprintln!(
-                    "warning: skipping non-finite value for {}:{}-{}: {} = {}",
+                crate::warn(format_args!(
+                    "skipping non-finite value for {}:{}-{}: {} = {}",
                     v.path.display(),
                     v.start_line,
                     v.end_line,
                     v.metric,
                     v.value,
-                );
+                ));
                 return None;
             }
             // Drop negative values (including `-0.0`, which `< 0.0`
@@ -661,14 +661,14 @@ pub(crate) fn from_violations(
             // so this only matters for hand-crafted Violations and
             // adversarial TOML inputs.
             if v.value.is_sign_negative() {
-                eprintln!(
-                    "warning: skipping negative value for {}:{}-{}: {} = {}",
+                crate::warn(format_args!(
+                    "skipping negative value for {}:{}-{}: {} = {}",
                     v.path.display(),
                     v.start_line,
                     v.end_line,
                     v.metric,
                     v.value,
-                );
+                ));
                 return None;
             }
             Some(BaselineEntry {
@@ -910,8 +910,15 @@ fn lexical_normalize(p: &Path) -> PathBuf {
 /// 3. The resulting `OsStr` is fed through the byte-level
 ///    percent-encoder for TOML safety (backslash → forward slash,
 ///    non-unreserved bytes → `%XX`, Windows unpaired surrogates →
-///    `%uHHHH`). The encoding is injective: distinct byte sequences
-///    produce distinct strings.
+///    `%uHHHH`). The encoding is injective **except** for the deliberate
+///    `\` → `/` separator fold: a Windows-style `src\foo.rs` and a Unix
+///    `src/foo.rs` are *intended* to collapse onto the same key so a
+///    baseline written on one platform matches on the other. Apart from
+///    that single equivalence, distinct byte sequences produce distinct
+///    strings. The fold is applied uniformly across every encoder branch
+///    (UTF-8, raw-byte, WTF-16) so the equivalence holds for non-UTF-8
+///    paths carrying a literal `\` byte too (#704) — previously only the
+///    UTF-8 fast path folded, so those keyed inconsistently.
 ///
 /// Non-UTF-8 paths cannot be represented verbatim in a TOML string
 /// (TOML mandates UTF-8). Falling back to `Path::display()` would
@@ -943,8 +950,14 @@ fn encode_os_path(s: &std::ffi::OsStr) -> String {
     match s.to_str() {
         Some(s) => {
             let mut out = String::with_capacity(s.len());
+            // The `\` → `/` separator fold lives in
+            // `push_percent_encoded_byte` so every encoder branch (this
+            // UTF-8 fast path, the non-UTF-8 byte / WTF-16 fallbacks)
+            // folds identically — a Windows-style `src\foo.rs` and a
+            // Unix `src/foo.rs` produce the same baseline key on either
+            // platform. Previously only this branch folded, so a non-UTF-8
+            // path carrying a literal `\` byte keyed differently (#704).
             for b in s.bytes() {
-                let b = if b == b'\\' { b'/' } else { b };
                 push_percent_encoded_byte(&mut out, b);
             }
             out
@@ -1002,8 +1015,17 @@ fn percent_encode_path_bytes(bytes: &[u8]) -> String {
 /// in the result was emitted by this function and is followed by
 /// either two hex digits (from this function) or `u` followed by four
 /// hex digits (from [`percent_encode_wtf16`]).
+///
+/// A backslash byte (`\`, 0x5C) is folded to `/` *before* the
+/// unreserved check, so a Windows-style separator keys identically to a
+/// Unix one regardless of which encoder branch produced the byte. This
+/// is the single fold point shared by the UTF-8, raw-byte, and WTF-16
+/// encoders — keeping them consistent was the #704 fix. The fold is
+/// deliberately non-injective (`\` and `/` collapse to one key); the
+/// `normalize_path` doc records that exception.
 fn push_percent_encoded_byte(out: &mut String, b: u8) {
     use std::fmt::Write;
+    let b = if b == b'\\' { b'/' } else { b };
     let is_unreserved = b.is_ascii_alphanumeric()
         || matches!(
             b,

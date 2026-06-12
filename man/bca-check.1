@@ -13,9 +13,13 @@ Check per\-function metrics against thresholds. Exits 2 when any threshold is ex
 Threshold expressed as `<metric>=<limit>`. Repeatable. Metric names match `bca list\-metrics`; sub\-metrics use a dotted form (e.g. `loc.lloc`, `halstead.volume`). The bare `bca diff \-\-metric` spelling of a `loc` sub\-metric is accepted as an alias (`sloc` == `loc.sloc`); a bare family head with no single scalar (`halstead`, `mi`) is rejected with a "did you mean" hint. CLI flags override values from `\-\-config`. Limits must be finite and non\-negative; `0` is allowed and means "no value permitted"
 .TP
 \fB\-\-config\fR \fI<CONFIG>\fR
-Path to a TOML config with a `[thresholds]` table:
+Path to a TOML config with a `[thresholds]` table. Example:
 
-```toml [thresholds] cyclomatic = 15 "loc.lloc" = 200 ```
+    [thresholds]
+    cyclomatic = 15
+    "loc.lloc" = 200
+
+CLI `\-\-threshold` flags override values read from this file.
 .TP
 \fB\-\-no\-fail\fR
 Print offenders to stderr but exit 0 even when thresholds are exceeded. Useful while adopting baselines without flipping CI red. Default: exit 2 when any threshold is exceeded
@@ -26,8 +30,8 @@ Ignore in\-source suppression markers (`bca: suppress`, `#lizard forgives`, etc.
 \fB\-\-report\-suppressed\fR
 Surface suppressed debt in the offender document instead of dropping it. Offenders silenced by an in\-source `bca: suppress` marker or covered by the baseline are still kept out of the gate (exit code and human stream are unaffected), but are emitted into the `\-\-format sarif` document carrying a SARIF `suppressions` entry — GitHub Code Scanning renders them as suppressed (closed) alerts so the debt stays visible. Only the SARIF format represents suppression; other formats ignore the flag. Mutually exclusive with `\-\-no\-suppress` (which un\-silences markers) and `\-\-write\-baseline`
 .TP
-\fB\-\-report\-format\fR \fI<OUTPUT_FORMAT>\fR
-CI/IDE *report dialect* for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning lines, MSVC warning lines). Named `\-\-report\-format` to separate "which CI report dialect" from the data\-serialization `\-\-format` the structured subcommands use (#659). When omitted *and* `\-\-output` is also omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected. When omitted but `\-\-output` is given, the dialect is inferred from the output extension (`.sarif` → sarif, `.xml` → checkstyle); an extension with no unique dialect is a usage error. The old `\-\-format` / `\-O` / `\-\-output\-format` spellings stay hidden aliases for one release cycle (issues #513, #659) and are slated for removal in 2.0
+\fB\-\-report\-format\fR \fI<FORMAT>\fR
+CI/IDE *report dialect* for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning lines, MSVC warning lines). Named `\-\-report\-format` to separate "which CI report dialect" from the data\-serialization `\-\-format` the structured subcommands use. When omitted *and* `\-\-output` is also omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected. When omitted but `\-\-output` is given, the dialect is inferred from the output extension (`.sarif` → sarif, `.xml` → checkstyle); an extension with no unique dialect is a usage error. The old `\-\-format` / `\-O` / `\-\-output\-format` spellings stay hidden aliases for one release cycle and are slated for removal in 2.0
 .br
 
 .br
@@ -52,7 +56,7 @@ File path for the aggregated offender document. Stdout if omitted. When `\-\-rep
 Filter known offenders listed in this TOML baseline. A baselined function whose metric value has not worsened is suppressed; a worsened value (or any new offender) still fails. See the "Baselines" recipe in the book for the full adoption flow
 .TP
 \fB\-\-write\-baseline\fR [\fI<PATH>\fR]
-Walk the tree and write the current offender set to a baseline file instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Takes an optional path: `\-\-write\-baseline <path>` writes there; a bare `\-\-write\-baseline` (no value) writes to the `baseline` key from the auto\-discovered `bca.toml` manifest (errors if no manifest `baseline` is set). Conflicts with `\-\-baseline`, `\-\-report\-format`, `\-\-output`, `\-\-since`, and `\-\-changed\-only` — diff\-scope filtering would write a *partial* baseline that the next non\-`\-\-changed\-only` run would treat as a complete snapshot, silently masking every offender outside the diff scope
+Walk the tree and write the current offender set to a baseline file instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Takes an optional path: `\-\-write\-baseline <path>` writes there; a bare `\-\-write\-baseline` (no value) writes to the `[check] baseline` key from the auto\-discovered `bca.toml` manifest (errors if no manifest baseline is set). Conflicts with `\-\-baseline`, `\-\-report\-format`, `\-\-output`, `\-\-since`, and `\-\-changed\-only` — diff\-scope filtering would write a *partial* baseline that the next non\-`\-\-changed\-only` run would treat as a complete snapshot, silently masking every offender outside the diff scope
 .TP
 \fB\-\-no\-summary\fR
 Skip the trailing per\-file rollup footer. The footer groups violations by file and cites the single worst\-ratio metric per file. Pass this when downstream tooling grep\-pipes the stderr stream and would be confused by the trailing summary block. Default: footer enabled
@@ -64,7 +68,7 @@ Git ref to diff `HEAD` against. The set of files reported by `git diff \-\-name\
 Drop violations from files outside the `\-\-since`/auto\-detected touched set entirely (terser CI output for PR gates). Requires a resolvable diff base, either via `\-\-since` or one of the auto\-detected env vars; failing to resolve is fatal so a misconfigured CI does not silently turn the gate into a no\-op
 .TP
 \fB\-\-github\-annotations\fR[=\fI<auto|always|never>\fR] [default: auto]
-Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands per violation so the GHA UI renders them as inline annotations on the file\-diff view. Additive to the human\-readable stderr stream — annotations ride on top, they don\*(Aqt replace it. Tri\-state `<auto|always|never>` mirroring `\-\-color` (issue #683): `auto` (default) emits annotations when `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never` suppresses them even inside a GHA step (so a workflow that runs `bca check` twice can annotate from only one run). A bare `\-\-github\-annotations` means `always`. Capped at 10 per metric (GitHub Actions surfaces at most 10 errors per step in the UI); overflow rolls up to one `::error::N more <metric> violations not shown` line per affected metric so the count is still visible
+Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands per violation so the GHA UI renders them as inline annotations on the file\-diff view. Additive to the human\-readable stderr stream — annotations ride on top, they don\*(Aqt replace it. Tri\-state `<auto|always|never>` mirroring `\-\-color`: `auto` (default) emits annotations when `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never` suppresses them even inside a GHA step (so a workflow that runs `bca check` twice can annotate from only one run). A bare `\-\-github\-annotations` means `always`. Capped at 10 per metric (GitHub Actions surfaces at most 10 errors per step in the UI); overflow rolls up to one `::error::N more <metric> violations not shown` line per affected metric so the count is still visible
 .br
 
 .br
@@ -79,7 +83,7 @@ never: Never enable, even inside a GHA step
 .RE
 .TP
 \fB\-\-summary\-file\fR \fI<PATH|auto|never>\fR
-Where to append a markdown digest of the violations — per\-file rollup table, per\-metric breakdown, and top\-N offenders by `value / limit` ratio. Mirrors the format `bca report markdown` produces so a reader skimming the GHA step\-summary panel sees a familiar table layout. Accepts a file path, or the keywords `auto` / `never` (issue #683): `auto` (the default when the flag is omitted) appends to `$GITHUB_STEP_SUMMARY` when that env var is set; `never` suppresses the digest even inside a GHA step; a path appends there unconditionally. The block is bracketed by HTML\-comment markers so a retried step replaces (not stacks) the previous digest
+Where to append a markdown digest of the violations — per\-file rollup table, per\-metric breakdown, and top\-N offenders by `value / limit` ratio. Mirrors the format `bca report markdown` produces so a reader skimming the GHA step\-summary panel sees a familiar table layout. Accepts a file path, or the keywords `auto` / `never`: `auto` (the default when the flag is omitted) appends to `$GITHUB_STEP_SUMMARY` when that env var is set; `never` suppresses the digest even inside a GHA step; a path appends there unconditionally. The block is bracketed by HTML\-comment markers so a retried step replaces (not stacks) the previous digest
 .TP
 \fB\-\-no\-remediation\fR
 Suppress the trailing "\-\-\- next steps \-\-\-" remediation block that names the artifact, prints a copy\-paste\-safe `\-\-write\-baseline` refresh invocation, and links to the Baselines recipe. By default the block is emitted on failure (and in `$GITHUB_STEP_SUMMARY` when present) so a first\-time reader of a failing CI log can see what to do next without leaving the page
@@ -98,14 +102,14 @@ json
 .RE
 .TP
 \fB\-\-tier\fR[=\fI<hard|soft|soft=RATIO>\fR] [default: hard]
-Which threshold tier to gate against (issue #688). Accepts `hard`, `soft`, or `soft=<RATIO>`:
+Which threshold tier to gate against. Accepts `hard`, `soft`, or `soft=<RATIO>`:
 
 \- `hard` (default) — flag a function only when a metric is at or over its `[thresholds]` limit. \- `soft` — early\-warning tier: flag a function when a metric reaches `RATIO` (default 0.95) of any limit, i.e. before the hard gate trips. With a `[thresholds.soft]` table present, the per\-metric soft limits take precedence over the blanket ratio (metrics absent from it inherit their hard limit). \- `soft=0.90` — soft tier scaling every limit by 0.90; `soft=1.0` disables the blanket scale (a soft tier driven only by an explicit `[thresholds.soft]` table).
 
 Resolution order: `[thresholds]` (manifest + `\-\-config`) → `[thresholds.soft]` or the soft ratio → absolute `\-\-threshold name=value` overrides (applied last, never scaled). Both tiers ratchet through the same `\-\-baseline`. `RATIO` must lie in `(0, 1]`; an out\-of\-range value is a usage error.
 .TP
 \fB\-\-exit\-codes\fR[=\fI<default|tiered>\fR]
-Exit\-code style (issue #385/#666): `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr +N%]` stderr tags:
+Exit\-code style: `default` keeps the stable 0/1/2 contract; `tiered` splits exit `2` by severity so CI can branch without parsing the `[new]` / `[regr +N%]` stderr tags:
 
 \- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier=soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
 
@@ -125,7 +129,7 @@ tiered
 Tolerance, in lines, for matching a `\-\-baseline` entry whose qualified symbol is ambiguous (two methods with the same name on different `impl` blocks, overloads, collided anonymous spaces). Unambiguous symbols match regardless of line drift; this only disambiguates a tie. Defaults to 50. Mirrored by the `baseline_line_tolerance` key in `bca.toml`
 .TP
 \fB\-\-baseline\-fuzzy\-match\fR[=\fI<BOOL>\fR]
-Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Value\-taking (issue #683): a bare `\-\-baseline\-fuzzy\-match` means `true`; `\-\-baseline\-fuzzy\-match=false` forces it off even when the `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value overrides the manifest in either direction
+Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Value\-taking: a bare `\-\-baseline\-fuzzy\-match` means `true`; `\-\-baseline\-fuzzy\-match=false` forces it off even when the `baseline_fuzzy_match` key in `bca.toml` set it. The CLI value overrides the manifest in either direction
 .br
 
 .br
@@ -138,7 +142,7 @@ false
 .RE
 .TP
 \fB\-\-check\-exclude\fR \fI<GLOB>\fR
-Glob for files to analyse and report but exempt from the threshold gate. Repeatable. Matching files are still walked, parsed, metric\*(Aqd, and shown by `bca report`; `bca check` simply drops their violations before emitting offenders and before `\-\-write\-baseline` records anything — so structural exemptions (test fixtures, generated code, macro\-dispatch modules) stay out of `.bca\-baseline.toml`. Precedence: in\-source `bca: suppress` markers win first, then these globs, then the baseline. Unioned with `\-\-check\-exclude\-from` and — as a negative filter key (#539) — with the `bca.toml` `[check] exclude` list: CLI values are *added to* (merged with), not a replacement for, the manifest\*(Aqs exemptions, so a CLI `\-\-check\-exclude` never silently re\-gates a path the project config deliberately exempted. Pass `\-\-no\-config` to ignore the manifest entirely. Globs match the path as walked, exactly like `\-\-exclude`
+Glob for files to analyse and report but exempt from the threshold gate. Repeatable. Matching files are still walked, parsed, metric\*(Aqd, and shown by `bca report`; `bca check` simply drops their violations before emitting offenders and before `\-\-write\-baseline` records anything — so structural exemptions (test fixtures, generated code, macro\-dispatch modules) stay out of `.bca\-baseline.toml`. Precedence: in\-source `bca: suppress` markers win first, then these globs, then the baseline. Unioned with `\-\-check\-exclude\-from` and with the `bca.toml` `[check] exclude` list: CLI values are *added to* (merged with), not a replacement for, the manifest\*(Aqs exemptions, so a CLI `\-\-check\-exclude` never silently re\-gates a path the project config deliberately exempted. Pass `\-\-no\-config` to ignore the manifest entirely. Globs match the path as walked, exactly like `\-\-exclude`
 .TP
 \fB\-\-check\-exclude\-from\fR \fI<CHECK_EXCLUDE_FROM>\fR
 Read newline\-separated `\-\-check\-exclude` globs from a file (one per line, `.gitignore`\-style: blank lines and `#`\-comments are skipped). Use `\-` for stdin; to pass a file literally named `\-`, use `./\-`. Unioned with any `\-\-check\-exclude` values. Convention is a `.bcacheckignore` at the repo root, mirroring `.bcaignore` for the walker. Mirrored by the `[check] exclude_from` key in `bca.toml`
@@ -148,13 +152,13 @@ Print help (see a summary with \*(Aq\-h\*(Aq)
 .SH "INPUT SELECTION"
 .TP
 \fB\-p\fR, \fB\-\-paths\fR \fI<PATHS>\fR
-Input files or directories to analyze. Unioned with any positional `[PATHS]` (#651). Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
+Input files or directories to analyze. Unioned with any positional `[PATHS]`. Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
 .TP
 \fB\-I\fR, \fB\-\-include\fR \fI<INCLUDE>\fR
 Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed
 .TP
 \fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
-Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. As a negative filter key (#539), CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error
@@ -169,25 +173,25 @@ Read newline\-separated input paths from a file. Use `\-` to read from stdin. Co
 Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`
 .TP
 \fB\-\-no\-ignore\fR
-Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding directory seeds. Explicit file paths are always honored regardless of this flag
+Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding input directories. Explicit file paths are always honored regardless of this flag
 .TP
 \fB\-\-no\-config\fR
 Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the working directory to the repo root looking for `bca.toml` and merges its keys *under* any explicit CLI flags. Pass this for raw, fully\-explicit invocations that must not pick up repo\-level config (e.g. a reproducible CI one\-liner). When no manifest is discovered this flag is a no\-op
 .TP
 [\fIPATHS\fR]
-Input files or directories to analyze, given positionally (`bca metrics src/ tests/`). Unioned with any `\-\-paths`/`\-p` values (#651). The clap arg id (`positional_paths`) is distinct from the `\-\-paths` flag\*(Aqs id so both can coexist on one command — clap requires unique arg ids; the two are merged by `assemble_globals`
+Input files or directories to analyze, given positionally (`bca metrics src/ tests/`). Unioned with any `\-\-paths`/`\-p` values
 .SH "WALKER TUNING"
 .TP
 \fB\-j\fR, \fB\-\-jobs\fR \fI<N|auto>\fR [default: auto]
 Number of jobs.
 
-Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle (issue #604) and is slated for removal in the next major.
+Defaults to the effective CPU count as reported by the OS (cgroup\-quota\- and cpuset\-aware on Linux). Pass an explicit integer or `auto` to override. `\-\-jobs 1` forces serial mode for debugging. `\-\-num\-jobs` is kept as a hidden alias for one release cycle and is slated for removal in the next major.
 .TP
 \fB\-\-exclude\-tests\fR
-Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
+Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers stay byte\-for\-byte stable. Languages without a test\-subtree skip rule ignore this flag
 .TP
 \fB\-\-cyclomatic\-count\-try\fR[=\fI<BOOL>\fR]
-Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key (issue #666); the CLI value overrides the manifest in either direction
+Whether Rust\*(Aqs `?` operator (the `try_expression` node) contributes to cyclomatic complexity (standard and modified). Defaults to `true` — `?` counts +1, matching upstream rust\-code\-analysis and every published metric value. Pass `\-\-cyclomatic\-count\-try=false` to treat `?` as linear error propagation — useful when cyclomatic is used as a maintainability gate that should not penalize fallible\-but\-linear code. Rust\-only: no other language emits the node, so the flag is inert elsewhere. Mirrors the `cyclomatic_count_try` manifest key; the CLI value overrides the manifest in either direction
 .br
 
 .br
