@@ -1330,6 +1330,32 @@ mod tests {
         });
     }
 
+    /// Regression for #695. The `get` / `set` property-accessor keywords
+    /// are operators, matching the C# getter's `Get | Set | Init | Add |
+    /// Remove` accessor arm. Before #695 the JS family classified them as
+    /// operands, so the same accessor keyword landed in opposite Halstead
+    /// groups across languages. This pins them in the operator store and
+    /// out of the operand store.
+    #[test]
+    fn js_get_set_accessors_are_operators() {
+        let source = "class C { get x() { return 1; } set x(v) { this._x = v; } }";
+        let path = PathBuf::from("foo.js");
+        let parser = JavascriptParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+        assert!(
+            ops.operators.iter().any(|o| o.as_str() == "get")
+                && ops.operators.iter().any(|o| o.as_str() == "set"),
+            "`get`/`set` accessors must be operators; operators were {:?}",
+            ops.operators
+        );
+        assert!(
+            !ops.operands.iter().any(|o| o.as_str() == "get")
+                && !ops.operands.iter().any(|o| o.as_str() == "set"),
+            "`get`/`set` accessors must not be operands; operands were {:?}",
+            ops.operands
+        );
+    }
+
     #[test]
     fn javascript_template_string_interpolation_no_double_count() {
         // Regression: issue #192. An interpolated template literal
@@ -2410,27 +2436,56 @@ mod tests {
 end",
             "foo.lua",
             |metric| {
-                // n1=12: local,function,(,,,),=,+,if,>,then,return,end
+                // n1=11: local,function,(,,,=,+,if,>,then,return,end
+                // (after #695 the `)` closer no longer counts — only the
+                // folded `(` opener does; was n1=12).
                 // n2=5: add,a,b,result,0
                 insta::assert_json_snapshot!(metric.halstead, @r#"
                 {
-                  "unique_operators": 12,
-                  "total_operators": 15,
+                  "unique_operators": 11,
+                  "total_operators": 14,
                   "unique_operands": 5,
                   "total_operands": 10,
-                  "length": 25,
-                  "estimated_program_length": 54.62919048309068,
-                  "purity_ratio": 2.1851676193236274,
-                  "vocabulary": 17,
-                  "volume": 102.18657103125848,
-                  "difficulty": 12.0,
-                  "level": 0.08333333333333333,
-                  "effort": 1226.2388523751017,
-                  "time": 68.12438068750565,
-                  "bugs": 0.03818816527310305
+                  "length": 24,
+                  "estimated_program_length": 49.66338827944708,
+                  "purity_ratio": 2.0693078449769615,
+                  "vocabulary": 16,
+                  "volume": 96.0,
+                  "difficulty": 11.0,
+                  "level": 0.09090909090909091,
+                  "effort": 1056.0,
+                  "time": 58.666666666666664,
+                  "bugs": 0.03456644293839657
                 }
                 "#);
             },
+        );
+    }
+
+    /// Regression for #695. Lua/Bash/Tcl/iRules/PHP/Ruby/Elixir used to
+    /// classify the *closing* delimiter (`)`/`]`/`}`) as a separate
+    /// operator, while the C-family majority folds each balanced pair to a
+    /// single glyph via `get_operator_id_as_str` and counts only the
+    /// opener. A balanced `(1)` therefore double-counted as `()` + `)`,
+    /// inflating n1 and N1. With the fix only the folded `(` opener counts:
+    /// `local x = (1)` yields operators `local`, `=`, `()` — n1 = N1 = 3,
+    /// with no standalone `)`.
+    #[test]
+    fn lua_balanced_paren_counts_opener_only() {
+        let source = "local x = (1)\n";
+        let path = PathBuf::from("foo.lua");
+        let parser = LuaParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+        let paren = ops.operators.iter().filter(|o| o.as_str() == "()").count();
+        assert_eq!(
+            paren, 1,
+            "balanced `(1)` must be one `()` operator; operators were {:?}",
+            ops.operators
+        );
+        assert!(
+            !ops.operators.iter().any(|o| o.as_str() == ")"),
+            "the closing `)` must not be a separate operator; operators were {:?}",
+            ops.operators
         );
     }
 
@@ -2689,6 +2744,52 @@ end",
     }
 
     #[test]
+    fn python_concatenated_docstring_suppressed() {
+        // Regression for #695. An implicit-concatenation docstring
+        // (`"""doc""" "more"`) parses as `expression_statement >
+        // concatenated_string > [string, string]`. The single-literal
+        // docstring guard (`parent == expression_statement &&
+        // child_count == 1`) never fired here, so each fragment counted
+        // as a separate operand and the docstring's N2 contribution
+        // depended on how many literals it was split into. With the fix,
+        // every fragment of such a docstring is suppressed.
+        //
+        // Source: `def f():\n    """doc""" "more"\n    return 1\n`
+        // Operands: `f`, `1` only — both docstring fragments suppressed →
+        // u_operands = 2, N2 = 2.
+        check_metrics::<PythonParser>(
+            "def f():\n    \"\"\"doc\"\"\" \"more\"\n    return 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 2);
+                assert_eq!(metric.halstead.total_operands(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn python_concatenated_non_docstring_still_counts() {
+        // The #695 fix must only suppress concatenated literals in the
+        // *docstring* position (sole child of an `expression_statement`).
+        // A concatenated string used as a value (`x = "a" "b"`) is not a
+        // docstring — its `concatenated_string` parent's grandparent is
+        // an assignment, not a single-child statement — so both fragments
+        // must still be operands.
+        //
+        // Source: `def f():\n    x = "a" "b"\n    return x\n`
+        // Operands: `f`, `x` (twice: assign + return), `"a"`, `"b"` →
+        // u_operands = 4, N2 = 5.
+        check_metrics::<PythonParser>(
+            "def f():\n    x = \"a\" \"b\"\n    return x\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.halstead.unique_operands(), 4);
+                assert_eq!(metric.halstead.total_operands(), 5);
+            },
+        );
+    }
+
+    #[test]
     fn python_empty_file_halstead() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
             let h = &metric.halstead;
@@ -2810,13 +2911,20 @@ f() {
 }",
             "foo.sh",
             |metric| {
-                // `x` (assignment LHS and inside `$x`) is a `variable_name`
-                // with aliased kind_id 160 — all three aliases must be in
-                // the operand list (see lesson 2).
-                assert_eq!(metric.halstead.unique_operators(), 12);
-                assert_eq!(metric.halstead.total_operators(), 12);
+                // Operators (9 unique, 9 occurrences): the opening
+                // delimiters `()`/`{}`/`[]` (each folded to one glyph and
+                // counted once per balanced pair, #695 — the closers no
+                // longer add a second operator), `local`, `=`, `if`,
+                // `then`, `fi`, `;`.
+                // Operands (6 unique, 8 occurrences): `f`, `x` (the
+                // assignment LHS `variable_name`, kind 160), `1` (twice:
+                // `=1` and `-eq 1`), `$x` (the `simple_expansion` — its
+                // inner `variable_name` leaf is now suppressed so `$x`
+                // counts once, #695), `echo`, `'one'`.
+                assert_eq!(metric.halstead.unique_operators(), 9);
+                assert_eq!(metric.halstead.total_operators(), 9);
                 assert_eq!(metric.halstead.unique_operands(), 6);
-                assert_eq!(metric.halstead.total_operands(), 9);
+                assert_eq!(metric.halstead.total_operands(), 8);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -2835,18 +2943,18 @@ f() {
         //   line 1: variable_name `a`, plain string `"plain"` (no
         //     expansion, still operand) → 2.
         //   line 2: variable_name `b`, wrapping `"$x"` skipped (has
-        //     expansion), `simple_expansion` `$x`, inner variable_name
-        //     `x` → 3.
-        // Total unique operands: 5 (`a`, `b`, `"plain"`, `$x`, `x`),
-        // each appearing once → N2 = 5. Without the #180 fix, the
-        // wrapping `"$x"` literal would also be counted, making
-        // u_operands = 6 and N2 = 6. The `=` is the only operator;
-        // appears twice (N1 = 2, n1 = 1).
+        //     expansion), `simple_expansion` `$x` (its inner
+        //     variable_name `x` leaf is suppressed under #695) → 2.
+        // Total unique operands: 4 (`a`, `b`, `"plain"`, `$x`), each
+        // appearing once → N2 = 4. Before #695 the inner `x` leaf of
+        // `$x` was also counted (u_operands = 5, N2 = 5); before the
+        // earlier #180 fix the wrapping `"$x"` literal was counted too.
+        // The `=` is the only operator; appears twice (N1 = 2, n1 = 1).
         check_metrics::<BashParser>("a=\"plain\"\nb=\"$x\"\n", "foo.sh", |metric| {
             assert_eq!(metric.halstead.unique_operators(), 1);
             assert_eq!(metric.halstead.total_operators(), 2);
-            assert_eq!(metric.halstead.unique_operands(), 5);
-            assert_eq!(metric.halstead.total_operands(), 5);
+            assert_eq!(metric.halstead.unique_operands(), 4);
+            assert_eq!(metric.halstead.total_operands(), 4);
             insta::assert_json_snapshot!(metric.halstead);
         });
     }
@@ -2867,15 +2975,16 @@ f() {
         // child), so `name` is the only repeated operand:
         // u_operands = 4 (def, greet, name, msg), N2 = 5. Without the
         // fix, the wrapping literal would also count → u_operands = 5,
-        // N2 = 6. Operators (`do`, `end`, `(`, `)`, `=`, `#{`, `}`)
-        // are unchanged: u = N = 7 (the `#{`/`}` interpolation
-        // markers stay classified as operators).
+        // N2 = 6. Operators: `do`, `end`, `(`, `=`, `#{` → u = N = 5.
+        // Only the *opening* delimiters count after #695, so the `)`
+        // and the `}` interpolation closer no longer add operators (the
+        // `(` and `#{` openers still do); before #695 this was 7.
         check_metrics::<ElixirParser>(
             "def greet(name) do\n  msg = \"Hi #{name}\"\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 7);
-                assert_eq!(metric.halstead.total_operators(), 7);
+                assert_eq!(metric.halstead.unique_operators(), 5);
+                assert_eq!(metric.halstead.total_operators(), 5);
                 assert_eq!(metric.halstead.unique_operands(), 4);
                 assert_eq!(metric.halstead.total_operands(), 5);
                 insta::assert_json_snapshot!(metric.halstead);
@@ -2948,30 +3057,80 @@ f() {
         // shift the totals.
         //
         // expected: operands across the four lines —
-        //   line 1 `a="$v"`: var_name `a`, simple_expansion `$v`,
-        //     inner var_name `v` (wrapper skipped) → 3
+        //   line 1 `a="$v"`: var_name `a`, simple_expansion `$v` (its
+        //     inner var_name `v` leaf is suppressed under #695; wrapper
+        //     skipped) → 2
         //   line 2 `b="${v[0]}"`: var_name `b`, var_name `v` (inside
-        //     subscript), number `0` (wrapper skipped, `expansion`
-        //     itself is not in the operand list) → 3
+        //     subscript — parent is `expansion`, not `simple_expansion`,
+        //     so it still counts), number `0` (wrapper skipped,
+        //     `expansion` itself is not in the operand list) → 3
         //   line 3 `c="$(date)"`: var_name `c`, command_name `date`
         //     (wrapper skipped, `command_substitution` not in operand
         //     list) → 2
         //   line 4 `d="$((1+2))"`: var_name `d`, numbers `1` and `2`
         //     (wrapper skipped, `arithmetic_expansion` not in operand
         //     list) → 3
-        // Unique operands (`v` shared across lines 1 and 2): a, b, c,
-        // d, $v, v, 0, date, 1, 2 → 10. Total occurrences: 12 (`v`
-        // appears twice). Operators include `=` four times plus the
-        // `${`, `}`, `$(`, `)`, `$((`, `))`, `[`, `]`, `+` punctuation.
+        // Unique operands: a, b, c, d, $v, v, 0, date, 1, 2 → 10. Total
+        // occurrences: 11 (`v` now appears once — only line 2's subscript
+        // leaf; line 1's `$v` inner leaf is suppressed). Operators after
+        // #695: only the openers `[` (folded `[]`) and `+`, plus `=` four
+        // times — the `}`/`)`/`))`/`]` closers no longer count.
         check_metrics::<BashParser>(
             "a=\"$v\"\nb=\"${v[0]}\"\nc=\"$(date)\"\nd=\"$((1+2))\"\n",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 6);
-                assert_eq!(metric.halstead.total_operators(), 9);
+                assert_eq!(metric.halstead.unique_operators(), 3);
+                assert_eq!(metric.halstead.total_operators(), 6);
                 assert_eq!(metric.halstead.unique_operands(), 10);
-                assert_eq!(metric.halstead.total_operands(), 12);
+                assert_eq!(metric.halstead.total_operands(), 11);
             },
+        );
+    }
+
+    /// Regression for #695. A bare `$x` (outside any string) parses as a
+    /// `simple_expansion` wrapping a `variable_name` leaf — and `$?` / `$1`
+    /// as a `simple_expansion` wrapping a `special_variable_name` leaf. Both
+    /// the wrapper and the inner leaf used to be classified as operands, so
+    /// each bare variable reference double-counted (the same hazard Tcl
+    /// guards with its `Id2` exclusion and iRules with a parent check). The
+    /// `variable_name` / `special_variable_name` arm now yields `Unknown`
+    /// when its parent is a `simple_expansion`, so `$x` contributes exactly
+    /// one operand while the assignment LHS `variable_name` (`x` in `x=…`,
+    /// parent is `variable_assignment`) still counts.
+    #[test]
+    fn bash_bare_variable_no_double_count() {
+        let source = "x=1\necho $x\necho $?\n";
+        let path = PathBuf::from("foo.sh");
+        let parser = BashParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+        let bare_x = ops.operands.iter().filter(|o| o.as_str() == "$x").count();
+        let special = ops.operands.iter().filter(|o| o.as_str() == "$?").count();
+        // Each bare reference is exactly one operand; the inner leaf is not
+        // double-counted. If the guard regressed, the inner `variable_name`
+        // `x` would add a second `x` occurrence (text-colliding with the
+        // assignment LHS) and the inner `special_variable_name` `?` would
+        // appear as a standalone `?` operand.
+        assert_eq!(
+            bare_x, 1,
+            "bare $x must be one operand; operands were {:?}",
+            ops.operands
+        );
+        assert_eq!(
+            special, 1,
+            "bare $? must be one operand; operands were {:?}",
+            ops.operands
+        );
+        assert!(
+            !ops.operands.iter().any(|o| o.as_str() == "?"),
+            "the inner special_variable_name `?` leaf must be suppressed; operands were {:?}",
+            ops.operands
+        );
+        // The assignment LHS `variable_name` `x` (parent `variable_assignment`,
+        // not `simple_expansion`) must still be an operand.
+        assert!(
+            ops.operands.iter().any(|o| o.as_str() == "x"),
+            "assignment LHS `x` must still be an operand; operands were {:?}",
+            ops.operands
         );
     }
 
@@ -3112,8 +3271,12 @@ f() {
             }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 11);
-                assert_eq!(metric.halstead.total_operators(), 15);
+                // After #695 only the opening delimiters count: `()` and
+                // `{}` fold to one operator each per balanced pair, so the
+                // former `)`/`}` closers no longer inflate n1/N1 (was
+                // 11 unique / 15 total). Operands are unchanged.
+                assert_eq!(metric.halstead.unique_operators(), 9);
+                assert_eq!(metric.halstead.total_operators(), 12);
                 assert_eq!(metric.halstead.unique_operands(), 9);
                 assert_eq!(metric.halstead.total_operands(), 22);
                 insta::assert_json_snapshot!(metric.halstead);
@@ -3128,8 +3291,10 @@ f() {
             function inc(int $x): int { return $x + 1; }",
             "foo.php",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 9);
-                assert_eq!(metric.halstead.total_operators(), 9);
+                // After #695 only opening delimiters count: the `)`/`}`
+                // closers no longer add operators (was 9 unique / 9 total).
+                assert_eq!(metric.halstead.unique_operators(), 7);
+                assert_eq!(metric.halstead.total_operators(), 7);
                 assert_eq!(metric.halstead.unique_operands(), 5);
                 assert_eq!(metric.halstead.total_operands(), 10);
                 insta::assert_json_snapshot!(metric.halstead);
@@ -3349,7 +3514,9 @@ f() {
     fn elixir_operators_and_operands() {
         // Exercises every Halstead family classified in Elixir's
         // `get_op_type`: control-flow keywords (`do`, `end`, `fn`),
-        // structural punctuation (`(`, `)`, `[`, `]`, `,`, `.`, `@`),
+        // structural punctuation — only the *opening* delimiters `(`,
+        // `[` count after #695 (the `)`/`]` closers were dropped), plus
+        // `,`, `.`, `@`,
         // arithmetic (`+`, `-`, `*`, `/`), comparison (`==`, `>`),
         // logical (`&&`, `||`, `and`, `or`, `!`), pipe (`|>`), capture
         // (`&`), assignment/match (`=`), and the stab arrow (`->`).
@@ -3358,29 +3525,31 @@ f() {
             "defmodule Foo do\n  @doc \"add\"\n  def calc(a, b) do\n    result = a + b * 2\n    flag = result > 0 && a == b\n    out = if flag, do: result, else: -result\n    [out, a, b]\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // Positive headline assertions on integer counts.
-                assert_eq!(metric.halstead.unique_operators(), 15);
-                assert_eq!(metric.halstead.total_operators(), 23);
+                // Positive headline assertions on integer counts. After
+                // #695 only opening delimiters count: the `)`/`]` closers
+                // no longer add operators (was 15 unique / 23 total).
+                assert_eq!(metric.halstead.unique_operators(), 13);
+                assert_eq!(metric.halstead.total_operators(), 21);
                 assert_eq!(metric.halstead.unique_operands(), 16);
                 assert_eq!(metric.halstead.total_operands(), 27);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "unique_operators": 15,
-                  "total_operators": 23,
+                  "unique_operators": 13,
+                  "total_operators": 21,
                   "unique_operands": 16,
                   "total_operands": 27,
-                  "length": 50,
-                  "estimated_program_length": 122.60335893412778,
-                  "purity_ratio": 2.452067178682556,
-                  "vocabulary": 31,
-                  "volume": 247.70981551934375,
-                  "difficulty": 12.65625,
-                  "level": 0.07901234567901234,
-                  "effort": 3135.0773526666944,
-                  "time": 174.17096403703857,
-                  "bugs": 0.07140208917738183
+                  "length": 48,
+                  "estimated_program_length": 112.10571633583419,
+                  "purity_ratio": 2.3355357569965456,
+                  "vocabulary": 29,
+                  "volume": 233.18308776612344,
+                  "difficulty": 10.96875,
+                  "level": 0.09116809116809117,
+                  "effort": 2557.7269939346666,
+                  "time": 142.09594410748147,
+                  "bugs": 0.062342115670886794
                 }
                 "#
                 );
@@ -3403,8 +3572,11 @@ f() {
             "def factorial(n)\n  return 1 if n <= 1\n  n * factorial(n - 1)\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.halstead.unique_operators(), 9);
-                assert_eq!(metric.halstead.total_operators(), 11);
+                // After #695 only the `(` opener counts (folded `()`); the
+                // `)` closer — which appeared twice across the two calls —
+                // no longer adds an operator (was 9 unique / 11 total).
+                assert_eq!(metric.halstead.unique_operators(), 8);
+                assert_eq!(metric.halstead.total_operators(), 9);
                 assert_eq!(metric.halstead.unique_operands(), 3);
                 assert_eq!(metric.halstead.total_operands(), 9);
                 insta::assert_json_snapshot!(metric.halstead);
@@ -3469,10 +3641,11 @@ f() {
         // delimiters around it are emitted as `SLASH` tokens and
         // classified as arithmetic-or-divide operators by the shared
         // arm; they count once toward the distinct-operator set.
-        // expected: u_operators = {def, (, ), =~, /, end} = 6;
+        // expected: u_operators = {def, (, =~, /, end} = 5 (only the
+        // `(` opener counts after #695 — the `)` closer was dropped);
         // u_operands = {f, s, /foo/} = 3.
         check_metrics::<RubyParser>("def f(s)\n  s =~ /foo/\nend\n", "foo.rb", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 6);
+            assert_eq!(metric.halstead.unique_operators(), 5);
             assert_eq!(metric.halstead.unique_operands(), 3);
         });
     }
@@ -3501,8 +3674,10 @@ f() {
 }
 ";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 12);
-            assert_eq!(metric.halstead.total_operators(), 20);
+            // After #695 only opening delimiters count: the `}`/`]`
+            // closers no longer add operators (was 12 unique / 20 total).
+            assert_eq!(metric.halstead.unique_operators(), 10);
+            assert_eq!(metric.halstead.total_operators(), 14);
             assert_eq!(metric.halstead.unique_operands(), 12);
             assert_eq!(metric.halstead.total_operands(), 16);
         });
@@ -3514,7 +3689,7 @@ f() {
         let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
         assert_eq!(
             unique_operators.len(),
-            12,
+            10,
             "dedupe(ops.operators) must equal n1; operators were {:?}",
             ops.operators
         );
@@ -3537,8 +3712,10 @@ f() {
     fn irules_inert_quoted_word_counts_as_operand() {
         let source = "proc f {} {\n    set s \"hello world\"\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 4);
-            assert_eq!(metric.halstead.total_operators(), 6);
+            // After #695 only the `{` opener counts; the `}` closer no
+            // longer adds an operator (was 4 unique / 6 total).
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 4);
             assert_eq!(metric.halstead.unique_operands(), 4);
             assert_eq!(metric.halstead.total_operands(), 4);
         });
@@ -3571,8 +3748,10 @@ f() {
     fn irules_interpolated_quoted_word_no_double_count() {
         let source = "proc f {x y} {\n    set s \"$x is $y\"\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 4);
-            assert_eq!(metric.halstead.total_operators(), 6);
+            // After #695 only the `{` opener counts; the `}` closer no
+            // longer adds an operator (was 4 unique / 6 total).
+            assert_eq!(metric.halstead.unique_operators(), 3);
+            assert_eq!(metric.halstead.total_operators(), 4);
             assert_eq!(metric.halstead.unique_operands(), 7);
             assert_eq!(metric.halstead.total_operands(), 7);
         });
@@ -3620,8 +3799,10 @@ f() {
 }
 ";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 26);
-            assert_eq!(metric.halstead.total_operators(), 57);
+            // After #695 only opening delimiters count: the `}`/`]`
+            // closers no longer add operators (was 26 unique / 57 total).
+            assert_eq!(metric.halstead.unique_operators(), 24);
+            assert_eq!(metric.halstead.total_operators(), 43);
             assert_eq!(metric.halstead.unique_operands(), 23);
             assert_eq!(metric.halstead.total_operands(), 42);
         });
@@ -3633,7 +3814,7 @@ f() {
         let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
         assert_eq!(
             unique_operators.len(),
-            26,
+            24,
             "dedupe(ops.operators) must equal n1; operators were {:?}",
             ops.operators
         );
@@ -3659,8 +3840,10 @@ f() {
     fn irules_bare_variable_operand() {
         let source = "proc f {x} {\n    return $x\n}\n";
         check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
-            assert_eq!(metric.halstead.unique_operators(), 3);
-            assert_eq!(metric.halstead.total_operators(), 5);
+            // After #695 only the `{` opener counts (folded `{}`); the
+            // `}` closer no longer adds an operator (was 3 unique / 5 total).
+            assert_eq!(metric.halstead.unique_operators(), 2);
+            assert_eq!(metric.halstead.total_operators(), 3);
             assert_eq!(metric.halstead.unique_operands(), 5);
             assert_eq!(metric.halstead.total_operands(), 5);
         });

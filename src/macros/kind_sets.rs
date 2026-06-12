@@ -173,8 +173,9 @@ macro_rules! rust_bool_terminal_kinds {
 macro_rules! go_bool_terminal_kinds {
     // Aliased Identifier kind_ids (lesson #2): tree-sitter-go emits
     // `identifier` under three numeric ids (1, 60, 61) depending on
-    // the production rule path. Halstead's getter already matches
-    // all three at `src/getter.rs:881`.
+    // the production rule path. Halstead's getter already matches all
+    // three (the `G::Identifier | G::Identifier2 | G::Identifier3` arm
+    // in `impl Getter for GoCode::get_op_type`, `src/getter.rs`).
     () => {
         $crate::Go::Identifier
             | $crate::Go::Identifier2
@@ -502,7 +503,9 @@ macro_rules! elixir_bool_terminal_kinds {
 // of the former (Identifier|True|False|CallExpression|NewExpression|
 // MemberExpression|SubscriptExpression) intersection that all four
 // JS-family languages share — every per-language macro above is a
-// strict superset.
+// strict superset (the per-language sets have since grown
+// `AwaitExpression` and other shapes; this body is the historical
+// floor, not the current set).
 #[allow(unused_macros)]
 macro_rules! js_family_bool_terminal_kinds {
     ($Lang:ident) => {

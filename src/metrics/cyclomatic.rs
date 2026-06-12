@@ -997,7 +997,7 @@ pub(crate) fn kotlin_when_entry_is_else(node: &Node) -> bool {
 /// `true` when the case_item has exactly one `value` field whose
 /// source text is the literal `*`. Multi-value patterns (`a|b`,
 /// `*|b`) are NOT bare and still count as decisions.
-fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
+pub(crate) fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
     // tree-sitter-bash attaches the `value` field to each alternation
     // in the case pattern (`a|b)` produces two `value` children).
     // Walk via a single `TreeCursor`: `field_name()` exposes the field

@@ -396,6 +396,39 @@ mod tests {
         );
     }
 
+    /// JS-family `<!-- -->` Annex-B `html_comment` leaves must not
+    /// contribute tokens — they classify as comments now (#697). The
+    /// count must match the comment-free source exactly.
+    #[test]
+    fn javascript_tokens_html_comment_excluded() {
+        check_metrics::<JavascriptParser>("<!-- hi -->\nlet x = 1;\n", "foo.js", |m| {
+            // let, x, =, 1, ; = 5.
+            assert_eq!(m.tokens.tokens_sum(), 5);
+        });
+        check_metrics::<JavascriptParser>("let x = 1;\n", "foo.js", |m| {
+            assert_eq!(m.tokens.tokens_sum(), 5);
+        });
+    }
+
+    /// Groovy `/** … */` `groovydoc_comment` leaves must not contribute
+    /// tokens (#697 — `is_comment` previously missed this kind even
+    /// though `Loc` counted it).
+    #[test]
+    fn groovy_tokens_groovydoc_excluded() {
+        check_metrics::<GroovyParser>(
+            "/** doc */\nclass A { void f() { return\n } }\n",
+            "A.groovy",
+            |m| {
+                // class, A, {, void, f, (, ), {, return, newline,
+                // }, } = 11.
+                assert_eq!(m.tokens.tokens_sum(), 11);
+            },
+        );
+        check_metrics::<GroovyParser>("class A { void f() { return\n } }\n", "A.groovy", |m| {
+            assert_eq!(m.tokens.tokens_sum(), 11);
+        });
+    }
+
     /// Rust doc comments may split into structured children under
     /// some grammars; the ancestor walk must filter every inner leaf.
     #[test]

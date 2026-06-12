@@ -1019,7 +1019,7 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Loc::compute(node, &mut last.metrics.loc, func_space, unit);
     }
     if selected.contains(Metric::Nom) {
-        T::Nom::compute(node, &mut last.metrics.nom);
+        T::Nom::compute(node, code, &mut last.metrics.nom);
     }
     if selected.contains(Metric::Tokens) {
         T::Tokens::compute(node, &mut last.metrics.tokens);
