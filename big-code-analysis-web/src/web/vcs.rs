@@ -24,7 +24,7 @@
 //! same parse-timeout / blocking-pool guard as the other endpoints.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use big_code_analysis::vcs::{
     self, CacheConfig, JitDiffReport, JitReport, Options, build_history_index_cached, build_trend,
@@ -67,7 +67,10 @@ fn default_trend_points() -> usize {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebVcsPayload {
-    /// Request identifier echoed back in the response.
+    /// Request identifier echoed back in the response. Optional on the
+    /// wire (#645): an omitted `id` defaults to the empty string, the
+    /// "no correlation id" sentinel echoed back unchanged.
+    #[serde(default)]
     pub id: String,
     /// Server-side path to (a directory inside) the git working tree.
     pub repo_path: String,
@@ -191,6 +194,38 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
     Ok(options)
 }
 
+/// Reject a `repo_path` that does not exist on the server filesystem as a
+/// client mistake (issue #653).
+///
+/// A nonexistent path is the most common client error on these endpoints
+/// (a typo). `gix::discover` maps a missing directory to an
+/// "inaccessible directory" failure that the library classifies as the
+/// environment-level [`vcs::Error::OpenRepository`] (a `500`), the same
+/// bucket as a corrupt repo or permission denial — so without this check a
+/// typo'd path is reported as a server failure while a path that exists but
+/// is not a repository correctly answers `400`. Mapping the missing-path
+/// case to [`vcs::Error::NotARepository`] makes both bad-path shapes a
+/// consistent client-input `400` (`error_kind` `vcs_not_a_repository`),
+/// while a path that *does* exist still flows to the backend so a genuine
+/// permission / corruption failure keeps its `500`.
+///
+/// `Path::exists` follows symlinks, so a symlink to a real directory passes
+/// and a symlink to a missing target is rejected — the behaviour a client
+/// expects for either spelling.
+///
+/// # Errors
+///
+/// Returns [`vcs::Error::NotARepository`] naming `repo_path` when it does
+/// not resolve to an existing filesystem entry.
+fn repo_path_must_exist(repo_path: &str) -> Result<(), vcs::Error> {
+    let path = Path::new(repo_path);
+    if path.exists() {
+        Ok(())
+    } else {
+        Err(vcs::Error::NotARepository(path.to_path_buf()))
+    }
+}
+
 /// Run the history walk for `payload` and rank the result.
 ///
 /// # Errors
@@ -199,6 +234,7 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
 /// `repo_path`, or a history-walk failure; the handler maps it to the
 /// appropriate HTTP status.
 pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error> {
+    repo_path_must_exist(&payload.repo_path)?;
     let options = options_from(&payload)?;
     let mut config = CacheConfig::default();
     config.enabled = !payload.no_cache.unwrap_or(false);
@@ -208,7 +244,21 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
     let mut files: Vec<WebVcsFileEntry> = index
         .iter()
         .filter_map(|(rel, stat)| {
-            rel.to_str().map(|path| WebVcsFileEntry {
+            let Some(path) = rel.to_str() else {
+                // A repo-relative path that is not valid UTF-8 cannot be a
+                // JSON string key, so it is dropped from the ranking. Per
+                // the no-`to_string_lossy`-as-identifier discipline we never
+                // emit a lossy path; instead the drop is signalled in the
+                // server log (issue #707) so an operator can see the ranking
+                // is incomplete rather than the omission being wholly silent.
+                // `display()` is a log-only rendering, never an identifier.
+                tracing::warn!(
+                    path = %rel.display(),
+                    "dropping non-UTF-8 repo-relative path from the VCS ranking"
+                );
+                return None;
+            };
+            Some(WebVcsFileEntry {
                 path: path.to_owned(),
                 vcs: wire::Vcs::from(stat),
             })
@@ -247,7 +297,10 @@ pub fn compute_vcs(payload: WebVcsPayload) -> Result<WebVcsResponse, vcs::Error>
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebVcsJitPayload {
-    /// Request identifier echoed back in the response.
+    /// Request identifier echoed back in the response. Optional on the
+    /// wire (#645): an omitted `id` defaults to the empty string, the
+    /// "no correlation id" sentinel echoed back unchanged.
+    #[serde(default)]
     pub id: String,
     /// Server-side path to (a directory inside) the git working tree.
     /// Required for commit scoring; must be omitted in diff mode.
@@ -274,11 +327,36 @@ pub struct WebVcsJitPayload {
     pub as_of: Option<String>,
 }
 
+/// The JSON keys of every commit-mode-only field on [`WebVcsJitPayload`]
+/// (issue #632 / #647).
+///
+/// Single source of truth for the diff-vs-commit conflict check: both
+/// [`WebVcsJitPayload::commit_mode_field_presence`] (which maps each name
+/// to its `Option::is_some`) and the conflict message
+/// [`VCS_JIT_MODE_CONFLICT`] are built from this list, and a drift-guard
+/// test (`commit_mode_fields_list_is_exhaustive`) fails if a new
+/// commit-mode field is added to the struct without being listed here. A
+/// silently-unlisted field would let a `diff` + that-field payload bypass
+/// the conflict check and score the diff while dropping the field (#647
+/// observation #4). The order matches struct declaration order so the
+/// message reads top-to-bottom.
+const COMMIT_MODE_FIELDS: &[&str] = &[
+    "repo_path",
+    "commit",
+    "long_window",
+    "recent_window",
+    "full_history",
+    "include_merges",
+    "follow_renames",
+    "as_of",
+];
+
 /// Error body when a `/vcs/jit` payload combines `diff` with any
 /// commit-mode field. The two modes score different, **not comparable**
 /// things (`src/vcs/jit.rs`), so rather than silently honor `diff` and
 /// drop the rest, the combination is a client mistake (`400`, issue #632).
-/// The message names the conflicting fields so the 400 is actionable.
+/// The message names the conflicting fields (from `COMMIT_MODE_FIELDS`,
+/// #647) so the 400 is actionable.
 pub const VCS_JIT_MODE_CONFLICT: &str = "Invalid `/vcs/jit` request: `diff` is mutually exclusive with the commit-mode fields (`repo_path`, `commit`, `long_window`, `recent_window`, `full_history`, `include_merges`, `follow_renames`, `as_of`); supply either a `diff` or commit-mode fields, not both";
 
 impl WebVcsJitPayload {
@@ -307,14 +385,27 @@ impl WebVcsJitPayload {
     /// detect the `diff` + commit-mode conflict; an all-empty commit-mode
     /// payload (no `diff` either) stays valid and defaults to `HEAD`.
     fn has_commit_mode_field(&self) -> bool {
-        self.repo_path.is_some()
-            || self.commit.is_some()
-            || self.long_window.is_some()
-            || self.recent_window.is_some()
-            || self.full_history.is_some()
-            || self.include_merges.is_some()
-            || self.follow_renames.is_some()
-            || self.as_of.is_some()
+        self.commit_mode_field_presence()
+            .iter()
+            .any(|(_, present)| *present)
+    }
+
+    /// Pairs each [`COMMIT_MODE_FIELDS`] key with whether this payload
+    /// carries it. Co-located with the field list so adding a struct field
+    /// without a matching presence entry is caught by the drift-guard test
+    /// rather than silently bypassing the conflict check (#647). The pair
+    /// names also let the test prove every listed field is actually probed.
+    fn commit_mode_field_presence(&self) -> [(&'static str, bool); COMMIT_MODE_FIELDS.len()] {
+        [
+            ("repo_path", self.repo_path.is_some()),
+            ("commit", self.commit.is_some()),
+            ("long_window", self.long_window.is_some()),
+            ("recent_window", self.recent_window.is_some()),
+            ("full_history", self.full_history.is_some()),
+            ("include_merges", self.include_merges.is_some()),
+            ("follow_renames", self.follow_renames.is_some()),
+            ("as_of", self.as_of.is_some()),
+        ]
     }
 }
 
@@ -364,6 +455,46 @@ fn jit_options_from(payload: &WebVcsJitPayload) -> Result<Options, vcs::Error> {
     Ok(options)
 }
 
+/// Score an arbitrary unified `diff`, rejecting non-diff garbage as a
+/// client mistake (issue #652).
+///
+/// The library [`score_diff`] only rejects input that *looks* like a diff
+/// but is structurally broken (a bad `@@` hunk header, a `+`/`-` body line
+/// outside any hunk, a plain `diff -u` / combined diff with no
+/// `diff --git` header). Wholly-non-diff content — the wrong field, an
+/// accidentally-mangled string — parses to zero touched files and would
+/// otherwise score a confident `partial_risk_score` of `0.0`. On a
+/// risk-*gating* endpoint that "zero risk" answer is the most dangerous
+/// failure mode: a CI step feeding garbage would be told the change is
+/// safe. The book already documents the opposite contract ("a malformed
+/// diff … is a `400`").
+///
+/// An empty or whitespace-only `diff` legitimately means "no changes" and
+/// still scores a valid `0.0`: a CI step that computed an empty diff gets
+/// the zero-risk answer it expects. The rejection fires only when the input
+/// carries non-whitespace content yet yields no touched file
+/// ([`JitSize::files_touched`] `== 0`) — i.e. it is not a diff at all. A
+/// valid diff with only binary or rename-only stanzas still flushes a
+/// touched file, so it passes.
+///
+/// # Errors
+///
+/// Propagates [`vcs::Error::InvalidDiff`] from [`score_diff`] for malformed
+/// diff-shaped input, and returns it for non-empty, non-whitespace input
+/// that parses to zero touched files.
+fn score_diff_validated(diff: &str) -> Result<JitDiffReport, vcs::Error> {
+    let report = score_diff(diff)?;
+    if !diff.trim().is_empty() && report.size.files_touched == 0 {
+        return Err(vcs::Error::InvalidDiff(
+            "the request body is not a unified diff: no `diff --git` file \
+             headers were found (supply `git diff` / `git format-patch` \
+             output, or omit `diff` for an empty change)"
+                .to_owned(),
+        ));
+    }
+    Ok(report)
+}
+
 /// Score a commit or a diff for `payload` and return the JIT report.
 ///
 /// # Errors
@@ -374,7 +505,7 @@ fn jit_options_from(payload: &WebVcsJitPayload) -> Result<Options, vcs::Error> {
 /// appropriate HTTP status.
 pub fn compute_vcs_jit(payload: WebVcsJitPayload) -> Result<WebVcsJitResponse, vcs::Error> {
     let report = if let Some(diff) = &payload.diff {
-        WebVcsJitReport::Diff(score_diff(diff)?)
+        WebVcsJitReport::Diff(score_diff_validated(diff)?)
     } else {
         let options = jit_options_from(&payload)?;
         // A commit score needs a repository; a missing `repo_path` is a
@@ -384,6 +515,7 @@ pub fn compute_vcs_jit(payload: WebVcsJitPayload) -> Result<WebVcsJitResponse, v
             .repo_path
             .as_ref()
             .ok_or_else(|| vcs::Error::NotARepository(PathBuf::from("")))?;
+        repo_path_must_exist(repo_path)?;
         let spec = payload.commit.as_deref().unwrap_or("HEAD");
         WebVcsJitReport::Commit(score_commit(&PathBuf::from(repo_path), spec, &options)?)
     };
@@ -409,7 +541,10 @@ pub fn compute_vcs_jit(payload: WebVcsJitPayload) -> Result<WebVcsJitResponse, v
 #[serde(deny_unknown_fields)]
 pub struct WebVcsTrendPayload {
     // --- shared `/vcs` knobs, inlined from `WebVcsPayload` (#633) ---
-    /// Request identifier echoed back in the response.
+    /// Request identifier echoed back in the response. Optional on the
+    /// wire (#645): an omitted `id` defaults to the empty string, the
+    /// "no correlation id" sentinel echoed back unchanged.
+    #[serde(default)]
     pub id: String,
     /// Server-side path to (a directory inside) the git working tree.
     pub repo_path: String,
@@ -523,6 +658,7 @@ pub struct WebVcsTrendResponse {
 /// maps it to the appropriate HTTP status.
 pub fn compute_vcs_trend(payload: WebVcsTrendPayload) -> Result<WebVcsTrendResponse, vcs::Error> {
     let (base, knobs) = payload.into_base();
+    repo_path_must_exist(&base.repo_path)?;
     let options = options_from(&base)?;
     let span_secs = parse_window(
         knobs
@@ -552,6 +688,58 @@ pub fn compute_vcs_trend(payload: WebVcsTrendPayload) -> Result<WebVcsTrendRespo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // #652: non-diff garbage must be rejected, while a valid diff and an
+    // empty diff both pass. Exercises `score_diff_validated` directly so the
+    // boundary is pinned at the unit level, independent of the HTTP layer.
+    #[test]
+    // An empty diff scores an *exact* `0.0` (no float arithmetic feeds it —
+    // zero touched files means a zero contribution sum), so the equality is
+    // bit-exact rather than magnitude-brittle.
+    #[allow(clippy::float_cmp)]
+    fn score_diff_validated_rejects_garbage_but_keeps_empty_and_valid() {
+        // Wholly-non-diff content → InvalidDiff (was a silent 0.0 score).
+        let err = score_diff_validated("not a diff").expect_err("garbage must be rejected");
+        assert!(
+            matches!(err, vcs::Error::InvalidDiff(_)),
+            "garbage must map to InvalidDiff, got: {err:?}"
+        );
+        // Empty / whitespace-only → valid zero-feature report (no changes).
+        for empty in ["", "   \n\t\n"] {
+            let report = score_diff_validated(empty)
+                .unwrap_or_else(|e| panic!("an empty diff must stay valid, got: {e:?}"));
+            assert_eq!(report.size.files_touched, 0);
+            assert_eq!(report.partial_risk_score, 0.0);
+        }
+        // A real diff with one touched file → valid report.
+        let diff =
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,1 +1,2 @@\n keep\n+add\n";
+        let report = score_diff_validated(diff).expect("a real diff must score");
+        assert_eq!(report.size.files_touched, 1);
+    }
+
+    // #653: a nonexistent path is a client mistake mapped to NotARepository
+    // (a client-input 400), while an existing path passes the guard (the
+    // backend then decides repo-vs-non-repo). `Path::exists` follows
+    // symlinks, so this is spelling-agnostic.
+    #[test]
+    fn repo_path_must_exist_maps_missing_path_to_not_a_repository() {
+        let err = repo_path_must_exist("/tmp/bca-definitely-missing-652653")
+            .expect_err("a nonexistent path must be rejected");
+        assert!(
+            matches!(err, vcs::Error::NotARepository(_)),
+            "a missing path must map to NotARepository, got: {err:?}"
+        );
+        assert!(
+            err.is_client_input(),
+            "a missing path is a client-input error (400), not a backend 500"
+        );
+        // An existing directory passes the existence guard (the temp dir is
+        // not a repo, but that distinction is the backend's to make).
+        let dir = tempfile::tempdir().expect("tempdir");
+        repo_path_must_exist(dir.path().to_str().expect("utf-8 path"))
+            .expect("an existing path must pass the existence guard");
+    }
 
     // #636: the web defaults must equal the CLI's bounded defaults so the
     // same logical invocation returns the same-sized result on either
@@ -596,6 +784,115 @@ mod tests {
         assert!(
             err.to_string().contains("top_dletas"),
             "the error must name the offending key, got: {err}"
+        );
+    }
+
+    // #647: the presence list, the named-field list, and the conflict
+    // message must stay in lockstep — they are the three faces of the same
+    // single source of truth. If they drift, a `diff` + commit-mode payload
+    // could bypass the conflict check and silently score the diff while
+    // dropping the field.
+    #[test]
+    fn commit_mode_presence_names_match_field_list() {
+        // The presence pairs (built from struct fields) must name exactly
+        // `COMMIT_MODE_FIELDS`, in the same order. An array entry whose name
+        // typoes away from the list, or a list entry with no presence pair,
+        // fails here.
+        let payload = WebVcsJitPayload {
+            id: String::new(),
+            repo_path: None,
+            commit: None,
+            diff: None,
+            long_window: None,
+            recent_window: None,
+            full_history: None,
+            include_merges: None,
+            follow_renames: None,
+            as_of: None,
+        };
+        let presence_names: Vec<&str> = payload
+            .commit_mode_field_presence()
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(
+            presence_names, COMMIT_MODE_FIELDS,
+            "commit_mode_field_presence() must name exactly COMMIT_MODE_FIELDS"
+        );
+    }
+
+    #[test]
+    fn conflict_message_names_every_commit_mode_field() {
+        for field in COMMIT_MODE_FIELDS {
+            assert!(
+                VCS_JIT_MODE_CONFLICT.contains(field),
+                "the conflict message must name `{field}` so the 400 is actionable"
+            );
+        }
+    }
+
+    // #647 drift guard: every commit-mode field, supplied on its own
+    // alongside `diff`, must individually trip the conflict. Deserializing
+    // a real JSON payload per field proves (a) each `COMMIT_MODE_FIELDS`
+    // entry is a genuine struct key (a stale name 400s as an unknown field
+    // under `deny_unknown_fields`, failing the parse below), and (b) each
+    // is wired into `has_commit_mode_field` via its presence pair. A new
+    // commit-mode field added to the struct but not to the list would parse
+    // here yet not trip the conflict, but it is also unreachable by this
+    // loop — so the companion exhaustiveness test below counts the fields.
+    #[test]
+    fn each_commit_mode_field_conflicts_with_diff() {
+        for field in COMMIT_MODE_FIELDS {
+            // Booleans take a bare `true`; everything else a JSON string.
+            let value = match *field {
+                "full_history" | "include_merges" | "follow_renames" => "true".to_owned(),
+                _ => "\"x\"".to_owned(),
+            };
+            let body = format!(r#"{{"id":"t","diff":"--- a\n+++ b\n","{field}":{value}}}"#);
+            let payload: WebVcsJitPayload = serde_json::from_str(&body)
+                .unwrap_or_else(|e| panic!("`{field}` must be a real payload key: {e}"));
+            assert_eq!(
+                payload.validate(),
+                Err(VCS_JIT_MODE_CONFLICT),
+                "`diff` + `{field}` must be rejected as a mode conflict"
+            );
+        }
+    }
+
+    // #647 exhaustiveness: the field list must cover *every* commit-mode
+    // option on the struct. A populated payload — every commit-mode field
+    // `Some`, `diff` absent — must report exactly `COMMIT_MODE_FIELDS.len()`
+    // present fields. Adding a struct field to `commit_mode_field_presence`
+    // without listing it in `COMMIT_MODE_FIELDS` (or vice versa) breaks the
+    // array length and fails to compile; adding one to neither leaves it
+    // unprobed and is caught by code review against this count.
+    #[test]
+    fn commit_mode_fields_list_is_exhaustive() {
+        let all_set = WebVcsJitPayload {
+            id: String::new(),
+            repo_path: Some("/repo".to_owned()),
+            commit: Some("HEAD".to_owned()),
+            diff: None,
+            long_window: Some("12mo".to_owned()),
+            recent_window: Some("90d".to_owned()),
+            full_history: Some(true),
+            include_merges: Some(true),
+            follow_renames: Some(true),
+            as_of: Some("2024-01-01".to_owned()),
+        };
+        let present = all_set
+            .commit_mode_field_presence()
+            .iter()
+            .filter(|(_, p)| *p)
+            .count();
+        assert_eq!(
+            present,
+            COMMIT_MODE_FIELDS.len(),
+            "every commit-mode field must be probed by the presence list"
+        );
+        assert!(
+            all_set.has_commit_mode_field(),
+            "a fully-populated commit-mode payload must report a commit-mode field"
         );
     }
 }

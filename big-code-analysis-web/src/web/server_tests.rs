@@ -1605,7 +1605,24 @@ async fn test_web_head_on_get_endpoints_matches_get() {
     // returning the same status and headers as GET but no body (#644).
     // Uptime monitors and load balancers default to HEAD probes against
     // `/ping`, so this is the endpoint's primary use case.
-    for path in ["/v1/ping", "/v1/version", "/v1/languages"] {
+    //
+    // #647 forcing function: the probed paths are *derived* from the
+    // `ROUTES` index — every route advertising `GET` — rather than a
+    // hand-maintained list. A future GET route added to `ROUTES` (and so to
+    // `register_endpoints`) is automatically HEAD-probed here; if it was
+    // registered with a bare `web::get()` instead of the `get_resource`
+    // helper, this test goes red on the missing HEAD. `/v1` (the index
+    // itself) is now covered too, which the old hardcoded list omitted.
+    let get_paths: Vec<&str> = ROUTES
+        .iter()
+        .filter(|entry| entry.methods.contains(&"GET"))
+        .map(|entry| entry.path)
+        .collect();
+    assert!(
+        get_paths.len() >= 4,
+        "expected at least the four introspection GET routes, got {get_paths:?}"
+    );
+    for path in get_paths {
         let get_resp =
             test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
         let get_status = get_resp.status();
@@ -2708,6 +2725,83 @@ async fn test_web_vcs_bad_window_is_400() {
 }
 
 #[actix_rt::test]
+async fn test_web_vcs_bad_repo_path_is_consistently_400() {
+    // Issue #653: a nonexistent `repo_path` (the most common client error —
+    // a typo) and an existing-but-non-repo directory must BOTH answer a
+    // consistent client-input 400. Before the fix the nonexistent path fell
+    // through to a 500 (`gix::discover` maps a missing directory to the
+    // environment-level `OpenRepository`), while the existing non-repo dir
+    // already 400'd — so a typo'd path paged on-call for the client's own
+    // mistake.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs").route(web::post().to(vcs_json))),
+    )
+    .await;
+    // An existing directory that is definitely not a git repo. A fresh temp
+    // dir is empty and outside any enclosing repository.
+    let non_repo = tempfile::tempdir().expect("tempdir");
+    let cases = [
+        ("nonexistent", "/tmp/bca-does-not-exist-652653-xyzzy"),
+        (
+            "existing-non-repo",
+            non_repo.path().to_str().expect("utf-8 temp path"),
+        ),
+    ];
+    for (label, repo_path) in cases {
+        let req = test::TestRequest::post()
+            .uri("/vcs")
+            .insert_header(ContentType::json())
+            .set_json(json!({ "id": "rp", "repo_path": repo_path }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "a {label} repo_path must be a 400, not a 500 (#653)"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["id"], "rp");
+        // Both bad-path shapes carry the same client-input token so a client
+        // branches uniformly on "that path is not a repository".
+        assert_eq!(
+            body["error_kind"],
+            json!("vcs_not_a_repository"),
+            "a {label} repo_path must carry the not-a-repository token (#653)"
+        );
+    }
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_commit_mode_nonexistent_repo_path_is_400() {
+    // Issue #653 on the jit commit path: a nonexistent `repo_path` supplied
+    // for commit scoring must 400, the same as `/vcs`, rather than 500.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .service(web::resource("/vcs/jit").route(web::post().to(vcs_jit_json))),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/vcs/jit")
+        .insert_header(ContentType::json())
+        .set_json(json!({
+            "id": "jit-rp",
+            "repo_path": "/tmp/bca-does-not-exist-652653-jit",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "a nonexistent repo_path in jit commit mode must be a 400 (#653)"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error_kind"], json!("vcs_not_a_repository"));
+}
+
+#[actix_rt::test]
 async fn vcs_error_response_maps_classification_to_status() {
     // The web boundary delegates to `vcs::Error::is_client_input` (#641):
     // a client-input variant is a 400 with the client-facing body, and an
@@ -3162,6 +3256,88 @@ async fn test_web_vcs_jit_malformed_diff_is_400() {
 }
 
 #[actix_rt::test]
+async fn test_web_vcs_jit_garbage_diff_is_400_not_zero_score() {
+    // Issue #652: non-diff garbage in the `diff` field must be rejected with
+    // a 400, NOT silently scored as a confident `partial_risk_score: 0.0`.
+    // A 0.0 ("zero risk") on a risk-*gating* endpoint is the most dangerous
+    // failure mode — a CI step feeding the wrong field would be told the
+    // change is safe. The library `parse_unified_diff` accepts arbitrary
+    // non-diff text as an empty diff, so the web layer must reject the
+    // non-empty-but-zero-files case.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/v1/vcs/jit")
+        .insert_header(ContentType::json())
+        .set_json(json!({ "id": "jit-garbage", "diff": "not a diff" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "non-diff garbage must be a 400, not a 200 with a 0.0 score"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["id"], "jit-garbage");
+    // The 400 must name the cause as a bad diff (#631), the same token a
+    // structurally-malformed diff carries, so a client branches on it
+    // uniformly.
+    assert_eq!(
+        body["error_kind"],
+        json!("vcs_invalid_diff"),
+        "garbage diff must carry the bad-diff machine token (#652)"
+    );
+    // The score must NOT have leaked through: the response is an error body,
+    // not a partial report.
+    assert!(
+        body.get("partial_risk_score").is_none(),
+        "a rejected garbage diff must not carry a score: {body}"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_vcs_jit_empty_diff_is_valid_zero_score() {
+    // Issue #652 boundary: an empty (or whitespace-only) diff legitimately
+    // means "no changes" = zero risk, so it stays a valid 200 with a 0.0
+    // score. Only non-empty, non-whitespace input that parses to zero files
+    // is rejected. A CI step that computed an empty diff must still get the
+    // zero-risk answer rather than a spurious 400.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    for (label, diff) in [("empty", ""), ("whitespace", "   \n\t  \n")] {
+        let req = test::TestRequest::post()
+            .uri("/v1/vcs/jit")
+            .insert_header(ContentType::json())
+            .set_json(json!({ "id": "jit-empty", "diff": diff }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "an {label} diff must stay a valid 200 (no changes = zero risk)"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["source"], "diff");
+        assert_eq!(
+            body["size"]["files_touched"], 0,
+            "an {label} diff touches no files"
+        );
+        assert_eq!(
+            body["partial_risk_score"], 0.0,
+            "an {label} diff scores a valid 0.0"
+        );
+    }
+}
+
+#[actix_rt::test]
 async fn test_web_vcs_jit_missing_repo_path_is_400() {
     // Commit mode with no repo_path is a client mistake (no repository to
     // score), surfaced as the not-a-repository 400.
@@ -3529,4 +3705,549 @@ async fn test_web_comment_plain_preserves_crlf_unnormalised() {
         !body.ends_with('\n'),
         "comment removal must not append a trailing newline, got {body:?}",
     );
+}
+
+// Issue #645: `id`, `comment`, and `span` are optional on the JSON
+// request payloads. Omitting a defaulted field must succeed and produce
+// the exact same response as sending its default explicitly — the
+// previous behaviour was a needless `400 missing field`. Each test
+// builds the app via the production `configure_routes` so it exercises
+// the real `JsonConfig` extractor, then asserts the omit-field response
+// equals the explicit-default response byte-for-byte.
+
+/// POSTs `raw_json` to `uri` as `application/json` through the production
+/// routing table and returns the parsed JSON response body.
+async fn post_raw_json(uri: &str, raw_json: &str) -> Value {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri(uri)
+        .insert_header(("content-type", "application/json"))
+        .set_payload(raw_json.to_string())
+        .to_request();
+    test::call_and_read_body_json(&app, req).await
+}
+
+#[actix_rt::test]
+async fn test_web_ast_defaults_omitted_fields() {
+    // Omitting `id`, `comment`, and `span` must match the explicit
+    // `id: ""`, `comment: false`, `span: false` request (the `bool`
+    // defaults and the empty-id "no correlation id" sentinel).
+    let omitted = post_raw_json("/v1/ast", r#"{"file_name":"foo.c","code":"int x = 1;"}"#).await;
+    let explicit = post_raw_json(
+        "/v1/ast",
+        r#"{"id":"","file_name":"foo.c","code":"int x = 1;","comment":false,"span":false}"#,
+    )
+    .await;
+    assert_eq!(
+        omitted, explicit,
+        "omitting id/comment/span must equal the explicit-default request",
+    );
+    // The defaulted `id` echoes back empty, and `span: false` drops node
+    // span objects — confirm the defaults actually took effect rather
+    // than the two requests merely matching some other shape.
+    assert_eq!(omitted["id"], json!(""));
+    assert_eq!(omitted["root"]["type"], json!("translation_unit"));
+    assert_eq!(
+        omitted["root"]["span"],
+        json!(null),
+        "span: false must null out the span objects on the AST nodes",
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_defaults_omitted_id() {
+    let omitted = post_raw_json(
+        "/v1/metrics",
+        r#"{"file_name":"foo.c","code":"int x = 1;"}"#,
+    )
+    .await;
+    let explicit = post_raw_json(
+        "/v1/metrics",
+        r#"{"id":"","file_name":"foo.c","code":"int x = 1;"}"#,
+    )
+    .await;
+    assert_eq!(
+        omitted, explicit,
+        "omitting id must equal the explicit empty-id request",
+    );
+    assert_eq!(omitted["id"], json!(""));
+}
+
+#[actix_rt::test]
+async fn test_web_comment_defaults_omitted_id() {
+    let omitted = post_raw_json(
+        "/v1/comment",
+        r#"{"file_name":"foo.c","code":"int x = 1; // hi"}"#,
+    )
+    .await;
+    let explicit = post_raw_json(
+        "/v1/comment",
+        r#"{"id":"","file_name":"foo.c","code":"int x = 1; // hi"}"#,
+    )
+    .await;
+    assert_eq!(
+        omitted, explicit,
+        "omitting id must equal the explicit empty-id request",
+    );
+    assert_eq!(omitted["id"], json!(""));
+}
+
+#[actix_rt::test]
+async fn test_web_function_defaults_omitted_id() {
+    let omitted = post_raw_json(
+        "/v1/function",
+        r#"{"file_name":"foo.rs","code":"fn f(){}\n"}"#,
+    )
+    .await;
+    let explicit = post_raw_json(
+        "/v1/function",
+        r#"{"id":"","file_name":"foo.rs","code":"fn f(){}\n"}"#,
+    )
+    .await;
+    assert_eq!(
+        omitted, explicit,
+        "omitting id must equal the explicit empty-id request",
+    );
+    assert_eq!(omitted["id"], json!(""));
+}
+
+// ---------------------------------------------------------------------------
+// Accept-header content negotiation (#657).
+//
+// These tests drive the production `configure_routes` router so they
+// exercise the real handlers and the shared `negotiated_ok` path, asserting
+// that each endpoint honours `Accept` for JSON / YAML / CBOR, defaults to
+// JSON when `Accept` is absent or a wildcard, and answers `406` (through the
+// uniform `{error, error_kind, id}` envelope) for an unsupported type.
+
+/// A minimal Python metrics request body, reused across the negotiation
+/// tests. Python is cheap to parse and produces a small space tree.
+fn metrics_request_body() -> serde_json::Value {
+    json!({
+        "id": "neg-657",
+        "file_name": "neg.py",
+        "code": "def foo():\n    pass\n",
+    })
+}
+
+/// Builds a `POST /v1/metrics` request, optionally setting `Accept`.
+fn metrics_request(accept: Option<&str>) -> test::TestRequest {
+    let mut builder = test::TestRequest::post()
+        .uri("/v1/metrics")
+        .insert_header(("content-type", "application/json"));
+    if let Some(accept) = accept {
+        builder = builder.insert_header(("accept", accept));
+    }
+    builder.set_payload(metrics_request_body().to_string())
+}
+
+/// The `Content-Type` of a finished response as a borrowed `&str`; an absent
+/// or non-UTF-8 value yields the empty string so the assertion fails loudly.
+fn content_type(resp: &actix_web::dev::ServiceResponse) -> &str {
+    resp.headers()
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_absent_accept_defaults_to_json() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp = test::call_service(&app, metrics_request(None).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/json");
+    let body = test::read_body(resp).await;
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], json!("neg-657"));
+    assert_eq!(parsed["language"], json!("python"));
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_wildcard_accept_is_json() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp = test::call_service(&app, metrics_request(Some("*/*")).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/json");
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_explicit_json_accept() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp =
+        test::call_service(&app, metrics_request(Some("application/json")).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/json");
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_yaml_accept_emits_yaml() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp =
+        test::call_service(&app, metrics_request(Some("application/yaml")).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/yaml");
+    let body = test::read_body(resp).await;
+    // The body must parse as YAML and carry the same fields the JSON body
+    // would, proving the response is genuinely YAML and not JSON mislabelled.
+    let parsed: serde_yaml::Value = serde_yaml::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], serde_yaml::Value::from("neg-657"));
+    assert_eq!(parsed["language"], serde_yaml::Value::from("python"));
+    // YAML is a JSON superset, so a successful YAML parse alone does not rule
+    // out a JSON body mislabelled as YAML. serde_yaml emits this nested map
+    // in block style (`id: neg-657\n...`), which is not valid JSON — so a
+    // failed JSON parse is positive proof the bytes are real YAML.
+    assert!(
+        serde_json::from_slice::<Value>(&body).is_err(),
+        "YAML body must not also be valid JSON (would mean JSON mislabelled)",
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_cbor_accept_emits_cbor() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp =
+        test::call_service(&app, metrics_request(Some("application/cbor")).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/cbor");
+    let body = test::read_body(resp).await;
+    // The body must decode as CBOR (binary, not text) and round-trip to a map.
+    let parsed: ciborium::Value = ciborium::from_reader(body.as_ref()).unwrap();
+    assert!(parsed.is_map(), "CBOR body must be a map, got {parsed:?}");
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_yaml_matches_json_payload() {
+    // Cross-format parity: the YAML body and the JSON body must carry the
+    // same data for the same input, differing only in serialization.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let json_resp =
+        test::call_service(&app, metrics_request(Some("application/json")).to_request()).await;
+    let json_body = test::read_body(json_resp).await;
+    let json: Value = serde_json::from_slice(&json_body).unwrap();
+
+    let yaml_resp =
+        test::call_service(&app, metrics_request(Some("application/yaml")).to_request()).await;
+    let yaml_body = test::read_body(yaml_resp).await;
+    let yaml: serde_yaml::Value = serde_yaml::from_slice(&yaml_body).unwrap();
+    // Re-serialize the YAML value to JSON and compare structurally.
+    let yaml_as_json: Value = serde_json::to_value(&yaml).unwrap();
+    assert_eq!(json, yaml_as_json);
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_unsupported_accept_is_406() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp =
+        test::call_service(&app, metrics_request(Some("application/xml")).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::NOT_ACCEPTABLE);
+    // The 406 carries the uniform error envelope, not a bare body.
+    assert_eq!(content_type(&resp), "application/json");
+    let body = test::read_body(resp).await;
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["error_kind"], json!("not_acceptable"));
+    assert_eq!(parsed["id"], json!("neg-657"));
+    // The human message lists the supported media types so a client can
+    // self-correct without scraping the docs.
+    let message = parsed["error"].as_str().unwrap();
+    assert!(message.contains("application/yaml"), "got {message:?}");
+    assert!(message.contains("application/cbor"), "got {message:?}");
+}
+
+#[actix_rt::test]
+async fn test_web_metrics_q_weight_selects_yaml() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let resp = test::call_service(
+        &app,
+        metrics_request(Some("application/json;q=0.5, application/yaml;q=0.9")).to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/yaml");
+}
+
+#[actix_rt::test]
+async fn test_web_ast_yaml_accept_emits_yaml() {
+    // Negotiation is shared across endpoints: prove a second endpoint honours
+    // it too, guarding against a per-handler regression.
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/v1/ast")
+        .insert_header(("content-type", "application/json"))
+        .insert_header(("accept", "application/yaml"))
+        .set_payload(ast_request_body().to_string())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(content_type(&resp), "application/yaml");
+    let body = test::read_body(resp).await;
+    let parsed: serde_yaml::Value = serde_yaml::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], serde_yaml::Value::from("ct-515"));
+}
+
+#[actix_rt::test]
+async fn test_web_ast_unsupported_accept_is_406() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/v1/ast")
+        .insert_header(("content-type", "application/json"))
+        .insert_header(("accept", "text/html"))
+        .set_payload(ast_request_body().to_string())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NOT_ACCEPTABLE);
+    let body = test::read_body(resp).await;
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["error_kind"], json!("not_acceptable"));
+}
+
+// --- CORS (`--cors`, #694) ---------------------------------------------
+//
+// CORS is opt-in and off by default. These tests build the app via the
+// production `configure_routes` so they exercise the real routing, the
+// per-resource OPTIONS/Allow fallback (#655), and the `cors_middleware`
+// layered on top. `cors_app` mirrors `run_with_timeout`'s wiring: it
+// registers the `CorsPolicy` as app data and wraps the `from_fn` middleware
+// under a `Condition` keyed on whether the policy is enabled, so the default
+// (`Disabled`) build carries no CORS layer at all.
+
+use crate::web::cors::{CorsPolicy, cors_middleware};
+
+/// Header name shorthands for the CORS assertions.
+const ACAO: http::header::HeaderName = http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+const ACAM: http::header::HeaderName = http::header::ACCESS_CONTROL_ALLOW_METHODS;
+const ACAH: http::header::HeaderName = http::header::ACCESS_CONTROL_ALLOW_HEADERS;
+const ACAC: http::header::HeaderName = http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS;
+
+/// Builds an app wired exactly like `run_with_timeout` for the given policy.
+///
+/// The `Condition` + `from_fn` wrapping yields an `EitherBody` response, so
+/// the response body type is spelled out explicitly here.
+fn cors_app(
+    policy: CorsPolicy,
+) -> App<
+    impl actix_web::dev::ServiceFactory<
+        actix_web::dev::ServiceRequest,
+        Config = (),
+        Response = actix_web::dev::ServiceResponse<
+            actix_web::body::EitherBody<actix_web::body::BoxBody>,
+        >,
+        Error = actix_web::Error,
+        InitError = (),
+    >,
+> {
+    let enabled = policy != CorsPolicy::Disabled;
+    App::new()
+        .wrap(actix_web::middleware::Condition::new(
+            enabled,
+            actix_web::middleware::from_fn(cors_middleware),
+        ))
+        .app_data(test_config())
+        .app_data(web::Data::new(policy))
+        .configure(configure_routes)
+}
+
+#[actix_rt::test]
+async fn test_cors_disabled_emits_no_headers() {
+    let app = test::init_service(cors_app(CorsPolicy::Disabled)).await;
+    // A cross-origin GET against an introspection route: with CORS off the
+    // response must carry no `Access-Control-Allow-Origin` at all.
+    let req = test::TestRequest::get()
+        .uri("/v1/ping")
+        .insert_header((http::header::ORIGIN, "https://app.example"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(
+        resp.headers().get(ACAO).is_none(),
+        "CORS off must emit no Access-Control-Allow-Origin"
+    );
+}
+
+#[actix_rt::test]
+async fn test_cors_disabled_preflight_has_no_cors_headers() {
+    let app = test::init_service(cors_app(CorsPolicy::Disabled)).await;
+    // The OPTIONS preflight still works as a method-discovery probe (204 +
+    // Allow, #655), but carries no CORS decoration when CORS is off.
+    let req = test::TestRequest::default()
+        .method(http::Method::OPTIONS)
+        .uri("/v1/metrics")
+        .insert_header((http::header::ORIGIN, "https://app.example"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(resp.headers().get(http::header::ALLOW).is_some());
+    assert!(
+        resp.headers().get(ACAO).is_none(),
+        "preflight must not be CORS-decorated when CORS is off"
+    );
+}
+
+#[actix_rt::test]
+async fn test_cors_allow_list_echoes_listed_origin() {
+    let app = test::init_service(cors_app(CorsPolicy::AllowList(vec![
+        "https://app.example".to_owned(),
+    ])))
+    .await;
+    let req = test::TestRequest::get()
+        .uri("/v1/ping")
+        .insert_header((http::header::ORIGIN, "https://app.example"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    // A listed origin is echoed back verbatim (never `*`), with a
+    // `Vary: Origin` so caches do not cross-pollinate origins.
+    assert_eq!(resp.headers().get(ACAO).unwrap(), "https://app.example");
+    assert_eq!(resp.headers().get(http::header::VARY).unwrap(), "Origin");
+    // Credentials are never advertised (the API has no auth/cookies).
+    assert!(resp.headers().get(ACAC).is_none());
+}
+
+#[actix_rt::test]
+async fn test_cors_allow_list_blocks_unlisted_origin() {
+    let app = test::init_service(cors_app(CorsPolicy::AllowList(vec![
+        "https://app.example".to_owned(),
+    ])))
+    .await;
+    let req = test::TestRequest::get()
+        .uri("/v1/ping")
+        .insert_header((http::header::ORIGIN, "https://evil.example"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    // No header for an unlisted origin → the browser blocks the read.
+    assert!(
+        resp.headers().get(ACAO).is_none(),
+        "an unlisted origin must receive no Access-Control-Allow-Origin"
+    );
+}
+
+#[actix_rt::test]
+async fn test_cors_wildcard_echoes_star() {
+    let app = test::init_service(cors_app(CorsPolicy::Wildcard)).await;
+    let req = test::TestRequest::get()
+        .uri("/v1/ping")
+        .insert_header((http::header::ORIGIN, "https://anything.example"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    // The explicit wide-open opt-in answers every origin with a literal `*`,
+    // and still never sets credentials (a `*` + credentials is invalid).
+    assert_eq!(resp.headers().get(ACAO).unwrap(), "*");
+    assert!(resp.headers().get(http::header::VARY).is_none());
+    assert!(resp.headers().get(ACAC).is_none());
+}
+
+#[actix_rt::test]
+async fn test_cors_preflight_advertises_methods_and_echoes_headers() {
+    let app = test::init_service(cors_app(CorsPolicy::AllowList(vec![
+        "https://app.example".to_owned(),
+    ])))
+    .await;
+    // A real browser preflight: OPTIONS + Origin + the requested method and
+    // headers. The middleware layers CORS on top of the #655 OPTIONS->204
+    // handler, sourcing `Access-Control-Allow-Methods` from the resource's
+    // own `Allow` header so it matches the real routing table.
+    let req = test::TestRequest::default()
+        .method(http::Method::OPTIONS)
+        .uri("/v1/metrics")
+        .insert_header((http::header::ORIGIN, "https://app.example"))
+        .insert_header((http::header::ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+        .insert_header((
+            http::header::ACCESS_CONTROL_REQUEST_HEADERS,
+            "content-type, x-custom",
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(resp.headers().get(ACAO).unwrap(), "https://app.example");
+    // `/metrics` is POST-only; the Allow header (POST, OPTIONS) is mirrored
+    // into Access-Control-Allow-Methods verbatim.
+    assert_eq!(resp.headers().get(ACAM).unwrap(), "POST, OPTIONS");
+    // The requested headers are echoed back verbatim.
+    assert_eq!(resp.headers().get(ACAH).unwrap(), "content-type, x-custom");
+    assert!(resp.headers().get(ACAC).is_none());
+}
+
+#[actix_rt::test]
+async fn test_cors_preflight_falls_back_to_default_headers() {
+    let app = test::init_service(cors_app(CorsPolicy::Wildcard)).await;
+    // A bare preflight with no Access-Control-Request-Headers gets the
+    // documented static fallback set.
+    let req = test::TestRequest::default()
+        .method(http::Method::OPTIONS)
+        .uri("/v1/metrics")
+        .insert_header((http::header::ORIGIN, "https://app.example"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(resp.headers().get(ACAH).unwrap(), "Content-Type, Accept");
+}
+
+#[actix_rt::test]
+async fn test_cors_allow_list_same_origin_request_gets_no_headers() {
+    let app = test::init_service(cors_app(CorsPolicy::AllowList(vec![
+        "https://app.example".to_owned(),
+    ])))
+    .await;
+    // No Origin header → a same-origin request: the allow-list emits nothing
+    // (and the `?` short-circuit must not panic).
+    let req = test::TestRequest::get().uri("/v1/ping").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers().get(ACAO).is_none());
 }

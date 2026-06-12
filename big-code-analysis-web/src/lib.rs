@@ -45,9 +45,28 @@ pub mod cli {
         /// Port for the web server.
         #[clap(long, short, default_value = "8080")]
         pub port: u16,
-        /// Timeout in seconds for each parse operation (0 = no timeout).
+        /// Timeout in seconds for each parse operation. `0` disables the
+        /// deadline *and* the orphaned-task admission gate it feeds: with no
+        /// timeout a parse never times out, so no task is ever orphaned and
+        /// the `503` back-pressure that sheds load under sustained
+        /// pathological input never engages. Use `0` only when an unbounded
+        /// parse is acceptable (issue #707).
         #[clap(long, default_value_t = DEFAULT_PARSE_TIMEOUT_SECS)]
         pub parse_timeout_secs: u64,
+        /// Enable CORS for the given origins (off by default).
+        ///
+        /// Pass a comma-separated allow-list of origins
+        /// (`--cors https://app.example,https://tools.example`); only those
+        /// origins receive `Access-Control-Allow-Origin`, and the matched
+        /// origin is echoed back. Pass a literal `*` (`--cors '*'`) to opt
+        /// into a wide-open policy that answers every origin — this exposes
+        /// the server's metrics and repository paths to any website the
+        /// operator's browser visits, so use it only on trusted networks.
+        /// Omitting the flag leaves CORS off: no `Access-Control-*` headers
+        /// are emitted. No `Access-Control-Allow-Credentials` is ever sent
+        /// (the API has no auth or cookies).
+        #[clap(long, value_name = "ORIGINS")]
+        pub cors: Option<String>,
     }
 
     #[cfg(test)]
@@ -65,6 +84,29 @@ pub mod cli {
             // resolving to the OS-reported effective CPU count (#560).
             assert_eq!(opts.num_jobs, NumJobs::Auto);
             assert_eq!(opts.parse_timeout_secs, DEFAULT_PARSE_TIMEOUT_SECS);
+            // CORS is off by default: the flag is absent (#694).
+            assert_eq!(opts.cors, None);
+        }
+
+        #[test]
+        fn opts_parses_cors_allow_list() {
+            let opts = Opts::try_parse_from([
+                "bca-web",
+                "--cors",
+                "https://app.example,https://tools.example",
+            ])
+            .expect("--cors allow-list must parse");
+            assert_eq!(
+                opts.cors.as_deref(),
+                Some("https://app.example,https://tools.example")
+            );
+        }
+
+        #[test]
+        fn opts_parses_cors_wildcard() {
+            let opts =
+                Opts::try_parse_from(["bca-web", "--cors", "*"]).expect("--cors '*' must parse");
+            assert_eq!(opts.cors.as_deref(), Some("*"));
         }
 
         #[test]

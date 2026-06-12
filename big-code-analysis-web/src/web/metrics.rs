@@ -42,7 +42,10 @@ impl Scope {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebMetricsPayload {
-    /// Payload identifier.
+    /// Payload identifier. Optional on the wire (#645): an omitted `id`
+    /// defaults to the empty string, the "no correlation id" sentinel
+    /// every downstream surface already honours.
+    #[serde(default)]
     pub id: String,
     /// Source code filename.
     pub file_name: String,
