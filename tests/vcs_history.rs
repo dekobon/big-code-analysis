@@ -12,7 +12,10 @@
 
 use std::path::Path;
 
-use big_code_analysis::vcs::{self, Options, build_history_index, build_trend, workdir_root};
+use big_code_analysis::vcs::{
+    self, CacheConfig, Options, build_history_index, build_history_index_cached, build_trend,
+    workdir_root,
+};
 
 mod common;
 use common::vcs_fixture::{DAY, FIXED_NOW, Repo};
@@ -691,4 +694,117 @@ fn workdir_root_distinguishes_separate_repositories() {
     let root_one = workdir_root(&one.path().join("x.rs")).expect("repo one");
     let root_two = workdir_root(&two.path().join("y.rs")).expect("repo two");
     assert_ne!(root_one, root_two, "distinct repos yield distinct roots");
+}
+
+/// Issue #648: the plain ranking walk must re-anchor at the mainline tip
+/// at-or-before `as_of`, so a commit in the *future* of the requested
+/// reference time is not counted. This is the exact reported reproducer:
+/// the repo's only commit is dated 2026, queried with `as_of` in 2023.
+#[test]
+fn as_of_excludes_commits_in_its_future() {
+    // The fixture clock (`FIXED_NOW`, 2023-11-14) is the as_of; the single
+    // commit is dated a year later, in its future.
+    let as_of = FIXED_NOW;
+    let future = FIXED_NOW + 365 * DAY;
+
+    let repo = Repo::init();
+    repo.write("src/work.rs", "fn a() {}\n");
+    repo.commit("Ada", "ada@example.com", future, "future commit");
+
+    let mut options = Options::default();
+    options.as_of = Some(as_of);
+    let index = build_history_index(repo.path(), &options).expect("walk");
+
+    // The only commit lies after as_of, so the snapshot is empty: no tip
+    // existed at-or-before as_of. (Before the fix the commit was clamped
+    // onto `now` and counted, reporting commits_long == 1.)
+    assert!(
+        index.get(Path::new("src/work.rs")).is_none(),
+        "a commit in the future of as_of must not appear in the snapshot"
+    );
+    assert!(
+        index.is_empty(),
+        "no commit at-or-before as_of → empty index"
+    );
+}
+
+/// Issue #648: with history straddling `as_of`, only the at-or-before
+/// portion is counted — the snapshot reflects the tree and windows as of
+/// that instant, not HEAD.
+#[test]
+fn as_of_counts_only_history_at_or_before_it() {
+    let repo = Repo::init();
+    // Two commits to the same file: one before as_of, one after.
+    repo.write("a.rs", "one\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "before");
+    repo.write("a.rs", "one\ntwo\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW + 30 * DAY, "after");
+
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    let index = build_history_index(repo.path(), &options).expect("walk");
+    let stats = stats_for(&index, "a.rs");
+
+    // Only the pre-as_of commit is anchored and counted; the future commit
+    // (and its churn) is excluded.
+    assert_eq!(
+        stats.commits_long, 1,
+        "only the at-or-before commit is counted"
+    );
+    assert_eq!(stats.churn_long, 1, "only the first commit's one line");
+
+    // Without as_of (HEAD anchor) both commits are visible — proving the
+    // re-anchoring, not a window artifact, drove the difference above.
+    let mut head_opts = Options::default();
+    head_opts.as_of = Some(FIXED_NOW + 60 * DAY);
+    let head_index = build_history_index(repo.path(), &head_opts).expect("walk");
+    assert_eq!(
+        stats_for(&head_index, "a.rs").commits_long,
+        2,
+        "anchored past both commits, the walk sees both"
+    );
+}
+
+/// Issue #648 edge case: `as_of` before the first commit yields an empty
+/// snapshot, handled gracefully rather than as an error (matching trend).
+#[test]
+fn as_of_before_first_commit_is_an_empty_snapshot() {
+    let repo = Repo::init();
+    repo.write("a.rs", "one\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "first");
+
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW - 100 * DAY);
+    let index = build_history_index(repo.path(), &options).expect("walk must not error");
+
+    assert!(
+        index.is_empty(),
+        "as_of predating the first commit → empty, not an error"
+    );
+}
+
+/// Issue #648: the `bca vcs` / web `/vcs` / py `vcs_metrics` surfaces all
+/// drive the *cached* entry point, so the re-anchoring must hold there too
+/// (the cache is HEAD-keyed and must not serve an `as_of` snapshot).
+#[test]
+fn as_of_excludes_future_commits_through_the_cached_entry_point() {
+    let repo = Repo::init();
+    repo.write("a.rs", "one\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "before");
+    repo.write("a.rs", "one\ntwo\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW + 30 * DAY, "after");
+
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    // Caching enabled (the default) must not change the as_of result: the
+    // cached path delegates to the re-anchored plain walk.
+    let index = build_history_index_cached(repo.path(), &options, &CacheConfig::default())
+        .expect("cached walk");
+    let stats = stats_for(&index, "a.rs");
+
+    assert_eq!(
+        stats.commits_long, 1,
+        "the cached entry point must also exclude commits in the future of as_of"
+    );
+    assert_eq!(stats.churn_long, 1);
 }

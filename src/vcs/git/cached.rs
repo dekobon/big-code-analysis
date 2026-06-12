@@ -55,6 +55,23 @@ pub(crate) fn build_cached(
     repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
 
     let commit = repo::resolve_commit(&repo, &options.reference)?;
+
+    // An `--as-of` that predates the resolved tip re-anchors the walk at the
+    // historical mainline tip at-or-before that time (issue #648). The
+    // persistent cache is keyed and seeded on the *current* HEAD, so it
+    // cannot serve (nor should it store) such a one-off historical query —
+    // route to the re-anchored plain walk. Without this, `bca vcs --as-of`
+    // (which the CLI/web/py all drive through this cached entry point) would
+    // count commits in the future of `as_of`. An `as_of` at-or-after the tip
+    // selects HEAD anyway, so caching stays valid and is left untouched (the
+    // reproducibility-pinned cache tests rely on this).
+    if let Some(as_of) = options.as_of {
+        let head_time = commit.time().map_err(walk_err)?.seconds;
+        if as_of < head_time {
+            return super::build(root, options);
+        }
+    }
+
     let head_oid = commit.id;
     let head_sha = head_oid.to_string();
     let target_tree = commit.tree().map_err(walk_err)?;

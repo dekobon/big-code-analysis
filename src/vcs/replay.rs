@@ -16,7 +16,7 @@
 //! time the cache was written.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::bus_factor::{self, BusFactor, FileAuthorship};
@@ -48,14 +48,24 @@ pub(crate) struct FoldContext<'a> {
 const MAX_ALIAS_DEPTH: usize = 10_000;
 
 /// Follow the rename-alias chain from a historical path to the path the
-/// file carries at the target ref. The depth guard defends against a
-/// pathological cycle in malformed history.
+/// file carries at the target ref. Cycle detection stops the moment a
+/// path repeats, so a rename-back 2-cycle (`a→b`, `b→a`) terminates
+/// deterministically at its entry point rather than bouncing
+/// `MAX_ALIAS_DEPTH` times and returning a parity-dependent target; the
+/// depth guard remains a backstop for any chain that somehow grows past
+/// the visited set.
 pub(crate) fn resolve_alias<'a>(
     alias: &'a HashMap<PathBuf, PathBuf>,
     path: &'a Path,
 ) -> Cow<'a, Path> {
     let mut current: &'a Path = path;
+    let mut visited: HashSet<&'a Path> = HashSet::new();
     for _ in 0..MAX_ALIAS_DEPTH {
+        if !visited.insert(current) {
+            // `current` was already on the chain: a cycle. Stop here so
+            // the result depends only on the chain, never on its parity.
+            break;
+        }
         match alias.get(current) {
             Some(next) => current = next.as_path(),
             None => break,

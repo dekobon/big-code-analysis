@@ -168,3 +168,74 @@ fn replay_include_deleted_all_scope_admits_every_deleted_file() {
         "the `all` scope keeps deleted non-source files"
     );
 }
+
+/// Issue #701: a rename-back 2-cycle (`a→b`, `b→a`) must terminate
+/// deterministically at the first repeated path, not bounce
+/// `MAX_ALIAS_DEPTH` times and return a parity-dependent target.
+#[test]
+fn resolve_alias_terminates_on_a_rename_back_cycle() {
+    let mut alias: HashMap<PathBuf, PathBuf> = HashMap::new();
+    // Enter the 2-cycle from a one-step prefix so the assertion is
+    // parity-INDEPENDENT: `x→a→b→a`. The visited-set guard stops at the
+    // repeat of `a`, so `x` resolves to `a`. The pre-#701 bounce ran
+    // MAX_ALIAS_DEPTH (an even count) steps and, starting from `x`, landed
+    // on `b` after the final odd step — so asserting `a` here fails
+    // against the unfixed walk. A direct entry at `a` lands on `a` either
+    // way and would protect nothing.
+    alias.insert(PathBuf::from("x"), PathBuf::from("a"));
+    alias.insert(PathBuf::from("a"), PathBuf::from("b"));
+    alias.insert(PathBuf::from("b"), PathBuf::from("a"));
+
+    assert_eq!(
+        resolve_alias(&alias, Path::new("x")).as_ref(),
+        Path::new("a")
+    );
+    // Direct entry at either cycle node resolves to itself.
+    assert_eq!(
+        resolve_alias(&alias, Path::new("a")).as_ref(),
+        Path::new("a")
+    );
+    assert_eq!(
+        resolve_alias(&alias, Path::new("b")).as_ref(),
+        Path::new("b")
+    );
+}
+
+/// Issue #701: a longer rename cycle (`a→b→c→a`) likewise terminates at
+/// the path that closes the loop, deterministically.
+#[test]
+fn resolve_alias_terminates_on_a_multi_step_cycle() {
+    let mut alias: HashMap<PathBuf, PathBuf> = HashMap::new();
+    alias.insert(PathBuf::from("a"), PathBuf::from("b"));
+    alias.insert(PathBuf::from("b"), PathBuf::from("c"));
+    alias.insert(PathBuf::from("c"), PathBuf::from("a"));
+
+    // Starting at `a`: a→b→c→(a already visited) → stops at `a`.
+    assert_eq!(
+        resolve_alias(&alias, Path::new("a")).as_ref(),
+        Path::new("a")
+    );
+    assert_eq!(
+        resolve_alias(&alias, Path::new("b")).as_ref(),
+        Path::new("b")
+    );
+    assert_eq!(
+        resolve_alias(&alias, Path::new("c")).as_ref(),
+        Path::new("c")
+    );
+}
+
+/// An acyclic chain still resolves to its terminal target (the cycle
+/// guard must not break a normal multi-step rename history).
+#[test]
+fn resolve_alias_follows_an_acyclic_chain_to_its_end() {
+    let mut alias: HashMap<PathBuf, PathBuf> = HashMap::new();
+    alias.insert(PathBuf::from("old"), PathBuf::from("mid"));
+    alias.insert(PathBuf::from("mid"), PathBuf::from("new"));
+
+    assert_eq!(
+        resolve_alias(&alias, Path::new("old")).as_ref(),
+        Path::new("new"),
+        "an acyclic rename chain resolves to its terminal path"
+    );
+}

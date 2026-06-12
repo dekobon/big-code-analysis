@@ -144,13 +144,24 @@ impl FileTypeScope {
     ///
     /// Returns [`Error::InvalidFileTypeScope`] when the list normalises
     /// to nothing (empty, or only blanks / bare dots) — a scope that
-    /// would silently rank no files.
+    /// would silently rank no files — or when an entry carries an interior
+    /// dot (`d.ts`, `tar.gz`, `.rs.bak`): `Path::extension()` returns only
+    /// the final component, so a multi-dot suffix can never match and would
+    /// silently rank nothing. Rejecting it turns that footgun into a loud
+    /// error (multi-dot-suffix *support* is a separate, larger change).
     fn from_extensions(list: &str) -> Result<Self, Error> {
         let mut extensions: Vec<String> = Vec::new();
         for raw in list.split(',') {
             let normalized = raw.trim().trim_start_matches('.').to_lowercase();
             if normalized.is_empty() {
                 continue;
+            }
+            if normalized.contains('.') {
+                return Err(Error::InvalidFileTypeScope(format!(
+                    "{:?} is a multi-dot suffix; `Path::extension()` only \
+                     matches the final component, so it would rank no files",
+                    raw.trim()
+                )));
             }
             if !extensions.contains(&normalized) {
                 extensions.push(normalized);

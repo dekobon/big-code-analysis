@@ -415,3 +415,101 @@ fn malformed_diff_is_an_error_not_a_panic() {
         "expected InvalidDiff, got {err:?}"
     );
 }
+
+#[test]
+fn experience_credits_co_authored_prior_commits() {
+    // Issue #702: the experience walk must use the same participant
+    // identity (author + `Co-authored-by:`) the file-level priors use, so
+    // a commit the scored author only *co-authored* still raises their
+    // experience. Before the fix it used the primary author only, missing
+    // co-authored history.
+    let repo = Repo::init();
+    // Two priors that Vet only co-authored (Ada is the primary author).
+    repo.write("f.rs", "1\n");
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 60 * DAY,
+        "c1\n\nCo-authored-by: Vet <vet@example.com>",
+    );
+    repo.write("f.rs", "1\n2\n");
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 30 * DAY,
+        "c2\n\nCo-authored-by: Vet <vet@example.com>",
+    );
+    // The scored commit is authored by Vet.
+    repo.write("f.rs", "1\n2\n3\n");
+    repo.commit(
+        "Vet",
+        "vet@example.com",
+        FIXED_NOW - 5 * DAY,
+        "scored by Vet",
+    );
+
+    let report = score(&repo, "HEAD");
+
+    assert_eq!(
+        report.features.experience.author_prior_commits, 2,
+        "both co-authored priors must count toward Vet's experience"
+    );
+    assert_eq!(report.features.experience.author_recent_commits, 2);
+    assert!(report.contributions.experience < 0.0);
+}
+
+#[test]
+fn experience_excludes_bot_commits_under_exclude_bots() {
+    // Issue #702: a bot's commits must not inflate the *scored bot's*
+    // experience under `--exclude-bots`. The bare-author walk counted them,
+    // letting bot history lower (protect) the risk of a bot-authored
+    // change. Routing through the bot-filtered ParticipantResolver drops
+    // them, so the bot's experience is zero.
+    let repo = Repo::init();
+    // Prior commits authored by a bot identity (matches the default bot
+    // pattern via the "[bot]" suffix).
+    repo.write("f.rs", "1\n");
+    repo.commit(
+        "dependabot[bot]",
+        "dependabot@example.com",
+        FIXED_NOW - 60 * DAY,
+        "bump c1",
+    );
+    repo.write("f.rs", "1\n2\n");
+    repo.commit(
+        "dependabot[bot]",
+        "dependabot@example.com",
+        FIXED_NOW - 30 * DAY,
+        "bump c2",
+    );
+    // The scored commit is also by the bot.
+    repo.write("f.rs", "1\n2\n3\n");
+    repo.commit(
+        "dependabot[bot]",
+        "dependabot@example.com",
+        FIXED_NOW - 5 * DAY,
+        "bump scored",
+    );
+
+    let mut options = Options::default();
+    options.as_of = Some(FIXED_NOW);
+    options.exclude_bots = true;
+    let report = score_commit(repo.path(), "HEAD", &options).expect("score commit");
+
+    assert_eq!(
+        report.features.experience.author_prior_commits, 0,
+        "a filtered bot's prior commits must not inflate its experience"
+    );
+    assert_eq!(report.contributions.experience, 0.0);
+
+    // Sanity: without --exclude-bots the same history counts the priors,
+    // proving the bot filter (not an unrelated path) drove the zero above.
+    let mut included = Options::default();
+    included.as_of = Some(FIXED_NOW);
+    included.exclude_bots = false;
+    let report_incl = score_commit(repo.path(), "HEAD", &included).expect("score commit");
+    assert_eq!(
+        report_incl.features.experience.author_prior_commits, 2,
+        "with bots included, the two priors are counted"
+    );
+}
