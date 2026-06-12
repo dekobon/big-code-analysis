@@ -19,6 +19,34 @@ metric = "nom"
 value = 29.0
 
 [[entry]]
+path = "big-code-analysis-cli/src/deprecations.rs"
+qualified = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 81595.5142435344
+
+[[entry]]
+path = "big-code-analysis-cli/src/deprecations.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nargs"
+value = 15.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/diff.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nom"
+value = 30.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/lib.rs"
+qualified = "expand_seed_paths"
+start_line = 2734
+metric = "cognitive"
+value = 24.0
+
+[[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "language_display_name"
 start_line = 260
@@ -30,7 +58,7 @@ path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1358.0
+value = 1547.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_alias.rs"
@@ -44,12 +72,19 @@ path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 868.0
+value = 963.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
 qualified = "<file>"
 start_line = 1
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_jit.rs"
+qualified = "emit"
+start_line = 119
 metric = "nexits"
 value = 5.0
 
@@ -58,7 +93,7 @@ path = "big-code-analysis-cli/src/vcs_report.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1301.0
+value = 1440.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/walk_seed.rs"
@@ -93,21 +128,28 @@ path = "big-code-analysis-py/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 928.0
+value = 932.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "_native"
-start_line = 825
+start_line = 829
 metric = "abc"
 value = 67.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "collect_offenders"
-start_line = 454
+start_line = 485
 metric = "cognitive"
-value = 24.0
+value = 31.0
+
+[[entry]]
+path = "big-code-analysis-py/src/sarif.rs"
+qualified = "collect_offenders"
+start_line = 485
+metric = "cyclomatic"
+value = 15.0
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"
@@ -117,6 +159,34 @@ metric = "nargs"
 value = 20.0
 
 [[entry]]
+path = "big-code-analysis-web/src/web/negotiate.rs"
+qualified = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 488829.9064414754
+
+[[entry]]
+path = "big-code-analysis-web/src/web/negotiate.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nargs"
+value = 13.0
+
+[[entry]]
+path = "big-code-analysis-web/src/web/vcs.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 898.0
+
+[[entry]]
+path = "big-code-analysis-web/src/web/vcs.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nom"
+value = 29.0
+
+[[entry]]
 path = "src/count.rs"
 qualified = "<file>"
 start_line = 1
@@ -124,18 +194,67 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
+path = "src/metric_catalog.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "src/output/code_climate.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 821.0
+
+[[entry]]
+path = "src/preproc.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 871.0
+
+[[entry]]
+path = "src/preproc.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/preproc.rs"
+qualified = "<file>"
+start_line = 1
+metric = "nom"
+value = 34.0
+
+[[entry]]
 path = "src/preproc.rs"
 qualified = "preprocess_with_parser"
-start_line = 333
+start_line = 432
 metric = "cognitive"
-value = 24.0
+value = 33.0
+
+[[entry]]
+path = "src/preproc.rs"
+qualified = "preprocess_with_parser"
+start_line = 432
+metric = "cyclomatic"
+value = 15.0
 
 [[entry]]
 path = "src/preproc.rs"
 qualified = "record_indirect_includes"
-start_line = 227
+start_line = 320
 metric = "cognitive"
 value = 25.0
+
+[[entry]]
+path = "src/tools.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 770.0
 
 [[entry]]
 path = "src/vcs/error.rs"
