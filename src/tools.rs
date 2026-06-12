@@ -396,9 +396,20 @@ fn get_from_interpreter(name: &str) -> Option<LANG> {
     }
 }
 
+// Editors place mode/file-local-variable lines near the very top or
+// very bottom of a file. Emacs honours the first non-shebang line and a
+// trailing "Local Variables:" block; Vim honours modelines in the first
+// or last few lines (`modelines` defaults to 5). Scanning this many real
+// lines at each end covers both conventions without trawling the body.
+const MODE_LINE_SCAN_WINDOW: usize = 5;
+
 fn get_emacs_mode(buf: &[u8]) -> Option<String> {
-    // we just try to use the emacs info (if there)
-    for (i, line) in buf.splitn(5, |c| *c == b'\n').enumerate() {
+    // Forward scan: the first `MODE_LINE_SCAN_WINDOW` real lines may carry
+    // an emacs `-*- … -*-` header or a Vim modeline. `split` yields one
+    // element per line (no unbounded remainder), and `take` bounds the
+    // window precisely — the former `splitn(5)` + `i == 3` break inspected
+    // only 4 lines yet split off a 5th unbounded remainder (issue #709).
+    for line in buf.split(|c| *c == b'\n').take(MODE_LINE_SCAN_WINDOW) {
         if let Some(cap) = get_regex(&RE1_EMACS, line, FIRST_EMACS_EXPRESSION) {
             return mode_to_str(&cap[1]);
         } else if let Some(cap) = get_regex(&RE2_EMACS, line, SECOND_EMACS_EXPRESSION) {
@@ -406,17 +417,20 @@ fn get_emacs_mode(buf: &[u8]) -> Option<String> {
         } else if let Some(cap) = get_regex(&RE1_VIM, line, VIM_EXPRESSION) {
             return mode_to_str(&cap[1]);
         }
-        if i == 3 {
-            break;
-        }
     }
 
-    for (i, line) in buf.rsplitn(5, |c| *c == b'\n').enumerate() {
+    // Backward scan for a trailing Vim modeline. Skip empty pieces so a
+    // trailing newline (the common case after `read_file_with_eol`) and
+    // any trailing blank lines do not consume the window before a real
+    // modeline is reached — the former `rsplitn(5)` spent its first slot
+    // on that empty piece, covering fewer than the intended real lines.
+    for line in buf
+        .rsplit(|c| *c == b'\n')
+        .filter(|line| !line.is_empty())
+        .take(MODE_LINE_SCAN_WINDOW)
+    {
         if let Some(cap) = get_regex(&RE1_VIM, line, VIM_EXPRESSION) {
             return mode_to_str(&cap[1]);
-        }
-        if i == 3 {
-            break;
         }
     }
 

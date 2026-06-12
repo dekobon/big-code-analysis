@@ -72,30 +72,61 @@ fn cfg_inner(body: &str) -> Option<&str> {
     Some(inner)
 }
 
+/// Return `true` if the cfg predicate `pred` marks the item as
+/// test-only.
+///
+/// Driven by an explicit work stack rather than mutual recursion: a
+/// pathological deeply-nested input such as
+/// `cfg(all(all(all(…test…))))` would otherwise recurse once per
+/// nesting level (`cfg_predicate_marks_test` → operand walk →
+/// `cfg_predicate_marks_test`) and overflow the stack on adversarial
+/// or machine-generated attribute bodies (issue #709). The work stack
+/// keeps live state on the heap, so nesting depth is bounded by
+/// available memory rather than the call-frame limit.
+///
+/// Each operand is classified exactly as the former recursive trio
+/// did: bare `test` matches; `not(...)` short-circuits without
+/// descending (its contents never mark the item test-only); `all(...)`
+/// / `any(...)` push their operands; a bare top-level comma list is
+/// treated like `all(...)`; everything else (plain idents, `feature =
+/// "test"` and other key=value pairs) neither matches nor descends.
 fn cfg_predicate_marks_test(pred: &str) -> bool {
-    let trimmed = pred.trim();
-    if trimmed == "test" {
-        return true;
-    }
-    // `all(...)` and `any(...)` use the same "contains a `test`
-    // operand" rule here. Strictly, `any(test, foo)` is over-broad
-    // (the item is included in production when `foo` holds), but the
-    // pre-#278 code treated both identically and the issue spec
-    // preserves that behavior.
-    if let Some(rest) = trimmed
-        .strip_prefix("all")
-        .or_else(|| trimmed.strip_prefix("any"))
-        && let Some(args) = rest.trim_start().strip_prefix('(')
-        && let Some(args) = args.strip_suffix(')')
-    {
-        return cfg_args_any_marks_test(args);
-    }
-    // Bare comma-separated predicate lists like `cfg(test, foo)`
-    // — pre-#278 callers relied on this form being treated as
-    // `cfg(all(test, foo))`. Skip if no top-level comma exists, so a
-    // single ident does not accidentally fall through.
-    if cfg_split_top_level_args(trimmed).nth(1).is_some() {
-        return cfg_args_any_marks_test(trimmed);
+    let mut stack = vec![pred];
+    while let Some(operand) = stack.pop() {
+        let trimmed = operand.trim();
+        if trimmed == "test" {
+            return true;
+        }
+        // `not(...)` short-circuits: we do not look inside, because
+        // `not(test)` excludes the item from test builds. Drop it
+        // without pushing its contents.
+        if let Some(rest) = trimmed.strip_prefix("not").map(str::trim_start)
+            && rest.starts_with('(')
+            && rest.ends_with(')')
+        {
+            continue;
+        }
+        // `all(...)` and `any(...)` use the same "contains a `test`
+        // operand" rule here. Strictly, `any(test, foo)` is over-broad
+        // (the item is included in production when `foo` holds), but the
+        // pre-#278 code treated both identically and the issue spec
+        // preserves that behavior. Push each operand for later inspection.
+        if let Some(rest) = trimmed
+            .strip_prefix("all")
+            .or_else(|| trimmed.strip_prefix("any"))
+            && let Some(args) = rest.trim_start().strip_prefix('(')
+            && let Some(args) = args.strip_suffix(')')
+        {
+            stack.extend(cfg_split_top_level_args(args));
+            continue;
+        }
+        // Bare comma-separated predicate lists like `cfg(test, foo)`
+        // — pre-#278 callers relied on this form being treated as
+        // `cfg(all(test, foo))`. Only descend if a top-level comma
+        // exists, so a single ident does not accidentally fall through.
+        if cfg_split_top_level_args(trimmed).nth(1).is_some() {
+            stack.extend(cfg_split_top_level_args(trimmed));
+        }
     }
     false
 }
@@ -129,33 +160,6 @@ fn cfg_split_top_level_args(args: &str) -> impl Iterator<Item = &str> {
         done = true;
         Some(&args[start..])
     })
-}
-
-/// Walk a comma-separated argument list of a cfg predicate and return
-/// true if any operand marks the item as test-only. Key=value forms
-/// like `feature = "test"` never match.
-fn cfg_args_any_marks_test(args: &str) -> bool {
-    cfg_split_top_level_args(args).any(cfg_arg_marks_test)
-}
-
-/// Classify a single cfg predicate operand. Bare `test` matches;
-/// `not(...)` never matches (its presence flips the gate); `all(...)`
-/// and `any(...)` recurse; everything else (including `feature =
-/// "test"`, plain idents, key=value pairs) does not match.
-fn cfg_arg_marks_test(arg: &str) -> bool {
-    let arg = arg.trim();
-    if arg == "test" {
-        return true;
-    }
-    // `not(...)` short-circuits: we do not look inside, because
-    // `not(test)` excludes the item from test builds.
-    if let Some(rest) = arg.strip_prefix("not").map(str::trim_start)
-        && rest.starts_with('(')
-        && rest.ends_with(')')
-    {
-        return false;
-    }
-    cfg_predicate_marks_test(arg)
 }
 
 #[cfg(test)]
@@ -242,6 +246,55 @@ mod tests {
         // both checks, so spaced forms still resolve correctly.
         assert!(attribute_marks_test("cfg( all( unix , test ) )"));
         assert!(!attribute_marks_test("cfg( not ( test ) )"));
+    }
+
+    #[test]
+    fn rust_attr_test_handles_deeply_nested_cfg_without_overflow() {
+        // Regression test for issue #709. The former mutual recursion
+        // (`cfg_predicate_marks_test` ⇄ operand walk) recursed once per
+        // nesting level and overflowed the stack on pathological input.
+        // This depth comfortably blows a recursive stack (a recursive
+        // walker overflows in the low tens of thousands of frames) yet
+        // the work-stack walker must terminate and preserve semantics.
+        const DEPTH: usize = 50_000;
+
+        // Build `cfg(comb(comb(… inner …)))` directly — O(n) — rather than
+        // by repeated `format!`, which is O(n²) in the nesting depth.
+        fn nest(comb: &str, inner: &str) -> String {
+            let mut s = String::with_capacity(DEPTH * (comb.len() + 1) + inner.len() + DEPTH + 5);
+            s.push_str("cfg(");
+            for _ in 0..DEPTH {
+                s.push_str(comb);
+                s.push('(');
+            }
+            s.push_str(inner);
+            for _ in 0..DEPTH {
+                s.push(')');
+            }
+            s.push(')');
+            s
+        }
+
+        // all(all(all(... test ...))) — `test` buried at the bottom marks
+        // the item test-only.
+        assert!(
+            attribute_marks_test(&nest("all", "test")),
+            "deeply nested all(...) wrapping `test` must mark test-only"
+        );
+
+        // Same depth wrapping a non-test operand must still return false
+        // rather than overflowing.
+        assert!(
+            !attribute_marks_test(&nest("any", "unix")),
+            "deeply nested any(...) without `test` must not mark test-only"
+        );
+
+        // A deeply nested `not(test)` must short-circuit at the wrapping
+        // depth without descending — still non-matching, still no overflow.
+        assert!(
+            !attribute_marks_test(&nest("all", "not(test)")),
+            "deeply nested not(test) must remain production-only"
+        );
     }
 
     #[test]
