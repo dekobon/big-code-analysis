@@ -317,26 +317,30 @@ fn analyze(
         .detach(|| analysis::analyze_path(&path, opts))
         .map_err(analysis_error_to_py)?;
     // `vcs=True` (#328) attaches a `vcs` block to the file's metrics from
-    // a one-shot history walk of its repository. Done after the GIL is
-    // re-acquired because the injection helper builds Python errors; for
-    // whole-repo ranking prefer `vcs_metrics()`, which walks history once.
+    // a one-shot history walk of its repository; `vcs_per_function=True`
+    // (#329 / #578) blames the file once and attaches a block to every
+    // nested function space. The two are independent (file-level vs nested
+    // spaces), so both can be set. The expensive part of each is the
+    // history walk / blame-engine open, which touches no Python objects —
+    // so it runs off-GIL (#620), mirroring `vcs_metrics()` and the batch
+    // path. The cheap JSON-injection step (which builds Python errors)
+    // stays under the re-acquired GIL. For whole-repo ranking prefer
+    // `vcs_metrics()`, which walks history once.
     match result {
         None => Ok(None),
-        Some(json) => {
-            let json = if vcs {
-                crate::vcs::inject_vcs(json, &path)?
-            } else {
-                json
-            };
-            // `vcs_per_function=True` (#329 / #578) blames the file once and
-            // attaches a `vcs` block to every nested function space. It is
-            // independent of `vcs=` (which blocks only the file-level space),
-            // so both can be set to cover the file and all its functions.
-            let json = if vcs_per_function {
-                crate::vcs::inject_vcs_per_function(json, &path)?
-            } else {
-                json
-            };
+        Some(mut json) => {
+            if vcs {
+                let root = crate::vcs::repo_root_for(&path).to_path_buf();
+                if let Some(index) = py.detach(|| crate::vcs::build_index_for(&root)) {
+                    json = crate::vcs::inject_vcs_with_index(json, &path, &index)?;
+                }
+            }
+            if vcs_per_function {
+                let root = crate::vcs::repo_root_for(&path).to_path_buf();
+                if let Some(blame) = py.detach(|| crate::vcs::open_blame_for(&root)) {
+                    json = crate::vcs::inject_vcs_per_function_with_blame(json, &path, &blame)?;
+                }
+            }
             conversion::json_string_to_py(py, &json).map(Some)
         }
     }

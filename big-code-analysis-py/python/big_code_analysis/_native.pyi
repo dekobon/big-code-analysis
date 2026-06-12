@@ -202,17 +202,25 @@ def analyze(
     that JSON with ``json.loads``, which preserves insertion order
     on CPython 3.7+.
 
-    Returns ``None`` when ``skip_generated=True`` (the default) and
-    the file's leading window matches the CLI walker's
-    ``is_generated`` predicate — see ``skip_generated`` below.
+    Returns ``None`` for any file the CLI walker would skip rather
+    than emit a record for. The read goes through the walker's own
+    ``read_file_with_eol`` gate, so ``None`` is returned when:
+
+    * the file is three bytes or fewer (treated as empty),
+    * its leading window is not valid UTF-8 (treated as binary),
+    * (with ``skip_generated=True``, the default) its leading window
+      matches the CLI walker's ``is_generated`` predicate — see
+      ``skip_generated`` below.
+
+    A UTF-8 / UTF-16 BOM is stripped and CR/CRLF line endings are
+    normalised to LF before analysis, matching the CLI byte-for-byte.
     Callers must therefore handle the optional return:
 
     .. code-block:: python
 
         result = bca.analyze(path)
         if result is None:
-            # File is marked `@generated` / `DO NOT EDIT` /
-            # `GENERATED CODE`; the CLI walker would skip it too.
+            # Empty / binary / generated: the CLI walker skips it too.
             continue
         process(result)
 

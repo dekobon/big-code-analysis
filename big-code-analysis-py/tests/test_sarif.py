@@ -224,6 +224,28 @@ def test_to_sarif_function_below_threshold_emits_no_finding() -> None:
     assert parsed["runs"][0]["results"] == []
 
 
+def test_to_sarif_mi_is_lower_is_worse() -> None:
+    """``mi.*`` is lower-is-worse: a value strictly BELOW the limit is the
+    violation, unlike every other metric. A healthy (high) MI must fire
+    when the limit is set above it, and must NOT fire when the limit is
+    at-or-below it — mirroring the CLI's #698 direction gate (the pre-fix
+    binding used ``value > limit`` for every metric, flagging healthy MI
+    and ignoring unhealthy MI)."""
+    code = "def trivial():\n    return 1\n"
+    result = bca.analyze_source(code, "python")
+    mi_original = result["metrics"]["mi"]["original"]
+    assert mi_original is not None, "mi.original must be present for trivial code"
+    mi = float(mi_original)
+
+    # Limit above the value -> value falls below -> flagged.
+    above = _parse(bca.to_sarif(result, thresholds={"mi.original": mi + 50.0}))
+    assert above["runs"][0]["results"], "MI below the limit must fire"
+
+    # Limit at/below the value -> healthy -> no finding.
+    below = _parse(bca.to_sarif(result, thresholds={"mi.original": max(mi - 50.0, 0.0)}))
+    assert below["runs"][0]["results"] == [], "MI at/above the limit must not fire"
+
+
 def test_to_sarif_metric_absent_from_dict_emits_no_finding() -> None:
     """When ``metrics=`` was used to skip a family, ``to_sarif`` must
     not synthesise a finding — the dict simply has no value to
@@ -542,6 +564,72 @@ def test_to_sarif_matches_cli_check_for_wmc_with_unit_emission(
         )
 
 
+def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
+    bca_binary: str, tmp_path: Path
+) -> None:
+    """A method nested inside a named container emits the CLI's
+    *qualified* ``Container::method`` symbol in ``logicalLocations``
+    (issue #706), not the bare method name. Before the fix the binding
+    emitted ``branchy`` where the CLI emits ``A::branchy`` — a silent
+    divergence the single-/top-level-function parity tests above could
+    not catch (a top-level function's qualified name equals its bare
+    name).
+
+    Scope note: the binding reads each metric from the serialised JSON,
+    where a sum-shaped metric (``cyclomatic.sum``) at an *interior*
+    container space is the aggregate across its children, so the binding
+    may emit an extra finding at the enclosing class that the CLI's
+    per-space accessor does not. That count divergence is a separate
+    wire-shape limitation; this test pins only the **qualified name**
+    of the method-level finding, which both sides must agree on.
+    """
+    src = tmp_path / "nested.py"
+    src.write_text(
+        "class A:\n"
+        "    def branchy(self, x):\n"
+        "        if x > 0:\n"
+        "            return 1\n"
+        "        if x < 0:\n"
+        "            return -1\n"
+        "        return 0\n"
+    )
+
+    analyzed = bca.analyze(src)
+    assert analyzed is not None, "fixture must not be skipped"
+    py_doc = _parse(bca.to_sarif(analyzed, thresholds={"cyclomatic": 2}))
+    cli_doc = _cli_check_sarif(bca_binary, src, threshold="cyclomatic=2")
+
+    def _qualified_names(doc: dict[str, Any]) -> set[str]:
+        return {
+            r["locations"][0]["logicalLocations"][0]["fullyQualifiedName"]
+            for r in doc["runs"][0]["results"]
+        }
+
+    py_names = _qualified_names(py_doc)
+    cli_names = _qualified_names(cli_doc)
+    # The method-level offender must carry the container-joined symbol
+    # on both sides — the core #706 divergence.
+    assert "A::branchy" in py_names, f"binding must qualify the method; got {py_names!r}"
+    assert "A::branchy" in cli_names, f"CLI reference must qualify the method; got {cli_names!r}"
+    # No finding may carry the bare, un-qualified method name.
+    assert "branchy" not in py_names, (
+        f"binding must not emit the un-qualified method name; got {py_names!r}"
+    )
+
+
+def test_to_sarif_anonymous_space_collapses_to_anon_line() -> None:
+    """A space whose name is the literal ``<anonymous>`` (every grammar's
+    closure/lambda sentinel) collapses to ``<anon@L{start_line}>``,
+    matching the CLI's ``space_segment`` (issue #706). The prior binding
+    passed ``<anonymous>`` through verbatim, which the CLI never emits.
+    """
+    fake = _fake_function_dict(name="<anonymous>", start_line=42, cyclomatic_sum=5.0)
+    parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
+    findings = parsed["runs"][0]["results"]
+    assert len(findings) == 1
+    assert findings[0]["locations"][0]["logicalLocations"] == [{"fullyQualifiedName": "<anon@L42>"}]
+
+
 # ─────────────────────────────────────────────────────────────────
 # Robustness fixes from /code-review (recall-mode review)
 # ─────────────────────────────────────────────────────────────────
@@ -732,21 +820,22 @@ def test_to_sarif_still_skips_unit_for_aggregate_metrics(metric_name: str) -> No
     assert fq == "branchy", f"expected per-function finding for {metric_name!r}, got fq={fq!r}"
 
 
-def test_to_sarif_nameless_space_emits_unnamed_placeholder() -> None:
+def test_to_sarif_nameless_space_emits_anon_line_placeholder() -> None:
     """A non-unit space with ``name: None`` (rare parse-failure case)
-    must emit ``logicalLocations: [{fullyQualifiedName: '<unnamed>'}]``,
-    matching the CLI's ``function_token`` fallback. The previous
-    behaviour dropped the field entirely, diverging from the CLI's
-    SARIF shape.
+    collapses to ``<anon@L{start_line}>``, matching the CLI's
+    ``space_segment`` (issue #706). The CLI bakes the start line into
+    the segment so the anonymous space keeps a stable-within-a-snapshot
+    identity; the prior binding emitted a bare ``<unnamed>`` that the
+    CLI never produces.
     """
-    fake = _fake_function_dict(name=None, cyclomatic_sum=5.0)
+    fake = _fake_function_dict(name=None, start_line=1, cyclomatic_sum=5.0)
     # The outer dict's name doubles as `path`; set it explicitly so
     # the test isolates the `function` field behaviour.
     fake["name"] = None
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
     findings = parsed["runs"][0]["results"]
     assert len(findings) == 1
-    assert findings[0]["locations"][0]["logicalLocations"] == [{"fullyQualifiedName": "<unnamed>"}]
+    assert findings[0]["locations"][0]["logicalLocations"] == [{"fullyQualifiedName": "<anon@L1>"}]
 
 
 def test_to_sarif_unit_space_emits_file_placeholder() -> None:
@@ -842,9 +931,10 @@ def test_to_sarif_skip_at_unit_metric_not_emitted_at_unit_space() -> None:
 
 def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     """A function nested two levels deep (unit -> class -> method) that
-    exceeds a threshold must be discovered by the stack walk and carry its
-    own name and line span. Guards the nested-space traversal feeding the
-    refactored ``extract_space_fields``.
+    exceeds a threshold must be discovered by the stack walk and carry
+    its *qualified* ``Container::method`` name (issue #706) and line
+    span. Guards the nested-space traversal feeding the refactored
+    ``collect_offenders`` qualified-prefix threading.
     """
     unit: dict[str, Any] = {
         "name": "mod.rs",
@@ -876,5 +966,5 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     findings = parsed["runs"][0]["results"]
     assert len(findings) == 1
     loc = findings[0]["locations"][0]
-    assert loc["logicalLocations"][0]["fullyQualifiedName"] == "m"
+    assert loc["logicalLocations"][0]["fullyQualifiedName"] == "C::m"
     assert loc["physicalLocation"]["region"]["startLine"] == 5
