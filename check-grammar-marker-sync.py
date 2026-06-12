@@ -290,9 +290,15 @@ def _replace_field_value(
     form, which is the canonical shape on disk. Returns None if
     the line does not match the `<field> = <string>` shape.
     """
+    # The basic-string alternative consumes `\"` (and any other
+    # backslash escape) as a unit so a value containing an escaped
+    # quote — legal TOML, e.g. `version = "a\"b"` — is matched in full
+    # rather than truncated at the first inner quote (which would emit
+    # corrupt TOML). Literal strings ('...') don't process escapes, so
+    # their alternative stays simple.
     pattern = re.compile(
         rf'^(\s*{re.escape(field_name)}\s*=\s*)'
-        rf"(?:\"[^\"]*\"|'[^']*')"
+        rf"(?:\"(?:\\.|[^\"\\])*\"|'[^']*')"
         r"(.*)$"
     )
     body, sep, _ = line.partition("\n")

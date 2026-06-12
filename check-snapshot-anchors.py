@@ -94,6 +94,78 @@ def find_macro_call_end(source: str, open_paren_idx: int) -> int:
     return n
 
 
+def block_comment_spans(source: str) -> list[tuple[int, int]]:
+    """Return ``(start, end)`` index ranges of ``/* … */`` comments.
+
+    Walks the source skipping string literals (regular and Rust raw
+    strings) and ``//`` line comments so a ``/*`` that appears inside
+    a string or after ``//`` is not mistaken for a block-comment
+    opener. Rust block comments nest, so the scanner tracks depth and
+    only closes the outer span when depth returns to zero. The
+    returned spans are used to drop ``insta::assert_json_snapshot!``
+    occurrences that are commented out — a commented snapshot is not a
+    live bare call and over-counting it produces a spurious gate
+    failure.
+    """
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(source)
+    while i < n:
+        ch = source[i]
+        # Line comment: consume to end of line.
+        if ch == "/" and i + 1 < n and source[i + 1] == "/":
+            nl = source.find("\n", i)
+            i = n if nl == -1 else nl + 1
+            continue
+        # Block comment: track nesting depth to the matching close.
+        if ch == "/" and i + 1 < n and source[i + 1] == "*":
+            start = i
+            depth = 1
+            i += 2
+            while i < n and depth > 0:
+                if source[i] == "/" and i + 1 < n and source[i + 1] == "*":
+                    depth += 1
+                    i += 2
+                    continue
+                if source[i] == "*" and i + 1 < n and source[i + 1] == "/":
+                    depth -= 1
+                    i += 2
+                    continue
+                i += 1
+            spans.append((start, i))
+            continue
+        # Raw string: r"…", r#"…"#, …
+        if ch == "r" and i + 1 < n and source[i + 1] in ('"', "#"):
+            j = i + 1
+            hashes = 0
+            while j < n and source[j] == "#":
+                hashes += 1
+                j += 1
+            if j < n and source[j] == '"':
+                close = '"' + ("#" * hashes)
+                end = source.find(close, j + 1)
+                i = n if end == -1 else end + len(close)
+                continue
+        # Regular string literal.
+        if ch == '"':
+            j = i + 1
+            while j < n:
+                if source[j] == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if source[j] == '"':
+                    break
+                j += 1
+            i = j + 1
+            continue
+        i += 1
+    return spans
+
+
+def _in_any_span(idx: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= idx < end for start, end in spans)
+
+
 def has_preceding_anchor(source: str, macro_start_idx: int) -> bool:
     """Look backwards up to LOOKBACK_LINES non-blank lines."""
     prefix = source[:macro_start_idx].splitlines()
@@ -112,6 +184,7 @@ def has_preceding_anchor(source: str, macro_start_idx: int) -> bool:
 
 def count_bare(path: pathlib.Path) -> int:
     source = path.read_text(encoding="utf-8")
+    comment_spans = block_comment_spans(source)
     bare = 0
     for match in MACRO_RE.finditer(source):
         macro_start = match.start()
@@ -119,6 +192,10 @@ def count_bare(path: pathlib.Path) -> int:
         line_start = source.rfind("\n", 0, macro_start) + 1
         line_prefix = source[line_start:macro_start]
         if "//" in line_prefix:
+            continue
+        # Skip occurrences inside `/* … */` block comments — a
+        # commented-out snapshot is not a live bare call.
+        if _in_any_span(macro_start, comment_spans):
             continue
         open_paren = match.end() - 1
         call_end = find_macro_call_end(source, open_paren)
