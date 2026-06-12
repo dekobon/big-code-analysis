@@ -1,13 +1,16 @@
 #![allow(missing_docs)]
+use std::process::ExitCode;
+
 use clap::Parser;
 
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 use big_code_analysis_web::cli::Opts;
+use big_code_analysis_web::cors::CorsPolicy;
 use big_code_analysis_web::server::run_with_timeout;
 
 #[actix_web::main]
-async fn main() {
+async fn main() -> ExitCode {
     // Initialise the tracing subscriber before the server is spawned so
     // every worker thread inherits it (the global dispatcher is
     // process-wide). `RUST_LOG` drives the filter (default `info`).
@@ -32,8 +35,27 @@ async fn main() {
     // and an explicit value is passed through unchanged (#560).
     let num_jobs = opts.num_jobs.resolve();
 
-    if let Err(e) = run_with_timeout(&opts.host, opts.port, num_jobs, opts.parse_timeout_secs).await
+    // Off by default (#694): `CorsPolicy::parse(None)` is `Disabled`, so the
+    // server emits no CORS headers unless the operator passed `--cors`.
+    let cors = CorsPolicy::parse(opts.cors.as_deref());
+
+    // A daemon that fails to bind or dies on an I/O error must exit
+    // non-zero so a supervisor (systemd, a container orchestrator, a CI
+    // smoke check) sees the failure and can restart or alert; logging the
+    // error and exiting `0` (the pre-#707 behaviour) reports success on a
+    // server that never served. `ExitCode::FAILURE` is the portable
+    // non-zero exit.
+    if let Err(e) = run_with_timeout(
+        &opts.host,
+        opts.port,
+        num_jobs,
+        opts.parse_timeout_secs,
+        cors,
+    )
+    .await
     {
         tracing::error!(host = %opts.host, port = opts.port, error = %e, "Cannot run the server");
+        return ExitCode::FAILURE;
     }
+    ExitCode::SUCCESS
 }

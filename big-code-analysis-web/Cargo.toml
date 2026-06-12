@@ -25,6 +25,13 @@ big-code-analysis = { path = "..", version = "=1.1.0", default-features = false,
 ] }
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
+# Accept-based content negotiation (#657): the same serializers the CLI
+# uses for `-O yaml|cbor`, so REST and CLI emit identical output for the
+# same value. Versions mirror the `big-code-analysis-cli` pins; both
+# crates already sit in the workspace graph, so this adds no new resolved
+# dependency.
+serde_yaml = "^0.9"
+ciborium = "^0.2"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 tracing = "^0.1"
 tracing-subscriber = { version = "^0.3", features = ["env-filter"] }

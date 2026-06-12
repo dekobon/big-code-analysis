@@ -17,6 +17,7 @@ use actix_web::{
     guard::GuardContext,
     http,
     http::header::ContentType,
+    middleware::Condition,
     mime,
     web::{self, BytesMut, Query},
 };
@@ -27,8 +28,10 @@ use tokio::sync::Semaphore;
 use super::comment::{
     WebCommentCfg, WebCommentInfo, WebCommentJson, WebCommentPayload, strip_comments,
 };
+use super::cors::{CorsPolicy, cors_middleware};
 use super::function::{WebFunctionCfg, WebFunctionInfo, WebFunctionPayload, function_spans};
 use super::metrics::{Scope, WebMetricsCfg, WebMetricsInfo, WebMetricsPayload, compute_metrics};
+use super::negotiate;
 use super::vcs::{
     WebVcsJitPayload, WebVcsPayload, WebVcsTrendPayload, compute_vcs, compute_vcs_jit,
     compute_vcs_trend,
@@ -371,6 +374,67 @@ fn json_error(
     })
 }
 
+/// `error` body returned when `Accept` names only unsupported media types
+/// (#657). The body interpolates the supported-type list so the client
+/// sees exactly what to send.
+fn not_acceptable_message() -> String {
+    format!(
+        "No acceptable representation for the `Accept` header. \
+         This endpoint serves {}.",
+        negotiate::SUPPORTED_MEDIA_TYPES
+    )
+}
+
+/// Renders `value` in the format negotiated from `req`'s `Accept` header
+/// (#657), or the matching `406` / `500` when negotiation or serialization
+/// fails.
+///
+/// JSON stays the default (absent `Accept`, `*/*`, or `application/json`)
+/// and carries the exact `application/json` content type the pre-#657
+/// `.json(...)` path emitted, so existing clients see no change. `Accept:
+/// application/yaml` / `application/cbor` get that format with the matching
+/// `Content-Type`; any other concrete type answers `406 Not Acceptable`.
+/// Every failure routes through [`json_error`] so the `{error, error_kind,
+/// id}` envelope is identical to every other endpoint. `id` is the echoed
+/// correlation id (empty for the id-less octet-stream / query endpoints).
+fn negotiated_ok<T: Serialize>(
+    req: &actix_web::HttpRequest,
+    value: &T,
+    id: String,
+) -> HttpResponse {
+    let Some(format) = negotiate::from_request(req) else {
+        return json_error(
+            http::StatusCode::NOT_ACCEPTABLE,
+            not_acceptable_message(),
+            error_kind::NOT_ACCEPTABLE,
+            id,
+        );
+    };
+    let Ok(body) = format.encode(value) else {
+        // Defensive: the response types are plain data, so encoding never
+        // fails today — but a future field that breaks a serializer must
+        // not surface as a partially-written `200` body (mirrors the
+        // METRICS_FAILED / AST_BUILD_FAILED 500 discipline, #517). Leave a
+        // server-side breadcrumb like every other 500 in this module; the
+        // concrete serializer error was already collapsed to `()` in
+        // `Format::encode`, so only the negotiated format is recoverable.
+        tracing::error!(
+            id = %id,
+            format = ?format,
+            "Failed to serialize the response in the negotiated format"
+        );
+        return json_error(
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to serialize the response in the negotiated format",
+            error_kind::SERIALIZE_FAILED,
+            id,
+        );
+    };
+    HttpResponse::Ok()
+        .append_header((http::header::CONTENT_TYPE, format.content_type()))
+        .body(body)
+}
+
 /// Closed vocabulary of stable `snake_case` machine tokens carried in the
 /// `error_kind` field of the uniform error body (#631).
 ///
@@ -440,6 +504,13 @@ mod error_kind {
     pub(super) const METHOD_NOT_ALLOWED: &str = "method_not_allowed";
     /// The `POST` body carried an unsupported / missing `Content-Type`.
     pub(super) const UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
+    /// The request `Accept` header named only media types this server
+    /// cannot produce; content negotiation answered `406` (#657).
+    pub(super) const NOT_ACCEPTABLE: &str = "not_acceptable";
+    /// The negotiated serializer failed to encode the response (defensive
+    /// `500`); the response types are plain data, so this is unreachable
+    /// today (#657).
+    pub(super) const SERIALIZE_FAILED: &str = "serialize_failed";
 }
 
 /// Stable `error_kind` token for a [`VcsError`] (#631).
@@ -573,6 +644,7 @@ impl actix_web::ResponseError for BodyError {
 }
 
 async fn ast_parser(
+    req: actix_web::HttpRequest,
     item: web::Json<AstPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -609,7 +681,8 @@ async fn ast_parser(
         // `root: null` (an error signalled inside a success body); map it
         // to an explicit `500` with an error body instead (issue #517).
         if result.root.is_some() {
-            Ok(HttpResponse::Ok().json(result))
+            let id = result.id.clone();
+            Ok(negotiated_ok(&req, &result, id))
         } else {
             Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -624,6 +697,7 @@ async fn ast_parser(
 }
 
 async fn comment_removal_json(
+    req: actix_web::HttpRequest,
     item: web::Json<WebCommentPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -657,7 +731,10 @@ async fn comment_removal_json(
         // failure would be a logic error, surfaced as a uniform 500 rather
         // than panicking or emitting a lossy payload.
         match WebCommentJson::try_from(result) {
-            Ok(json) => Ok(HttpResponse::Ok().json(json)),
+            Ok(json) => {
+                let id = json.id.clone();
+                Ok(negotiated_ok(&req, &json, id))
+            }
             Err(_) => Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 INTERNAL_SERVER_ERROR,
@@ -708,6 +785,7 @@ async fn comment_removal_plain(
 }
 
 async fn metrics_json(
+    req: actix_web::HttpRequest,
     item: web::Json<WebMetricsPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -733,7 +811,10 @@ async fn metrics_json(
         // `None` means metric computation failed: answer with an explicit
         // `500` instead of the former `200`-with-`spaces: null` (issue #517).
         match response {
-            Some(resp) => Ok(HttpResponse::Ok().json(resp)),
+            Some(resp) => {
+                let id = resp.id.clone();
+                Ok(negotiated_ok(&req, &resp, id))
+            }
             None => Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 METRICS_FAILED,
@@ -747,6 +828,7 @@ async fn metrics_json(
 }
 
 async fn vcs_json(
+    req: actix_web::HttpRequest,
     item: web::Json<WebVcsPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -756,12 +838,13 @@ async fn vcs_json(
     // timeout-guarded blocking pool as the parse endpoints.
     let result = run_parse(&config, &payload_id, move || compute_vcs(payload)).await?;
     match result {
-        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Ok(response) => Ok(negotiated_ok(&req, &response, payload_id)),
         Err(error) => Ok(vcs_error_response(&error, payload_id)),
     }
 }
 
 async fn vcs_trend_json(
+    req: actix_web::HttpRequest,
     item: web::Json<WebVcsTrendPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -771,12 +854,13 @@ async fn vcs_trend_json(
     // timeout-guarded blocking pool as the other endpoints.
     let result = run_parse(&config, &payload_id, move || compute_vcs_trend(payload)).await?;
     match result {
-        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Ok(response) => Ok(negotiated_ok(&req, &response, payload_id)),
         Err(error) => Ok(vcs_error_response(&error, payload_id)),
     }
 }
 
 async fn vcs_jit_json(
+    req: actix_web::HttpRequest,
     item: web::Json<WebVcsJitPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -800,7 +884,7 @@ async fn vcs_jit_json(
     // endpoints for one uniform guard.
     let result = run_parse(&config, &payload_id, move || compute_vcs_jit(payload)).await?;
     match result {
-        Ok(response) => Ok(HttpResponse::Ok().json(response)),
+        Ok(response) => Ok(negotiated_ok(&req, &response, payload_id)),
         Err(error) => Ok(vcs_error_response(&error, payload_id)),
     }
 }
@@ -837,6 +921,7 @@ fn vcs_error_response(error: &VcsError, payload_id: String) -> HttpResponse {
 }
 
 async fn metrics_plain(
+    req: actix_web::HttpRequest,
     body: web::Payload,
     info: Query<WebMetricsInfo>,
     config: web::Data<ParseConfig>,
@@ -869,7 +954,7 @@ async fn metrics_plain(
         // Same error mapping as the JSON variant (issue #517); errors use
         // the uniform JSON body even on the octet-stream endpoint (#541).
         match response {
-            Some(resp) => Ok(HttpResponse::Ok().json(resp)),
+            Some(resp) => Ok(negotiated_ok(&req, &resp, String::new())),
             None => Ok(json_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 METRICS_FAILED,
@@ -883,6 +968,7 @@ async fn metrics_plain(
 }
 
 async fn function_json(
+    req: actix_web::HttpRequest,
     item: web::Json<WebFunctionPayload>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
@@ -902,13 +988,16 @@ async fn function_json(
             function_spans(language, buf, cfg).expect(FEATURES_PINNED)
         })
         .await?;
-        Ok(HttpResponse::Ok().json(result))
+        // `function_spans` returns a `serde_json::Value`, so the echoed
+        // correlation id comes from the request, not the response body.
+        Ok(negotiated_ok(&req, &result, payload_id))
     } else {
         Ok(unsupported_language(payload.id))
     }
 }
 
 async fn function_plain(
+    req: actix_web::HttpRequest,
     body: web::Payload,
     info: Query<WebFunctionInfo>,
     config: web::Data<ParseConfig>,
@@ -926,7 +1015,7 @@ async fn function_plain(
             function_spans(language, buf, cfg).expect(FEATURES_PINNED)
         })
         .await?;
-        Ok(HttpResponse::Ok().json(result))
+        Ok(negotiated_ok(&req, &result, String::new()))
     } else {
         Ok(unsupported_language(String::new()))
     }
@@ -1104,23 +1193,48 @@ async fn index() -> HttpResponse {
     })
 }
 
+/// Builds a `GET`/`HEAD` introspection resource at `path`, routed to
+/// `handler` (#647).
+///
+/// This is the single registration helper for every read-only
+/// introspection route (`/v1`, `/v1/ping`, `/v1/version`, `/v1/languages`).
+/// It is a *forcing function*: a route registered through it cannot omit
+/// the [`get_or_head_guard`] (so `HEAD` is answered wherever `GET` is —
+/// #644, RFC 9110 §9.3.2) or the [`get_only_method_not_allowed`] fallback
+/// (so an unsupported method gets a diagnostic `405` with an `Allow`
+/// header — #655). Before this helper the same three lines were hand-copied
+/// per resource; a future GET route added with a bare `web::get()` compiled
+/// fine and silently `405`'d `HEAD` again — the discipline gap observation
+/// #3 of #647 closes.
+fn get_resource<F, Args>(path: &str, handler: F) -> actix_web::Resource
+where
+    F: actix_web::Handler<Args>,
+    Args: actix_web::FromRequest + 'static,
+    F::Output: actix_web::Responder + 'static,
+{
+    web::resource(path)
+        .route(web::route().guard(get_or_head_guard()).to(handler))
+        .default_service(web::route().to(get_only_method_not_allowed))
+}
+
 /// Builds the route-index resource at the scope-root `path` (#643).
 ///
 /// `path` is `""` for the `/v1` scope (which matches `/v1`) — actix
 /// resolves a scope root only with a scope-appropriately rooted path.
 /// GET/HEAD only, with the same `405` fallback as the other introspection
-/// resources. (The unprefixed `/` alias was removed at 2.0 — #637.)
+/// resources, via the shared [`get_resource`] forcing function (#647).
+/// (The unprefixed `/` alias was removed at 2.0 — #637.)
 fn index_resource(path: &str) -> actix_web::Resource {
-    web::resource(path)
-        .route(web::route().guard(get_or_head_guard()).to(index))
-        .default_service(web::route().to(get_only_method_not_allowed))
+    get_resource(path, index)
 }
 
-/// Runs an HTTP server with the default parse timeout (30 s).
+/// Runs an HTTP server with the default parse timeout (30 s) and CORS off.
 ///
 /// Convenience wrapper around [`run_with_timeout`]. Each service corresponds
 /// to a functionality of the main library and can be accessed through a
-/// different route.
+/// different route. CORS is disabled ([`CorsPolicy::Disabled`]); callers that
+/// need browser cross-origin access pass an explicit policy to
+/// [`run_with_timeout`] (#694).
 ///
 /// # Errors
 ///
@@ -1143,7 +1257,14 @@ fn index_resource(path: &str) -> actix_web::Resource {
 /// }
 /// ```
 pub async fn run(host: &str, port: u16, n_threads: usize) -> std::io::Result<()> {
-    run_with_timeout(host, port, n_threads, DEFAULT_PARSE_TIMEOUT_SECS).await
+    run_with_timeout(
+        host,
+        port,
+        n_threads,
+        DEFAULT_PARSE_TIMEOUT_SECS,
+        CorsPolicy::Disabled,
+    )
+    .await
 }
 
 /// Matches a request whose `Content-Type` media type *essence*
@@ -1251,21 +1372,13 @@ fn register_endpoints(cfg: &mut web::ServiceConfig) {
             .route(web::post().guard(octet_guard()).to(function_plain))
             .default_service(web::route().to(guarded_post_fallback)),
     )
-    .service(
-        web::resource("/ping")
-            .route(web::route().guard(get_or_head_guard()).to(ping))
-            .default_service(web::route().to(get_only_method_not_allowed)),
-    )
-    .service(
-        web::resource("/version")
-            .route(web::route().guard(get_or_head_guard()).to(version))
-            .default_service(web::route().to(get_only_method_not_allowed)),
-    )
-    .service(
-        web::resource("/languages")
-            .route(web::route().guard(get_or_head_guard()).to(languages))
-            .default_service(web::route().to(get_only_method_not_allowed)),
-    );
+    // The GET/HEAD introspection resources route through the `get_resource`
+    // forcing function (#647) so each carries the GET-or-HEAD guard and the
+    // `405` fallback by construction; a future GET route cannot silently
+    // regress to a 405 on HEAD by being registered with a bare `web::get()`.
+    .service(get_resource("/ping", ping))
+    .service(get_resource("/version", version))
+    .service(get_resource("/languages", languages));
 }
 
 fn json_config() -> web::JsonConfig {
@@ -1477,7 +1590,12 @@ async fn not_found() -> HttpResponse {
 
 /// Runs an HTTP server with a configurable parse timeout.
 ///
-/// `parse_timeout_secs = 0` disables the deadline (no timeout).
+/// `parse_timeout_secs = 0` disables the deadline (no timeout). Note this
+/// also disables the orphaned-task admission gate below: with no deadline a
+/// parse never times out, so no task is ever orphaned and the `503`
+/// back-pressure never engages. `0` therefore means "no deadline *and* no
+/// load-shedding" — defensible as "unlimited", but a deliberate coupling to
+/// be aware of (issue #707).
 ///
 /// ## Orphaned-task admission control
 ///
@@ -1487,7 +1605,8 @@ async fn not_found() -> HttpResponse {
 /// with `503` once the orphan count reaches a soft cap. The cap defaults
 /// to `max(n_threads * 2, 4)` and can be overridden by the
 /// `BCA_MAX_ORPHANED_TASKS` environment variable (parsed as `usize`;
-/// invalid or zero values fall back to the default).
+/// invalid or zero values fall back to the default). A `parse_timeout_secs`
+/// of `0` short-circuits this whole mechanism (see above).
 ///
 /// # Errors
 ///
@@ -1497,6 +1616,7 @@ pub async fn run_with_timeout(
     port: u16,
     n_threads: usize,
     parse_timeout_secs: u64,
+    cors: CorsPolicy,
 ) -> std::io::Result<()> {
     let default_max_orphaned = n_threads.saturating_mul(2).max(4);
     let max_orphaned_tasks = std::env::var("BCA_MAX_ORPHANED_TASKS")
@@ -1516,10 +1636,22 @@ pub async fn run_with_timeout(
         max_body_size: MAX_BODY_SIZE,
     });
 
+    // CORS is off by default (#694): the `from_fn` layer is wrapped only
+    // when `--cors` is enabled (`Condition::new`), so the default request
+    // path carries no extra middleware. The policy is registered as app
+    // data so the `cors_middleware` extractor can read it when enabled.
+    let cors_enabled = cors != CorsPolicy::Disabled;
+    let cors = web::Data::new(cors);
+
     HttpServer::new(move || {
         App::new()
+            .wrap(Condition::new(
+                cors_enabled,
+                actix_web::middleware::from_fn(cors_middleware),
+            ))
             .wrap(tracing_actix_web::TracingLogger::default())
             .app_data(config.clone())
+            .app_data(cors.clone())
             // `JsonConfig` / `QueryConfig` (with the `{error, id}` error
             // handlers) are installed inside `configure_routes` so the
             // integration tests share them (#639).

@@ -47,16 +47,27 @@ pub struct Span {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AstPayload {
-    /// The id associated to a request for an `AST`
+    /// The id associated to a request for an `AST`.
+    ///
+    /// Optional on the wire (#645): an omitted `id` deserializes to the
+    /// empty string, which every downstream surface already treats as
+    /// "no correlation id". Defaulting it stops clients eating a `400`
+    /// for a field whose absence has an obvious meaning.
+    #[serde(default)]
     pub id: String,
     /// The filename associated to a source code file
     pub file_name: String,
     /// The code to be represented as an `AST`
     pub code: String,
-    /// If `true`, nodes representing comments are ignored
+    /// If `true`, nodes representing comments are ignored. Optional on
+    /// the wire (#645): omitting it defaults to `false`, matching the
+    /// `bool` default and the most common request shape.
+    #[serde(default)]
     pub comment: bool,
     /// If `true`, the start and end positions of a node in a code
-    /// are considered
+    /// are considered. Optional on the wire (#645): omitting it defaults
+    /// to `false`.
+    #[serde(default)]
     pub span: bool,
 }
 

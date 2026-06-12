@@ -8,7 +8,10 @@ use big_code_analysis::{Ast, LANG, MetricsError, Source};
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebCommentPayload {
-    /// Payload identifier.
+    /// Payload identifier. Optional on the wire (#645): an omitted `id`
+    /// defaults to the empty string, the "no correlation id" sentinel
+    /// every downstream surface already honours.
+    #[serde(default)]
     pub id: String,
     /// Source code filename.
     pub file_name: String,
