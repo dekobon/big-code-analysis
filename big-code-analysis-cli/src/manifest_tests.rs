@@ -249,6 +249,19 @@ fn merge_globals_exclude_tests_opts_in() {
     let mut g_absent = GlobalOpts::default();
     manifest(RawManifest::default()).merge_globals(&mut g_absent, false);
     assert!(!g_absent.exclude_tests);
+
+    // Explicit `exclude_tests = false` with the CLI flag unset stays off:
+    // the key can only turn pruning on, and `Some(false)` must not be
+    // mistaken for "set" — this pins the `unwrap_or(false)` value-merge
+    // against an `is_some()`-style regression that the absent (`None`)
+    // case alone would not catch.
+    let mut g_explicit_off = GlobalOpts::default();
+    manifest(RawManifest {
+        exclude_tests: Some(false),
+        ..Default::default()
+    })
+    .merge_globals(&mut g_explicit_off, false);
+    assert!(!g_explicit_off.exclude_tests);
 }
 
 #[test]
