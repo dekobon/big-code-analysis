@@ -6,7 +6,8 @@
 
 //! Bridge for the change-history (VCS) metrics surface exposed to
 //! Python: the standalone [`vcs_report_json`] (backing `vcs_metrics()`)
-//! and [`inject_vcs`] (backing the `analyze(..., vcs=True)` opt-in).
+//! and [`inject_vcs_with_index`] (backing the `analyze(..., vcs=True)`
+//! opt-in).
 //!
 //! Both produce / mutate JSON strings, reusing the same
 //! `conversion::json_string_to_py` boundary as the AST entry points, so
@@ -286,30 +287,14 @@ pub(crate) fn open_blame_for(root: &Path) -> Option<vcs::PerFunctionBlame> {
     vcs::PerFunctionBlame::open(root, Options::default()).ok()
 }
 
-/// Inject a `vcs` block into a single file's metrics JSON for
-/// `analyze(..., vcs=True)`. Builds a one-shot index for the file's
-/// repository, attaches the matching block (and a hotspot score from
-/// the cyclomatic sum already present in the JSON), and returns the
-/// rewritten JSON. A file with no index entry (untracked / binary) or
-/// outside any repository is returned unchanged.
-pub(crate) fn inject_vcs(funcspace_json: String, file_path: &Path) -> Result<String, PyErr> {
-    let root = repo_root_for(file_path);
-    // Discovery failures (not a repo) are non-fatal here: `analyze` still
-    // returns the AST metrics, just without a `vcs` block.
-    let Ok(index) = build_history_index_cached(root, &Options::default(), &CacheConfig::default())
-    else {
-        return Ok(funcspace_json);
-    };
-    inject_vcs_with_index(funcspace_json, file_path, &index)
-}
-
 /// Inject a file-level `vcs` block using a pre-built [`HistoryIndex`].
 ///
-/// The index-building primitive split out of [`inject_vcs`] so the batch
-/// entry point (#670) can build one index per containing repository and
-/// reuse it across every file in that repo, rather than one one-shot walk
-/// per file. A file with no index entry (untracked / binary) is returned
-/// unchanged, the same graceful degradation as the single-file path.
+/// Backs both `analyze(..., vcs=True)` (single file) and the batch
+/// `vcs=True` path (#670): the caller builds the index off-GIL (#620) —
+/// one per containing repository for the batch path, reused across every
+/// file in that repo — and this attaches the matching block (and a
+/// hotspot score from the cyclomatic sum already present in the JSON). A
+/// file with no index entry (untracked / binary) is returned unchanged.
 pub(crate) fn inject_vcs_with_index(
     funcspace_json: String,
     file_path: &Path,
@@ -332,9 +317,10 @@ pub(crate) fn inject_vcs_with_index(
 
 /// Fill `wire_vcs.hotspot_score` from the space's own cyclomatic sum and
 /// insert the serialized block under the space's `metrics.vcs`. Shared by
-/// the file-level [`inject_vcs`] and the per-function [`attach_vcs_block`]
-/// so the two paths compute the hotspot and serialize the block
-/// identically and cannot drift (mirrors the CLI's `set_hotspot_score`).
+/// the file-level [`inject_vcs_with_index`] and the per-function
+/// [`attach_vcs_block`] so the two paths compute the hotspot and serialize
+/// the block identically and cannot drift (mirrors the CLI's
+/// `set_hotspot_score`).
 ///
 /// The hotspot needs the cyclomatic sum already in the serialized metrics
 /// (present when cyclomatic was computed); a space without it keeps
@@ -356,42 +342,23 @@ fn attach_vcs_to_space(space: &mut Value, wire_vcs: &mut wire::Vcs) -> Result<()
     Ok(())
 }
 
-/// Inject a per-function `vcs` block into every nested function / method /
-/// class space of a file's metrics JSON for
-/// `analyze(..., vcs_per_function=True)` (issue #329 / #578). Opens a
-/// `git blame` engine for the file's repository, blames the file **once**,
-/// and attaches one block per descendant space (with a hotspot score from
-/// that space's own cyclomatic sum), returning the rewritten JSON.
+/// Inject per-function `vcs` blocks into every nested function / method /
+/// class space of a file's metrics JSON using a pre-built
+/// [`PerFunctionBlame`] engine (issue #329 / #578).
+///
+/// Backs both `analyze(..., vcs_per_function=True)` (single file) and the
+/// batch `vcs_per_function=True` path (#670): the caller opens the blame
+/// engine off-GIL (#620) — one per containing repository for the batch
+/// path, reused across every file in that repo — and this blames the file
+/// **once** and attaches one block per descendant space (with a hotspot
+/// score from that space's own cyclomatic sum).
 ///
 /// The file-level (root) space is left untouched here — it carries the
-/// whole-file block that [`inject_vcs`] attaches when `vcs=True` is also
-/// set. A file outside any repository, an unblameable file (untracked,
-/// outside the work tree, deleted at the target ref), or a file with no
-/// nested spaces is returned unchanged, mirroring the CLI's graceful
-/// degradation (`bca metrics --vcs-per-function` never aborts the walk on
-/// one bad file).
-pub(crate) fn inject_vcs_per_function(
-    funcspace_json: String,
-    file_path: &Path,
-) -> Result<String, PyErr> {
-    let root = repo_root_for(file_path);
-    // Discovery failures (not a repo) are non-fatal: `analyze` still
-    // returns the AST metrics, just without per-function `vcs` blocks.
-    let Ok(blame) = vcs::PerFunctionBlame::open(root, Options::default()) else {
-        return Ok(funcspace_json);
-    };
-    inject_vcs_per_function_with_blame(funcspace_json, file_path, &blame)
-}
-
-/// Inject per-function `vcs` blocks using a pre-built [`PerFunctionBlame`]
-/// engine.
-///
-/// The blame-opening primitive split out of [`inject_vcs_per_function`] so
-/// the batch entry point (#670) can open one blame engine per containing
-/// repository and reuse it across every file in that repo. The file is
-/// still blamed once (the engine caches nothing across files); a blame
-/// failure on one file leaves its per-function blocks unset, the same
-/// graceful degradation as the single-file path.
+/// whole-file block that [`inject_vcs_with_index`] attaches when
+/// `vcs=True` is also set. A file with no nested spaces, or an unblameable
+/// file (untracked, outside the work tree, deleted at the target ref), is
+/// returned unchanged, mirroring the CLI's graceful degradation (`bca
+/// metrics --vcs-per-function` never aborts the walk on one bad file).
 pub(crate) fn inject_vcs_per_function_with_blame(
     funcspace_json: String,
     file_path: &Path,
@@ -484,8 +451,8 @@ fn assign_child_stats(
 
 /// Serialize one `Stats` (with a hotspot score derived from the space's own
 /// cyclomatic sum) into the space's `metrics.vcs`. Mirrors
-/// [`inject_vcs`]'s file-level attachment so the per-function block shape is
-/// byte-identical to the CLI's.
+/// [`inject_vcs_with_index`]'s file-level attachment so the per-function
+/// block shape is byte-identical to the CLI's.
 fn attach_vcs_block(space: &mut Value, stat: &vcs::Stats) -> Result<(), PyErr> {
     let mut wire_vcs = wire::Vcs::from(stat);
     attach_vcs_to_space(space, &mut wire_vcs)

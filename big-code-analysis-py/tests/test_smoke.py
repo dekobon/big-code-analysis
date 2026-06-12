@@ -265,6 +265,66 @@ def test_analyze_skip_generated_matches_cli_walker(bca_binary: str) -> None:
     assert bca.analyze(path) is None
 
 
+def test_analyze_skips_tiny_file_like_cli_walker(tmp_path: Path) -> None:
+    """CLI parity for near-empty files (#706).
+
+    The CLI walker reads through ``read_file_with_eol``, which treats a
+    file of three bytes or fewer as empty and emits no record. The
+    bindings now route ``analyze`` through the same helper, so a
+    one-byte source returns ``None`` rather than a populated FuncSpace.
+
+    Test-via-revert: swapping ``analyze_path`` back to ``std::fs::read``
+    parses the byte and returns ``Some(...)``, failing this assertion.
+    """
+    src = tmp_path / "tiny.py"
+    src.write_text("x")  # 1 byte — at or below the walker's empty cutoff.
+    assert bca.analyze(src) is None
+
+
+def test_analyze_skips_binary_file_like_cli_walker(tmp_path: Path) -> None:
+    """CLI parity for binary files (#706).
+
+    ``read_file_with_eol`` inspects the leading window and bails with a
+    skip (``Ok(None)``) when it is not valid UTF-8. The bindings inherit
+    that gate: a file whose head is non-UTF-8 bytes returns ``None``
+    instead of being parsed as source. The ``.py`` extension keeps
+    language resolution off the table so the skip under test is the
+    binary-head gate, not an unrecognised extension.
+    """
+    src = tmp_path / "blob.py"
+    # A run of high bytes that cannot decode as UTF-8, long enough to
+    # clear the three-byte empty cutoff and fill the leading window.
+    src.write_bytes(b"\xff\xfe\x00\x01\x02\x03" * 16)
+    assert bca.analyze(src) is None
+
+
+def test_analyze_directory_raises_not_silently_skipped(tmp_path: Path) -> None:
+    """A path that exists but is a directory must *raise*, not be silently
+    skipped (#706).
+
+    ``read_file_with_eol`` masks this case on Linux: ``File::open`` on a
+    directory succeeds and the later read fails into a silent ``Ok(None)``
+    skip. ``analyze_path`` guards against that by re-issuing a plain read
+    for a directory so the OS error surfaces as a hard exception.
+
+    The exact ``OSError`` subclass is errno-derived and therefore
+    platform-specific: Linux/macOS yield ``IsADirectoryError`` (``EISDIR``)
+    while Windows surfaces a bare ``OSError`` (``[Errno 5]`` for a
+    directory read). Assert the common ``OSError`` base — every subclass
+    satisfies the contract that a directory must not be silently skipped.
+
+    Test-via-revert (Linux): deleting the ``if path.is_dir()`` guard in
+    ``analyze_path`` makes ``analyze`` on a directory return ``None``, so
+    the ``else`` branch fails.
+    """
+    try:
+        bca.analyze(tmp_path)
+    except OSError:
+        pass  # expected: a directory raises some OSError on every platform
+    else:
+        pytest.fail("analyze() on a directory must raise, not return silently")
+
+
 def test_analyze_combines_skip_generated_false_with_exclude_tests() -> None:
     """Both kwargs cooperate on the same file.
 

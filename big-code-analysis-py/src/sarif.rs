@@ -74,11 +74,18 @@ use big_code_analysis::{OffenderRecord, Severity, write_sarif};
 
 use crate::batch::PyAnalysisError;
 
-/// Placeholder emitted when a non-unit space has no parsed name. Matches
-/// the CLI's `function_token` in `big-code-analysis-cli/src/thresholds.rs`
-/// so SARIF `logicalLocations` is identical on both sides for the
-/// rare parse-failure case.
-const UNNAMED_FUNCTION_PLACEHOLDER: &str = "<unnamed>";
+/// The literal name every grammar surfaces for an anonymous space
+/// (closure / lambda). The CLI's `space_segment` rewrites both this
+/// sentinel and the `None`-name parse-failure case to `<anon@L{line}>`
+/// so anonymous spaces keep a stable-within-a-snapshot identity; the
+/// binding mirrors that rewrite in [`space_segment`].
+const ANONYMOUS_SPACE_NAME: &str = "<anonymous>";
+
+/// Symbol emitted for the file-level `unit` space. Matches the CLI's
+/// `qualified_symbol` collapse in `big-code-analysis-cli/src/thresholds.rs`
+/// (the file path itself lives on `artifactLocation.uri`, so the function
+/// slot carries the `<file>` sentinel instead of duplicating it).
+const FILE_SYMBOL: &str = "<file>";
 
 /// One metric entry in the threshold-name → JSON-path table.
 ///
@@ -257,9 +264,16 @@ struct Threshold {
     /// True for the metrics whose unit-level emission must be skipped
     /// (see [`MetricField::skip_at_unit`]).
     skip_at_unit: bool,
-    /// Threshold the metric value must strictly exceed to emit a
-    /// finding. Mirrors the CLI's `value > limit` (not `>=`).
+    /// Threshold the metric value is compared against to emit a finding.
+    /// The comparison direction depends on `lower_is_worse`; in both
+    /// directions the exact-limit value is acceptable (strict `<`/`>`,
+    /// not `<=`/`>=`), mirroring the CLI.
     limit: f64,
+    /// True for lower-is-worse metrics (`mi.*`): a value strictly BELOW
+    /// the limit is the violation, not above it. Sourced from the
+    /// library metric catalog so it stays in lockstep with the CLI gate
+    /// (#698).
+    lower_is_worse: bool,
 }
 
 /// Builds the "unknown threshold metric" error for `name`, listing the
@@ -306,11 +320,13 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
             .copied()
             .find(|m| m.name == name)
             .ok_or_else(|| unknown_threshold_metric_err(&name))?;
+        let lower_is_worse = big_code_analysis::metric_catalog::lower_is_worse(entry.name);
         out.push(Threshold {
             name: entry.name,
             path: entry.path,
             skip_at_unit: entry.skip_at_unit,
             limit,
+            lower_is_worse,
         });
     }
     Ok(out)
@@ -387,8 +403,13 @@ struct SpaceFields {
     /// Whether the space is the file-level `unit` space (drives the
     /// `skip_at_unit` and `<file>` function-name rules).
     is_unit: bool,
-    /// The SARIF `logicalLocations` function name for the space.
-    function: Option<String>,
+    /// This space's own `::`-segment in the qualified-symbol chain (the
+    /// CLI's `space_segment`): the AST-derived name for a named space, or
+    /// `<anon@L{start_line}>` for anonymous / unnamed spaces. The unit
+    /// root contributes no segment (its identity is the path key); the
+    /// final SARIF function name is assembled from the enclosing chain in
+    /// [`collect_offenders`], mirroring the CLI's `qualified_symbol`.
+    segment: String,
     /// 1-based start line (0 when absent), clamped to `u32::MAX`.
     start_line: u32,
     /// 1-based end line (falls back to `start_line` when absent).
@@ -423,32 +444,42 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
     let start_line: u32 = extract_line_number(space, intern!(py, "start_line"))?.unwrap_or(0);
     let end_line: u32 = extract_line_number(space, intern!(py, "end_line"))?.unwrap_or(start_line);
 
-    // `function` field for SARIF `logicalLocations`. Mirrors the
-    // CLI's `function_token` in
-    // `big-code-analysis-cli/src/thresholds.rs`: unit spaces emit
-    // `<file>` (the path itself is on `artifactLocation.uri`, so
-    // duplicating it in the function slot would be redundant);
-    // non-unit spaces emit the space's `name`, falling back to
-    // `<unnamed>` for the rare parse-failure case where the name
-    // couldn't be recovered.
-    let function: Option<String> = Some(if is_unit {
-        "<file>".to_string()
-    } else {
-        // `as_deref()` avoids cloning when `space_name` is `Some` —
-        // `to_string()` allocates exactly once for the placeholder
-        // branch and exactly once for the named branch.
-        space_name
-            .as_deref()
-            .unwrap_or(UNNAMED_FUNCTION_PLACEHOLDER)
-            .to_string()
-    });
+    // This space's own `::`-segment in the qualified-symbol chain.
+    // Mirrors the CLI's `space_segment`
+    // (`big-code-analysis-cli/src/thresholds.rs`): a named space
+    // contributes its AST name; an anonymous space — the literal
+    // `<anonymous>` every grammar emits for closures/lambdas, plus the
+    // `None`-name parse-failure case — collapses to `<anon@L{start_line}>`
+    // so it keeps a stable-within-a-snapshot identity. The unit root's
+    // segment is unused (`collect_offenders` emits `<file>` for it), so
+    // computing it unconditionally here is harmless.
+    let segment = match space_name.as_deref() {
+        Some(name) if name != ANONYMOUS_SPACE_NAME => name.to_string(),
+        _ => format!("<anon@L{start_line}>"),
+    };
 
     Ok(SpaceFields {
         is_unit,
-        function,
+        segment,
         start_line,
         end_line,
     })
+}
+
+/// The qualified symbol of a space, given the `::`-joined symbol of its
+/// enclosing chain (`parent_prefix`, empty at the file top level).
+/// Mirrors the CLI's `qualified_symbol`: a unit space collapses to
+/// `<file>`; every other space appends its own [`SpaceFields::segment`]
+/// to the parent prefix.
+fn qualified_symbol(fields: &SpaceFields, parent_prefix: &str) -> String {
+    if fields.is_unit {
+        return FILE_SYMBOL.to_string();
+    }
+    if parent_prefix.is_empty() {
+        fields.segment.clone()
+    } else {
+        format!("{parent_prefix}::{}", fields.segment)
+    }
 }
 
 fn collect_offenders(
@@ -465,13 +496,19 @@ fn collect_offenders(
         _ => PathBuf::from("<source>"),
     };
 
-    let mut stack: Vec<Bound<'_, PyDict>> = vec![result.clone()];
-    while let Some(space) = stack.pop() {
+    // Each stack frame carries the popped space's *parent* qualified
+    // prefix so a violation can be stamped with the full
+    // `Container::method` symbol — mirroring the CLI's
+    // `evaluate_with_policy` (issue #377, #706). The file root starts
+    // with an empty prefix (it contributes no segment of its own).
+    let mut stack: Vec<(Bound<'_, PyDict>, String)> = vec![(result.clone(), String::new())];
+    while let Some((space, parent_prefix)) = stack.pop() {
         let Some(metrics) = space.get_item(intern!(py, "metrics"))? else {
             continue;
         };
 
         let fields = extract_space_fields(&space)?;
+        let qualified = qualified_symbol(&fields, &parent_prefix);
 
         for threshold in thresholds {
             if fields.is_unit && threshold.skip_at_unit {
@@ -480,12 +517,20 @@ fn collect_offenders(
             let Some(value) = extract_metric(&metrics, threshold.path) else {
                 continue;
             };
-            if value <= threshold.limit {
+            // `mi.*` is lower-is-worse: a value below the limit is the
+            // violation. Every other metric flags above the limit. The
+            // exact-limit value is acceptable either way (#698).
+            let breaches = if threshold.lower_is_worse {
+                value < threshold.limit
+            } else {
+                value > threshold.limit
+            };
+            if !breaches {
                 continue;
             }
             out.push(OffenderRecord {
                 path: path.clone(),
-                function: fields.function.clone(),
+                function: Some(qualified.clone()),
                 start_line: fields.start_line,
                 end_line: fields.end_line,
                 start_col: None,
@@ -496,13 +541,22 @@ fn collect_offenders(
             });
         }
 
+        // Children inherit this space's qualified symbol as their prefix,
+        // except the file root, which stays empty so a top-level function
+        // is `foo`, not `<file>::foo` (matching the CLI walk).
+        let child_prefix = if fields.is_unit {
+            String::new()
+        } else {
+            qualified
+        };
+
         if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
             && let Ok(seq) = spaces.try_iter()
         {
             for child in seq {
                 let child = child?;
                 if let Ok(child_dict) = child.cast_into::<PyDict>() {
-                    stack.push(child_dict);
+                    stack.push((child_dict, child_prefix.clone()));
                 }
             }
         }

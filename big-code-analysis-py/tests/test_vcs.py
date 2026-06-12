@@ -104,6 +104,49 @@ def test_analyze_vcs_true_attaches_block(tmp_path: Path) -> None:
     assert hotspot > 0.0
 
 
+def test_analyze_vcs_true_releases_gil_for_walk(tmp_path: Path) -> None:
+    """The ``analyze(vcs=True)`` history walk runs off-GIL (#620).
+
+    Coarse no-deadlock / progress check, not a wall-clock threshold (CI
+    timing is too flaky for a hard budget): run the VCS-injecting analyze
+    in a worker thread and confirm the main thread keeps making progress —
+    it counts up while the walk runs and the walk returns its block. If the
+    walk held the GIL for its whole duration the worker would still finish,
+    so this cannot guarantee true parallelism, but it pins the contract
+    that the off-GIL call completes and produces the same result a serial
+    call does.
+    """
+    import threading
+
+    repo = _build_repo(tmp_path)
+    target = repo / "work.rs"
+
+    result: dict[str, Any] = {}
+    started = threading.Event()
+
+    def run() -> None:
+        started.set()
+        out = bca.analyze(target, vcs=True)
+        assert out is not None
+        result["vcs"] = out["metrics"]["vcs"]
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    started.wait()
+    # The main thread advances while the worker walks history; with the GIL
+    # released for the walk this loop interleaves rather than blocking until
+    # the worker is fully done.
+    progressed = 0
+    while worker.is_alive():
+        progressed += 1
+        time.sleep(0.001)
+    worker.join(timeout=30.0)
+
+    assert not worker.is_alive(), "VCS walk worker thread deadlocked"
+    assert progressed > 0
+    assert result["vcs"]["commits_long"] == 1
+
+
 def test_analyze_without_vcs_has_no_block(tmp_path: Path) -> None:
     repo = _build_repo(tmp_path)
     result = bca.analyze(repo / "work.rs")
@@ -379,14 +422,13 @@ def test_vcs_metrics_cache_dir_replays_identically(tmp_path: Path) -> None:
     repo = _build_repo(repo_dir)
     cache_dir = tmp_path / "cache"
 
-    first = bca_vcs.rank(
-        repo, options=bca_vcs.Options(as_of="@1700000000"), cache_dir=str(cache_dir)
-    )
+    # No `as_of`: a historical `as_of` deliberately bypasses the
+    # HEAD-keyed persistent cache (#648), so the cache is exercised by a
+    # default HEAD-anchored walk.
+    first = bca_vcs.rank(repo, cache_dir=str(cache_dir))
     # An entry was persisted under the cache directory.
     assert any(cache_dir.rglob("*.json"))
-    second = bca_vcs.rank(
-        repo, options=bca_vcs.Options(as_of="@1700000000"), cache_dir=str(cache_dir)
-    )
+    second = bca_vcs.rank(repo, cache_dir=str(cache_dir))
     assert first == second
 
 
@@ -580,12 +622,10 @@ def test_vcs_metrics_cache_dir_path_matches_str(tmp_path: Path) -> None:
     path_cache = tmp_path / "by_path"
     str_cache = tmp_path / "by_str"
 
-    via_path = bca_vcs.rank(
-        repo, options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}"), cache_dir=path_cache
-    )
-    via_str = bca_vcs.rank(
-        repo, options=bca_vcs.Options(as_of=f"@{_FIXED_EPOCH}"), cache_dir=str(str_cache)
-    )
+    # No `as_of`: a historical `as_of` bypasses the HEAD-keyed cache
+    # (#648), so exercise the cache with a default HEAD-anchored walk.
+    via_path = bca_vcs.rank(repo, cache_dir=path_cache)
+    via_str = bca_vcs.rank(repo, cache_dir=str(str_cache))
     assert via_path == via_str
     assert any(path_cache.rglob("*.json"))
 

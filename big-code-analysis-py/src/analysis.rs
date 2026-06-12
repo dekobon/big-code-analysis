@@ -33,7 +33,7 @@ use std::path::Path;
 
 use big_code_analysis::{
     LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
-    normalize_eol,
+    normalize_eol, read_file_with_eol,
 };
 
 use crate::language::{parse_language_name, unknown_language_message};
@@ -283,6 +283,17 @@ impl From<serde_json::Error> for AnalysisError {
 /// path would have raised `UnsupportedLanguageError` without
 /// touching the filesystem.
 ///
+/// The read goes through the CLI walker's own
+/// [`big_code_analysis::read_file_with_eol`] helper (#706), so the
+/// binding applies the walker's pre-dispatch gating verbatim: files of
+/// three bytes or fewer are treated as empty, a UTF-8 / UTF-16 BOM is
+/// stripped, a non-UTF-8 leading window marks the file as binary, and
+/// CR/CRLF line endings are normalised to LF. Each of these cases
+/// returns `Ok(None)` — the same "no record emitted" signal the CLI
+/// walker uses when it skips a file (and the same the `skip_generated`
+/// filter below uses). A prior plain `std::fs::read` diverged here by
+/// parsing tiny / binary / BOM-prefixed files the CLI silently skips.
+///
 /// `exclude_tests` mirrors the CLI's `--exclude-tests` flag (#315):
 /// when `true`, the analysis runs under
 /// `MetricsOptions::default().with_exclude_tests(true)`, which the
@@ -336,15 +347,51 @@ pub(crate) fn analyze_path(
         None if opts.allow_lossy_path => path.to_string_lossy().into_owned(),
         None => return Err(AnalysisError::NonUtf8Path),
     };
-    // Capture the path on I/O failure so the Python OSError carries
-    // `filename` and CPython can dispatch to FileNotFoundError /
-    // PermissionError / IsADirectoryError based on `errno`.
-    let code = std::fs::read(path).map_err(|source| AnalysisError::io(source, path))?;
+    // Read through the SAME helper the CLI walker uses
+    // (`read_file_with_eol`) rather than a plain `std::fs::read`, so the
+    // binding inherits the walker's pre-dispatch file gating verbatim
+    // (issue #706, #640): files of three bytes or fewer are treated as
+    // empty, UTF-8 / UTF-16 BOMs are stripped, a non-UTF-8 leading window
+    // marks the file as binary, and CR/CRLF endings are normalised to LF
+    // with a guaranteed trailing newline. Each skip case returns
+    // `Ok(None)` — the same "no record emitted" signal the CLI walker
+    // uses when it discards a file, and the same signal `skip_generated`
+    // already uses below. A plain read diverged here: the bindings parsed
+    // tiny / binary / BOM-prefixed files the CLI silently skips, and
+    // computed metrics on un-normalised bytes.
+    //
+    // I/O failures still surface as `AnalysisError::Io` carrying the path
+    // so the Python `OSError` can dispatch to FileNotFoundError /
+    // PermissionError / IsADirectoryError via `errno` / `filename` — the
+    // `File::open` inside `read_file_with_eol` is where those errors
+    // originate, exactly as the prior `std::fs::read` was.
+    //
+    // A directory is the one input where `read_file_with_eol` masks the
+    // error: on Linux `File::open` on a directory succeeds and the
+    // subsequent `read_exact` fails into a silent `Ok(None)` (a "skip"),
+    // not the EISDIR `Err` a plain `std::fs::read` produced. Re-issue the
+    // plain read for that case so a directory named directly stays a hard
+    // `IsADirectoryError` (with the platform's real errno) rather than
+    // being silently dropped — the walker never hands a directory to this
+    // single-file path, so this is purely a robustness guard for the
+    // direct `analyze` entry point.
+    if path.is_dir() {
+        let err = std::fs::read(path)
+            .err()
+            .unwrap_or_else(|| std::io::Error::other("path is a directory"));
+        return Err(AnalysisError::io(err, path));
+    }
+    let Some(code) = read_file_with_eol(path).map_err(|source| AnalysisError::io(source, path))?
+    else {
+        return Ok(None);
+    };
     // Generated-file filter (CLI parity, #317): runs *before* language
     // inference so a generated file with an unknown extension still
     // returns `Ok(None)` rather than raising `UnsupportedLanguage` —
     // matches the CLI walker, which discards generated files without
-    // attempting to resolve their language.
+    // attempting to resolve their language. `read_file_with_eol` has
+    // already EOL-normalised `code`, matching the bytes the CLI walker
+    // feeds to `is_generated` / `guess_language`.
     if opts.skip_generated && is_generated(&code) {
         return Ok(None);
     }
@@ -357,12 +404,6 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    // `std::fs::read` above is a plain read, unlike the CLI's
-    // `read_file_with_eol`; normalise before parsing so `analyze_path`
-    // reports the same metrics the CLI does for the same file (issue #640).
-    // Runs after `is_generated` / `guess_language`, which match the CLI
-    // walker by inspecting the raw on-disk bytes.
-    let code = normalize_eol(code);
     analyze_bytes(lang, &code, Some(name), opts).map(Some)
 }
 
