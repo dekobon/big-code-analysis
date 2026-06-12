@@ -333,7 +333,7 @@ jobs:
       # by an in-source `bca: suppress` marker or covered by the
       # baseline); suppressed/baselined debt is tracked where it lives —
       # the markers in source and `.bca-baseline.toml` — not as phantom
-      # Code Scanning alerts. `--tier soft --headroom 0.95` keeps the
+      # Code Scanning alerts. `--tier=soft=0.95` keeps the
       # published alert set aligned with the soft (headroom) gate, so an
       # unsuppressed function creeping into the 95-100% band shows up as
       # an early warning before the hard gate trips.
@@ -341,7 +341,7 @@ jobs:
         if: always()
         run: >-
           bca check --output-format sarif --no-fail
-          --tier soft --headroom 0.95 --output bca.sarif
+          --tier=soft=0.95 --output bca.sarif
 
       # Fork PRs get a read-only GITHUB_TOKEN without security-events
       # scope, so the upload would error; skip it there (and when no

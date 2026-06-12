@@ -195,7 +195,7 @@ code-scan report entirely. `bca check --report-suppressed` puts it back, as
 *suppressed* rather than active:
 
 ```bash
-bca check --format sarif --no-fail --report-suppressed \
+bca check --report-format sarif --no-fail --report-suppressed \
     --tier=soft=0.95 --output bca.sarif
 ```
 

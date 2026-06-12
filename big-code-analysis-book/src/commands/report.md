@@ -188,8 +188,8 @@ collapsible entry.
 Suppression is applied uniformly across **every** output, not just the
 reports. A function silenced for a metric — via an in-source marker or
 the baseline — is dropped from `bca check`'s offender formats
-(`code-climate`, `sarif`, `checkstyle`, `tty`, `json`) and from the
-matching report hotspot table alike. The CodeClimate, SARIF, and
+(`code-climate`, `sarif`, `checkstyle`, `clang-warning`, `msvc-warning`)
+and from the matching report hotspot table alike. The CodeClimate, SARIF, and
 Checkstyle documents are themselves three renderings of one offender
 set, so they agree by construction; the reports honour the same
 per-metric suppression decisions.

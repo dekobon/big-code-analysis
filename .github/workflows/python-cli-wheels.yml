@@ -354,8 +354,8 @@ jobs:
           # grammar set is compiled in, not just the host language.
           printf 'def add(a, b):\n    if a > b:\n        return a\n    return b\n' > smoke.py
           printf 'fn main() { if true { println!("x"); } }\n' > smoke.rs
-          py_cc=$(bca --paths smoke.py metrics -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
-          rs_cc=$(bca --paths smoke.rs metrics -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
+          py_cc=$(bca metrics --paths smoke.py -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
+          rs_cc=$(bca metrics --paths smoke.rs -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
           test "$py_cc" = "3.0" || { echo "::error::python cyclomatic.sum=$py_cc, expected 3.0"; exit 1; }
           test "$rs_cc" = "3.0" || { echo "::error::rust cyclomatic.sum=$rs_cc, expected 3.0"; exit 1; }
           echo "smoke OK"

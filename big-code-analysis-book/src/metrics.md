@@ -758,8 +758,8 @@ the MOOD ("Metrics for Object-Oriented Design") suite proposed by
 big-code-analysis splits the count by definition-site kind:
 *classes* (concrete types with state) and *interfaces* (abstract
 contracts). The serialised output (`src/metrics/npa.rs`) is
-`classes` (sum of NPA across all classes), `interfaces` (sum across
-interfaces), `class_attributes` (sum of *all* attributes — public or
+`class_npa_sum` (sum of NPA across all classes), `interface_npa_sum`
+(sum across interfaces), `class_attributes` (sum of *all* attributes — public or
 not — across classes), `interface_attributes`, `class_cda`
 (class density of public attributes — an accessibility *ratio*, not an
 average), `interface_cda`, `total`, `total_attributes`, and `cda`. The
@@ -791,8 +791,8 @@ codified by Lorenz and Kidd (1994).
 
 As with NPA, big-code-analysis splits NPM by definition-site kind
 (classes vs. interfaces). The serialised output
-(`src/metrics/npm.rs`) is `classes` (sum of NPM across classes),
-`interfaces`, `class_methods` (sum of *all* methods — public or
+(`src/metrics/npm.rs`) is `class_npm_sum` (sum of NPM across classes),
+`interface_npm_sum`, `class_methods` (sum of *all* methods — public or
 not — across classes), `interface_methods`, `class_coa`,
 `interface_coa` (operation-accessibility *ratios*, not averages),
 `total`, `total_methods`, and `coa`.
@@ -885,8 +885,8 @@ and that is what big-code-analysis uses.
 For each class or interface found by the per-language parser,
 big-code-analysis sums the standard cyclomatic complexity of every
 method body inside it (`src/metrics/wmc.rs`). The file-level
-serialised output is three fields: `classes` (sum of WMC across
-all classes in the file), `interfaces` (sum across interfaces),
+serialised output is three fields: `class_wmc_sum` (sum of WMC across
+all classes in the file), `interface_wmc_sum` (sum across interfaces),
 and `total` (the two combined). No min/max/average aggregation is
 emitted at the file scope — to rank individual classes by WMC, use
 the report subcommand, which surfaces a *WMC hotspots* section

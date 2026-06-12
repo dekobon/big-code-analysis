@@ -35,13 +35,13 @@ curl -s http://127.0.0.1:8080/v1/metrics \
           "id": "snippet-1",
           "file_name": "demo.rs",
           "code": "fn add(a: i32, b: i32) -> i32 { a + b }",
-          "unit": false
+          "scope": "full"
         }' \
-  | jq '.spaces.metrics'
+  | jq '.root.metrics'
 ```
 
-`unit: true` returns only top-level metrics; `false` walks every
-function and class space inside the snippet. The server infers
+`scope: "file"` returns only top-level metrics; `"full"` (the default)
+walks every function and class space inside the snippet. The server infers
 language from `file_name`, so the extension matters.
 
 ## Compute metrics for a file from disk
@@ -54,11 +54,11 @@ jq -nc \
     --arg id "$(uuidgen)" \
     --arg file_name "src/lib.rs" \
     --rawfile code src/lib.rs \
-    '{id: $id, file_name: $file_name, code: $code, unit: false}' \
+    '{id: $id, file_name: $file_name, code: $code, scope: "full"}' \
   | curl -s http://127.0.0.1:8080/v1/metrics \
       -H 'Content-Type: application/json' \
       --data-binary @- \
-  | jq '.spaces.metrics.cyclomatic, .spaces.metrics.cognitive'
+  | jq '.root.metrics.cyclomatic, .root.metrics.cognitive'
 ```
 
 This pattern — `jq -n --rawfile` to build the request, `curl

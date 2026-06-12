@@ -18,10 +18,10 @@ runnable example.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Hard gate on threshold regressions              | `bca check` *(thresholds from the auto-discovered `bca.toml`)*                                               |
 | Ratchet thresholds on an existing codebase      | `bca check --baseline .bca-baseline.toml` *(‡)*                                                              |
-| Inline PR annotations (GitHub)                  | `bca check … --format clang-warning --no-fail` + GCC problem matcher                                  |
-| Code Scanning alerts (GitHub)                   | `bca check … --format sarif --no-fail` + `github/codeql-action/upload-sarif`                          |
-| Merge-request widget (GitLab Code Quality)      | `bca check … --format code-climate --no-fail`                                                         |
-| Jenkins / SonarQube ingestion                   | `bca check … --format checkstyle`                                                                     |
+| Inline PR annotations (GitHub)                  | `bca check … --report-format clang-warning --no-fail` + GCC problem matcher |
+| Code Scanning alerts (GitHub)                   | `bca check … --report-format sarif --no-fail` + `github/codeql-action/upload-sarif` |
+| Merge-request widget (GitLab Code Quality)      | `bca check … --report-format code-climate --no-fail` |
+| Jenkins / SonarQube ingestion                   | `bca check … --report-format checkstyle` |
 | Human-readable PR/MR comment or downloadable    | `bca report markdown --top 20 --strip-prefix "$PWD/"`                                                        |
 | Machine-readable artifact for dashboards        | `bca metrics --format json --output-dir ./out`                                                            |
 

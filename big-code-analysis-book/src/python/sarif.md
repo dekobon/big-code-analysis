@@ -5,7 +5,7 @@ result (or an iterable of them) into a [SARIF
 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 JSON document, ready for upload to GitHub Code Scanning or any
 other SARIF consumer. The output is produced by the same Rust
-writer that backs `bca check -O sarif`, so the schema URL, tool
+writer that backs `bca check --report-format sarif`, so the schema URL, tool
 driver name / version, and rule descriptions match the CLI
 byte-for-byte.
 
