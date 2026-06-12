@@ -737,6 +737,16 @@ metric value are deliberately *excluded* from the hash so a cosmetic
 edit that shifts a function's line does not re-surface a known
 violation.
 
+When two distinct findings in one file would otherwise share the same
+`path \0 function \0 metric` triple (same-named functions breaching the
+same metric — a collision that previously made one finding vanish under
+GitLab's fingerprint dedup), a `\0 <ordinal>` disambiguator (the
+occurrence index as a little-endian `u32`) is appended before hashing.
+This is backward-compatible: the **first** occurrence carries ordinal `0`
+and so keeps the byte-identical historical fingerprint; only the
+second-and-later colliding findings — which previously had no stable
+fingerprint of their own — receive a new, distinct value.
+
 #### AST / dump JSON
 
 `dump_*` and the `AstNode` / `Span` types (re-exported with

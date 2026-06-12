@@ -117,6 +117,48 @@ directly.
   iterable's `__iter__`, so a generator's side effects (and any
   partial yields) are preserved on this raise path.
 
+## Change-history (VCS) exceptions
+
+The [`big_code_analysis.vcs`](vcs.md) functions raise a typed
+hierarchy rooted at `bca.VcsError`, itself a `ValueError`, so an
+existing `except ValueError` (or `except bca.VcsError`) catches every
+VCS failure (#624). The `analyze(..., vcs=True)` kwarg shares the same
+option-parsing errors.
+
+| Exception | Subclass of | Triggered by |
+|-----------|-------------|--------------|
+| `bca.NotARepositoryError` | `bca.VcsError` | `repo_path` is not inside a git working tree |
+| `bca.InvalidRevisionError` | `bca.VcsError` | A `reference` / `commit` could not be resolved |
+| `bca.InvalidDiffError` | `bca.VcsError` | The `diff` passed to `vcs.score_diff` is malformed |
+| `bca.VcsEnvironmentError` | `bca.VcsError` | History walk, diffing, `.mailmap`, blame, or cache I/O failed |
+| `bca.VcsError` (raw) | `ValueError` | A malformed option value (window / timestamp / formula / file-type scope / bus-factor threshold / bot pattern / trend point count); the message names the offending value |
+
+`NotARepositoryError` is the variant to branch on for "not a repo,
+skip this directory". The base `VcsError` is raised directly for a bad
+**option**, where the message names the offending value, while the
+named subclasses cover the **input** failures (a missing revision, a
+malformed diff). `VcsEnvironmentError` is the environment / backend
+bucket, mirroring the `500` (not `400`) responses the web crate returns
+for the same failures.
+
+```python
+import big_code_analysis as bca
+from big_code_analysis import vcs
+
+try:
+    report = vcs.rank("path/to/repo", top=20)
+except bca.NotARepositoryError:
+    print("not a git repository, skipping")
+except bca.VcsError as err:
+    # Malformed window, formula, file-type scope, and so on.
+    print("bad VCS option:", err)
+```
+
+`analyze(..., vcs=True)` is the exception to the
+`NotARepositoryError` rule: a file outside any repository simply yields
+no `vcs` block rather than raising, so only the option-parsing
+`VcsError` reaches the caller from that path.
+
 ## Logging recipe
 
 A small logging helper for batch output keeps successes /

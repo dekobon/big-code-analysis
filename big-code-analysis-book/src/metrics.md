@@ -145,6 +145,9 @@ application would over-count.
 | Tcl | Unary-conditional walker not yet wired | Phase 2 walker is deferred pending an audit of Tcl's `expr {…}` / command-substitution grammar. `if {$a && $b}` reports zero conditions today; a follow-up will close this. |
 | iRules | Chain-operand unary conditions wired (unlike its Tcl sibling); bare-truthy / argument / `return` slots are not | Each operand of a `&&` / `\|\|` / `and` / `or` chain counts as one condition (Rule 9), so `if {!$a && !$b}` reports two. iRules also recognises the word-form string-match comparators (`contains`, `starts_with`, `ends_with`, `equals`, `matches`, …) that Tcl lacks (Tcl's `eq` / `ne` / `in` / `ni` are shared). The broader Phase 2B slot routing is not wired, so a bare-truthy `if {$a}` still reports zero. |
 | All Phase 2 languages (Java, Groovy, C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl, Lua) | `if (true) {}`, `m(!a, !b)`, `return !x` count their operand(s) | Phase 2B routes `if` / `while` / `do-while` / argument-list / `return` / ternary slots through the same walker, so the rule applies uniformly across decision-bearing positions. A bare `return x` continues to report zero — Fitzpatrick treats an identifier in a return slot as a value, not a unary conditional. |
+| Ruby | Bare-predicate `if` / `unless` / `while` / `until` (block and modifier forms) count one condition | Idiomatic Ruby favours bare predicates (`if flag`, `x if flag`); counting the condition slot keeps ABC conditions at or above Ruby's cyclomatic decision count (the alignment enforced across the other languages). A comparison (`if a == b`) or `&&` / `\|\|` chain in the predicate is counted by its own operator / walker arm and is not double-counted. |
+| Bash | `if` / `elif` / `while` and each non-wildcard `case` arm count one condition | A Bash predicate is a *command*, so the branch keyword itself — not an embedded boolean expression — is the condition signal. Each matches a Bash cyclomatic decision; the bare `*)` case arm (the analogue of `default:`) is excluded, mirroring the cyclomatic standard count. |
+| Kotlin | `try` counts a condition alongside `catch` | Fitzpatrick counts both keywords, and Java / C# / C++ / Groovy already count both; Kotlin previously counted only the catch block. |
 
 #### Worked example
 
@@ -305,6 +308,25 @@ Code, Visual Studio, Eclipse) all surface it as the headline
 complexity number on hover, and the metric has since been picked up
 by several language servers and code-review platforms outside the
 Sonar ecosystem.
+
+### Per-language deviations
+
+- **Elixir** does not score recursion or jump statements. Elixir
+  control flow (`if` / `unless` / `cond` / `case` / `with`) is built
+  from macro-shaped `Call` nodes rather than dedicated grammar
+  productions, and the language has no `break` / `continue` /
+  `goto`; the implementation therefore scores only the
+  nesting-bearing constructs it can identify and omits the
+  recursion (B3) and unstructured-jump (B2) increments that the
+  SonarSource specification adds for languages that expose those
+  shapes syntactically.
+- For every language with a syntactic function-definition node, a
+  nested function (a local function, lambda, or a method on a
+  local / inner class) **resets the nesting counter to zero** at
+  its boundary and adds a function-depth surcharge, so control flow
+  inside it is scored against the nested function's own depth rather
+  than the enclosing function's nesting. Byte-equivalent constructs
+  therefore score identically across languages.
 
 ## Cyclomatic Complexity (CC)
 

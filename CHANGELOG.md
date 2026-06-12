@@ -23,6 +23,11 @@ for historical reference.
 
 ### Added
 
+- `metric_catalog::lower_is_worse(id)`: a `#[must_use]` helper answering
+  whether a metric's unhealthy direction is downward (the `mi.*` family),
+  single-sourcing the direction predicate the CLI threshold gate, the
+  Code Climate severity inversion, and the Python SARIF binding all share
+  (#698).
 - `write_csv_aggregate` (re-exported from the crate root): writes several
   metric trees into one CSV document under a single shared header row.
   Backs `bca metrics/ops --output <FILE> --format csv` (#669), which
@@ -943,9 +948,57 @@ for historical reference.
   `vcs_jit(repo_path, commit=…, diff=…)` binding, both reusing
   `score_commit` / `score_diff`. Commit-mode JIT output is unchanged
   (#580).
+- `bca-web` gains an opt-in `--cors <ORIGINS>` flag (off by default) so
+  browser tooling can call the API cross-origin without a proxy. The
+  argument is an explicit comma-separated allow-list; a listed origin is
+  echoed back in `Access-Control-Allow-Origin`, an unlisted origin gets
+  no header, and a literal `*` opts into a wide-open policy. Layered on
+  the existing RFC 9110 OPTIONS→204 + `Allow` handling via a new
+  `CorsPolicy` enum and `from_fn` middleware (the preflight sources its
+  methods from the resource's own `Allow` header), wrapped under
+  `Condition` so the default request path carries no extra layer.
+  `Access-Control-Allow-Credentials` is never emitted (#694).
+- The REST API now honors the `Accept` header on every structured
+  analysis endpoint (`/v1/ast`, `/v1/comment` JSON, `/v1/function`,
+  `/v1/metrics`, `/v1/vcs`, `/v1/vcs/trend`, `/v1/vcs/jit`), reusing the
+  same `serde_yaml` / `ciborium` serializers the CLI drives so a value is
+  byte-identical over both surfaces. JSON stays the default (absent
+  `Accept`, `*/*`, `application/*`, `application/json`); `application/yaml`
+  and `application/cbor` get that format with the matching `Content-Type`,
+  q-weights are honored, and any other concrete type answers `406 Not
+  Acceptable` through the uniform `{error, error_kind, id}` envelope. TOML
+  and CSV are excluded (#657).
+- Python VCS documentation: a new `python/vcs.md` book chapter covering
+  the namespaced change-history surface (`vcs.rank` / `vcs.trend` /
+  `vcs.commit` / `vcs.score_diff` and the shared `vcs.Options`), the
+  widened option kwargs (#619), the `as_of` reproducible-snapshot
+  semantics (#648), and the GIL-release `ThreadPoolExecutor` note (#620);
+  `python/errors.md` gains the typed VCS exception taxonomy (#624) and the
+  stale flat references in the CLI `vcs.md` are refreshed to the post-#612
+  namespaced names (#649).
 
 ### Changed
 
+- **(Python)** `analyze(..., vcs=True)` and
+  `analyze(..., vcs_per_function=True)` now release the GIL across their
+  per-file history walk / blame-engine open via `Python::detach`, the same
+  off-GIL treatment the `vcs.rank`/`trend`/`commit` entry points and the
+  batch path already had — completing the GIL release across the VCS
+  surface (#620). The walk touches no Python objects, so the cheap
+  JSON-injection step stays under the re-acquired GIL; results and
+  signatures are unchanged, so a `ThreadPoolExecutor` over several
+  `analyze(vcs=True)` calls now parallelises instead of serialising on the
+  walk.
+- Web/Lib: the `id` field on every JSON request payload (`/v1/ast`,
+  `/v1/comment`, `/v1/function`, `/v1/metrics`, `/v1/vcs`,
+  `/v1/vcs/trend`, `/v1/vcs/jit`) and the `comment` / `span` fields on
+  `/v1/ast` are now optional (`#[serde(default)]`). Omitting `id`
+  defaults to an empty string (the "no correlation id" sentinel echoed
+  back unchanged); omitting `comment` / `span` defaults to `false`. This
+  ends the JSON-vs-query-variant inconsistency where the query form
+  already defaulted these fields while the JSON form returned a `400
+  missing field`. Strictly request-side loosening: previously-valid
+  payloads are unaffected and no new keys are accepted (#645).
 - **(breaking)** Lib: Halstead `Stats` accessors renamed to the wire
   vocabulary — `u_operators` → `unique_operators`, `operators` →
   `total_operators`, `u_operands` → `unique_operands`, `operands` →
@@ -2179,9 +2232,88 @@ for historical reference.
   Directory-walk skips for unrecognized languages stay silently gated
   behind `-w`. Previously such an explicit file was skipped silently with
   exit 0. Deferred to 2.0.0 (#663).
+- The `mi.*` threshold gate is now direction-aware (lower-is-worse):
+  because maintainability index is healthier when *higher*, an `mi.*`
+  value *below* the limit is the violation, while every other metric still
+  breaches above. `Violation::ratio` inverts to `limit/value` so a lower
+  MI ranks as the worse breach, offender messages read "falls below
+  limit" (Checkstyle / Clang / MSVC / SARIF / Code Climate), and Code
+  Climate's declared severity is now a floor. The same direction is now
+  applied in the Python `to_sarif` binding, which previously used
+  `value > limit` for every metric — flagging a healthy (high) MI and
+  ignoring an unhealthy (low) one. Behavior change to threshold/SARIF
+  output across the CLI and Python (#698).
+- The CLI's deprecated flag/subcommand spellings (`--num-jobs`,
+  `--warning`, `--output-format`, …) now emit a one-time migration warning
+  via a single `deprecations` inventory scanned from the raw argv at the
+  parse chokepoint — clap normalizes each alias to its canonical id before
+  `ArgMatches` is built, so the silent clap-`alias` flags previously gave
+  no signal. Warnings are always-on, independent of `-w` (#646).
+- Report renderers now source their advisory cutoffs (Actionable Summary,
+  CC-note bands, Many-Parameters filter) from the manifest `[thresholds]`
+  table when present (falling back to built-in defaults) and emit a
+  provenance line naming the source; counting is single-sourced via
+  `AdvisoryThresholds::count_over` so the Markdown and HTML formats cannot
+  drift (#630). The Markdown VCS table is now a curated subset (Rank, File,
+  Risk, recent Commits/Churn/Authors, Ownership, Bug fixes, Hotspot) with a
+  pointer to `--format csv|json` for the full record, while HTML stays
+  complete and sortable (#621). An MI note (variant, GOOD/MODERATE/LOW
+  bands, 0-100 clamping caveat) is added under the MI table in both formats
+  and the MI hotspot tie-breaks on the unclamped `mi_original` so the
+  ranking stays informative when displayed values all clamp to 0.0 (#627).
+  The bus-factor "Files" tooltip is pinned distinct from the AST "files
+  analysed" tooltip (#693). Presentation only; no structured-output
+  contract change.
+- Web: two structural forcing functions in the route/payload discipline —
+  a `get_resource(path, handler)` registration helper that no GET/HEAD
+  introspection route can bypass (so a future `web::get()` route cannot
+  silently 405 HEAD), and a single named `COMMIT_MODE_FIELDS` list driving
+  the `/vcs/jit` diff-vs-commit conflict check (so a new commit-mode field
+  cannot silently bypass it). No change to status codes, the error
+  envelope, or the REST contract (#647).
 
 ### Fixed
 
+- CLI `--help` text sweep (#608): relocated 80+ issue-tracker references
+  (`#539`, `issue #328`, `pre-#182`, …) out of the user-facing clap
+  doc-comments into adjacent `//` maintainer comments; the `bca check
+  --config` TOML example now renders as a readable indented block instead
+  of a one-line smashed Markdown fence (`verbatim_doc_comment`); replaced
+  internal walker/seed jargon with user terms; and added
+  `value_name = "FORMAT"` so the format flag reads `<FORMAT>` (not the
+  leaked `<OUTPUT_FORMAT>` field name) on `metrics`, `ops`, and `check
+  --report-format`. Also corrected the shared `--format` default-`text`
+  help to name the `ops` operator/operand tree, stated the `vcs trend
+  --points` cap (120) explicitly, and pointed `exemptions`/`check`
+  baseline help at the canonical `[check] baseline` manifest key.
+- Per-language Halstead operator/operand classification inconsistencies
+  (#695). Several languages now agree with the C-family majority and with
+  the standard Halstead convention, so their `n1`/`n2`/`N1`/`N2` — and the
+  derived volume / difficulty / effort / MI — shift:
+  - **Balanced-delimiter counting unified to opener-only.** Lua, Bash,
+    Tcl, iRules, PHP, Ruby, and Elixir classified the *closing* `)`/`]`/`}`
+    as a separate operator while the 18-language majority folds each
+    balanced pair to a single glyph (`()`/`[]`/`{}`) and counts only the
+    opener. A balanced `(...)` now counts as one operator, not two,
+    removing the n1/N1 inflation in those seven languages.
+  - **Bash `$var` no longer double-counts.** `$foo` / `$?` / `$1` parse as
+    a `simple_expansion` wrapping a `variable_name` /
+    `special_variable_name` leaf; both the wrapper and the inner leaf were
+    operands, so every bare variable reference counted twice. The inner
+    leaf is now suppressed (the guard Tcl and iRules already apply),
+    lowering n2/N2 for variable-heavy Bash.
+  - **JS `get`/`set` accessor keywords are now operators**, matching the
+    C# getter's `Get`/`Set`/`Init`/`Add`/`Remove` accessor arm; previously
+    the same accessor keyword was an operand in JS and an operator in C#.
+  - **Python concatenated docstrings are now suppressed.** A
+    `"""doc""" "more"` docstring is wrapped in a `concatenated_string`, so
+    the single-literal docstring guard never fired and each fragment
+    counted as an operand; all fragments of a docstring are now skipped
+    (non-docstring concatenated literals are still counted).
+  - `Getter::get_func_space_name` and friends now slice node spans with a
+    bounds- and UTF-8-checked helper (`code.get(..)`), degrading a stale
+    cross-parse span to an unnamed space instead of risking a panic on
+    incremental reparse / VCS per-function re-slice.
 - The optional-value check/walk flags introduced this cycle
   (`--cyclomatic-count-try`, `--tier`, `--exit-codes`,
   `--github-annotations`, `--no-suppress`, `--baseline-fuzzy-match`) no
@@ -3225,6 +3357,139 @@ for historical reference.
   and every other language impl; the row is no longer double-credited
   to both `ploc` and the comment-only set. Affects metric *values* for
   Bash sources with that shape (#547).
+- Per-language ABC / Cognitive / NOM computation divergences (#696).
+  Ruby now counts the bare predicate of `if`/`unless`/`while`/`until` as
+  one ABC condition (restoring conditions ≥ cyclomatic decisions); Bash
+  counts `if`/`elif`/`while` and each non-wildcard `case` arm; Kotlin
+  counts the `try` keyword alongside `catch`. C++/Java/C#/Groovy now reset
+  Cognitive nesting and bump function-depth at nested function boundaries
+  (C# also for local functions), matching the other 9 families. `Nom`
+  takes the source bytes and dispatches via `is_func_with_code`, so
+  Elixir's `def`/`defp`/`defmacro` count as functions instead of leaving
+  `functions_sum` at 0. Affects metric *values* in the listed languages.
+- `is_comment` misclassification: the JS-family predicate matched only
+  `comment`, missing `html_comment` (Annex-B `<!-- -->`), and Groovy
+  missed `groovydoc_comment`. This skewed every consumer — `loc` counted
+  those comments as PLOC instead of CLOC (and so `mi` comments_percentage),
+  `tokens` counted the comment leaves, and `bca find comment` /
+  strip-comments ignored them. `HtmlComment` is added to all 4 JS arms,
+  `GroovydocComment` to Groovy (#697).
+- AST-dump string flattening now agrees with `Checker::is_string`: the
+  alterator kept the structured children of interpolating string literals
+  that `is_string` already treats as a single string, producing
+  per-language dump asymmetries. JS-family `TemplateString`, Cpp
+  `ConcatenatedString`, and Python/Java/Kotlin string-like literals are now
+  flattened; Go `RuneLiteral` is deliberately left out (a rune is a
+  character, not a string). Dump-only change — no metric values move (#699).
+- **(breaking)** C/C++ preprocessor: `fix_includes` now returns a
+  `Vec<PreprocDiagnostic>` (a new public enum) instead of writing
+  include-resolution warnings to stderr via `eprintln!`, so an embedder
+  (`bca-web`) can capture or discard them; the CLI prints them to stderr.
+  Also: `#undef X` no longer records `X` as *defined* (directives are now
+  replayed in source order, so `#undef` removes a preceding `#define`'s
+  macro), and an ambiguous `#include` now resolves to a single
+  deterministic target (the lexicographically smallest tied path) instead
+  of fanning out one edge per candidate and leaking macros. Corrects the
+  macro set feeding `c_macro::replace` (#705).
+- VCS `--as-of` anchoring: the plain ranking walk re-based only the window
+  arithmetic, leaving the walk anchored at HEAD, so commits in the future
+  of `as_of` were still counted. `build()` (and the cached `as_of`
+  entry point) now re-anchor at the mainline tip at-or-before `as_of`
+  (reusing trend's `tip_at_or_before`); an `as_of` before the first commit
+  yields an empty snapshot rather than an error. The Python and CLI cache
+  tests were updated to exercise the cache with a default HEAD-anchored
+  walk, since a historical `as_of` now bypasses the HEAD-keyed persistent
+  cache (#648).
+- VCS bit-identity / determinism (restoring #334): co-change entropy now
+  sums edge weights in `FileId`-sorted order so the non-associative float
+  fold cannot diverge by ULPs between the live walk and a cache replay;
+  `resolve_alias` gains cycle detection so a rename-back cycle terminates
+  deterministically; the bus-factor degenerate tie-break breaks on the
+  hashed id and drops empty-contribution files; and
+  `stats::Accumulator::record` switches to `saturating_add` (#701).
+- VCS risk-score / JIT / scope correctness: `FileTypeScope` rejects
+  interior-dot entries (`d.ts`, `tar.gz`) that `Path::extension()` can
+  never match instead of silently ranking none; the JIT experience walk
+  routes through `ParticipantResolver` (author + bot-filtered co-authors)
+  so co-authored history counts and a filtered bot no longer inflates
+  experience; `file_risk_max` is clamped finite and non-negative before the
+  JIT total so an inf prior cannot violate the ordinal invariant; and the
+  `Vcs` wire f64 fields carry the #531 `non_finite` (de)serialization so a
+  future NaN emits null rather than erroring (#702).
+- Terminal dumps no longer risk an uncatchable stack-overflow abort: all
+  three dumpers (AST, ops, metrics) walk with an explicit work stack
+  instead of recursion, so a pathologically deep tree cannot overflow the
+  thread stack at dump time. `dump_ops` also renders the mid-child glyph
+  for the operators connector since operands always follow it (#700).
+- **(breaking for stderr scrapers)** Every true stderr diagnostic is now
+  funneled through three severity helpers — `die()` (`error:`, was
+  capitalized `Error:`), `warn()` (`warning:`), and `note()` (`note:`) —
+  matching clap's lowercase rustc/cargo/git prefix family. Capitalized
+  `Warning:` literals and the redundant `bca: warning:` double prefix are
+  gone; status/result lines keep their `bca <cmd>:` prefix. Message bodies
+  are unchanged — only the prefix moved (#609).
+- CLI seed-expansion, path-handling, and diff extraction robustness:
+  overlapping seeds de-duplicate a file so it is analyzed once; a per-entry
+  walk error skips-with-warning instead of aborting the run; seeds are
+  classified via `symlink_metadata` (symmetric with the walk's
+  `follow_links(false)`); `--paths-from` tolerates non-UTF-8 path lines.
+  `bca diff` replaces the system-`tar` shell-out with the in-process `tar`
+  crate (removing the BSD-vs-GNU empty-archive gap), recognizes the
+  SHA-256 (64-zero) null-ref sentinel, and rejects `--since` selectors that
+  escape the tree via `..`. `--print-effective-config` now includes the
+  gate-affecting `report_suppressed` field, and `CyclomaticStats::max` is
+  guarded against `NaN` on an empty entry set (#704).
+- The per-function VCS hotspot now scores each function by its own
+  `cyclomatic()` complexity, not the subtree `cyclomatic_sum()` rollup, so
+  a nested function's complexity is no longer re-counted at every enclosing
+  level (the file-level inject keeps `cyclomatic_sum()`). `bca vcs commit` /
+  `vcs trend` `--output` now create missing parent directories, matching
+  the sibling single-file output paths (#709). `get_emacs_mode` /
+  `get_vim_mode` now scan a fixed window of real (non-empty) lines at each
+  end so a mode-line on the 5th line or after trailing blanks is no longer
+  missed; `Count::Display` guards `total == 0` to report `0.00%` instead of
+  `NaN%`; and `cfg_predicate_marks_test` walks an explicit work stack
+  instead of recursing, so pathological `all(all(all(…)))` input cannot
+  overflow the stack (#709).
+- Web: `/vcs/jit` no longer scores wholly-non-diff garbage as a confident
+  `partial_risk_score: 0.0` — a non-empty, non-whitespace `diff` that
+  parses to zero touched files is rejected with `400 vcs_invalid_diff`,
+  while an empty/whitespace-only diff still scores a valid 0.0 (#652). A
+  nonexistent `repo_path` now answers a consistent `400 vcs_not_a_repository`
+  (it previously returned 500 via gix's environment-level error) across
+  `/vcs`, `/vcs/trend`, and `/vcs/jit` commit mode (#653). `bca-web` now
+  exits non-zero on a server-run failure, signals a dropped non-UTF-8
+  repo-relative path via `tracing::warn` instead of vanishing silently, and
+  documents the `parse_timeout_secs = 0` coupling (#707).
+- Python bindings CLI-parity: `analyze_path` routes the on-disk read
+  through the CLI walker's `read_file_with_eol`, inheriting its
+  pre-dispatch skips (≤3-byte cutoff, BOM stripping, non-UTF-8 binary head)
+  and EOL normalisation (each skip returns `None`); a directory named
+  directly surfaces a hard `IsADirectoryError` rather than a silent skip.
+  SARIF `logicalLocations` now emit the CLI's qualified `Container::method`
+  symbol and collapse anonymous spaces to `<anon@L{line}>` (#706).
+- Build/CI helper scripts and enums codegen hardening (tooling only, no
+  shipped-library change): `check-grammar-crate.py` runs subprocesses with
+  `check=True` and prints help / exits 2 on a missing subcommand;
+  `check-versions.py` matches an internal-dep `version` pin split across
+  lines of a multi-line inline table; `check-snapshot-anchors.py` skips
+  snapshots inside `/* … */` block comments; `check-manpage-assets.py`
+  fails loud on an unrecognized layout; `check-grammar-marker-sync.py`'s
+  `--update` consumes backslash escapes; and `enums/data/{mac,special}.py`
+  stop generating non-existent names and resolve their data file relative
+  to the script (#708).
+
+### Security
+
+- CSV output now defangs spreadsheet formula injection (CWE-1236): a
+  `path` or `space_name` cell beginning with `=` `+` `-` `@` tab or CR is
+  prefixed with `'` so a spreadsheet app treats it as literal text rather
+  than executing it as a formula. Companion fix: the Code Climate
+  `fingerprint` no longer collides when two distinct findings share the
+  same `path\0function\0metric` triple in one file — an ordinal is folded
+  into the hash so each finding gets a distinct fingerprint, while the
+  first occurrence keeps its historical (byte-identical) value so the
+  frozen GitLab-dedup contract holds (#703).
 
 ## [1.1.0] - 2026-05-25
 
