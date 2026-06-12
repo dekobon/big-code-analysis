@@ -300,7 +300,9 @@ pub(crate) use crate::ops::ops_inner;
 
 // --- Preprocessor handling (C/C++) ---
 mod preproc;
-pub use crate::preproc::{PreprocFile, PreprocResults, fix_includes, get_macros, preprocess};
+pub use crate::preproc::{
+    PreprocDiagnostic, PreprocFile, PreprocResults, fix_includes, get_macros, preprocess,
+};
 
 // --- Alterator trait (per-language AST simplification) ---
 //
