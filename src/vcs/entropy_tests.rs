@@ -162,6 +162,54 @@ fn over_wide_commits_are_excluded_from_the_graph() {
     );
 }
 
+/// Issue #701 / #334 bit-identity: a node's co-change entropy must be the
+/// *same f64 bits* no matter what order its edges were interned in. The
+/// `-Σ p·log2(p)` fold is non-associative, so summing edge weights in
+/// HashMap order would let two processes (the live walk vs. a cache replay,
+/// each with a different `RandomState` seed) diverge by ULPs. Three
+/// distinct edge weights make the sum order observable.
+#[test]
+fn cochange_entropy_is_independent_of_edge_interning_order() {
+    // A hub with three neighbours carrying distinct edge weights
+    // {3, 2, 1}. Build the *same* logical graph two ways, varying the
+    // order in which the neighbours are first interned (hence their
+    // internal `FileId` assignment and HashMap layout).
+    let build = |neighbour_order: &[&str]| {
+        let mut g = CochangeGraph::new();
+        // Intern the neighbours in the requested order via single-edge
+        // commits, establishing distinct FileIds, then add the weighted
+        // hub edges.
+        let weights = [("x.rs", 3), ("y.rs", 2), ("z.rs", 1)];
+        for name in neighbour_order {
+            let &(_, w) = weights.iter().find(|(n, _)| n == name).expect("known");
+            for _ in 0..w {
+                g.record_commit(&paths(&["hub.rs", name]), true);
+            }
+        }
+        g.entropy(Path::new("hub.rs")).0
+    };
+
+    let forward = build(&["x.rs", "y.rs", "z.rs"]);
+    let reversed = build(&["z.rs", "y.rs", "x.rs"]);
+    let shuffled = build(&["y.rs", "z.rs", "x.rs"]);
+
+    // Bit-identical, not merely approximately equal — the contract is
+    // exact reproducibility across summation orders.
+    assert_eq!(
+        forward.to_bits(),
+        reversed.to_bits(),
+        "entropy must be bit-identical regardless of edge interning order"
+    );
+    assert_eq!(forward.to_bits(), shuffled.to_bits());
+
+    // And it equals the closed-form entropy of {3, 2, 1} (Σw = 6):
+    // p = {1/2, 1/3, 1/6} → H = 1.459147917... bits.
+    assert!(
+        (forward - 1.459_147_917_027_245).abs() < 1e-12,
+        "got {forward}"
+    );
+}
+
 #[test]
 fn duplicate_path_within_a_commit_adds_no_self_loop() {
     let mut g = CochangeGraph::new();

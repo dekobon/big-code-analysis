@@ -167,9 +167,19 @@ fn bump(adjacency: &mut [HashMap<FileId, u32>], a: FileId, b: FileId) {
 /// Shannon entropy of one node's edge-weight distribution, or `0.0` when
 /// the node has no edges in this graph (an absent node, or empty
 /// adjacency — `shannon_entropy` returns `0.0` for the empty iterator).
+///
+/// The edge weights are summed in **`FileId`-sorted** order, not HashMap
+/// iteration order. `shannon_entropy`'s `-Σ p·log2(p)` is a non-associative
+/// float fold, so a HashMap's seed-dependent order would let the live walk
+/// and a cache replay — separate processes with different `RandomState`
+/// seeds — sum to ULP-divergent values, silently breaking the #334
+/// bit-identity contract. Sorting pins one canonical summation order across
+/// every process.
 fn node_entropy(adjacency: &[HashMap<FileId, u32>], idx: usize) -> f64 {
     adjacency.get(idx).map_or(0.0, |edges| {
-        shannon_entropy(edges.values().copied().map(f64::from))
+        let mut weights: Vec<(FileId, u32)> = edges.iter().map(|(&id, &w)| (id, w)).collect();
+        weights.sort_unstable_by_key(|&(id, _)| id);
+        shannon_entropy(weights.into_iter().map(|(_, w)| f64::from(w)))
     })
 }
 

@@ -157,17 +157,27 @@ impl Accumulator {
 
     /// Fold one commit's effect on this file into the running totals.
     pub fn record(&mut self, change: &ChangeRecord<'_>) {
-        self.commits_long += 1;
-        self.churn_long += change.churn;
+        // `saturating_add` everywhere, matching every other vcs accumulator:
+        // a real history never approaches these bounds, but a debug build's
+        // overflow check would panic, and the crate forbids panics in
+        // non-test code (AGENTS.md).
+        self.commits_long = self.commits_long.saturating_add(1);
+        self.churn_long = self.churn_long.saturating_add(change.churn);
         self.change_entropy_long += change.change_entropy;
-        self.bug_fix_commits += u32::from(change.class.bug_fix);
-        self.security_fix_commits += u32::from(change.class.security_fix);
-        self.revert_commits += u32::from(change.class.revert);
+        self.bug_fix_commits = self
+            .bug_fix_commits
+            .saturating_add(u32::from(change.class.bug_fix));
+        self.security_fix_commits = self
+            .security_fix_commits
+            .saturating_add(u32::from(change.class.security_fix));
+        self.revert_commits = self
+            .revert_commits
+            .saturating_add(u32::from(change.class.revert));
         for id in change.authors {
             // Avoid cloning the identity on the common repeat-author path;
             // only a first-seen author allocates a map key.
             if let Some(count) = self.author_edits_long.get_mut(id) {
-                *count += 1;
+                *count = count.saturating_add(1);
             } else {
                 self.author_edits_long.insert(id.clone(), 1);
             }
@@ -186,8 +196,8 @@ impl Accumulator {
             None => change.commit_time,
         });
         if change.in_recent {
-            self.commits_recent += 1;
-            self.churn_recent += change.churn;
+            self.commits_recent = self.commits_recent.saturating_add(1);
+            self.churn_recent = self.churn_recent.saturating_add(change.churn);
             self.change_entropy_recent += change.change_entropy;
             self.authors_recent.extend(change.authors.iter().cloned());
         }

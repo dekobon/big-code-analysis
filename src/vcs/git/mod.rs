@@ -33,7 +33,7 @@ pub(crate) use jit::score_commit;
 pub(crate) use repo::workdir_root;
 pub(crate) use trend::build_trend;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -61,8 +61,20 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     } = repo::open(root)?;
     repo.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
 
-    // Resolve the ref to a commit, peeling through any tag.
-    let commit = repo::resolve_commit(&repo, &options.reference)?;
+    // Resolve the walk anchor. With `--as-of`, re-anchor at the mainline
+    // tip at-or-before that time (issue #648): a plain HEAD-anchored walk
+    // re-bases only the window arithmetic, so commits in the *future* of
+    // `as_of` (reachable from HEAD) still slip into the windowed counts,
+    // contradicting the "reproducible snapshot" the flag documents. This
+    // mirrors `vcs trend` (#333), reusing its `tip_at_or_before` over the
+    // reference's first-parent timeline. Without `--as-of`, anchor at the
+    // resolved reference tip directly.
+    let Some(commit) = resolve_anchor(&repo, options)? else {
+        // `as_of` predates the first commit on the reference's mainline:
+        // the repository did not exist yet at that point, so the snapshot
+        // is empty — handled gracefully, not as an error (matching trend).
+        return Ok(HistoryIndex::new(HashMap::new(), workdir, shallow));
+    };
     let target_tree = commit.tree().map_err(walk_err)?;
 
     // Seed file set (path → SLOC) at the target ref, scoped to the
@@ -76,6 +88,34 @@ pub(crate) fn build(root: &Path, options: &Options) -> Result<HistoryIndex, Erro
     let (events, _) = history::collect_events(&repo, commit.id, options, now, &HashSet::new())?;
     let out = replay::replay(seed, &events, options, now);
     Ok(HistoryIndex::new(out.files, workdir, shallow).with_bus_factor(out.bus_factor))
+}
+
+/// Resolve the commit the walk should anchor at.
+///
+/// Without `--as-of`, this is the resolved reference tip. With `--as-of`,
+/// it is the mainline (first-parent) tip at-or-before that timestamp, so
+/// the windowed counts, the seeded file set, and the SLOC all reflect the
+/// repository as it stood at that moment rather than at HEAD (issue #648).
+/// Returns `Ok(None)` when `--as-of` predates the first commit on the
+/// reference's mainline (the empty-snapshot case).
+fn resolve_anchor<'repo>(
+    repo: &'repo gix::Repository,
+    options: &Options,
+) -> Result<Option<gix::Commit<'repo>>, Error> {
+    let tip = repo::resolve_commit(repo, &options.reference)?;
+    let Some(as_of) = options.as_of else {
+        return Ok(Some(tip));
+    };
+    let timeline = trend::first_parent_timeline(repo, tip.id)?;
+    let Some(anchor) = trend::tip_at_or_before(&timeline, as_of) else {
+        return Ok(None);
+    };
+    // Re-resolve the historical tip to an owned `Commit`; it lies on the
+    // reference's first-parent mainline by construction.
+    Ok(Some(repo::resolve_commit(
+        repo,
+        &anchor.to_hex().to_string(),
+    )?))
 }
 
 /// Map any backend error into [`Error::Walk`] — the catch-all for

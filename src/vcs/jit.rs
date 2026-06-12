@@ -284,9 +284,19 @@ pub fn score(features: &JitFeatures, purpose: JitPurpose) -> (f64, JitContributi
 
     let fix_history = f64::from(h.prior_bug_fix_commits)
         + SECURITY_FIX_WEIGHT * f64::from(h.prior_security_fix_commits);
+    // Clamp the file-prior term to a finite, non-negative value: `.max(0.0)`
+    // sanitizes NaN and negatives but passes `+inf` straight through, and an
+    // inf would propagate to the total, silently breaking the documented
+    // ordinal/non-negative invariant (`score` is `pub`). Finite by
+    // construction in-tree, but the guard makes the contract robust.
+    let file_risk = if h.file_risk_max.is_finite() {
+        h.file_risk_max.max(0.0)
+    } else {
+        0.0
+    };
     let history = 0.10 * ln1p(f64::from(h.prior_changes))
         + 0.15 * ln1p(fix_history)
-        + 0.15 * (h.file_risk_max.max(0.0) / FILE_RISK_SCALE);
+        + 0.15 * (file_risk / FILE_RISK_SCALE);
 
     // Experienced authors induce fewer defects (Kamei `EXP`/`REXP`), so
     // this group subtracts.

@@ -25,12 +25,13 @@ use gix::diff::Rewrites;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 
+use super::identity::ParticipantResolver;
 use super::repo::bstr_to_path;
 use super::{current_unix_seconds, diff_err, history, walk_err};
 use crate::vcs::classify;
 use crate::vcs::entropy::shannon_entropy;
 use crate::vcs::error::Error;
-use crate::vcs::identity::AuthorId;
+use crate::vcs::identity::{AuthorId, BotFilter};
 use crate::vcs::jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitDiffusion, JitExperience, JitFeatures,
     JitHistory, JitPurpose, JitReport, JitSize, JitSource, score,
@@ -427,9 +428,18 @@ fn resolve_author(
 
 /// Experience features: the target author's prior commit count in the
 /// long and recent windows, walking history from `parent` (so the scored
-/// commit itself is excluded). Author-only — no diffs — so it stays cheap
-/// even on large repositories. Merges are skipped unless
-/// `options.include_merges`, matching the file-level walk.
+/// commit itself is excluded). No diffs, so it stays cheap even on large
+/// repositories. Merges are skipped unless `options.include_merges`,
+/// matching the file-level walk.
+///
+/// A commit counts toward the target's experience when the target is among
+/// its **participants** — author plus `Co-authored-by:` trailers, the same
+/// [`ParticipantResolver`] the file-level priors use — not merely its
+/// primary author. This keeps the protective experience signal on the same
+/// author identity as the history priors in the same report: a commit the
+/// target co-authored raises its experience, and a bot's commits are
+/// excluded under `--exclude-bots` so they cannot inflate (and thereby
+/// *lower*) the risk of a bot-authored change.
 ///
 /// `reference_time` is the scored commit's timestamp: the windows and the
 /// clock-skew clamp anchor on it (not the wall clock), so the count is
@@ -445,6 +455,15 @@ fn experience_features(
 ) -> Result<JitExperience, Error> {
     let long_boundary = reference_time - options.long_window_secs;
     let recent_boundary = reference_time - options.recent_window_secs;
+
+    // Same participant identity as the file-level priors: author + co-authors,
+    // bot-filtered when `--exclude-bots`.
+    let bots = if options.exclude_bots {
+        Some(BotFilter::new(&options.bot_pattern)?)
+    } else {
+        None
+    };
+    let resolver = ParticipantResolver::new(mailmap, bots.as_ref());
 
     let mut platform = repo.rev_walk([parent]);
     if !options.full_history {
@@ -471,7 +490,7 @@ fn experience_features(
         if !options.include_merges && commit.parent_ids().take(2).count() > 1 {
             continue;
         }
-        if &resolve_author(&commit, mailmap)? == target {
+        if resolver.participants(&commit)?.iter().any(|p| p == target) {
             experience.author_prior_commits = experience.author_prior_commits.saturating_add(1);
             if commit_time >= recent_boundary {
                 experience.author_recent_commits =

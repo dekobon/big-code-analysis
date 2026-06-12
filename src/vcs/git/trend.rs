@@ -102,8 +102,9 @@ fn snapshot_options(base: &Options, oid: gix::ObjectId, at: i64) -> Options {
 
 /// Collect `(commit_time, id)` for every first-parent ancestor of `tip`,
 /// newest-first. This is the mainline timeline the per-point tip lookups
-/// search.
-fn first_parent_timeline(
+/// search. Shared with the plain ranking walk's `--as-of` re-anchoring
+/// (issue #648), which needs the same at-or-before tip resolution.
+pub(super) fn first_parent_timeline(
     repo: &gix::Repository,
     tip: gix::ObjectId,
 ) -> Result<Vec<(i64, gix::ObjectId)>, Error> {
@@ -129,7 +130,12 @@ fn first_parent_timeline(
 /// or `None` when every commit is newer (the repository did not exist yet
 /// at that point). A scan (not a binary search) so out-of-order commit
 /// times from clock skew or history rewriting cannot misselect the tip.
-fn tip_at_or_before(timeline: &[(i64, gix::ObjectId)], at: i64) -> Option<gix::ObjectId> {
+/// Shared with the plain ranking walk's `--as-of` re-anchoring (issue
+/// #648) so both paths resolve a historical anchor identically.
+pub(super) fn tip_at_or_before(
+    timeline: &[(i64, gix::ObjectId)],
+    at: i64,
+) -> Option<gix::ObjectId> {
     // Among commits sharing the greatest commit time at-or-before `at`
     // (common with scripted setups, squash/rebase chains, and bot
     // commits), the actual mainline tip is the *newest* in history — the

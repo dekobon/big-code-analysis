@@ -260,3 +260,91 @@ fn score_floors_at_zero() {
     let raw = c.size + c.diffusion + c.history + c.purpose + c.experience;
     assert!(raw < 0.0, "expected a negative pre-floor sum, got {raw}");
 }
+
+#[test]
+fn infinite_file_risk_does_not_poison_the_score() {
+    // Issue #702: `file_risk_max` flows into the history term via
+    // `.max(0.0)`, which sanitizes NaN/negatives but passes `+inf`
+    // straight through — an inf would propagate to the total and break the
+    // documented finite, ordinal, non-negative invariant (`score` is pub).
+    let features = JitFeatures {
+        history: JitHistory {
+            file_risk_max: f64::INFINITY,
+            ..JitHistory::default()
+        },
+        ..JitFeatures::default()
+    };
+    let (total, c) = score(&features, JitPurpose::default());
+    assert!(total.is_finite(), "an infinite file prior must not escape");
+    assert!(total >= 0.0, "score stays non-negative");
+    assert!(
+        c.history.is_finite(),
+        "the history contribution must be finite"
+    );
+
+    // A NaN prior is likewise neutralised (it was already handled by
+    // `.max(0.0)`, but pin it so the guard cannot regress).
+    let nan_features = JitFeatures {
+        history: JitHistory {
+            file_risk_max: f64::NAN,
+            ..JitHistory::default()
+        },
+        ..JitFeatures::default()
+    };
+    let (nan_total, _) = score(&nan_features, JitPurpose::default());
+    assert!(nan_total.is_finite() && nan_total >= 0.0);
+}
+
+#[test]
+fn score_pins_a_known_numeric_value() {
+    // Issue #702: pin one fully-specified score so a sign- or
+    // ordering-preserving weight change (which every monotonicity test
+    // above would still pass) is caught. Hand-derived from the formula in
+    // `score()`:
+    //   size      = 0.30·ln(1+30) + 0.15·ln(1+2) + 0.05·ln(1+3)
+    //   diffusion = 0.15·ln(1+1)  + 0.10·ln(1+0) + 0.15·1.0       (entropy)
+    //   history   = 0.10·ln(1+4)  + 0.15·ln(1+(1+2·1)) + 0.15·(5.0/10.0)
+    //   experience= -0.10·ln(1+6) - 0.05·ln(1+3)
+    //   purpose   = 0.15 (is_fix)
+    let features = JitFeatures {
+        size: JitSize {
+            lines_added: 20,
+            lines_deleted: 10,
+            files_touched: 2,
+            hunks: 3,
+        },
+        diffusion: JitDiffusion {
+            subsystems: 2,
+            directories: 1,
+            entropy: 1.0,
+        },
+        history: JitHistory {
+            prior_changes: 4,
+            prior_bug_fix_commits: 1,
+            prior_security_fix_commits: 1,
+            file_risk_max: 5.0,
+            ..JitHistory::default()
+        },
+        experience: JitExperience {
+            author_prior_commits: 6,
+            author_recent_commits: 3,
+        },
+    };
+    let purpose = JitPurpose {
+        is_fix: true,
+        is_security_fix: false,
+        is_revert: false,
+    };
+    let ln1p = |x: f64| (1.0 + x).ln();
+    let size = 0.30 * ln1p(30.0) + 0.15 * ln1p(2.0) + 0.05 * ln1p(3.0);
+    let diffusion = 0.15 * ln1p(1.0) + 0.10 * ln1p(0.0) + 0.15 * 1.0;
+    let history = 0.10 * ln1p(4.0) + 0.15 * ln1p(3.0) + 0.15 * (5.0 / 10.0);
+    let experience = -0.10 * ln1p(6.0) - 0.05 * ln1p(3.0);
+    let expected = (size + diffusion + history + experience + 0.15).max(0.0);
+
+    let (total, _) = score(&features, purpose);
+    assert!(
+        (total - expected).abs() < 1e-12,
+        "score {total} != hand-derived {expected}"
+    );
+}

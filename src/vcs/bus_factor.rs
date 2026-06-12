@@ -199,16 +199,26 @@ pub fn compute(
 ) -> BusFactor {
     let coverage = clamp_threshold(coverage_threshold);
 
+    // Enforce the documented non-empty-`contributions` invariant defensively:
+    // `FileAuthorship` is `pub`, so an external caller could pass a file with
+    // no contributions. Such a file has no author, would orphan trivially,
+    // and silently inflates the bus factor — drop it from the denominator
+    // rather than trust the precondition (in-tree callers never produce one).
+    let files: Vec<&FileAuthorship> = authorship
+        .iter()
+        .filter(|f| !f.contributions.is_empty())
+        .collect();
+
     // Resolve each file's authors (the per-file DoA pass) exactly once;
     // every group — the repo and each directory the file belongs to —
     // then reuses these author lists rather than re-scoring the file.
-    let resolved: Vec<Vec<&AuthorId>> = authorship.iter().map(authors_of_file).collect();
+    let resolved: Vec<Vec<&AuthorId>> = files.iter().map(|f| authors_of_file(f)).collect();
 
     let repo_files: Vec<&[&AuthorId]> = resolved.iter().map(Vec::as_slice).collect();
     let repo = group_bus_factor(&repo_files, coverage, emit_author_details);
 
     let mut groups: HashMap<PathBuf, Vec<usize>> = HashMap::new();
-    for (idx, file) in authorship.iter().enumerate() {
+    for (idx, file) in files.iter().enumerate() {
         for key in directory_keys(&file.path) {
             groups.entry(key).or_default().push(idx);
         }
@@ -323,11 +333,21 @@ fn authors_of_file(file: &FileAuthorship) -> Vec<&AuthorId> {
     let max_doa = scored.iter().map(|&(d, _)| d).fold(f64::MIN, f64::max);
 
     if max_doa <= 0.0 {
-        // Degenerate: pick the lone argmax (deterministic on ties via the
-        // hashed id the caller orders by).
+        // Degenerate (a colossal accepted-change count drove every DoA
+        // non-positive): credit the single highest-DoA contributor. Break
+        // exact-DoA ties on the hashed id (ascending), so the pick is
+        // independent of `contributions` order — which arrives in
+        // non-deterministic HashMap order from the accumulator. A bare
+        // `max_by` on DoA alone is last-wins and would let two processes
+        // pick different authors for the same input.
         return scored
             .iter()
-            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .min_by(|a, b| {
+                // Smaller is "better": negate the DoA ordering so the
+                // largest DoA sorts first, then the smallest hashed id.
+                b.0.total_cmp(&a.0)
+                    .then_with(|| a.1.hashed().cmp(&b.1.hashed()))
+            })
             .map(|&(_, author)| vec![author])
             .unwrap_or_default();
     }

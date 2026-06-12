@@ -241,3 +241,66 @@ fn coverage_threshold_is_clamped_into_the_open_interval() {
     assert!(clamp_threshold(-5.0) > 0.0);
     assert!((clamp_threshold(0.5) - 0.5).abs() < f64::EPSILON);
 }
+
+/// Issue #701: the per-file author resolution must not depend on the order
+/// of a file's `contributions`, which arrive in non-deterministic HashMap
+/// order from the accumulator. Two files with identical authorship but
+/// permuted contribution lists must yield the same authors (and the same
+/// bus factor / key-author list).
+#[test]
+fn authors_of_file_is_independent_of_contribution_order() {
+    // Two co-equal authors (same DL, same FA) → an exact DoA tie. The
+    // resolved author set must be identical regardless of list order.
+    let forward = file("m.rs", &[("alice", 4, true), ("bob", 4, true)]);
+    let mut backward_contribs = forward.contributions.clone();
+    backward_contribs.reverse();
+    let backward = FileAuthorship {
+        path: forward.path.clone(),
+        contributions: backward_contribs,
+    };
+
+    let mut a = authors_of_file(&forward);
+    let mut b = authors_of_file(&backward);
+    a.sort_by_key(|id| id.hashed());
+    b.sort_by_key(|id| id.hashed());
+    assert_eq!(a, b, "resolved authors must not depend on input order");
+
+    // And the whole aggregate is order-independent over the same file.
+    assert_eq!(
+        compute(
+            std::slice::from_ref(&forward),
+            DEFAULT_COVERAGE_THRESHOLD,
+            true
+        ),
+        compute(
+            std::slice::from_ref(&backward),
+            DEFAULT_COVERAGE_THRESHOLD,
+            true
+        ),
+    );
+}
+
+/// Issue #701: `compute` must defensively drop a file whose `contributions`
+/// are empty (the documented non-empty invariant) rather than letting it
+/// orphan trivially and inflate the bus factor. `FileAuthorship` is `pub`,
+/// so an external caller can construct one.
+#[test]
+fn compute_ignores_empty_contribution_files() {
+    let real = file("a.rs", &[("alice", 5, true)]);
+    let empty = FileAuthorship {
+        path: PathBuf::from("b.rs"),
+        contributions: Vec::new(),
+    };
+
+    let with_empty = compute(&[real.clone(), empty], DEFAULT_COVERAGE_THRESHOLD, false);
+    let without = compute(
+        std::slice::from_ref(&real),
+        DEFAULT_COVERAGE_THRESHOLD,
+        false,
+    );
+
+    // The empty file contributes no authorship signal, so it must not
+    // change the denominator or the factor.
+    assert_eq!(with_empty.repo, without.repo);
+    assert_eq!(with_empty.repo.files, 1, "the empty file is excluded");
+}

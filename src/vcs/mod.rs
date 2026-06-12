@@ -134,6 +134,14 @@ impl HistoryIndex {
     /// Look up stats for an absolute filesystem path by stripping the
     /// working-tree prefix. Returns `None` for paths outside the work
     /// tree or when the repository is bare (no work tree).
+    ///
+    /// `absolute` must be in the **same canonical form** as the workdir
+    /// the index was built with (the `gix`-backed builder stores an
+    /// already-canonical workdir, and the CLI canonicalizes its inputs to
+    /// match). A non-canonical caller — a symlinked or `..`-laden path that
+    /// does not share the stored prefix — silently yields `None` rather
+    /// than an error, so a future backend or external caller passing raw
+    /// paths must canonicalize first.
     #[must_use]
     pub fn get_for_path(&self, absolute: &Path) -> Option<&Stats> {
         let workdir = self.workdir.as_deref()?;

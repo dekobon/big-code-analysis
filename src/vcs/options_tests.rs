@@ -224,6 +224,29 @@ fn file_type_scope_rejects_empty_and_blank_lists() {
     }
 }
 
+/// Issue #702: an interior-dot entry (`d.ts`, `tar.gz`, `.rs.bak`) can
+/// never match `Path::extension()` (which returns only the final
+/// component), so it must be rejected at parse time rather than silently
+/// ranking no files. A single leading/trailing dot still normalises away.
+#[test]
+fn file_type_scope_rejects_multi_dot_suffixes() {
+    for bad in ["d.ts", "tar.gz", ".rs.bak", "rs,tar.gz", "a.b.c"] {
+        assert!(
+            matches!(
+                FileTypeScope::from_str(bad),
+                Err(Error::InvalidFileTypeScope(_))
+            ),
+            "{bad:?} is a multi-dot suffix and must be rejected"
+        );
+    }
+    // A bare leading dot is still just the extension (normalised away),
+    // not a multi-dot suffix.
+    assert_eq!(
+        FileTypeScope::from_str(".rs").expect("leading dot is fine"),
+        FileTypeScope::Custom(vec!["rs".to_owned()])
+    );
+}
+
 #[test]
 fn metrics_scope_includes_source_excludes_non_source() {
     // The `metrics` scope routes through the same extension predicate the

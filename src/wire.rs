@@ -669,8 +669,10 @@ pub struct Vcs {
     /// Distinct authors in the recent window.
     pub authors_recent: u32,
     /// Top-author edit share in `[0, 1]`.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub ownership_top_share: f64,
     /// `commits_recent / commits_long`, clamped to `[0, 1]`.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub burst: f64,
     /// Long-window bug-fix commit count.
     pub bug_fix_commits: u32,
@@ -684,16 +686,21 @@ pub struct Vcs {
     pub last_modified_days: u32,
     /// Change entropy (bits) over the long window — Hassan 2009 History
     /// Complexity Metric; higher means more scattered changes.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub change_entropy_long: f64,
     /// Change entropy (bits) over the recent window.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub change_entropy_recent: f64,
     /// Co-change graph entropy (bits) over the long window — arXiv
     /// 2504.18511; higher means changes ripple across more partners.
     /// `0.0` is computed (no co-changes), not missing.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub cochange_entropy_long: f64,
     /// Co-change graph entropy (bits) over the recent window.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub cochange_entropy_recent: f64,
     /// Ordinal composite risk score.
+    #[serde(default = "nan_default", with = "non_finite")]
     pub risk_score: f64,
     /// Complexity × recent-churn hotspot score, when AST metrics were
     /// computed alongside the history.
@@ -991,6 +998,123 @@ mod trend_wire_tests {
         // the trend builder never produces, but the helper still defines).
         assert_eq!(risk(&[None, None]), 0.0);
         assert_eq!(risk(&[]), 0.0);
+    }
+
+    /// A `Vcs` row with finite values plus the optional blocks set.
+    fn sample_vcs() -> Vcs {
+        Vcs {
+            commits_long: 12,
+            commits_recent: 4,
+            churn_long: 340,
+            churn_recent: 90,
+            authors_long: 3,
+            authors_recent: 2,
+            ownership_top_share: 0.625,
+            burst: 0.333,
+            bug_fix_commits: 2,
+            security_fix_commits: 1,
+            revert_commits: 0,
+            age_days: 200,
+            last_modified_days: 5,
+            change_entropy_long: 1.5,
+            change_entropy_recent: 0.5,
+            cochange_entropy_long: 2.0,
+            cochange_entropy_recent: 0.25,
+            risk_score: 7.5,
+            hotspot_score: Some(3.25),
+            author_ids: Some(vec!["deadbeef".to_owned()]),
+        }
+    }
+
+    /// Issue #702: the `Vcs` derived/ratio f64 fields must carry the #531
+    /// `non_finite` (de)serialization — a NaN serializes to a format null
+    /// and round-trips back to NaN, instead of erroring `to_string` (NaN is
+    /// invalid JSON). Covers JSON, YAML, and CBOR.
+    #[test]
+    fn vcs_non_finite_floats_round_trip_as_null() {
+        let mut row = sample_vcs();
+        row.risk_score = f64::NAN;
+        row.burst = f64::INFINITY;
+        row.cochange_entropy_recent = f64::NEG_INFINITY;
+
+        // JSON: serialization must succeed (would error without non_finite)
+        // and the non-finite fields appear as null.
+        let json = serde_json::to_string(&row).expect("serialize Vcs with NaN to JSON");
+        assert!(json.contains("\"risk_score\":null"), "got {json}");
+        let from_json: Vcs = serde_json::from_str(&json).expect("parse Vcs from JSON");
+        assert!(from_json.risk_score.is_nan());
+        assert!(from_json.burst.is_nan());
+        assert!(from_json.cochange_entropy_recent.is_nan());
+        // Finite fields are unchanged.
+        assert_eq!(from_json.commits_long, row.commits_long);
+        assert!((from_json.ownership_top_share - row.ownership_top_share).abs() < 1e-12);
+
+        // YAML round-trip.
+        let yaml = serde_yaml::to_string(&row).expect("serialize Vcs to YAML");
+        let from_yaml: Vcs = serde_yaml::from_str(&yaml).expect("parse Vcs from YAML");
+        assert!(from_yaml.risk_score.is_nan() && from_yaml.burst.is_nan());
+
+        // CBOR round-trip.
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&row, &mut bytes).expect("serialize Vcs to CBOR");
+        let from_cbor: Vcs = ciborium::from_reader(bytes.as_slice()).expect("parse Vcs from CBOR");
+        assert!(from_cbor.risk_score.is_nan() && from_cbor.cochange_entropy_recent.is_nan());
+    }
+
+    /// Issue #702: `VcsTrendPoint` and `VcsTrend` use `#[serde(flatten)]
+    /// Vcs`, a known CBOR footgun. CBOR is a *written* trend format but was
+    /// never *read back* in tests — pin the round-trip for both YAML and
+    /// CBOR.
+    #[test]
+    fn vcs_trend_point_round_trips_through_yaml_and_cbor() {
+        let point = VcsTrendPoint {
+            as_of: 1_700_000_000,
+            vcs: sample_vcs(),
+        };
+
+        let yaml = serde_yaml::to_string(&point).expect("serialize VcsTrendPoint to YAML");
+        let from_yaml: VcsTrendPoint = serde_yaml::from_str(&yaml).expect("parse point from YAML");
+        assert_eq!(from_yaml, point);
+
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&point, &mut bytes).expect("serialize VcsTrendPoint to CBOR");
+        let from_cbor: VcsTrendPoint =
+            ciborium::from_reader(bytes.as_slice()).expect("parse point from CBOR");
+        assert_eq!(from_cbor, point);
+    }
+
+    #[test]
+    fn vcs_trend_round_trips_through_yaml_and_cbor() {
+        let trend = VcsTrend {
+            trend_schema_version: 1,
+            vcs_schema_version: 2,
+            risk_score_version: 2,
+            long_window_days: 365,
+            recent_window_days: 90,
+            truncated_shallow_clone: false,
+            as_of_points: vec![1_699_000_000, 1_700_000_000],
+            files: std::collections::BTreeMap::from([(
+                "src/lib.rs".to_owned(),
+                vec![
+                    None,
+                    Some(VcsTrendPoint {
+                        as_of: 1_700_000_000,
+                        vcs: sample_vcs(),
+                    }),
+                ],
+            )]),
+            deltas: VcsTrendDeltas::default(),
+        };
+
+        let yaml = serde_yaml::to_string(&trend).expect("serialize VcsTrend to YAML");
+        let from_yaml: VcsTrend = serde_yaml::from_str(&yaml).expect("parse VcsTrend from YAML");
+        assert_eq!(from_yaml, trend);
+
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&trend, &mut bytes).expect("serialize VcsTrend to CBOR");
+        let from_cbor: VcsTrend =
+            ciborium::from_reader(bytes.as_slice()).expect("parse VcsTrend from CBOR");
+        assert_eq!(from_cbor, trend);
     }
 }
 
