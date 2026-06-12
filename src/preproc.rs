@@ -31,6 +31,83 @@ use crate::languages::language_preproc::*;
 use crate::tools::*;
 use crate::traits::*;
 
+/// A non-fatal diagnostic produced while resolving the C/C++ include
+/// graph in [`fix_includes`].
+///
+/// Resolution is best-effort: self-inclusions, include cycles, paths
+/// that cannot be decoded as UTF-8, and files referenced but never
+/// preprocessed are all reported here rather than written to `stderr`,
+/// so an embedder (e.g. `bca-web`) can capture, suppress, or surface
+/// them as it sees fit. The CLI prints them to `stderr`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub enum PreprocDiagnostic {
+    /// A file's `#include` resolved back to the file itself; the
+    /// self-edge was skipped.
+    SelfInclusion {
+        /// The file that includes itself.
+        file: PathBuf,
+    },
+    /// A strongly connected component (an include cycle) was collapsed
+    /// into a single replacement node. Carries the member paths.
+    IncludeCycle {
+        /// The files participating in the cycle.
+        members: Vec<String>,
+    },
+    /// A path could not be decoded as UTF-8 and was skipped while
+    /// collapsing an include cycle.
+    NonUtf8CyclePath {
+        /// The lossy rendering of the offending path.
+        path: String,
+    },
+    /// A path could not be decoded as UTF-8 and was skipped while
+    /// recording indirect includes.
+    NonUtf8IndirectInclude {
+        /// The lossy rendering of the offending path.
+        path: String,
+    },
+    /// A file appears in the include graph but was never preprocessed,
+    /// so its own macros and includes are unknown.
+    NotPreprocessed {
+        /// The file referenced but not preprocessed.
+        file: PathBuf,
+    },
+}
+
+impl std::fmt::Display for PreprocDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SelfInclusion { file } => {
+                write!(f, "Warning: possible self inclusion {}", file.display())
+            }
+            Self::IncludeCycle { members } => {
+                writeln!(f, "Warning: possible include cycle:")?;
+                for member in members {
+                    // Explicit quotes preserve whitespace visibility for
+                    // paths that contain spaces — important when the cycle
+                    // warning is the only signal a user gets.
+                    writeln!(f, "  - \"{member}\"")?;
+                }
+                Ok(())
+            }
+            Self::NonUtf8CyclePath { path } => {
+                write!(
+                    f,
+                    "warning: skipping non-UTF-8 path in include cycle: {path}"
+                )
+            }
+            Self::NonUtf8IndirectInclude { path } => write!(
+                f,
+                "warning: skipping non-UTF-8 indirect include path: {path}"
+            ),
+            Self::NotPreprocessed { file } => write!(
+                f,
+                "Warning: included file which has not been preprocessed: {}",
+                file.display()
+            ),
+        }
+    }
+}
+
 /// Preprocessor data of a `C/C++` file.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PreprocFile {
@@ -103,12 +180,32 @@ fn ensure_node(
     }
 }
 
+/// Resolves an `#include` to a single, deterministic target.
+///
+/// [`guess_file`]'s last-resort `min_distance_candidates` fallback can
+/// return several tied candidates (a basename like `config.h` living in
+/// multiple directories). Adding an edge to *every* tied candidate would
+/// leak macros from unrelated files through [`get_macros`] and make the
+/// resolved set depend on `all_files` Vec ordering. We instead pick the
+/// lexicographically smallest path among the ties — a stable, content-
+/// independent tie-break — and document the choice as best-effort.
+fn resolve_single_include<S: ::std::hash::BuildHasher>(
+    file: &Path,
+    include: &str,
+    all_files: &HashMap<String, Vec<PathBuf>, S>,
+) -> Option<PathBuf> {
+    guess_file(file, include, all_files).into_iter().min()
+}
+
 /// Builds the include dependency graph from the preprocessor data: one node
-/// per file, one edge per resolved direct include. Self-inclusions are warned
-/// about and skipped rather than added as self-edges.
+/// per file, one edge per resolved direct include. Each include resolves to a
+/// single deterministic target (see [`resolve_single_include`]). Self-
+/// inclusions are reported as a diagnostic and skipped rather than added as
+/// self-edges. Returns the graph, the path→node map, and any diagnostics.
 fn build_include_graph<S: ::std::hash::BuildHasher>(
     files: &HashMap<PathBuf, PreprocFile, S>,
     all_files: &HashMap<String, Vec<PathBuf>, S>,
+    diagnostics: &mut Vec<PreprocDiagnostic>,
 ) -> (IncludeGraph, HashMap<PathBuf, NodeIndex>) {
     let mut nodes: HashMap<PathBuf, NodeIndex> = HashMap::new();
     // Since we'll remove strong connected components we need to have a stable graph
@@ -118,16 +215,15 @@ fn build_include_graph<S: ::std::hash::BuildHasher>(
     for (file, pf) in files {
         let node = ensure_node(&mut g, &mut nodes, file);
         for i in &pf.direct_includes {
-            let possibilities = guess_file(file, i, all_files);
-            for included in possibilities {
-                if &included != file {
-                    let included = ensure_node(&mut g, &mut nodes, &included);
-                    g.add_edge(node, included, 0);
-                } else {
-                    // TODO: add an option to display warning
-                    eprintln!("Warning: possible self inclusion {}", file.display());
-                }
+            let Some(included) = resolve_single_include(file, i, all_files) else {
+                continue;
+            };
+            if &included == file {
+                diagnostics.push(PreprocDiagnostic::SelfInclusion { file: file.clone() });
+                continue;
             }
+            let included = ensure_node(&mut g, &mut nodes, &included);
+            g.add_edge(node, included, 0);
         }
     }
 
@@ -163,6 +259,7 @@ fn scc_external_neighbors(
 fn collapse_scc(
     g: &mut IncludeGraph,
     nodes: &mut HashMap<PathBuf, NodeIndex>,
+    diagnostics: &mut Vec<PreprocDiagnostic>,
 ) -> HashMap<NodeIndex, HashSet<String>> {
     // In order to walk in the graph without issues due to cycles
     // we replace strong connected components by a unique node
@@ -193,10 +290,9 @@ fn collapse_scc(
                 if let Some(s) = path.to_str() {
                     paths.insert(s.to_string());
                 } else {
-                    eprintln!(
-                        "warning: skipping non-UTF-8 path in include cycle: {}",
-                        path.display()
-                    );
+                    diagnostics.push(PreprocDiagnostic::NonUtf8CyclePath {
+                        path: path.display().to_string(),
+                    });
                 }
                 *nodes
                     .get_mut(&path)
@@ -204,14 +300,11 @@ fn collapse_scc(
                     replacement;
             }
 
-            eprintln!("Warning: possible include cycle:");
-            for p in &paths {
-                // Explicit quotes preserve whitespace visibility for
-                // paths that contain spaces — important when the cycle
-                // warning is the only signal a user gets.
-                eprintln!("  - \"{p}\"");
-            }
-            eprintln!();
+            // A `HashSet` iterates in an unspecified order; sort the member
+            // list so the emitted diagnostic is deterministic across runs.
+            let mut members: Vec<String> = paths.iter().cloned().collect();
+            members.sort_unstable();
+            diagnostics.push(PreprocDiagnostic::IncludeCycle { members });
 
             scc_map.insert(replacement, paths);
         }
@@ -229,6 +322,7 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
     g: &IncludeGraph,
     nodes: &HashMap<PathBuf, NodeIndex>,
     scc_map: &HashMap<NodeIndex, HashSet<String>>,
+    diagnostics: &mut Vec<PreprocDiagnostic>,
 ) {
     for (path, start) in nodes {
         let mut dfs = Dfs::new(g, *start);
@@ -250,20 +344,16 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
                     }
                 } else {
                     let Some(s) = w.to_str() else {
-                        eprintln!(
-                            "warning: skipping non-UTF-8 indirect include path: {}",
-                            w.display()
-                        );
+                        diagnostics.push(PreprocDiagnostic::NonUtf8IndirectInclude {
+                            path: w.display().to_string(),
+                        });
                         continue;
                     };
                     x_inc.insert(s.to_string());
                 }
             }
         } else {
-            eprintln!(
-                "Warning: included file which has not been preprocessed: {}",
-                path.display()
-            );
+            diagnostics.push(PreprocDiagnostic::NotPreprocessed { file: path.clone() });
         }
     }
 }
@@ -273,6 +363,13 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
 ///
 /// The dependency graph is built using both preprocessor data and not
 /// extracted from the considered `C/C++` files.
+///
+/// Best-effort include resolution emits non-fatal
+/// [`PreprocDiagnostic`]s (self-inclusions, include cycles, non-UTF-8
+/// paths, files referenced but never preprocessed) as the returned
+/// `Vec` rather than writing to `stderr`, so an embedder can capture or
+/// suppress them. The CLI prints them to `stderr`; callers that do not
+/// care may discard the result.
 ///
 /// # Panics
 ///
@@ -287,10 +384,12 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
 pub fn fix_includes<S: ::std::hash::BuildHasher>(
     files: &mut HashMap<PathBuf, PreprocFile, S>,
     all_files: &HashMap<String, Vec<PathBuf>, S>,
-) {
-    let (mut g, mut nodes) = build_include_graph(files, all_files);
-    let scc_map = collapse_scc(&mut g, &mut nodes);
-    record_indirect_includes(files, &g, &nodes, &scc_map);
+) -> Vec<PreprocDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let (mut g, mut nodes) = build_include_graph(files, all_files, &mut diagnostics);
+    let scc_map = collapse_scc(&mut g, &mut nodes, &mut diagnostics);
+    record_indirect_includes(files, &g, &nodes, &scc_map, &mut diagnostics);
+    diagnostics
 }
 
 /// Strips the surrounding double quotes from an `#include` `string_literal`
@@ -341,6 +440,14 @@ pub(crate) fn preprocess_with_parser(
     let code = parser.code();
     let mut file_result = PreprocFile::default();
 
+    // The stack-based walk visits siblings in reverse source order, so a
+    // `#define FOO` / `#undef FOO` pair would be observed undef-first.
+    // Collect each directive with its byte offset and replay in source
+    // order afterwards, so `#undef` removes a macro a *preceding*
+    // `#define` introduced — and a `#define` that follows a `#undef`
+    // re-introduces it (issue #705).
+    let mut macro_events: Vec<(usize, MacroEvent)> = Vec::new();
+
     stack.push(node);
 
     while let Some(node) = stack.pop() {
@@ -366,7 +473,14 @@ pub(crate) fn preprocess_with_parser(
                         continue;
                     };
                     if !is_specials(macro_text) {
-                        file_result.macros.insert(macro_text.to_string());
+                        // `#undef` un-defines: a macro is in the final set
+                        // only if its last directive was a `#define`.
+                        let event = if id == Preproc::Undef {
+                            MacroEvent::Undef(macro_text.to_string())
+                        } else {
+                            MacroEvent::Define(macro_text.to_string())
+                        };
+                        macro_events.push((identifier.start_byte(), event));
                     }
                 }
             }
@@ -386,7 +500,33 @@ pub(crate) fn preprocess_with_parser(
         }
     }
 
+    // Replay the `#define`/`#undef` directives in source order. A stable
+    // sort on the byte offset preserves the (already unique) directive
+    // order; ties cannot occur because each identifier starts at a
+    // distinct byte.
+    macro_events.sort_by_key(|(offset, _)| *offset);
+    for (_, event) in macro_events {
+        match event {
+            MacroEvent::Define(name) => {
+                file_result.macros.insert(name);
+            }
+            MacroEvent::Undef(name) => {
+                file_result.macros.remove(&name);
+            }
+        }
+    }
+
     results.files.insert(path.to_path_buf(), file_result);
+}
+
+/// A single `#define`/`#undef` directive captured during the AST walk,
+/// replayed in source order so `#undef` removes a previously defined
+/// macro (issue #705).
+enum MacroEvent {
+    /// `#define NAME` — adds NAME to the file's macro set.
+    Define(String),
+    /// `#undef NAME` — removes NAME from the file's macro set.
+    Undef(String),
 }
 
 #[cfg(test)]
@@ -464,6 +604,129 @@ mod tests {
         assert!(pf.macros.contains("FOO"));
     }
 
+    fn macros_of(source: &str) -> HashSet<String> {
+        let parser = parse(source);
+        let mut results = PreprocResults::default();
+        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
+        results
+            .files
+            .get(&PathBuf::from("test.h"))
+            .expect("file entry must be inserted")
+            .macros
+            .clone()
+    }
+
+    /// Regression for #705: `#undef FOO` after `#define FOO` must REMOVE
+    /// FOO from the macro set — the pre-fix code shared a `Define | Undef`
+    /// arm that inserted the identifier for both, leaving `#undef FOO`
+    /// recording FOO as *defined*.
+    #[test]
+    fn preprocess_undef_removes_defined_macro() {
+        let macros = macros_of("#define FOO 1\n#undef FOO\n");
+        assert!(
+            !macros.contains("FOO"),
+            "#undef FOO must un-define FOO; got {macros:?}"
+        );
+    }
+
+    /// `#undef` of a macro that was never defined is a no-op (and must not
+    /// leave the name recorded as defined).
+    #[test]
+    fn preprocess_undef_of_never_defined_is_noop() {
+        let macros = macros_of("#undef NEVER_DEFINED\n");
+        assert!(!macros.contains("NEVER_DEFINED"));
+    }
+
+    /// A `#define` that follows a `#undef` re-introduces the macro: the
+    /// final source-order directive wins, so FOO ends up defined. Set-diff
+    /// approaches get this wrong; source-order replay is required.
+    #[test]
+    fn preprocess_redefine_after_undef_keeps_macro() {
+        let macros = macros_of("#define FOO 1\n#undef FOO\n#define FOO 2\n");
+        assert!(
+            macros.contains("FOO"),
+            "the trailing #define must win; got {macros:?}"
+        );
+    }
+
+    /// `#undef` removes only the named macro; unrelated defines survive.
+    #[test]
+    fn preprocess_undef_leaves_other_macros() {
+        let macros = macros_of("#define FOO 1\n#define BAR 2\n#undef FOO\n");
+        assert!(!macros.contains("FOO"));
+        assert!(macros.contains("BAR"));
+    }
+
+    /// Regression for #705 (ambiguous include fan-out): when an `#include`
+    /// basename resolves to several tied candidates, exactly ONE edge is
+    /// added — the lexicographically smallest path — so macros do not leak
+    /// from unrelated same-named files via `get_macros`, and the result is
+    /// independent of `all_files` Vec ordering.
+    #[test]
+    fn ambiguous_include_resolves_to_single_deterministic_candidate() {
+        // `main.c` includes `config.h`, which exists in two sibling
+        // directories equidistant from the includer; neither resolution
+        // heuristic disambiguates, so the min-distance fallback ties and
+        // would otherwise return both candidates.
+        let includer = PathBuf::from("proj/src/main.c");
+        let cfg_a = PathBuf::from("proj/aaa/config.h");
+        let cfg_b = PathBuf::from("proj/zzz/config.h");
+
+        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
+        let mut main = PreprocFile::default();
+        main.direct_includes.insert("config.h".to_string());
+        files.insert(includer.clone(), main);
+        files.insert(cfg_a.clone(), PreprocFile::new_macros(&["FROM_A"]));
+        files.insert(cfg_b.clone(), PreprocFile::new_macros(&["FROM_B"]));
+
+        // Reversed Vec order proves the tie-break does not depend on it.
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert("config.h".to_string(), vec![cfg_b.clone(), cfg_a.clone()]);
+        all_files.insert("main.c".to_string(), vec![includer.clone()]);
+
+        let diagnostics = fix_includes(&mut files, &all_files);
+        assert!(
+            diagnostics.is_empty(),
+            "no diagnostics expected for a clean ambiguous resolve; got {diagnostics:?}"
+        );
+
+        let main = files.get(&includer).expect("main.c retained");
+        // Exactly the lexicographically smallest candidate
+        // (`proj/aaa/config.h`) is wired in; the sibling does not leak.
+        assert!(main.indirect_includes.contains("proj/aaa/config.h"));
+        assert!(!main.indirect_includes.contains("proj/zzz/config.h"));
+
+        let macros = get_macros(&includer, &files);
+        assert!(macros.contains("FROM_A"));
+        assert!(
+            !macros.contains("FROM_B"),
+            "macros from the unselected candidate must not leak; got {macros:?}"
+        );
+    }
+
+    /// A `#include` that resolves back to the including file is reported as
+    /// a `SelfInclusion` diagnostic (not written to stderr) and adds no
+    /// self-edge.
+    #[test]
+    fn self_inclusion_is_reported_as_diagnostic() {
+        let self_path = PathBuf::from("a.h");
+        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
+        let mut a = PreprocFile::default();
+        a.direct_includes.insert("a.h".to_string());
+        files.insert(self_path.clone(), a);
+
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert("a.h".to_string(), vec![self_path.clone()]);
+
+        let diagnostics = fix_includes(&mut files, &all_files);
+        assert_eq!(
+            diagnostics,
+            vec![PreprocDiagnostic::SelfInclusion {
+                file: self_path.clone(),
+            }]
+        );
+    }
+
     /// `fix_includes` collapses a 2-file include cycle into one SCC replacement
     /// node and propagates every member of that SCC into the `indirect_includes`
     /// of *both* files symmetrically. Also exercises the `let-else` /
@@ -482,7 +745,16 @@ mod tests {
         all_files.insert("a.h".to_string(), vec![PathBuf::from("a.h")]);
         all_files.insert("b.h".to_string(), vec![PathBuf::from("b.h")]);
 
-        fix_includes(&mut files, &all_files);
+        let diagnostics = fix_includes(&mut files, &all_files);
+
+        // The cycle is reported as a single, deterministic diagnostic
+        // (members sorted) rather than written to stderr.
+        assert_eq!(
+            diagnostics,
+            vec![PreprocDiagnostic::IncludeCycle {
+                members: vec!["a.h".to_string(), "b.h".to_string()],
+            }]
+        );
 
         // After resolving the cycle each file's indirect_includes should
         // contain both members of the SCC.
