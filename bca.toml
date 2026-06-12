@@ -24,6 +24,16 @@ exclude_from = ".bcaignore"
 # grammar emits the node, so the key is inert elsewhere.
 cyclomatic_count_try = false
 
+# Prune Rust inline-test subtrees (`#[test]`, `#[cfg(test)]`,
+# `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]`) before any metric is
+# computed, so the gate measures production code rather than the large
+# `#[cfg(test)]` modules this project co-locates in-file (#182/#717).
+# Equivalent to passing `--exclude-tests`. Rust-only — inert for other
+# grammars. Lowers the node-counted metrics (cyclomatic, cognitive,
+# halstead.*, nom, nargs, abc, wmc) but NOT `loc.sloc`, which is the
+# file root span, not a traversal accumulation (separate fix in #722).
+exclude_tests = true
+
 # Gate-only options consumed by `bca check` (#599). The baseline pairs
 # with `.bca-baseline.toml` so existing offenders are absorbed; only
 # regressions and new offenders fail the gate. See the Baselines recipe
