@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::metric_catalog::{Direction, lookup};
 use crate::output::numfmt::MessageMetric;
 
 /// Tool identifier carried in the rule-id / source-prefix field of every
@@ -116,20 +117,42 @@ pub struct OffenderRecord {
 
 impl OffenderRecord {
     /// Default human-readable message used by formats that do not carry
-    /// their own templating. `"<metric> <value> exceeds limit <limit>"`,
-    /// with values formatted via `MessageMetric`: integer fast-path
-    /// for safe integers, six-decimal rounding for non-integer finites,
+    /// their own templating. Renders `"<metric> <value> exceeds limit
+    /// <limit>"` for higher-is-worse metrics and `"<metric> <value>
+    /// falls below limit <limit>"` for the lower-is-worse `mi.*` family
+    /// (#698) — the breach phrasing must match the direction the
+    /// [`metric_catalog`](crate::metric_catalog) records, or an MI
+    /// offender (value *below* the limit) reads as "exceeds" in
+    /// Checkstyle / Clang / MSVC / SARIF output. An unknown metric id
+    /// falls back to the higher-is-worse phrasing.
+    ///
+    /// Values are formatted via `MessageMetric`: integer fast-path for
+    /// safe integers, six-decimal rounding for non-integer finites,
     /// `"NaN"` / `"inf"` / `"-inf"` for non-finite values. The Display
     /// adapter writes directly into the format buffer, so this builds
     /// one `String` per call rather than three.
     #[must_use]
     pub fn default_message(&self) -> String {
         format!(
-            "{} {} exceeds limit {}",
+            "{} {} {} {}",
             self.metric,
             MessageMetric(self.value),
+            self.breach_phrase(),
             MessageMetric(self.limit),
         )
+    }
+
+    /// The direction-appropriate breach phrase for this offender's
+    /// metric: `"exceeds limit"` when a higher value is worse,
+    /// `"falls below limit"` for the lower-is-worse `mi.*` family.
+    /// Unknown metric ids default to `"exceeds limit"` (the common
+    /// case), matching the unknown-id fallback the SARIF / Code Climate
+    /// descriptions already use.
+    fn breach_phrase(&self) -> &'static str {
+        match lookup(&self.metric).map(|i| i.direction) {
+            Some(Direction::LowerIsWorse) => "falls below limit",
+            _ => "exceeds limit",
+        }
     }
 }
 
@@ -227,5 +250,64 @@ mod tests {
 
         r.value = f64::NEG_INFINITY;
         assert_eq!(r.default_message(), "halstead.volume -inf exceeds limit 10");
+    }
+
+    #[test]
+    fn default_message_lower_is_worse_metric_falls_below() {
+        // The `mi.*` Maintainability Index family is lower-is-worse: an
+        // offender's value is *below* the limit, so the message must read
+        // "falls below limit", not "exceeds limit" (#698). A pre-fix
+        // build hardcoded "exceeds limit" for every metric, producing the
+        // nonsensical "mi.original 30 exceeds limit 50" for a value that
+        // is below 50.
+        let r = OffenderRecord {
+            path: PathBuf::from("a.rs"),
+            function: Some("f".into()),
+            start_line: 1,
+            end_line: 2,
+            start_col: None,
+            metric: "mi.original".into(),
+            value: 30.0,
+            limit: 50.0,
+            severity: Severity::Warning,
+        };
+        assert_eq!(r.default_message(), "mi.original 30 falls below limit 50");
+    }
+
+    #[test]
+    fn default_message_higher_is_worse_metric_still_exceeds() {
+        // The direction lookup must keep the higher-is-worse phrasing for
+        // every non-`mi` metric. Guards against an over-broad fix that
+        // flipped the wording for the common case.
+        let r = OffenderRecord {
+            path: PathBuf::from("a.rs"),
+            function: Some("f".into()),
+            start_line: 1,
+            end_line: 2,
+            start_col: None,
+            metric: "cognitive".into(),
+            value: 25.0,
+            limit: 20.0,
+            severity: Severity::Error,
+        };
+        assert_eq!(r.default_message(), "cognitive 25 exceeds limit 20");
+    }
+
+    #[test]
+    fn default_message_unknown_metric_defaults_to_exceeds() {
+        // An id the catalog does not know falls back to the
+        // higher-is-worse "exceeds limit" phrasing.
+        let r = OffenderRecord {
+            path: PathBuf::from("a.rs"),
+            function: None,
+            start_line: 1,
+            end_line: 1,
+            start_col: None,
+            metric: "made.up.metric".into(),
+            value: 5.0,
+            limit: 1.0,
+            severity: Severity::Warning,
+        };
+        assert_eq!(r.default_message(), "made.up.metric 5 exceeds limit 1");
     }
 }

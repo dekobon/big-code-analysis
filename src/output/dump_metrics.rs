@@ -95,34 +95,50 @@ pub fn dump_root_with_color(space: &FuncSpace, color_mode: ColorMode) -> std::io
     Ok(())
 }
 
+/// Dump the `FuncSpace` metric tree with an explicit work stack rather
+/// than recursion, so a pathologically deep space nesting (closures
+/// within closures) cannot overflow the thread stack at dump time — an
+/// uncatchable abort, forbidden by the no-panic rule (#700). Traversal
+/// order and per-node glyphs are byte-identical to the prior recursive
+/// form.
 fn dump_space(
     space: &FuncSpace,
     prefix: &str,
     last: bool,
     stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
+    let mut stack: Vec<(&FuncSpace, String, bool)> = vec![(space, prefix.to_owned(), last)];
 
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{prefix}{pref}")?;
+    while let Some((space, prefix, last)) = stack.pop() {
+        let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
-    intense_color(stdout, Color::Yellow)?;
-    write!(stdout, "{}: ", space.kind)?;
+        color(stdout, Color::Blue)?;
+        write!(stdout, "{prefix}{pref}")?;
 
-    intense_color(stdout, Color::Cyan)?;
-    write!(stdout, "{}", space.name.as_ref().map_or("", |name| name))?;
+        intense_color(stdout, Color::Yellow)?;
+        write!(stdout, "{}: ", space.kind)?;
 
-    intense_color(stdout, Color::Red)?;
-    writeln!(stdout, " (@{})", space.start_line)?;
+        intense_color(stdout, Color::Cyan)?;
+        write!(stdout, "{}", space.name.as_ref().map_or("", |name| name))?;
 
-    let prefix = format!("{prefix}{pref_child}");
-    dump_metrics(&space.metrics, &prefix, space.spaces.is_empty(), stdout)?;
+        intense_color(stdout, Color::Red)?;
+        writeln!(stdout, " (@{})", space.start_line)?;
 
-    if let Some((last, spaces)) = space.spaces.split_last() {
-        for space in spaces {
-            dump_space(space, &prefix, false, stdout)?;
+        let child_prefix = format!("{prefix}{pref_child}");
+        dump_metrics(
+            &space.metrics,
+            &child_prefix,
+            space.spaces.is_empty(),
+            stdout,
+        )?;
+
+        // Push children in reverse so `pop()` visits them in source
+        // order; the final child carries `last = true` for the closing
+        // `` `- `` glyph, matching the recursive `split_last` form.
+        let count = space.spaces.len();
+        for (i, child) in space.spaces.iter().enumerate().rev() {
+            stack.push((child, child_prefix.clone(), i + 1 == count));
         }
-        dump_space(last, &prefix, true, stdout)?;
     }
 
     Ok(())
@@ -265,7 +281,114 @@ fn format_number(n: &serde_json::Number) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metric_set::Metric;
     use crate::{LANG, MetricsOptions, Source, analyze};
+
+    fn render(space: &FuncSpace) -> String {
+        let mut buf = termcolor::NoColor::new(Vec::new());
+        dump_space(space, "", true, &mut buf).expect("dump to in-memory buffer");
+        String::from_utf8(buf.into_inner()).expect("utf-8 dump")
+    }
+
+    #[test]
+    fn selection_mask_omits_unselected_metric_groups() {
+        // `with_only(&[Loc])` must restrict the dump to the loc group:
+        // the wire-driven projection (#674) elides unselected metrics, so
+        // they never appear in the walked JSON object. A pre-#674 dump
+        // printed all groups with default/zero stats, contradicting the
+        // serialized "present => selected" contract (#700).
+        let space = analyze(
+            Source::new(LANG::Cpp, b"int a = 42;"),
+            MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .expect("snippet has a top-level FuncSpace");
+        let out = render(&space);
+        assert!(out.contains("loc\n"), "loc group must be present:\n{out}");
+        for omitted in ["cognitive", "cyclomatic", "halstead", "nom", "abc"] {
+            assert!(
+                !out.contains(&format!("{omitted}\n")),
+                "unselected `{omitted}` group must be omitted:\n{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn last_emitted_metric_group_uses_closing_connector() {
+        // The genuinely-last emitted metric group must carry the closing
+        // `` `- `` glyph rather than a dangling `|-` (#700, already made
+        // dynamic by the wire projection in #674). For a non-class C
+        // dump, the wmc/npm/npa class-only groups are elided, so the last
+        // group line under the root `metrics` subtree must end the
+        // subtree with `` `- ``. We locate the final group connector
+        // (a `<rail>`- ` or `<rail>|- ` line whose label is a top-level
+        // group, i.e. indented directly under `metrics`) and assert it is
+        // the closing form.
+        let space = analyze(
+            Source::new(LANG::Cpp, b"int a = 42;"),
+            MetricsOptions::default(),
+        )
+        .expect("snippet has a top-level FuncSpace");
+        let out = render(&space);
+        // The root metrics subtree indents its groups under `   ` (root
+        // is the last/only space). The last such group line must use
+        // `` `- ``; if any group dangled, the final group line would read
+        // `|- `.
+        let group_lines: Vec<&str> = out
+            .lines()
+            .filter(|l| l.starts_with("   |- ") || l.starts_with("   `- "))
+            .collect();
+        let last_group = group_lines.last().expect("at least one metric group");
+        assert!(
+            last_group.starts_with("   `- "),
+            "the last emitted metric group must use the closing connector, got: {last_group:?}\n{out}"
+        );
+    }
+
+    #[test]
+    fn deeply_nested_spaces_dump_without_stack_overflow() {
+        // The space walk is iterative (#700): a deep chain of nested
+        // function spaces must dump without overflowing the thread stack.
+        // Run on a small-stack thread so a recursion regression fails
+        // loudly rather than relying on the test-runner stack.
+        use crate::spaces::SpaceKind;
+        const DEPTH: usize = 8_000;
+        let handle = std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let leaf = || FuncSpace {
+                    name: Some("f".to_string()),
+                    start_line: 1,
+                    end_line: 1,
+                    kind: SpaceKind::Function,
+                    spaces: Vec::new(),
+                    metrics: CodeMetrics::default(),
+                    suppressed: crate::SuppressionScope::default(),
+                };
+                let mut root = leaf();
+                let mut cursor = &mut root;
+                for _ in 0..DEPTH {
+                    cursor.spaces.push(leaf());
+                    cursor = cursor.spaces.last_mut().expect("just pushed");
+                }
+                let mut sink = termcolor::NoColor::new(Vec::new());
+                let ok = dump_space(&root, "", true, &mut sink).is_ok();
+                // Flatten the chain before it drops: `FuncSpace`'s derived
+                // `Drop` recurses through `spaces`, so a deep tree would
+                // overflow the small stack on teardown and mask the dump
+                // result. Hoisting each level's children out turns the
+                // drop into an iterative one.
+                let mut node = root;
+                while let Some(child) = node.spaces.pop() {
+                    node = child;
+                }
+                ok
+            })
+            .expect("spawn dump thread");
+        assert!(
+            handle.join().expect("dump thread must not overflow"),
+            "deep space nesting must dump successfully"
+        );
+    }
 
     /// Value printed after `{field}:` in the FIRST `{block}` metric block of
     /// the dump — i.e. the root `Unit`'s, which is emitted before any child

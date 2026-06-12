@@ -260,8 +260,15 @@ fn write_one_row<W: Write>(
     let metrics = metric_values(space);
 
     let mut row: Vec<String> = Vec::with_capacity(CSV_HEADER.len());
-    row.push(path_str.to_owned());
-    row.push(space.name.as_deref().unwrap_or("").to_owned());
+    // `path` and `space_name` are free-text identifiers derived from
+    // source content; defang any leading spreadsheet-formula trigger so a
+    // function or file named `=cmd|'...'` cannot execute as a formula in
+    // Excel / Google Sheets (CWE-1236, #703). The remaining cells —
+    // `space_kind` (a fixed enum), the integer line numbers, and the
+    // numeric metric cells — cannot begin with a trigger character, so
+    // they need no guard.
+    row.push(defang_formula(path_str));
+    row.push(defang_formula(space.name.as_deref().unwrap_or("")));
     row.push(space.kind.to_string());
     row.push(space.start_line.to_string());
     row.push(space.end_line.to_string());
@@ -271,6 +278,35 @@ fn write_one_row<W: Write>(
     }
 
     wtr.write_record(&row).map_err(csv_err)
+}
+
+/// Leading bytes that a spreadsheet application treats as the start of a
+/// formula. A cell beginning with any of these is interpreted as a
+/// formula by Excel / LibreOffice / Google Sheets, so an identifier such
+/// as `=HYPERLINK(...)` or `@SUM(...)` taken from source content would
+/// execute on open. The tab and carriage-return cases are included per
+/// the OWASP CSV-injection guidance (some importers strip a leading tab
+/// then re-evaluate the next character).
+const FORMULA_TRIGGERS: [char; 6] = ['=', '+', '-', '@', '\t', '\r'];
+
+/// Defang a free-text CSV cell against formula injection (CWE-1236) by
+/// prefixing a single quote when the cell begins with a
+/// [`FORMULA_TRIGGERS`] character, the OWASP-recommended mitigation. The
+/// quote makes a spreadsheet treat the whole cell as a literal string;
+/// the RFC 4180 quoting the `csv` crate applies does *not* defang
+/// formulas (a quoted `"=cmd"` still evaluates on import). Cells that do
+/// not start with a trigger — the overwhelming majority — are returned
+/// unchanged with no allocation beyond the owned `String` the row
+/// requires.
+fn defang_formula(cell: &str) -> String {
+    if cell.starts_with(FORMULA_TRIGGERS) {
+        let mut out = String::with_capacity(cell.len() + 1);
+        out.push('\'');
+        out.push_str(cell);
+        out
+    } else {
+        cell.to_owned()
+    }
 }
 
 fn csv_err(e: csv::Error) -> io::Error {
@@ -541,6 +577,68 @@ d""#
             ),
             "expected RFC 4180 quoting in:\n{out}"
         );
+    }
+
+    #[test]
+    fn formula_injection_cell_is_defanged() {
+        // A function (or path) named with a leading formula trigger must
+        // not execute as a spreadsheet formula (CWE-1236, #703). The
+        // `space_name` cell must be prefixed with `'` so Excel / Sheets
+        // treat it as a literal string. The csv crate then RFC-4180
+        // quotes the comma, but the leading `'` defang survives inside.
+        let space = empty_space("=cmd|'/C calc'!A0", SpaceKind::Function, 1, 1);
+        let out = render(&space, Path::new("p.rs"));
+        let data_row = out.lines().nth(1).expect("data row");
+        let name_cell = data_row.split(',').next().unwrap_or("");
+        // The name cell is the second column; because it embeds a comma
+        // the csv crate quotes it, so check the raw substring instead.
+        assert!(
+            out.contains("'=cmd|"),
+            "formula-trigger name must be prefixed with a quote:\n{out}"
+        );
+        assert!(
+            !data_row.starts_with("p.rs,=cmd"),
+            "the un-defanged `=cmd` must not appear unquoted:\n{out}"
+        );
+        let _ = name_cell;
+    }
+
+    #[test]
+    fn formula_injection_path_cell_is_defanged() {
+        // The `path` cell is user-controlled too — a checked-in file
+        // literally named `=cmd…` is the likelier attacker vector — so it
+        // must be defanged with the same leading `'` (#703).
+        let space = empty_space("f", SpaceKind::Function, 1, 1);
+        let out = render(&space, Path::new("=cmd|'/C calc'!A0.rs"));
+        assert!(
+            out.contains("'=cmd|"),
+            "formula-trigger path must be prefixed with a quote:\n{out}"
+        );
+        let data_row = out.lines().nth(1).expect("data row");
+        assert!(
+            !data_row.starts_with("=cmd"),
+            "the un-defanged path `=cmd` must not lead the row:\n{out}"
+        );
+    }
+
+    #[test]
+    fn defang_formula_guards_every_trigger_but_leaves_plain_cells() {
+        // Each OWASP-listed trigger character is defanged; a plain cell
+        // and an empty cell are returned unchanged (no spurious quote).
+        for trigger in ['=', '+', '-', '@', '\t', '\r'] {
+            let cell = format!("{trigger}danger");
+            let out = defang_formula(&cell);
+            assert_eq!(out, format!("'{cell}"), "trigger {trigger:?} must defang");
+        }
+        // A bare trigger character alone is still defanged.
+        assert_eq!(defang_formula("="), "'=");
+        // Plain identifiers and the empty string are untouched.
+        assert_eq!(defang_formula("compute"), "compute");
+        assert_eq!(defang_formula(""), "");
+        // A trigger in a non-leading position is harmless and untouched.
+        assert_eq!(defang_formula("a=b"), "a=b");
+        // A leading non-ASCII identifier is not a trigger.
+        assert_eq!(defang_formula("café"), "café");
     }
 
     #[test]

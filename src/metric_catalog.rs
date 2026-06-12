@@ -277,8 +277,25 @@ pub const FAMILIES: &[MetricFamily] = &[
 /// Catalog entry for a known offender id, or `None`. Callers pick their
 /// own fallback for unknown ids (SARIF emits the raw id; Code Climate
 /// falls through to its default message).
-pub(crate) fn lookup(id: &str) -> Option<&'static MetricInfo> {
+///
+/// Public so out-of-crate consumers (the CLI threshold engine) can read
+/// a metric's [`Direction`] — the `mi.*` family is lower-is-worse, so
+/// the gate and the offender wording must consult it rather than
+/// assuming a higher value is always the violation (#698).
+#[must_use]
+pub fn lookup(id: &str) -> Option<&'static MetricInfo> {
     METRICS.iter().find(|m| m.id == id)
+}
+
+/// Whether a lower value of the metric `id` is the unhealthy direction
+/// (the `mi.*` Maintainability Index family). The threshold gate, the
+/// Code Climate severity-ratio inversion, and the SARIF/offender wording
+/// all consult this so they never drift from one another. An id the
+/// catalog does not know defaults to higher-is-worse — the same fallback
+/// every offender formatter already uses (#698).
+#[must_use]
+pub fn lower_is_worse(id: &str) -> bool {
+    lookup(id).is_some_and(|m| matches!(m.direction, Direction::LowerIsWorse))
 }
 
 #[cfg(test)]
@@ -351,6 +368,18 @@ mod tests {
                 m.id,
             );
         }
+    }
+
+    #[test]
+    fn lower_is_worse_helper_matches_catalog_and_defaults_false() {
+        assert!(lower_is_worse("mi.original"), "mi.* is lower-is-worse");
+        assert!(
+            !lower_is_worse("cyclomatic"),
+            "cyclomatic is higher-is-worse"
+        );
+        // An id the catalog does not know defaults to higher-is-worse, so
+        // the shared gate never flags an unknown metric on the wrong side.
+        assert!(!lower_is_worse("not_a_metric"));
     }
 
     /// `mi.*` sentences phrase the breach as "falls below"; every other
