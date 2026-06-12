@@ -229,8 +229,17 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    ///
+    /// Uses the source-aware [`Checker::is_func_with_code`] rather than the
+    /// byte-less `is_func`. For every grammar that exposes a syntactic
+    /// function-definition node, `is_func_with_code` forwards to `is_func`,
+    /// so the count is unchanged. Elixir is the exception: its `def`/`defp`/
+    /// `defmacro`/`defmacrop` declarations are ordinary `Call` nodes that
+    /// only a source-text lookup can recognise, so its `is_func_with_code`
+    /// override now classifies them as functions instead of leaving
+    /// `functions_sum` permanently at 0 (#696).
+    fn compute(node: &Node, code: &[u8], stats: &mut Stats) {
+        if Self::is_func_with_code(node, code) {
             stats.functions += 1;
             return;
         }
@@ -1994,22 +2003,23 @@ outer() {
         );
     }
 
-    // Documents Elixir's current default-impl behaviour: `def`/`defp`
-    // surface as `Call` nodes whose target is an `Identifier`, and
-    // `is_func` returns `false`, so Nom only counts `AnonymousFunction`
-    // closures. Two anon functions + zero functions is the load-bearing
-    // claim — a future real impl that started counting `def` calls
-    // would flip this. The same call-target text-inspection pattern
-    // that #179 introduced for `Cyclomatic` would apply here once
-    // `Nom::compute` is widened to take the source bytes.
+    // Elixir's `def`/`defp`/`defmacro`/`defmacrop` declarations surface
+    // as `Call` nodes whose target is an `Identifier`, so the byte-less
+    // `is_func` cannot see them. Since #696, `Nom::compute` consults the
+    // source-aware `is_func_with_code`, so the three named declarations
+    // (`public_fn`, `private_fn`, `with_anon`) now count as FUNCTIONS and
+    // the two `fn x -> … end` literals count as CLOSURES — the same split
+    // every other language already produced. `functions_sum` was pinned at
+    // 0 before the fix (the bug this test now guards against regressing).
     #[test]
-    fn elixir_default_nom_counts_only_anonymous_functions() {
+    fn elixir_nom_counts_def_as_functions_and_fn_as_closures() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def public_fn(x), do: x + 1\n  defp private_fn(x), do: x - 1\n  def with_anon do\n    inc = fn x -> x + 1 end\n    dec = fn x -> x - 1 end\n    {inc, dec}\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.nom.functions_sum(), 0);
+                assert_eq!(metric.nom.functions_sum(), 3);
                 assert_eq!(metric.nom.closures_sum(), 2);
+                assert_eq!(metric.nom.total(), 5);
             },
         );
     }

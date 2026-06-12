@@ -3,18 +3,18 @@ source: src/metrics/halstead.rs
 expression: metric.halstead
 ---
 {
-  "unique_operators": 12,
-  "total_operators": 12,
+  "unique_operators": 9,
+  "total_operators": 9,
   "unique_operands": 6,
-  "total_operands": 9,
-  "length": 21,
-  "estimated_program_length": 58.529325012980806,
-  "purity_ratio": 2.787110714903848,
-  "vocabulary": 18,
-  "volume": 87.56842503028855,
-  "difficulty": 9.0,
-  "level": 0.1111111111111111,
-  "effort": 788.115825272597,
-  "time": 43.784212515144276,
-  "bugs": 0.028440601513086358
+  "total_operands": 8,
+  "length": 17,
+  "estimated_program_length": 44.039100017307746,
+  "purity_ratio": 2.5905352951357496,
+  "vocabulary": 15,
+  "volume": 66.41714012534482,
+  "difficulty": 6.0,
+  "level": 0.16666666666666666,
+  "effort": 398.5028407520689,
+  "time": 22.139046708448273,
+  "bugs": 0.018050934612846067
 }

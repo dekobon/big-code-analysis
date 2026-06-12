@@ -723,7 +723,11 @@ impl Checker for CsharpCode {
 
 impl Checker for MozjsCode {
     fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Mozjs::Comment
+        // `html_comment` is the ECMAScript Annex-B `<!-- -->` form, a
+        // distinct named+extra grammar node (Mozjs 133 / JS 132 / TS 162
+        // / Tsx 168) alongside the `//` and `/* */` `comment` kind. It
+        // must classify as a comment for loc/tokens/find parity (#697).
+        matches!(node.kind_id().into(), Mozjs::Comment | Mozjs::HtmlComment)
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -761,7 +765,12 @@ impl Checker for MozjsCode {
 
 impl Checker for JavascriptCode {
     fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Javascript::Comment
+        // See MozjsCode::is_comment — `html_comment` (Annex-B `<!-- -->`)
+        // is a comment kind for loc/tokens/find parity (#697).
+        matches!(
+            node.kind_id().into(),
+            Javascript::Comment | Javascript::HtmlComment
+        )
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -799,7 +808,12 @@ impl Checker for JavascriptCode {
 
 impl Checker for TypescriptCode {
     fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Typescript::Comment
+        // See MozjsCode::is_comment — `html_comment` (Annex-B `<!-- -->`)
+        // is a comment kind for loc/tokens/find parity (#697).
+        matches!(
+            node.kind_id().into(),
+            Typescript::Comment | Typescript::HtmlComment
+        )
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -844,7 +858,9 @@ impl Checker for TypescriptCode {
 
 impl Checker for TsxCode {
     fn is_comment(node: &Node) -> bool {
-        node.kind_id() == Tsx::Comment
+        // See MozjsCode::is_comment — `html_comment` (Annex-B `<!-- -->`)
+        // is a comment kind for loc/tokens/find parity (#697).
+        matches!(node.kind_id().into(), Tsx::Comment | Tsx::HtmlComment)
     }
 
     fn is_func_space(node: &Node) -> bool {
@@ -1741,9 +1757,13 @@ impl Checker for RubyCode {
 
 impl Checker for GroovyCode {
     fn is_comment(node: &Node) -> bool {
+        // `groovydoc_comment` is Groovy's `/** … */` Groovydoc kind, a
+        // distinct grammar node (Groovy 150) from the `//` LineComment
+        // and `/* */` BlockComment. The `Loc` cloc arm already counts it
+        // (loc.rs); this restores parity so tokens/find agree too (#697).
         matches!(
             node.kind_id().into(),
-            Groovy::LineComment | Groovy::BlockComment
+            Groovy::LineComment | Groovy::BlockComment | Groovy::GroovydocComment
         )
     }
 
@@ -2838,6 +2858,33 @@ mod tests {
         assert!(
             ast_has_kind_id(&parser, Mozjs::UsingDeclaration as u16),
             "expected Mozjs::UsingDeclaration to appear in the parse",
+        );
+    }
+
+    #[test]
+    fn go_rune_literal_is_not_a_string() {
+        // #699 verdict: Go `RuneLiteral` is an operand in `get_op_type`
+        // and is flattened by the alterator, but it is deliberately
+        // excluded from `is_string` — a rune is a character (`int32`),
+        // not a string, exactly as Rust/Cpp `CharLiteral` are operand +
+        // flattened yet absent from their `is_string`. This pins the
+        // exclusion: the fixture must produce a `rune_literal` (proving
+        // the surrounding grammar still emits it) while `GoCode::is_string`
+        // returns false for it. The flattening half lives in
+        // `alterator.rs::go_rune_literal_flattened_but_not_a_string_kind`.
+        use crate::langs::GoParser;
+        let path = PathBuf::from("test.go");
+        let src = b"package main\nfunc main() { r := 'x'; _ = r }\n".to_vec();
+        let parser = GoParser::new(src, &path, None);
+        let rune_id = Go::RuneLiteral as u16;
+        assert!(
+            ast_has_kind_id(&parser, rune_id),
+            "fixture should produce a rune_literal node",
+        );
+        assert_eq!(
+            count_string_matches_for_kind(&parser, rune_id, GoCode::is_string),
+            0,
+            "Go rune_literal must not match is_string (a rune is a char, not a string)",
         );
     }
 }

@@ -5,16 +5,16 @@ expression: metric.halstead
 {
   "unique_operators": 1,
   "total_operators": 2,
-  "unique_operands": 5,
-  "total_operands": 5,
-  "length": 7,
-  "estimated_program_length": 11.60964047443681,
-  "purity_ratio": 1.6585200677766871,
-  "vocabulary": 6,
-  "volume": 18.094737505048094,
+  "unique_operands": 4,
+  "total_operands": 4,
+  "length": 6,
+  "estimated_program_length": 8.0,
+  "purity_ratio": 1.3333333333333333,
+  "vocabulary": 5,
+  "volume": 13.931568569324174,
   "difficulty": 0.5,
   "level": 2.0,
-  "effort": 9.047368752524047,
-  "time": 0.5026315973624471,
-  "bugs": 0.0014473057017609214
+  "effort": 6.965784284662087,
+  "time": 0.3869880158145604,
+  "bugs": 0.001215790538742808
 }

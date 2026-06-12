@@ -817,7 +817,10 @@ impl Loc for MozjsCode {
 
         match node.kind_id().into() {
             String | DQUOTE | Program => {}
-            Comment => {
+            // `HtmlComment` is the Annex-B `<!-- -->` comment kind; count
+            // its rows as CLOC rather than letting them fall to the `_`
+            // arm and over-count PLOC (#697).
+            Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
             ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
@@ -843,7 +846,8 @@ impl Loc for JavascriptCode {
 
         match node.kind_id().into() {
             String | DQUOTE | Program => {}
-            Comment => {
+            // See MozjsCode::compute — `HtmlComment` counts as CLOC (#697).
+            Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
             ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
@@ -869,7 +873,8 @@ impl Loc for TypescriptCode {
 
         match node.kind_id().into() {
             String | DQUOTE | Program => {}
-            Comment => {
+            // See MozjsCode::compute — `HtmlComment` counts as CLOC (#697).
+            Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
             ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
@@ -895,7 +900,8 @@ impl Loc for TsxCode {
 
         match node.kind_id().into() {
             String | DQUOTE | Program => {}
-            Comment => {
+            // See MozjsCode::compute — `HtmlComment` counts as CLOC (#697).
+            Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
             ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
@@ -6979,6 +6985,27 @@ try {
     }
 
     #[test]
+    fn javascript_cloc_html_comment() {
+        // The Annex-B `<!-- -->` `html_comment` must count as CLOC, not
+        // fall to the `_` arm and inflate PLOC (#697). Pre-fix this
+        // fixture measured cloc 0 / ploc 4.
+        check_metrics::<JavascriptParser>(
+            "<!-- header comment -->
+function f() {
+  return 1;
+}",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    #[test]
     fn mozjs_blank() {
         check_metrics::<MozjsParser>(
             "function f() {
@@ -9450,6 +9477,24 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             |metric| {
                 // Block comment spans 3 lines → cloc == 3.
                 assert_eq!(metric.loc.cloc(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_cloc_groovydoc_comment() {
+        // Groovy `/** … */` `groovydoc_comment` counts as CLOC. The
+        // `Loc` arm already handled it; this pins it alongside the
+        // restored `is_comment` parity (#697).
+        check_metrics::<GroovyParser>(
+            "/** groovydoc */
+class A {
+  int x = 1
+}",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 1);
+                assert_eq!(metric.loc.ploc(), 3);
             },
         );
     }

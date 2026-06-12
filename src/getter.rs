@@ -18,6 +18,21 @@ use crate::traits::Search;
 
 use crate::*;
 
+/// Bounds- and UTF-8-checked text extraction for a node's byte span.
+///
+/// `node.start_byte()`/`end_byte()` index into the `code` buffer the
+/// node was parsed from. Slicing `&code[start..end]` directly panics if
+/// the span ever falls outside the buffer or off a UTF-8 char boundary —
+/// a latent hazard whenever a node from one parse meets bytes from
+/// another (incremental reparse, VCS per-function re-slice). `code.get`
+/// turns both failure modes into `None`, so a stale span degrades to an
+/// unnamed (`None`) space instead of crashing the walker.
+#[inline]
+fn node_text<'a>(code: &'a [u8], node: &Node) -> Option<&'a str> {
+    code.get(node.start_byte()..node.end_byte())
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+}
+
 macro_rules! get_operator {
     ($language:ident) => {
         #[inline]
@@ -112,10 +127,17 @@ macro_rules! impl_js_family_get_op_type {
                 | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
                 | QMARKQMARK | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
                 | FunctionExpression | SEMI | Typeof | Instanceof | Void
+                // `get`/`set` accessor keywords are operators, matching the
+                // C# getter's `Get | Set | Init | Add | Remove` accessor arm.
+                // Before #695 the JS family classified them as operands, so
+                // the same accessor keyword landed in opposite Halstead
+                // groups across languages, skewing n1/n2 for accessor-heavy
+                // code (#695).
+                | Set | Get
                 $(| $op_extra)* => HalsteadType::Operator,
                 Identifier | MemberExpression | MemberExpression2 | MemberExpression3
                 | PropertyIdentifier | String | Number | True | False | Null | This | Super
-                | Undefined | Set | Get
+                | Undefined
                 $(| $operand_extra)* => HalsteadType::Operand,
                 // A `` `...` `` is a string literal; without interpolation it
                 // mirrors `"..."` and contributes one operand. When it has a
@@ -141,8 +163,7 @@ pub(crate) trait Getter {
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         // we're in a function or in a class
         if let Some(name) = node.child_by_field_name("name") {
-            let code = &code[name.start_byte()..name.end_byte()];
-            std::str::from_utf8(code).ok()
+            node_text(code, &name)
         } else {
             Some("<anonymous>")
         }
@@ -281,6 +302,21 @@ impl Getter for PythonCode {
                 if parent.kind_id() == ExpressionStatement && parent.child_count() == 1 {
                     return HalsteadType::Unknown;
                 }
+                // Implicit-concatenation docstring (`"""doc""" "more"`): the
+                // adjacent literals are wrapped in a `concatenated_string`,
+                // which is itself the sole child of the docstring
+                // `ExpressionStatement`. Without this arm each fragment would
+                // count as a separate operand, making the docstring's N2
+                // contribution depend on how many literals it was split into
+                // (#695). Suppress every fragment of such a docstring.
+                if parent.kind_id() == ConcatenatedString
+                    && parent.parent().is_some_and(|grandparent| {
+                        grandparent.kind_id() == ExpressionStatement
+                            && grandparent.child_count() == 1
+                    })
+                {
+                    return HalsteadType::Unknown;
+                }
                 // Regression #191: an f-string wraps `Interpolation` children
                 // whose inner expressions are walked and counted separately.
                 // Skip the wrapping literal to avoid double-counting (same
@@ -315,8 +351,7 @@ impl Getter for MozjsCode {
 
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         if let Some(name) = node.child_by_field_name("name") {
-            let code = &code[name.start_byte()..name.end_byte()];
-            std::str::from_utf8(code).ok()
+            node_text(code, &name)
         } else {
             // We can be in a pair: foo: function() {}
             // Or in a variable declaration: var aFun = function() {}
@@ -324,14 +359,12 @@ impl Getter for MozjsCode {
                 match parent.kind_id().into() {
                     Mozjs::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     Mozjs::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     _ => {}
@@ -369,8 +402,7 @@ impl Getter for JavascriptCode {
 
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         if let Some(name) = node.child_by_field_name("name") {
-            let code = &code[name.start_byte()..name.end_byte()];
-            std::str::from_utf8(code).ok()
+            node_text(code, &name)
         } else {
             // We can be in a pair: foo: function() {}
             // Or in a variable declaration: var aFun = function() {}
@@ -378,14 +410,12 @@ impl Getter for JavascriptCode {
                 match parent.kind_id().into() {
                     Javascript::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     Javascript::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     _ => {}
@@ -424,8 +454,7 @@ impl Getter for TypescriptCode {
 
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         if let Some(name) = node.child_by_field_name("name") {
-            let code = &code[name.start_byte()..name.end_byte()];
-            std::str::from_utf8(code).ok()
+            node_text(code, &name)
         } else {
             // We can be in a pair: foo: function() {}
             // Or in a variable declaration: var aFun = function() {}
@@ -433,14 +462,12 @@ impl Getter for TypescriptCode {
                 match parent.kind_id().into() {
                     Typescript::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     Typescript::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     _ => {}
@@ -486,8 +513,7 @@ impl Getter for TsxCode {
 
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         if let Some(name) = node.child_by_field_name("name") {
-            let code = &code[name.start_byte()..name.end_byte()];
-            std::str::from_utf8(code).ok()
+            node_text(code, &name)
         } else {
             // We can be in a pair: foo: function() {}
             // Or in a variable declaration: var aFun = function() {}
@@ -495,14 +521,12 @@ impl Getter for TsxCode {
                 match parent.kind_id().into() {
                     Tsx::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     Tsx::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
-                            let code = &code[name.start_byte()..name.end_byte()];
-                            return std::str::from_utf8(code).ok();
+                            return node_text(code, &name);
                         }
                     }
                     _ => {}
@@ -536,8 +560,7 @@ impl Getter for RustCode {
             .child_by_field_name("name")
             .or_else(|| node.child_by_field_name("type"))
         {
-            let code = &code[name.start_byte()..name.end_byte()];
-            std::str::from_utf8(code).ok()
+            node_text(code, &name)
         } else {
             Some("<anonymous>")
         }
@@ -633,8 +656,7 @@ impl Getter for CppCode {
             | Cpp::FunctionDefinition3
             | Cpp::FunctionDefinition4 => {
                 if let Some(op_cast) = node.first_child(|id| Cpp::OperatorCast == id) {
-                    let code = &code[op_cast.start_byte()..op_cast.end_byte()];
-                    return std::str::from_utf8(code).ok();
+                    return node_text(code, &op_cast);
                 }
                 // we're in a function_definition so need to get the declarator
                 if let Some(declarator) = node.child_by_field_name("declarator") {
@@ -657,8 +679,7 @@ impl Getter for CppCode {
                             | Cpp::QualifiedIdentifier4
                             | Cpp::TemplateFunction
                             | Cpp::TemplateMethod => {
-                                let code = &code[first.start_byte()..first.end_byte()];
-                                return std::str::from_utf8(code).ok();
+                                return node_text(code, &first);
                             }
                             _ => {}
                         }
@@ -667,8 +688,7 @@ impl Getter for CppCode {
             }
             _ => {
                 if let Some(name) = node.child_by_field_name("name") {
-                    let code = &code[name.start_byte()..name.end_byte()];
-                    return std::str::from_utf8(code).ok();
+                    return node_text(code, &name);
                 }
             }
         }
@@ -1312,17 +1332,20 @@ impl Getter for LuaCode {
             | Lua::And
             | Lua::Or
             | Lua::Not
-            // Structural punctuation
+            // Structural punctuation. Only the *opening* delimiter is an
+            // operator: `get_operator_id_as_str` folds `LPAREN`/`LBRACK`/
+            // `LBRACE` to the pair glyph `()`/`[]`/`{}`, so a balanced pair
+            // is one operator with one occurrence — the convention the
+            // C-family majority follows. Counting the matching closer too
+            // (the former `RPAREN`/`RBRACK`/`RBRACE` arms) double-counted
+            // every balanced pair, inflating n1 and N1 (#695).
             | Lua::SEMI
             | Lua::COMMA
             | Lua::COLON
             | Lua::COLONCOLON
             | Lua::LBRACE
-            | Lua::RBRACE
             | Lua::LBRACK
-            | Lua::RBRACK
             | Lua::LPAREN
-            | Lua::RPAREN
             | Lua::DOT
             | Lua::DOTDOT
             // Arithmetic / concat / length
@@ -1397,9 +1420,16 @@ impl Getter for BashCode {
             | Bash::Case | Bash::Esac
             | Bash::Function | Bash::Local | Bash::Declare | Bash::Typeset
             | Bash::Export | Bash::Readonly | Bash::Unset | Bash::Unsetenv
-            // Punctuation acting as operators
-            | Bash::LPAREN | Bash::RPAREN | Bash::LBRACE | Bash::RBRACE
-            | Bash::LBRACK | Bash::RBRACK | Bash::LBRACKLBRACK | Bash::RBRACKRBRACK
+            // Punctuation acting as operators. Only the *opening*
+            // delimiter counts — `get_operator_id_as_str` folds
+            // `LPAREN`/`LBRACK`/`LBRACE` to the pair glyph, so a balanced
+            // pair is one operator. Counting the matching closer too
+            // (former `RPAREN`/`RBRACE`/`RBRACK`/`RBRACKRBRACK` arms)
+            // double-counted every pair, inflating n1/N1 (#695). `[[`
+            // (`LBRACKLBRACK`) is the test-command opener; its `]]` closer
+            // is dropped for the same reason.
+            | Bash::LPAREN | Bash::LBRACE
+            | Bash::LBRACK | Bash::LBRACKLBRACK
             | Bash::SEMI | Bash::SEMISEMI | Bash::SEMIAMP | Bash::SEMISEMIAMP
             | Bash::COMMA | Bash::COLON
             // Assignment, arithmetic, and comparison operators
@@ -1449,10 +1479,31 @@ impl Getter for BashCode {
             Bash::Word | Bash::Word2 | Bash::Word3 | Bash::Word4
             | Bash::Number | Bash::Number2 | Bash::NumberToken1 | Bash::NumberToken2
             | Bash::SimpleExpansion
-            | Bash::VariableName | Bash::VariableName2 | Bash::VariableName3
-            | Bash::SpecialVariableName | Bash::SpecialVariableName2
             | Bash::CommandName | Bash::Concat
                 => HalsteadType::Operand,
+
+            // `variable_name` / `special_variable_name` are operands when
+            // they stand alone — the `name` in `name=value`, or the inner
+            // leaf of a brace `${name}` `expansion` whose wrapper is *not*
+            // itself an operand. But `$name` (and `$?`, `$1`, …) parses as a
+            // `simple_expansion` wrapping the same leaf, and `SimpleExpansion`
+            // is already an operand above; counting the inner leaf too would
+            // double-count every bare `$var` reference (inflating n2/N2 and
+            // every derived Halstead value). Exclude the leaf exactly in
+            // that position — the same guard Tcl applies via its anonymous
+            // `Id2` exclusion and iRules applies via a parent check on
+            // `variable_substitution`.
+            Bash::VariableName | Bash::VariableName2 | Bash::VariableName3
+            | Bash::SpecialVariableName | Bash::SpecialVariableName2 => {
+                if node
+                    .parent()
+                    .is_some_and(|p| p.kind_id() == Bash::SimpleExpansion as u16)
+                {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
@@ -1491,14 +1542,15 @@ impl Getter for TclCode {
             | Tcl::Ne
             | Tcl::In
             | Tcl::Ni
-            // Structural punctuation.
+            // Structural punctuation. Only the *opening* delimiter is an
+            // operator (the pair folds to one glyph in
+            // `get_operator_id_as_str`); counting the matching closer too
+            // (former `RBRACE`/`RBRACK`/`RPAREN` arms) double-counted every
+            // balanced pair, inflating n1/N1 (#695).
             | Tcl::LBRACE
-            | Tcl::RBRACE
             | Tcl::LBRACK
-            | Tcl::RBRACK
             | Tcl::LPAREN
             | Tcl::LPAREN2
-            | Tcl::RPAREN
             | Tcl::SEMI
             | Tcl::COLON
             | Tcl::COLONCOLON
@@ -1619,14 +1671,15 @@ impl Getter for IrulesCode {
             | Irules::MatchesGlob
             | Irules::In
             | Irules::Ni
-            // Structural punctuation.
+            // Structural punctuation. Only the *opening* delimiter is an
+            // operator (the pair folds to one glyph in
+            // `get_operator_id_as_str`); counting the matching closer too
+            // (former `RBRACE`/`RBRACK`/`RPAREN` arms) double-counted every
+            // balanced pair, inflating n1/N1 (#695).
             | Irules::LBRACE
-            | Irules::RBRACE
             | Irules::LBRACK
-            | Irules::RBRACK
             | Irules::LPAREN
             | Irules::LPAREN2
-            | Irules::RPAREN
             | Irules::SEMI
             | Irules::COLON
             | Irules::COLONCOLON
@@ -1764,9 +1817,13 @@ impl Getter for PhpCode {
             | Fn | Declare | Enddeclare | Unset | List
             | Zelf | Parent
 
-            // Operator: structural punctuation
-            | LBRACE | RBRACE | LPAREN | LPAREN2 | RPAREN | RPAREN2
-            | LBRACK | RBRACK
+            // Operator: structural punctuation. Only the *opening*
+            // delimiter is an operator (the pair folds to one glyph in
+            // `get_operator_id_as_str`); the former closing arms
+            // (`RBRACE`/`RPAREN`/`RPAREN2`/`RBRACK`) double-counted every
+            // balanced pair, inflating n1/N1 (#695).
+            | LBRACE | LPAREN | LPAREN2
+            | LBRACK
             | COMMA | SEMI | COLON | COLONCOLON
             | DASHGT | QMARKDASHGT | EQGT | BSLASH | DOTDOTDOT | QMARK | AT
             | HASHLBRACK
@@ -1892,7 +1949,7 @@ impl Getter for PhpCode {
 fn elixir_extract_head_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
     use Elixir as E;
 
-    let text = |n: &Node| std::str::from_utf8(&code[n.start_byte()..n.end_byte()]).ok();
+    let text = |n: &Node| node_text(code, n);
     match node.kind_id().into() {
         E::Identifier | E::Alias => text(node),
         E::Call => text(&node.child_by_field_name("target")?),
@@ -1990,7 +2047,7 @@ impl Getter for ElixirCode {
         }
 
         if let Some(name) = node.child_by_field_name("name") {
-            return std::str::from_utf8(&code[name.start_byte()..name.end_byte()]).ok();
+            return node_text(code, &name);
         }
         Some("<anonymous>")
     }
@@ -2007,9 +2064,15 @@ impl Getter for ElixirCode {
             // `Call`'s `target` field and are counted as operands below.)
             E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue | E::Fn
             | E::When | E::Not | E::Or | E::And | E::In | E::Notin
-            // Structural punctuation acting as operators
-            | E::LPAREN | E::LPAREN2 | E::RPAREN | E::LBRACE | E::RBRACE
-            | E::LBRACK | E::LBRACK2 | E::RBRACK | E::LTLT | E::GTGT
+            // Structural punctuation acting as operators. Only the
+            // *opening* delimiter counts (the pair folds to one glyph in
+            // `get_operator_id_as_str`); the former `RPAREN`/`RBRACE`/
+            // `RBRACK` arms double-counted every balanced pair, inflating
+            // n1/N1 (#695). `LTLT`/`GTGT` are the bitstring `<<`/`>>`
+            // delimiters — left unfolded and counted as the majority of
+            // languages count their shift-like glyphs.
+            | E::LPAREN | E::LPAREN2 | E::LBRACE
+            | E::LBRACK | E::LBRACK2 | E::LTLT | E::GTGT
             | E::COMMA | E::SEMI | E::COLON | E::COLONCOLON | E::DOT
             | E::DOTDOT | E::DOTDOTDOT | E::PERCENT | E::HASHLBRACE | E::AT
             // Arithmetic / unary
@@ -2106,9 +2169,15 @@ impl Getter for RubyCode {
             | R::Undef2 | R::Alias2
             // Logical / definedness keywords
             | R::And | R::Or | R::Not | R::DefinedQMARK
-            // Structural punctuation acting as operators
-            | R::LPAREN | R::LPAREN2 | R::RPAREN | R::RPAREN2
-            | R::LBRACE | R::RBRACE | R::LBRACK | R::LBRACK2 | R::LBRACK3 | R::RBRACK
+            // Structural punctuation acting as operators. Only the
+            // *opening* delimiter counts (the pair folds to one glyph in
+            // `get_operator_id_as_str`); the former closing arms
+            // (`RPAREN`/`RPAREN2`/`RBRACE`/`RBRACK`) double-counted every
+            // balanced pair, inflating n1/N1 (#695). The `LBRACKRBRACK` /
+            // `LBRACKRBRACKEQ` indexer *method names* below (`def [](i)`)
+            // are whole-token operators, not a balanced pair, and stay.
+            | R::LPAREN | R::LPAREN2
+            | R::LBRACE | R::LBRACK | R::LBRACK2 | R::LBRACK3
             | R::COMMA | R::SEMI | R::DOT | R::COLONCOLON | R::COLONCOLON2 | R::AMPDOT
             | R::COLON | R::COLON2 | R::HASHLBRACE | R::DASHGT
             // Method-name operator markers (`def +@`, `def -@`, `def ~@`)
@@ -2286,5 +2355,36 @@ impl Getter for GroovyCode {
             Groovy::LBRACE => "{}",
             _ => typ.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod node_text_tests {
+    use super::node_text;
+    use crate::langs::RustParser;
+    use crate::traits::ParserTrait;
+    use std::path::PathBuf;
+
+    /// A node whose span lies inside the buffer it was parsed from
+    /// yields its exact source text.
+    #[test]
+    fn in_bounds_span_returns_text() {
+        let src = "fn x() {}";
+        let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.rs"), None);
+        let root = parser.root();
+        assert_eq!(node_text(parser.code(), &root), Some(src));
+    }
+
+    /// Reslicing a node against a *shorter* buffer (the stale-span hazard
+    /// the guard exists for) must degrade to `None`, not panic. A direct
+    /// `&code[start..end]` would panic here — this is the revert check.
+    #[test]
+    fn out_of_bounds_span_returns_none_not_panic() {
+        let src = "fn x() {}";
+        let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.rs"), None);
+        let root = parser.root();
+        assert!(root.end_byte() > 2);
+        let truncated = &src.as_bytes()[..2];
+        assert_eq!(node_text(truncated, &root), None);
     }
 }

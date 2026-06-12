@@ -589,7 +589,7 @@ impl Cognitive for CppCode {
         use Cpp::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node) => {
@@ -612,6 +612,27 @@ impl Cognitive for CppCode {
             }
             LambdaExpression => {
                 lambda += 1;
+            }
+            // At a (possibly nested) function-definition boundary, reset
+            // structural nesting to zero and bump the function-depth
+            // surcharge when this definition is itself nested inside
+            // another — matching Rust and the 9-of-13 sibling
+            // families. Without this, a method defined inside a control
+            // construct inherited the enclosing nesting and every nested
+            // definition missed the SonarSource B-nesting amplification
+            // (#696).
+            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3 | FunctionDefinition4 => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[
+                        FunctionDefinition,
+                        FunctionDefinition2,
+                        FunctionDefinition3,
+                        FunctionDefinition4,
+                    ],
+                );
             }
             _ => {}
         }
@@ -714,7 +735,7 @@ impl Cognitive for JavaCode {
     ) {
         use Java::*;
 
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node) => {
@@ -746,6 +767,22 @@ impl Cognitive for JavaCode {
             LambdaExpression => {
                 lambda += 1;
             }
+            // At a (possibly nested) method / constructor boundary, reset
+            // structural nesting to zero and bump the function-depth
+            // surcharge when this declaration is itself nested inside
+            // another — matching Rust and the 9-of-13 sibling
+            // families. Without this, a method declared inside a control
+            // construct (Java local / member classes) inherited the
+            // enclosing nesting and every nested method missed the
+            // SonarSource B-nesting amplification (#696).
+            MethodDeclaration | ConstructorDeclaration => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[MethodDeclaration, ConstructorDeclaration],
+                );
+            }
             _ => {}
         }
         nesting_map.insert(node.id(), (nesting, depth, lambda));
@@ -761,7 +798,7 @@ impl Cognitive for GroovyCode {
     ) {
         use Groovy::*;
 
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node) => {
@@ -811,6 +848,21 @@ impl Cognitive for GroovyCode {
             Closure => {
                 lambda += 1;
             }
+            // At a (possibly nested) method / constructor boundary, reset
+            // structural nesting to zero and bump the function-depth
+            // surcharge when this declaration is itself nested inside
+            // another — matching Rust and the 9-of-13 sibling
+            // families. Groovy methods can nest inside inner classes; a
+            // nested method previously inherited the enclosing nesting and
+            // missed the SonarSource B-nesting amplification (#696).
+            MethodDeclaration | ConstructorDeclaration => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[MethodDeclaration, ConstructorDeclaration],
+                );
+            }
             _ => {}
         }
         nesting_map.insert(node.id(), (nesting, depth, lambda));
@@ -826,7 +878,7 @@ impl Cognitive for CsharpCode {
     ) {
         use Csharp::*;
 
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node) => {
@@ -877,6 +929,39 @@ impl Cognitive for CsharpCode {
             }
             LambdaExpression | AnonymousMethodExpression => {
                 lambda += 1;
+            }
+            // At a (possibly nested) function boundary, reset structural
+            // nesting to zero and bump the function-depth surcharge when
+            // this declaration is itself nested inside another — matching
+            // Rust and the 9-of-13 sibling families. C# local
+            // functions are the acute case: a local function declared
+            // inside an `if` previously inherited `nesting = 1`, inflating
+            // every control-flow statement in its body by one. The grammar
+            // emits both `local_function_statement` and the aliased
+            // `local_function_declaration`; both are boundaries (#696).
+            MethodDeclaration
+            | ConstructorDeclaration
+            | DestructorDeclaration
+            | OperatorDeclaration
+            | ConversionOperatorDeclaration
+            | AccessorDeclaration
+            | LocalFunctionStatement
+            | LocalFunctionDeclaration => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[
+                        MethodDeclaration,
+                        ConstructorDeclaration,
+                        DestructorDeclaration,
+                        OperatorDeclaration,
+                        ConversionOperatorDeclaration,
+                        AccessorDeclaration,
+                        LocalFunctionStatement,
+                        LocalFunctionDeclaration,
+                    ],
+                );
             }
             _ => {}
         }
@@ -3840,6 +3925,41 @@ mod tests {
     }
 
     #[test]
+    fn cpp_nested_function_resets_nesting_and_adds_depth() {
+        // Regression for #696: a method defined on a local struct declared
+        // two `if`s deep inside an outer method must reset nesting to 0 and
+        // gain a function-depth surcharge — not inherit the enclosing
+        // nesting.
+        //
+        // expected: outer `if` (+1, nesting=0) + inner `if` (+2, nesting=1)
+        // + Inner::g's `if` (+1 base + 1 depth = +2, nesting=0, depth=1) = 5.
+        // Before the fix, `g` inherited nesting=2 from the two enclosing
+        // `if`s, scoring its inner `if` at nesting 2 (+3) for a sum of 6.
+        // The two-deep nesting is load-bearing: one level deep, the
+        // inherited nesting (1) coincidentally equals the depth bump (1).
+        check_metrics::<CppParser>(
+            "struct S {
+                void outer(bool a) {
+                    if (a) {
+                        if (a) {
+                            struct Inner {
+                                void g(bool b) {
+                                    if (b) { h(); }
+                                }
+                            };
+                        }
+                    }
+                }
+            };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
+            },
+        );
+    }
+
+    #[test]
     fn c_goto() {
         check_metrics::<CppParser>(
             "void f() {
@@ -4929,6 +5049,42 @@ mod tests {
     }
 
     #[test]
+    fn java_nested_method_resets_nesting_and_adds_depth() {
+        // Regression for #696: a local-class method declared two `if`s deep
+        // inside an outer method must NOT inherit the enclosing nesting. The
+        // method-declaration boundary resets nesting to 0 and bumps the
+        // function-depth surcharge by 1 (it is nested inside `outer`).
+        //
+        // expected: outer `if` (+1, nesting=0) + inner `if` (+2, nesting=1)
+        // + Local.f's `if` (+1 base + 1 depth = +2, nesting=0, depth=1) = 5.
+        // Before the fix, `f` inherited nesting=2 from the two enclosing
+        // `if`s, scoring its inner `if` at nesting 2 (+3) for a sum of 6.
+        // The two-deep nesting is load-bearing: at one level deep the
+        // inherited nesting (1) coincidentally equals the depth bump (1) so
+        // the bug is invisible.
+        check_metrics::<JavaParser>(
+            "class Outer {
+                void outer(boolean a) {
+                    if (a) {
+                        if (a) {
+                            class Local {
+                                void f(boolean b) {
+                                    if (b) { g(); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
+            },
+        );
+    }
+
+    #[test]
     fn java_labeled_break_continue() {
         // Per SonarSource Cognitive Complexity §B2 (issue #225), labeled
         // `break LABEL` and `continue LABEL` each add +1 because they break
@@ -5219,6 +5375,44 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_local_function_in_if_does_not_inherit_nesting() {
+        // Regression for #696 (the acute C# case): a `local_function_statement`
+        // declared two `if`s deep must reset nesting to 0 and gain a
+        // function-depth surcharge — not inherit `nesting = 2` from the
+        // enclosing `if`s. C# has dedicated `LocalFunctionStatement(342)` /
+        // `LocalFunctionDeclaration(343)` nodes that previously went
+        // unhandled by the cognitive walker.
+        //
+        // expected: outer `if` (+1, nesting=0) + inner `if` (+2, nesting=1)
+        // + Local's `if` (+1 base + 1 depth = +2, nesting=0, depth=1) = 5.
+        // Before the fix, `Local` inherited nesting=2, scoring its inner
+        // `if` at nesting 2 (+3) for a sum of 6. The two-deep nesting is
+        // load-bearing: one level deep, the inherited nesting (1)
+        // coincidentally equals the depth bump (1) and the bug is invisible.
+        check_metrics::<CsharpParser>(
+            "class C {
+                void Outer(bool flag) {
+                    if (flag) {
+                        if (flag) {
+                            void Local() {
+                                if (flag) {
+                                    System.Console.WriteLine(\"x\");
+                                }
+                            }
+                            Local();
+                        }
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
             },
         );
     }
@@ -8190,6 +8384,40 @@ end",
                 // closure(lambda=1) -> if at nesting=1(+2)
                 // -> while at nesting=2(+3) = 5
                 assert_eq!(metric.cognitive.cognitive_sum(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_method_resets_nesting_and_adds_depth() {
+        // Regression for #696: a local-class method declared two `if`s deep
+        // inside an outer method must reset nesting to 0 and gain a
+        // function-depth surcharge — not inherit the enclosing nesting.
+        //
+        // expected: outer `if` (+1, nesting=0) + inner `if` (+2, nesting=1)
+        // + Local.f's `if` (+1 base + 1 depth = +2, nesting=0, depth=1) = 5.
+        // Before the fix, `f` inherited nesting=2 from the two enclosing
+        // `if`s, scoring its inner `if` at nesting 2 (+3) for a sum of 6.
+        // The two-deep nesting is load-bearing: one level deep, the
+        // inherited nesting (1) coincidentally equals the depth bump (1).
+        check_metrics::<GroovyParser>(
+            "class Outer {
+                void outer(boolean a) {
+                    if (a) {
+                        if (a) {
+                            class Local {
+                                void f(boolean b) {
+                                    if (b) { g() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
             },
         );
     }

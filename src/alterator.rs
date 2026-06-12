@@ -125,7 +125,17 @@ impl Alterator for CppCode {
             // through to `get_default` and render with their
             // structured delimiter / `string_content` children
             // — see issue #398 (peer of #391 for Rust).
-            Cpp::StringLiteral | Cpp::CharLiteral | Cpp::RawStringLiteral => {
+            // ConcatenatedString (`"a" "b"`) is one string-like literal
+            // that `Checker::is_string` matches; flatten it too so the
+            // dump collapses its adjacent `string_literal` children
+            // rather than diverging from `is_string` (#699).
+            // CharLiteral is operand + flattened but deliberately absent
+            // from `Checker::is_string` (a char is not a string) — the
+            // same split Rust/Go apply to their char / rune literals.
+            Cpp::StringLiteral
+            | Cpp::CharLiteral
+            | Cpp::RawStringLiteral
+            | Cpp::ConcatenatedString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -142,10 +152,73 @@ impl Alterator for CppCode {
     }
 }
 
-impl Alterator for PythonCode {}
+impl Alterator for PythonCode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
+        match Python::from(node.kind_id()) {
+            // `String` (covers f-strings, whose `{…}` interpolations are
+            // collapsed into the flat text payload — same convention as
+            // PHP `EncapsedString` / Ruby interpolated strings / C#
+            // `InterpolatedStringExpression`) and `ConcatenatedString`
+            // (`"a" "b"`) are the kinds `Checker::is_string` matches;
+            // flatten both so the dump agrees with `is_string` (#699).
+            Python::String | Python::ConcatenatedString => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, field_name, children),
+        }
+    }
+}
 
-impl Alterator for JavaCode {}
-impl Alterator for KotlinCode {}
+impl Alterator for JavaCode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
+        match Java::from(node.kind_id()) {
+            // `StringLiteral` and `MultilineStringLiteral` (text blocks,
+            // `"""…"""`) are the kinds `Checker::is_string` matches;
+            // flatten both so the dump collapses their `string_fragment`
+            // children rather than diverging from `is_string` (#699).
+            Java::StringLiteral | Java::MultilineStringLiteral => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, field_name, children),
+        }
+    }
+}
+
+impl Alterator for KotlinCode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
+        match Kotlin::from(node.kind_id()) {
+            // `StringLiteral` (whose `${…}` interpolations are collapsed
+            // into the flat text payload) and `MultilineStringLiteral`
+            // (`"""…"""`) are the kinds `Checker::is_string` matches;
+            // flatten both so the dump agrees with `is_string` (#699).
+            Kotlin::StringLiteral | Kotlin::MultilineStringLiteral => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, field_name, children),
+        }
+    }
+}
 
 impl Alterator for CsharpCode {
     fn alterate(
@@ -214,9 +287,16 @@ impl Alterator for MozjsCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Mozjs::from(node.kind_id()) {
-            Mozjs::String | Mozjs::String2 => {
-                // Template strings may have interpolation children;
-                // stripping them here is intentional (by design).
+            // `String`/`String2` (the anonymous keyword alias) and
+            // `TemplateString` are the kinds `Checker::is_string`
+            // matches. `TemplateString` may carry `${…}` interpolation
+            // children; collapsing them into the flat text payload here
+            // is intentional, matching the dump convention for other
+            // interpolating string literals (PHP `EncapsedString`, Ruby,
+            // C# `InterpolatedStringExpression`). Flatten all three so the
+            // dump agrees with `is_string` (#699; before this the comment
+            // claimed `TemplateString` flattening the arm did not do).
+            Mozjs::String | Mozjs::String2 | Mozjs::TemplateString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -234,7 +314,10 @@ impl Alterator for JavascriptCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Javascript::from(node.kind_id()) {
-            Javascript::String | Javascript::String2 => {
+            // `TemplateString` joins `String`/`String2` so the dump
+            // matches `Checker::is_string`; its `${…}` interpolations
+            // collapse into the flat text payload (#699).
+            Javascript::String | Javascript::String2 | Javascript::TemplateString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -252,7 +335,10 @@ impl Alterator for TypescriptCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Typescript::from(node.kind_id()) {
-            Typescript::String | Typescript::String2 => {
+            // `TemplateString` joins `String`/`String2` so the dump
+            // matches `Checker::is_string`; its `${…}` interpolations
+            // collapse into the flat text payload (#699).
+            Typescript::String | Typescript::String2 | Typescript::TemplateString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -270,7 +356,10 @@ impl Alterator for TsxCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Tsx::from(node.kind_id()) {
-            Tsx::String | Tsx::String2 | Tsx::String3 => {
+            // `TemplateString` joins `String`/`String2`/`String3` so the
+            // dump matches `Checker::is_string`; its `${…}` interpolations
+            // collapse into the flat text payload (#699).
+            Tsx::String | Tsx::String2 | Tsx::String3 | Tsx::TemplateString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -822,5 +911,138 @@ mod tests {
             "string_literal should be flattened (no children)"
         );
         assert_eq!(strings[0].value, "\"world\"");
+    }
+
+    /// Asserts that every node of kind `target_kind` in the AST is
+    /// flattened (no children) and carries non-empty verbatim text.
+    /// Shared by the #699 per-language string-flattening regressions.
+    fn assert_kind_flattened(root: &AstNode, target_kind: &str) {
+        let mut nodes = Vec::new();
+        collect_nodes_by_kind(root, target_kind, &mut nodes);
+        assert!(
+            !nodes.is_empty(),
+            "expected at least one '{target_kind}' node in the AST"
+        );
+        for node in &nodes {
+            assert!(
+                node.children.is_empty(),
+                "'{target_kind}' node should be flattened (no children), got {} children; value={:?}",
+                node.children.len(),
+                node.value,
+            );
+            assert!(
+                !node.value.is_empty(),
+                "flattened '{target_kind}' node should have non-empty text value"
+            );
+        }
+    }
+
+    // ===== #699: align alterator flattening with `Checker::is_string` =====
+    // Before #699 these string-like literals kept their structured
+    // children in the AST dump while `is_string` already treated the whole
+    // node as a string — a 3-way (alterator / is_string / get_op_type)
+    // dump asymmetry. Each test pins that the dump now collapses the kind.
+
+    #[test]
+    fn javascript_template_string_flattened() {
+        // #699: `is_string` matches `TemplateString`; the alterator now
+        // flattens it too, collapsing `${…}` interpolation children into
+        // the flat text payload (the established convention for PHP
+        // `encapsed_string` / Ruby / C# interpolated strings).
+        let code = br#"const a = 1; const b = `bare`; const c = `pre ${a} post`;"#;
+        let root = build_ast::<crate::JavascriptParser>(code, "test.js");
+        assert_kind_flattened(&root, "template_string");
+    }
+
+    #[test]
+    fn typescript_template_string_flattened() {
+        let code = br#"const a = 1; const b = `bare`; const c = `pre ${a} post`;"#;
+        let root = build_ast::<crate::TypescriptParser>(code, "test.ts");
+        assert_kind_flattened(&root, "template_string");
+    }
+
+    #[test]
+    fn tsx_template_string_flattened() {
+        let code = br#"const a = 1; const b = `bare`; const c = `pre ${a} post`;"#;
+        let root = build_ast::<crate::TsxParser>(code, "test.tsx");
+        assert_kind_flattened(&root, "template_string");
+    }
+
+    #[test]
+    fn mozjs_template_string_flattened() {
+        // The MozJS arm's comment previously claimed `TemplateString`
+        // flattening it did not perform; #699 made the code match.
+        let code = br#"const a = 1; const b = `bare`; const c = `pre ${a} post`;"#;
+        let root = build_ast::<crate::MozjsParser>(code, "test.jsm");
+        assert_kind_flattened(&root, "template_string");
+    }
+
+    #[test]
+    fn cpp_concatenated_string_flattened() {
+        // #699: `is_string` matches `concatenated_string` (`"a" "b"`);
+        // the alterator now flattens the wrapper instead of leaving its
+        // adjacent `string_literal` children structured.
+        let code = br#"const char* s = "a" "b";"#;
+        let root = build_ast::<crate::CppParser>(code, "test.cpp");
+        assert_kind_flattened(&root, "concatenated_string");
+    }
+
+    #[test]
+    fn python_string_and_concatenated_string_flattened() {
+        // #699: Python had no alterator override, so `string` (incl.
+        // f-strings) and `concatenated_string` kept structured children
+        // while `is_string` matched them. The override now flattens both;
+        // the f-string `{a}` interpolation collapses into the text value.
+        let code = b"a = 1\nb = \"plain\"\nc = f\"x{a}y\"\nd = \"ab\" \"cd\"\n";
+        let root = build_ast::<crate::PythonParser>(code, "test.py");
+        assert_kind_flattened(&root, "string");
+        assert_kind_flattened(&root, "concatenated_string");
+    }
+
+    #[test]
+    fn java_string_literals_flattened() {
+        // #699: Java had no alterator override, so `string_literal` kept
+        // its `string_fragment` children. The override flattens it now.
+        // Triple-quoted text blocks (`"""…"""`) surface as multi-row
+        // `string_literal` nodes too (the `Java::MultilineStringLiteral`
+        // enum variant is the hidden `_multiline_string_literal` supertype
+        // and never appears concretely — see the checker drift marker in
+        // `simple_is_string_macro_recognises_each_language`); the arm
+        // lists it for defensive parity with `is_string` but the concrete
+        // coverage rides on `string_literal`.
+        let code = b"class T { void m() { String a = \"hi\"; String b = \"\"\"\nblock\"\"\"; } }";
+        let root = build_ast::<crate::JavaParser>(code, "T.java");
+        assert_kind_flattened(&root, "string_literal");
+        // The text block produces a multi-row `string_literal`; confirm
+        // the flattened node still carries the verbatim multi-line body.
+        let mut strings = Vec::new();
+        collect_nodes_by_kind(&root, "string_literal", &mut strings);
+        assert!(
+            strings.iter().any(|n| n.value.contains("block")),
+            "expected the flattened text-block string_literal to keep its body"
+        );
+    }
+
+    #[test]
+    fn kotlin_string_literals_flattened() {
+        // #699: Kotlin had no alterator override. `string_literal` (incl.
+        // `${…}` interpolation, collapsed into the text value) and
+        // `multiline_string_literal` (`"""…"""`) now flatten.
+        let code = b"fun m() { val a = 1; val b = \"x${a}y\"; val c = \"\"\"block\"\"\" }";
+        let root = build_ast::<crate::KotlinParser>(code, "test.kt");
+        assert_kind_flattened(&root, "string_literal");
+        assert_kind_flattened(&root, "multiline_string_literal");
+    }
+
+    #[test]
+    fn go_rune_literal_flattened_but_not_a_string_kind() {
+        // #699 verdict: Go `rune_literal` is operand + flattened but
+        // deliberately excluded from `is_string` (a rune is a character,
+        // not a string) — mirroring Rust/Cpp `char_literal`. This pins the
+        // flattening half; the `is_string` exclusion is pinned in
+        // `checker.rs::go_rune_literal_is_not_a_string`.
+        let code = b"package main\nfunc main() { r := 'x'; _ = r }\n";
+        let root = build_ast::<crate::GoParser>(code, "test.go");
+        assert_kind_flattened(&root, "rune_literal");
     }
 }

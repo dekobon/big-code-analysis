@@ -1170,7 +1170,13 @@ impl Abc for KotlinCode {
             // *conditions*, and the unary condition is already implicit
             // in the boolean operand. We add the `if` arm via the `Else`
             // keyword for else-branches and via `WhenEntry` for `when`.
-            LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | CatchBlock | QMARKCOLON | AsQMARK => {
+            // `Try` is the `try` keyword token of a `try_expression`.
+            // Fitzpatrick counts both `try` and `catch` as conditions, and
+            // Java / C# / C++ / Groovy already count both; Kotlin previously
+            // counted only `CatchBlock`, so `try {} catch (e) {}` scored one
+            // fewer condition here than in every sibling (#696).
+            LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | Try | CatchBlock | QMARKCOLON
+            | AsQMARK => {
                 stats.conditions += 1.;
             }
             // A `when` entry is a decision point except for the `else ->`
@@ -1531,6 +1537,33 @@ fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
+// Count the bare-predicate condition of a Ruby `if`/`unless`/`while`/
+// `until` (block or modifier form) as one condition — Fitzpatrick's
+// "unary conditional expression" (Rule 6 / 7), mirroring Rust's
+// `rust_count_condition`. tree-sitter-ruby exposes the predicate via the
+// `condition` field for every form (block `if cond ... end` and modifier
+// `body if cond`), so the field lookup is position-independent. A bare
+// terminal (`if flag`) counts directly; a comparison / boolean chain
+// (`if a == b`, `if a && b`) is a nested `binary` node already counted by
+// the comparison-operator and `&&`/`||` walker arms, so it adds nothing
+// here. A parenthesised or negated predicate (`if (flag)`, `if !flag`) is
+// unwrapped by `ruby_inspect_container`. Without this arm, idiomatic Ruby
+// bare predicates reported 0 ABC conditions while Ruby's own cyclomatic
+// counted them, breaking the conditions >= decisions invariant
+// (#469/#473/#456); issue #696.
+fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
+    use Ruby::*;
+    let kind = condition.kind_id().into();
+    if matches!(kind, ruby_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(
+        kind,
+        ParenthesizedStatements | Unary | Unary2 | Unary3 | Unary4 | Unary5
+    ) {
+        ruby_inspect_container(condition, conditions);
+    }
+}
+
 impl Abc for RubyCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Ruby::*;
@@ -1538,6 +1571,16 @@ impl Abc for RubyCode {
         match node.kind_id().into() {
             Assignment | Assignment2 | OperatorAssignment | OperatorAssignment2 => {
                 stats.assignments += 1.;
+            }
+            // The bare predicate of every `if`/`unless`/`while`/`until`
+            // form (block and modifier) is one unary condition. The
+            // `condition` field locates the predicate position-
+            // independently across all eight node kinds (#696).
+            If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
+            | UntilModifier => {
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    ruby_count_condition(&cond, &mut stats.conditions);
+                }
             }
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
                 stats.branches += 1.;
@@ -2410,7 +2453,7 @@ impl Abc for CppCode {
 }
 
 impl Abc for BashCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
             // Each `variable_assignment` is one assignment regardless of
             // operator (`=`, `+=`, `-=`, …) — counting the parent node
@@ -2425,9 +2468,16 @@ impl Abc for BashCode {
             Bash::Command => {
                 stats.branches += 1.;
             }
-            // Comparison operators inside `[[ … ]]` and `(( … ))`, plus
-            // the prefix test operators `-z`, `-n`, `-eq`, `-lt`, … which
-            // the grammar emits as `Bash::TestOperator`.
+            // Two condition signals share this arm:
+            //
+            // - Comparison operators inside `[[ … ]]` and `(( … ))`, plus
+            //   the prefix test operators `-z`, `-n`, `-eq`, `-lt`, … which
+            //   the grammar emits as `Bash::TestOperator`.
+            // - Control-flow branches (`if`/`elif`/`while`). A Bash predicate
+            //   is a command, so the branch keyword itself is the only
+            //   condition signal. These branch keywords mirror the matching
+            //   Bash cyclomatic decisions (`if`/`elif`/`while`; not `for`/
+            //   `&&`/`||`), lifting ABC off 0 for `if cmd; then … elif … fi`.
             Bash::EQEQ
             | Bash::BANGEQ
             | Bash::LT
@@ -2435,7 +2485,18 @@ impl Abc for BashCode {
             | Bash::LTEQ
             | Bash::GTEQ
             | Bash::EQTILDE
-            | Bash::TestOperator => {
+            | Bash::TestOperator
+            | Bash::IfStatement
+            | Bash::ElifClause
+            | Bash::WhileStatement => {
+                stats.conditions += 1.;
+            }
+            // Case arms are conditions too, but counted per-arm like
+            // cyclomatic, excluding the bare-`*)` wildcard (the Bash analogue
+            // of `default:`) (#696).
+            Bash::CaseItem | Bash::CaseItem2
+                if !crate::metrics::cyclomatic::bash_case_item_is_bare_wildcard(node, code) =>
+            {
                 stats.conditions += 1.;
             }
             _ => {}
@@ -4788,10 +4849,48 @@ mod tests {
     }
 
     #[test]
+    fn bash_control_flow_counts_conditions() {
+        // Regression for #696: Bash control-flow branches are ABC
+        // conditions (a Bash predicate is a command, so the branch keyword
+        // is the only condition signal). Each mirrors a cyclomatic decision.
+        //
+        // expected: 4 conditions — `if` (1) + `elif` (1) + `while` (1) +
+        // the non-wildcard case arm `a)` (1). The bare-`*)` wildcard arm is
+        // the Bash analogue of `default:` and is excluded, exactly as the
+        // cyclomatic standard count excludes it. No comparison / test
+        // operators appear, so every condition here is control-flow.
+        check_metrics::<BashParser>(
+            "f() {
+                 if cmd; then
+                     echo a
+                 elif other; then
+                     echo b
+                 fi
+                 while running; do
+                     echo c
+                 done
+                 case \"$x\" in
+                     a) echo d ;;
+                     *) echo e ;;
+                 esac
+             }",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    #[test]
     fn bash_conditions_mix() {
         // Exercises every condition path: `==` and `!=` inside `[[ ]]`,
         // arithmetic `<` inside `(( ))`, and the prefix `-z` test operator
         // inside `[ ]`. Each `if` body's `echo` contributes a branch.
+        //
+        // expected: 8 conditions — each of the four `if`s contributes one
+        // for the control-flow branch (#696) plus one for its comparison /
+        // test operator (`==`, `!=`, `<`, `-z`). 4 branches (one `echo`
+        // each). magnitude = sqrt(4² + 8²) = sqrt(80).
         check_metrics::<BashParser>(
             "f() {
                  if [[ \"$a\" == \"$b\" ]]; then
@@ -4809,23 +4908,25 @@ mod tests {
              }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 8);
+                assert_eq!(metric.abc.branches_sum(), 4);
                 insta::assert_json_snapshot!(
                     metric.abc,
                     @r#"
                 {
                   "assignments": 0,
                   "branches": 4,
-                  "conditions": 4,
-                  "magnitude": 5.656854249492381,
+                  "conditions": 8,
+                  "magnitude": 8.94427190999916,
                   "assignments_average": 0.0,
                   "branches_average": 2.0,
-                  "conditions_average": 2.0,
+                  "conditions_average": 4.0,
                   "assignments_min": 0,
                   "assignments_max": 0,
                   "branches_min": 0,
                   "branches_max": 4,
                   "conditions_min": 0,
-                  "conditions_max": 4
+                  "conditions_max": 8
                 }
                 "#
                 );
@@ -4835,8 +4936,9 @@ mod tests {
 
     #[test]
     fn bash_magnitude() {
-        // Combined assignments + branches + conditions: magnitude must
-        // equal sqrt(2² + 1² + 1²) = sqrt(6).
+        // Combined assignments + branches + conditions. The single `if`
+        // contributes two conditions (the control-flow branch, #696, plus
+        // the `==` operator), so magnitude = sqrt(2² + 1² + 2²) = sqrt(9).
         check_metrics::<BashParser>(
             "f() {
                  a=1
@@ -4847,23 +4949,24 @@ mod tests {
              }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(
                     metric.abc,
                     @r#"
                 {
                   "assignments": 2,
                   "branches": 1,
-                  "conditions": 1,
-                  "magnitude": 2.449489742783178,
+                  "conditions": 2,
+                  "magnitude": 3.0,
                   "assignments_average": 1.0,
                   "branches_average": 0.5,
-                  "conditions_average": 0.5,
+                  "conditions_average": 1.0,
                   "assignments_min": 0,
                   "assignments_max": 2,
                   "branches_min": 0,
                   "branches_max": 1,
                   "conditions_min": 0,
-                  "conditions_max": 1
+                  "conditions_max": 2
                 }
                 "#
                 );
@@ -6997,8 +7100,10 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                // CatchBlock contributes 1 condition.
-                assert_eq!(metric.abc.conditions_sum(), 1);
+                // `try` (+1) and `catch` (+1) each contribute one condition,
+                // matching Java / C# / C++ / Groovy (Fitzpatrick counts both
+                // keywords). Before #696 Kotlin counted only the catch block.
+                assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7796,6 +7901,41 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 6);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_bare_predicate_control_flow_counts_one_condition() {
+        // Regression for #696: idiomatic Ruby bare predicates
+        // (`if flag` / `while flag` / `unless flag` / `until flag`) each
+        // count one unary condition, matching Rust / C# / PHP / Python. The
+        // condition field is read for both block and modifier forms.
+        //
+        // expected: 8 conditions — four block forms (`if`/`unless`/`while`/
+        // `until`) plus the same four as modifiers, one each.
+        check_metrics::<RubyParser>(
+            "def f(flag)\n  if flag\n    a\n  end\n  unless flag\n    b\n  end\n  while flag\n    c\n  end\n  until flag\n    d\n  end\n  a if flag\n  b unless flag\n  c while flag\n  d until flag\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 8);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_bare_predicate_does_not_double_count_comparison_or_chain() {
+        // `if a == b` counts only the `==` comparison (the condition field
+        // is a `binary` node, adding nothing). `if a && b` counts the two
+        // chain operands via the `&&` walker, again with the condition-field
+        // arm adding nothing — so neither shape is double-counted (#696).
+        //
+        // expected: 3 — `==` (1) + the `a`,`b` operands of `&&` (2).
+        check_metrics::<RubyParser>(
+            "def f(a, b)\n  if a == b\n    x\n  end\n  if a && b\n    y\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
             },
         );
     }
