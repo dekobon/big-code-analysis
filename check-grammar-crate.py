@@ -73,10 +73,12 @@ def run_subprocess(cmd: str, *args: T.Union[str, pathlib.Path]) -> None:
 # Run big-code-analysis on the chosen repository to compute metrics.
 #
 # Emits one JSON document per source file into `output_dir`, using the
-# current subcommand CLI (`bca metrics -O json --output <dir>`). The pre-
-# subcommand flags this script used to pass (`--metrics
-# --output-format=json --pr`) no longer exist; `--pr` was dropped
-# entirely in the subcommand refactor.
+# current subcommand CLI (`bca metrics -O json --output-dir <dir>`). The
+# per-file directory tree moved from `--output`/`-o` to `--output-dir` at
+# 2.0 (#669: `--output` now writes a single aggregate file), so this passes
+# `--output-dir`. The pre-subcommand flags this script used to pass
+# (`--metrics --output-format=json --pr`) no longer exist; `--pr` was
+# dropped entirely in the subcommand refactor.
 def run_rca(
     repo_dir: pathlib.Path,
     output_dir: pathlib.Path,
@@ -99,7 +101,7 @@ def run_rca(
         *include_grammars,
         "-p",
         repo_dir,
-        "-o",
+        "--output-dir",
         output_dir,
     )
 

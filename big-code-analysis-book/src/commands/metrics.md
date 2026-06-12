@@ -9,7 +9,7 @@ structured files (`--output-dir`).
 > now lives under [`bca report`](report.md), and the CI/IDE offender
 > formats (Checkstyle, SARIF, code-climate, clang-warning,
 > msvc-warning) moved to
-> [`bca check --format <fmt>`](check.md). See the
+> [`bca check --report-format <fmt>`](check.md). See the
 > [migration guide](../migration.md).
 
 ## Display metrics
@@ -59,7 +59,7 @@ each one stays consistent with its data model:
 The CI/IDE offender formats (Checkstyle, SARIF, code-climate,
 clang-warning, msvc-warning) used to live on `bca metrics -O <fmt>`.
 They moved to
-`bca check --format <fmt>` because their input is a
+`bca check --report-format <fmt>` because their input is a
 list of threshold violations, not the per-file metric tree that the
 other formats above carry. See the
 [`bca check` chapter](check.md#exporting-offender-records) for the

@@ -46,18 +46,21 @@ cargo build --release
 ## Usage
 
 ```sh
-bca [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+bca [OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
-The global options describe *what to walk* (paths, includes/excludes,
-parallelism, language overrides). The command picks *what to do* with each
-file, with command-specific options as needed.
+The command picks *what to do*; its options describe both *what to walk*
+(paths, includes/excludes, parallelism, language overrides) and how to
+format the result. Input-selection and walker-tuning flags are **scoped to
+the subcommand that consumes them** and must be written **after** the
+subcommand token — only `-w` / `--warnings` and `--report-skipped` are
+universal and accepted in any position.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `metrics` | Per-file metric output (`-O cbor/csv/json/toml/yaml`, `-o DIR`). |
+| `metrics` | Per-file metric output (`-O cbor/csv/json/toml/yaml`, `--output-dir DIR`). |
 | `ops` | Per-file operand/operator output (same formats as `metrics`). |
 | `report <FORMAT>` | Aggregated report (`markdown` or `html`). |
 | `check` | Check per-function metrics against thresholds; exits 2 on threshold violations. |
@@ -71,9 +74,16 @@ file, with command-specific options as needed.
 
 Run `bca <COMMAND> --help` for command-specific options.
 
-## Global options
+## Walking options
 
-- `-p, --paths <FILE>...` — input files or directories.
+These input-selection and walker-tuning flags are accepted by the walking
+subcommands (`metrics`, `ops`, `report`, `check`, `dump`, `find`, `count`,
+`functions`, `strip-comments`) and must be written **after** the
+subcommand. A flag passed to a subcommand that never consumes it is a hard
+usage error (exit 1), not a silent no-op.
+
+- `-p, --paths <FILE>...` — input files or directories. The walking
+  subcommands also accept paths positionally (`bca metrics src/`).
 - `-I, --include <GLOB>` — include files matching pattern (repeatable).
 - `-X, --exclude <GLOB>` — exclude files matching pattern (repeatable).
 - `-j, --jobs <N>` — worker threads (`--num-jobs` is a deprecated alias).
@@ -88,7 +98,8 @@ Run `bca <COMMAND> --help` for command-specific options.
 - `--preproc-data <FILE>` — consume an existing preproc JSON during C/C++
   analysis. Build one with `bca preproc`.
 
-Global options work both before and after the subcommand.
+`-w` / `--warnings` and `--report-skipped` are the only universal options;
+they are accepted in any position, before or after the subcommand.
 
 ## Building with a subset of languages
 
@@ -116,20 +127,20 @@ list of features and a worked example.
 Per-file JSON metrics:
 
 ```sh
-bca --paths ./src metrics -O json -o ./out/
+bca metrics --paths ./src -O json --output-dir ./out/
 ```
 
 Aggregated markdown quality report:
 
 ```sh
-bca --paths "$PWD" --jobs $(nproc) \
-    report markdown --top 20 --strip-prefix "$PWD/"
+bca report markdown --paths "$PWD" --jobs $(nproc) \
+    --top 20 --strip-prefix "$PWD/"
 ```
 
 AST dump for one file:
 
 ```sh
-bca --paths ./file.rs dump
+bca dump ./file.rs
 ```
 
 List all metrics with one-line descriptions:
