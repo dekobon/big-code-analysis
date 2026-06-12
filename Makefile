@@ -724,11 +724,15 @@ distclean: py-clean clean
 
 install: install-cli install-web
 
+# `--locked` makes `cargo install` honour the committed Cargo.lock rather than
+# re-resolving to the newest semver-compatible deps. The lock pins `time` to
+# 0.3.46: 0.3.47+ trips a coherence error (E0119) in the blanket impl of
+# cookie 0.16.2 (pulled transitively by actix-web 4) under rustc 1.95.
 install-cli:
-	RUSTFLAGS="-C target-cpu=native" cargo install --path big-code-analysis-cli
+	RUSTFLAGS="-C target-cpu=native" cargo install --locked --path big-code-analysis-cli
 
 install-web:
-	RUSTFLAGS="-C target-cpu=native" cargo install --path big-code-analysis-web
+	RUSTFLAGS="-C target-cpu=native" cargo install --locked --path big-code-analysis-web
 
 # ---------------------------------------------------------------------------
 # Documentation
