@@ -233,6 +233,43 @@ fn merge_globals_cyclomatic_count_try_cli_value_wins_both_directions() {
 }
 
 #[test]
+fn merge_globals_exclude_tests_opts_in() {
+    // Manifest `exclude_tests = true` turns on test-subtree pruning (#717)
+    // when the CLI left the flag unset (`g.exclude_tests = false`).
+    let m = manifest(RawManifest {
+        exclude_tests: Some(true),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts::default();
+    assert!(!g.exclude_tests);
+    m.merge_globals(&mut g, false);
+    assert!(g.exclude_tests);
+
+    // Absent key leaves pruning off — published defaults preserved.
+    let mut g_absent = GlobalOpts::default();
+    manifest(RawManifest::default()).merge_globals(&mut g_absent, false);
+    assert!(!g_absent.exclude_tests);
+}
+
+#[test]
+fn merge_globals_exclude_tests_cli_flag_wins() {
+    // `--exclude-tests` is presence-only (#717): once the flag set
+    // `g.exclude_tests = true`, it stays on regardless of the manifest —
+    // including an explicit `exclude_tests = false`, which the one-way
+    // OR-merge cannot use to turn pruning back off.
+    let m_off = manifest(RawManifest {
+        exclude_tests: Some(false),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts {
+        exclude_tests: true,
+        ..Default::default()
+    };
+    m_off.merge_globals(&mut g, false);
+    assert!(g.exclude_tests);
+}
+
+#[test]
 fn merge_globals_respects_explicit_cli_num_jobs() {
     let m = manifest(RawManifest {
         jobs: Some(toml::Value::Integer(8)),
@@ -270,6 +307,24 @@ fn known_keys_covers_cyclomatic_count_try() {
     assert!(
         unknown_top_level_keys(text).is_empty(),
         "cyclomatic_count_try is consumed but flagged as unknown"
+    );
+}
+
+/// `exclude_tests` (#717) must be on the allowlist; otherwise the typed
+/// parse honors it while `warn_unknown_keys` prints a misleading
+/// "ignoring unrecognized key" warning (the #409 dual-update trap).
+#[test]
+fn known_keys_covers_exclude_tests() {
+    let text = "exclude_tests = true\n";
+
+    // Typed view honors it...
+    let raw: RawManifest = toml::from_str(text).expect("typed parse");
+    assert_eq!(raw.exclude_tests, Some(true));
+
+    // ...and the allowlist agrees, so no spurious warning fires.
+    assert!(
+        unknown_top_level_keys(text).is_empty(),
+        "exclude_tests is consumed but flagged as unknown"
     );
 }
 

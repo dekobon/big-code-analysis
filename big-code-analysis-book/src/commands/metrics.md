@@ -175,6 +175,17 @@ ignore the flag — only Rust applies the pruning today. The default
 remains off so existing metric numbers stay byte-identical for users
 who do not opt in.
 
+To opt a whole project in without repeating the flag, set
+`exclude_tests = true` in the repo's [`bca.toml`
+manifest](../recipes/local-gates.md#zero-config-the-bcatoml-manifest).
+Because `--exclude-tests` is presence-only (no `=false` form), the
+manifest key can only turn pruning **on**; a CLI `--exclude-tests`
+still wins, but the manifest cannot turn it back off. Note that
+pruning lowers the node-counted metrics (cyclomatic, cognitive,
+Halstead, `nom`, `nargs`, …) but leaves unit-level `loc.sloc` at the
+full file extent, since unit SLOC is the file root span rather than a
+traversal accumulation.
+
 ## Aggregated report
 
 For a comprehensive, human-readable quality report, use

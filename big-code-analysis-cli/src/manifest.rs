@@ -76,6 +76,10 @@ const KNOWN_KEYS: &[&str] = &[
     "baseline_line_tolerance",
     "baseline_fuzzy_match",
     "cyclomatic_count_try",
+    // Walker-tuning bool mirroring `--exclude-tests` (#717). Listed here
+    // so it draws no "unrecognized key" warning; `RawManifest` consumes
+    // it (the dual-update rule).
+    "exclude_tests",
     "headroom",
     "thresholds",
     "check",
@@ -126,6 +130,14 @@ struct RawManifest {
     /// `--cyclomatic-count-try <bool>` flag (#666); the CLI value
     /// overrides this key in either direction.
     cyclomatic_count_try: Option<bool>,
+    /// When `true`, Rust inline-test subtrees (`#[test]`, `#[cfg(test)]`,
+    /// `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]`) are pruned before
+    /// metric computation (#182/#717). Mirrors the `--exclude-tests`
+    /// flag, which is presence-only (no `=false` form), so this key can
+    /// only turn pruning *on*: a CLI `--exclude-tests` already wins, and
+    /// an absent flag lets the manifest enable it. Rust-only — inert for
+    /// other grammars.
+    exclude_tests: Option<bool>,
     /// Deprecated top-level spelling of `[check] headroom` (#599). See
     /// [`RawManifest::baseline`].
     headroom: Option<f64>,
@@ -399,6 +411,13 @@ impl Manifest {
         // unset. The positive sense is carried end-to-end, so the
         // downstream default (`?` counts) applies when both are absent.
         g.count_cyclomatic_try = g.count_cyclomatic_try.or(self.raw.cyclomatic_count_try);
+        // `--exclude-tests` is a presence-only flag (issue #717): it can
+        // only turn pruning on, never off, so the manifest `exclude_tests`
+        // key ORs in — a CLI `--exclude-tests` already set
+        // `g.exclude_tests = true` and wins; an absent flag lets the
+        // manifest enable it. Unlike `cyclomatic_count_try` there is no
+        // CLI value to override in the other direction.
+        g.exclude_tests = g.exclude_tests || self.raw.exclude_tests.unwrap_or(false);
     }
 
     /// Merge check-only options (`baseline`, `baseline_line_tolerance`,

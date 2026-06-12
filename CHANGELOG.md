@@ -23,6 +23,11 @@ for historical reference.
 
 ### Added
 
+- `exclude_tests` `bca.toml` manifest key: opt a project's `bca check` /
+  `bca metrics` into Rust test-subtree pruning declaratively, mirroring
+  the `--exclude-tests` flag (CLI wins; the presence-only flag means the
+  key can only turn pruning on). Rust-only; purely additive — absent key
+  preserves today's behaviour (#717).
 - `metric_catalog::lower_is_worse(id)`: a `#[must_use]` helper answering
   whether a metric's unhealthy direction is downward (the `mi.*` family),
   single-sourcing the direction predicate the CLI threshold gate, the

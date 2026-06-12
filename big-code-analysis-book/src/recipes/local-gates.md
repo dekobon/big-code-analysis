@@ -252,6 +252,14 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   `"rs,py"`-style extension list) scopes which files are ranked; as a
   positive scope key, an explicit `--file-types` CLI flag **replaces** it
   (see [`bca vcs` file-type scope](../commands/vcs.md#file-type-scope)).
+- `cyclomatic_count_try` and `exclude_tests` are walker-tuning bools
+  that mirror the `--cyclomatic-count-try` / `--exclude-tests` flags.
+  `exclude_tests = true` prunes Rust inline-test subtrees (`#[test]`,
+  `#[cfg(test)]`, …) before metric computation. Both are Rust-only and
+  inert for other grammars. `--exclude-tests` is presence-only (no
+  `=false` form), so its manifest key can only turn pruning **on** — a
+  CLI `--exclude-tests` wins, but the manifest cannot turn off a key the
+  CLI did not set.
 - A `[thresholds.soft]` table sets per-metric soft-tier limits
   (consumed by `--tier=soft`; see [Two-tier thresholds](#two-tier-thresholds)).
   Unrecognized keys are ignored with a one-line warning, so you can
