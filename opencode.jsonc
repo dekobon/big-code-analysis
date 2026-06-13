@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // opencode auto-loads AGENTS.md at the repo root, but it does not
+  // follow the markdown links inside it, and it does not read the
+  // .claude/rules/ directory on its own (it only falls back to
+  // .claude/CLAUDE.md when AGENTS.md is absent, and reads
+  // .claude/skills/). This instructions array is the auto-load path
+  // for the detailed project rule files Claude Code reads from
+  // .claude/rules/, so opencode sessions get the same rules.
+  "instructions": [".claude/rules/*.md"]
+}

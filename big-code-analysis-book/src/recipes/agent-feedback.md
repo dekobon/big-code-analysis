@@ -221,7 +221,10 @@ export const BcaCheck = async ({ $ }) => {
       const res = await $`bca check ${filePath} --no-summary --no-remediation`
         .quiet()
         .nothrow()
-      if (res.exitCode !== 2) return // 0 clean, 1 tool error: not a complexity issue.
+      // 0 clean, 1 tool error: not a complexity issue. `< 2` rather than
+      // `=== 2` so the tiered exit codes (3-5, from `--strict-exit-codes`
+      // / `exit_codes = "tiered"`) still report.
+      if (res.exitCode < 2) return
 
       // Surface the offenders to the agent by throwing.
       const offenders = res.stderr.toString().trim() || res.stdout.toString().trim()
@@ -234,7 +237,33 @@ export const BcaCheck = async ({ $ }) => {
 Keep the `GUIDANCE` string in sync with the verbatim block below (or
 read it from a shared file). Because the channel is a thrown error,
 opencode reports it as a failed post-edit step — which is the intended
-"address this before continuing" framing.
+"address this before continuing" framing. The edit itself still lands:
+`tool.execute.after` runs once the `write` or `edit` tool has already
+written the file, so the throw frames the next step without undoing the
+change.
+
+**Restart opencode after adding the plugin.** Plugins are loaded once at
+startup and are not hot-reloaded. A freshly dropped
+`.opencode/plugins/bca-check.js` does nothing in the running session;
+quit and relaunch opencode, then confirm by editing a file you know is
+over threshold and checking that the `edit`/`write` tool reports the
+`bca` failure. An installed-but-inert plugin is the most likely symptom,
+and a stale session is the most likely cause.
+
+For a hardened reference, this repository ships its own copy at
+[`.opencode/plugins/bca-check.js`](https://github.com/dekobon/big-code-analysis/blob/main/.opencode/plugins/bca-check.js).
+It adds three guards the minimal example omits, each worth porting for a
+real project:
+
+- **Repo-scope guard.** Resolve the path and skip anything outside the
+  project root, so the hook never runs `bca` on a file the agent edits
+  elsewhere on disk.
+- **Local-build resolution.** Prefer `$BCA`, then a
+  `target/release/bca` in the checkout, then `bca` on `PATH`. A project
+  that builds `bca` itself then gates against its own analyzer instead
+  of whatever is installed globally.
+- **Shared guidance.** Read the guidance text from one file that both
+  this plugin and the Claude Code hook cite, so the two never drift.
 
 ## Agent guidance (ship this verbatim)
 

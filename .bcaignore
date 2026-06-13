@@ -17,6 +17,7 @@
 ./**/tests/**
 ./**/*_tests.rs
 ./enums/**
+./.opencode/**
 ./target/**
 ./big-code-analysis-book/**
 ./docs/**
