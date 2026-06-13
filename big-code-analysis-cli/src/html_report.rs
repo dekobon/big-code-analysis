@@ -392,6 +392,7 @@ const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("kotlin", "kotlin"),
     ("go", "go"),
     ("cpp", "cpp"),
+    ("c", "cpp"),
     ("mozcpp", "cpp"),
     ("csharp", "csharp"),
     ("php", "php"),
@@ -1921,6 +1922,10 @@ mod tests {
         // Since #540 the input is the canonical slug ("cpp" / "csharp"),
         // not the dropped pretty forms.
         assert_eq!(language_palette_slug("cpp"), "cpp");
+        // The dedicated C language (#721) and the Mozilla C++ fork (#720)
+        // both reuse the "cpp" tint via explicit rows.
+        assert_eq!(language_palette_slug("c"), "cpp");
+        assert_eq!(language_palette_slug("mozcpp"), "cpp");
         assert_eq!(language_palette_slug("csharp"), "csharp");
         // `LANG::Tsx` now reports the distinct "tsx" slug (#540) and
         // reuses the "typescript" tint via an explicit row. Since #507

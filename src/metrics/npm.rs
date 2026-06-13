@@ -1085,6 +1085,7 @@ impl Npm for ElixirCode {
 
 implement_metric_trait!(
     Npm,
+    CCode,
     PreprocCode,
     CcommentCode,
     PerlCode,

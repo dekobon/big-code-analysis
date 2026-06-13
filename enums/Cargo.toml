@@ -32,6 +32,7 @@ tree-sitter-python = "=0.25.0"
 tree-sitter-ruby = "=0.23.1"
 tree-sitter-rust = "=0.24.2"
 tree-sitter-cpp = "=0.23.4"
+tree-sitter-c = "=0.24.2"
 # Vendored grammar forks — see ../Cargo.toml for rationale on the
 # `package = ...` alias trick that preserves the `tree_sitter_<lang>`
 # import path while the published crate name is `bca-tree-sitter-<lang>`.

@@ -40,6 +40,7 @@ per-language pipeline depends on).
 | Feature      | Grammar crates pulled in                                                       |
 |--------------|--------------------------------------------------------------------------------|
 | `bash`       | `tree-sitter-bash`                                                             |
+| `c`          | `tree-sitter-c`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (dedicated `C` variant owning `.c`; added in #721) |
 | `cpp`        | `tree-sitter-cpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (covers the `Cpp`, `Ccomment`, and `Preproc` variants; upstream grammar since #720) |
 | `csharp`     | `tree-sitter-c-sharp`                                                          |
 | `elixir`     | `tree-sitter-elixir`                                                           |

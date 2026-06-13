@@ -407,6 +407,7 @@ impl Wmc for ElixirCode {
 // attribute methods to a receiver class (see the Go rationale block above).
 implement_metric_trait!(
     Wmc,
+    CCode,
     PreprocCode,
     CcommentCode,
     GoCode,

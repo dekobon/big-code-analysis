@@ -112,9 +112,10 @@ async fn test_web_ast() {
     let expected = json!({
         "id": "1234",
         // The /ast envelope echoes the resolved language slug, matching the
-        // other analysis endpoints (#654). `.c` resolves to the C/C++
-        // grammar, whose slug is `cpp` in this project.
-        "language": "cpp",
+        // other analysis endpoints (#654). Since #721 `.c` resolves to the
+        // dedicated C grammar (`LANG::C`, slug `c`); C++ headers and
+        // sources stay on `LANG::Cpp`.
+        "language": "c",
         "root": {
             "type": "translation_unit",
             "value": "",
@@ -277,7 +278,7 @@ async fn test_web_comment_json() {
     // declaration survives, so assert both presence and absence.
     let expected = json!({
         "id": "1234",
-        "language": "cpp",
+        "language": "c",
         "code": "int x = 1; ",
     });
 
@@ -346,7 +347,7 @@ async fn test_web_comment_json_no_comment() {
     // variant reports it as a string, not a byte array (#629).
     let expected = json!({
         "id": "1234",
-        "language": "cpp",
+        "language": "c",
         "code": "",
     });
 
@@ -489,7 +490,7 @@ async fn test_web_comment_empty_result_parity() {
     // key is the empty string (#629); the octet-stream body is empty bytes.
     assert_eq!(
         json_body,
-        json!({ "id": "1234", "language": "cpp", "code": "" })
+        json!({ "id": "1234", "language": "c", "code": "" })
     );
     assert_eq!(plain_body, Bytes::from_static(b""));
 }

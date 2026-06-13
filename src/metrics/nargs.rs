@@ -271,6 +271,25 @@ impl NArgs for CppCode {
     }
 }
 
+impl NArgs for CCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            if let Some(declarator) = node.child_by_field_name("declarator") {
+                let new_node = declarator;
+                compute_args::<Self>(&new_node, &mut stats.fn_nargs);
+            }
+            return;
+        }
+
+        if Self::is_closure(node)
+            && let Some(declarator) = node.child_by_field_name("declarator")
+        {
+            let new_node = declarator;
+            compute_args::<Self>(&new_node, &mut stats.closure_nargs);
+        }
+    }
+}
+
 impl NArgs for MozcppCode {
     fn compute(node: &Node, stats: &mut Stats) {
         if Self::is_func(node) {

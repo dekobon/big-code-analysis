@@ -87,6 +87,12 @@ fn lang_cpp_resolves_to_upstream_tree_sitter_cpp() {
 }
 
 #[test]
+fn lang_c_resolves_to_tree_sitter_c() {
+    // Dedicated C language added in #721 (upstream `tree-sitter-c`).
+    assert_dispatch(Lang::C, "C", tree_sitter_c::LANGUAGE.into());
+}
+
+#[test]
 fn lang_mozcpp_resolves_to_vendored_mozcpp() {
     assert_dispatch(Lang::Mozcpp, "Mozcpp", tree_sitter_mozcpp::LANGUAGE.into());
 }
@@ -205,7 +211,7 @@ fn lang_groovy_resolves_to_dekobon_tree_sitter_groovy() {
 //
 // Bumping this number without adding a matching `lang_*_resolves_to_*`
 // test above is the failure mode this guard exists to catch.
-const EXPECTED_LANG_VARIANT_COUNT: usize = 23;
+const EXPECTED_LANG_VARIANT_COUNT: usize = 24;
 
 #[test]
 fn coverage_every_lang_variant_is_dispatched() {

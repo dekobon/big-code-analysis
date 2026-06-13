@@ -29,6 +29,7 @@ class Lang(StrEnum):
     RUST = "rust"
     TCL = "tcl"
     IRULES = "irules"
+    C = "c"
     CPP = "cpp"
     MOZCPP = "mozcpp"
     CSHARP = "csharp"

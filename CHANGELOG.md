@@ -23,6 +23,18 @@ for historical reference.
 
 ### Added
 
+- `LANG::C` (slug `c`) and the `c` Cargo feature: a dedicated C
+  language backed by upstream `tree-sitter-c` `=0.24.2`, owning the
+  `.c` extension and the `c` emacs mode (both moved off `LANG::Cpp`).
+  `.h` deliberately stays on `Cpp` — a C++ header through the C grammar
+  ERROR-cascades, while a C header through the C++ grammar only trips on
+  C++-keyword identifiers. C code that uses C++ keywords (`new`,
+  `class`, `delete`, `template`) as identifiers now parses cleanly
+  instead of ERROR-cascading through the C++ grammar. C has no classes,
+  so `npm` / `npa` / `wmc` are no-ops; the `.c` re-routing shifts metric
+  values on C files (integration snapshots re-baselined). `all-languages`
+  now includes `c` (#721, part of #718).
+
 - `LANG::Mozcpp` (slug `mozcpp`) and the opt-in `mozcpp` Cargo feature:
   the Mozilla/Gecko C++ dialect, backed by the vendored
   `bca-tree-sitter-mozcpp` fork (upstream `tree-sitter-cpp` plus the

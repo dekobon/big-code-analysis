@@ -499,6 +499,25 @@ impl_cyclomatic_c_family!(
     ConditionalExpression,
     [AMPAMP, PIPEPIPE]
 );
+// C cannot reuse `impl_cyclomatic_c_family!`: that macro hard-codes a
+// `Catch` decision arm, and C has no exceptions (no `catch` token). The
+// decision-kind set is otherwise the C-family one — `if`/`for`/`while`,
+// `case`, the `?:` ternary, and the `&&`/`||` short-circuit operators,
+// with `switch` adding only to the modified count (#284).
+impl Cyclomatic for CCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use C::*;
+        match node.kind_id().into() {
+            Case => stats.cyclomatic += 1.,
+            SwitchStatement => stats.cyclomatic_modified += 1.,
+            If | For | While | ConditionalExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            _ => {}
+        }
+    }
+}
 
 // Java and Groovy share the same decision-kind set for cyclomatic
 // complexity; Groovy adds `Assert` as an extra branch (its `assert`
@@ -5924,6 +5943,39 @@ f() {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    /// Decision kinds through the dedicated `LANG::C` grammar (#721):
+    /// `if`, `for`, `while`, `case`, and the `&&` short-circuit each
+    /// add +1; `switch` adds only to the modified count. C has no
+    /// `catch`, so the hand-written `Cyclomatic for CCode` impl omits
+    /// the exception arm the C++ macro carries.
+    #[test]
+    fn c_grammar_decision_kinds_count_in_cyclomatic() {
+        check_metrics::<CParser>(
+            "int f(int a, int b) {
+                 if (a && b) {          // +1 if, +1 &&
+                     return 1;
+                 }
+                 for (int i = 0; i < a; ++i) {  // +1 for
+                     b += i;
+                 }
+                 switch (b) {           // +1 modified only
+                     case 0: return 0;  // +1 case
+                     default: return b;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                let s = &metric.cyclomatic;
+                // standard: unit(1) + fn(1) + if(1) + &&(1) + for(1) + case(1) = 6
+                assert_eq!(s.cyclomatic_sum(), 6);
+                // modified: `case` adds to standard only and `switch` to
+                // modified only, so they balance — base(2) + if + && + for
+                // + switch(1) = 6.
+                assert_eq!(s.cyclomatic_modified_sum(), 6);
             },
         );
     }

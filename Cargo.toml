@@ -62,6 +62,10 @@ tree-sitter-typescript = "=0.23.2"
 # Pinned to mozcpp's exact base so the flip diffs only by the Gecko
 # overlay (see #719). Mirror in enums/Cargo.toml.
 tree-sitter-cpp = "=0.23.4"
+# Upstream community C grammar backing the dedicated `LANG::C` since
+# #721 (`.c` previously routed through the C++ grammar). Mirror in
+# enums/Cargo.toml.
+tree-sitter-c = "=0.24.2"
 # Vendored grammar forks. Each is published under a `bca-tree-sitter-*`
 # package name (so we do not collide with the upstream Mozilla / community
 # crates on crates.io), but the produced Rust crate keeps its original
@@ -206,6 +210,7 @@ tree-sitter-typescript = { workspace = true, optional = true }
 tree-sitter-ccomment = { workspace = true, optional = true }
 tree-sitter-mozcpp = { workspace = true, optional = true }
 tree-sitter-cpp = { workspace = true, optional = true }
+tree-sitter-c = { workspace = true, optional = true }
 tree-sitter-mozjs = { workspace = true, optional = true }
 tree-sitter-preproc = { workspace = true, optional = true }
 tree-sitter-tcl = { workspace = true, optional = true }
@@ -243,6 +248,7 @@ vcs = ["vcs-git"]
 vcs-git = ["dep:gix", "dep:bstr"]
 all-languages = [
   "bash",
+  "c",
   "cpp",
   "csharp",
   "elixir",
@@ -279,6 +285,9 @@ cpp = [
   "dep:tree-sitter-ccomment",
   "dep:tree-sitter-preproc",
 ]
+# Dedicated C language (`LANG::C`, upstream `tree-sitter-c`), added in
+# #721. Owns `.c`; shares the C-family `ccomment` / `preproc` helpers.
+c = ["dep:tree-sitter-c", "dep:tree-sitter-ccomment", "dep:tree-sitter-preproc"]
 # Opt-in Mozilla/Gecko C++ dialect (vendored `tree-sitter-mozcpp` fork,
 # `LANG::Mozcpp`). Owns zero file extensions — selected only explicitly
 # (`--language mozcpp`, manifest, API), mirroring `mozjs` since #507.

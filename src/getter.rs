@@ -749,6 +749,90 @@ impl Getter for CppCode {
     get_operator!(Cpp);
 }
 
+impl Getter for CCode {
+    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+        // Issue #285 contract: every `C::FunctionDefinition*` alias must
+        // be enumerated here AND in `get_space_kind` below AND in
+        // `is_func` / `is_func_space` (see `src/checker.rs`). C has no
+        // C++ name forms (operator-cast / destructor / operator / qualified
+        // / template names), so the declarator name is a plain identifier.
+        match node.kind_id().into() {
+            C::FunctionDefinition | C::FunctionDefinition2 => {
+                // we're in a function_definition so need to get the declarator
+                if let Some(declarator) = node.child_by_field_name("declarator") {
+                    let declarator_node = declarator;
+                    if let Some(fd) = declarator_node.first_occurrence(|id| {
+                        C::FunctionDeclarator == id
+                            || C::FunctionDeclarator2 == id
+                            || C::FunctionDeclarator3 == id
+                    }) && let Some(first) = fd.child(0)
+                    {
+                        match first.kind_id().into() {
+                            C::TypeIdentifier | C::Identifier | C::FieldIdentifier => {
+                                return node_text(code, &first);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    return node_text(code, &name);
+                }
+            }
+        }
+        None
+    }
+
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        use C::*;
+
+        // C has no classes/namespaces, and struct/union/enum hold no
+        // functions, so the only spaces are functions and the unit
+        // (matching `is_func_space` in `src/checker.rs`, #285).
+        match node.kind_id().into() {
+            FunctionDefinition | FunctionDefinition2 => SpaceKind::Function,
+            TranslationUnit => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use C::*;
+
+        // C's operator alphabet is the C++ set minus the C++-only forms
+        // (`.*` / `->*`, `new` / `delete`, `try` / `catch` / `throw`,
+        // `<=>`, the `>>`-closing `GT2`). Raw string literals and the
+        // `namespace`-qualified identifier likewise do not exist in C.
+        match node.kind_id().into() {
+            DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
+            | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
+            | AMPAMP | PIPEPIPE | DASH | DASHDASH | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT
+            | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ
+            | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | PrimitiveType
+            | TypeSpecifier | Sizeof
+            // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
+            // `short` modifiers as bare keyword tokens, not as `primitive_type`
+            // children (`unsigned int` is `unsigned` + `primitive_type int`;
+            // `signed long` and `long long` have no `primitive_type` at all).
+            // Without these arms the modifiers fall into `Unknown` and are
+            // dropped, so `unsigned int` collapses to just `int` and a standalone
+            // `signed long` contributes nothing to n1/N1 (issue #466). Each
+            // modifier has a distinct kind_id, so keying by kind_id (the default
+            // `operators` store) keeps them distinct in n1 while `long long`'s
+            // two `long` tokens correctly fold to one n1 entry but two N1 hits.
+            | Signed | Unsigned | Long | Short => HalsteadType::Operator,
+            Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | NumberLiteral
+            | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(C);
+}
+
 impl Getter for MozcppCode {
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         // Issue #285 contract: every `Mozcpp::FunctionDefinition*` alias
