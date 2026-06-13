@@ -142,17 +142,27 @@ mod mozcpp_metrics {
     /// helpers, which match on node-kind *names* (#732, mirroring the
     /// `npa` fix in #731) rather than the `Cpp` enum discriminants — the
     /// Mozilla fork assigns different `kind_id`s to the same kinds, so a
-    /// name-agnostic match is the only grammar-correct option. This test
-    /// pins the equivalence so a future regression to id-based matching
-    /// (or a divergent grammar) is caught instead of silently corrupting
-    /// Mozcpp ABC.
+    /// name-agnostic match is the only grammar-correct option.
+    ///
+    /// The fixture's boolean operands are deliberately not bare
+    /// identifiers: `identifier` has `kind_id` 1 in *both* grammars, so a
+    /// fixture of `a`/`b`/`c` would pass even under the buggy id-based
+    /// code and protect nothing. The terminals exercised here all have
+    /// `kind_id`s that **diverge** between `Cpp` and the fork —
+    /// `field_expression` (361 vs 450), `subscript_expression`
+    /// (349 vs 438), `qualified_identifier` (484 vs 573), `call_expression`
+    /// (251 vs 340), `cast_expression` (343 vs 432) — so id-based matching
+    /// silently miscounts them for Mozcpp. Reverting either helper to
+    /// `kind_id().into()` against `Cpp` makes this test fail.
     #[test]
     fn mozcpp_matches_cpp_on_conditions() {
-        let src = "int f(int a, int b, int c) {
-                 if (a > 0 && b > 0) { return 1; }
-                 while (c < 10 || a == b) { c += 1; }
-                 int x = (a < b) ? a : b;
-                 return x;
+        // Operands span every divergent-id boolean terminal: `o->ready`
+        // (field_expression), `arr[i]` (subscript_expression), `ns::enabled`
+        // (qualified_identifier), `run()` (call_expression), `(bool)i`
+        // (cast_expression).
+        let src = "bool check(Obj* o, int* arr, int i) {
+                 if (o->ready && arr[i]) { return ns::enabled || run(); }
+                 return (bool)i ? o->ready : false;
              }";
         let moz = mozcpp_space(src);
         let cpp = analyze(
@@ -170,11 +180,12 @@ mod mozcpp_metrics {
             cpp.metrics.abc.assignments_sum(),
             "abc assignments parity"
         );
-        // Non-degenerate: the fixture really has several conditions.
-        assert!(
-            cpp.metrics.abc.conditions_sum() >= 4,
-            "fixture exercises conditions: {}",
-            cpp.metrics.abc.conditions_sum()
+        // Non-degenerate, and pins the divergent-id terminals are all
+        // counted: o->ready, arr[i], ns::enabled, run(), (bool)i = 5.
+        assert_eq!(
+            cpp.metrics.abc.conditions_sum(),
+            5,
+            "fixture exercises all five divergent-id boolean terminals"
         );
     }
 }
