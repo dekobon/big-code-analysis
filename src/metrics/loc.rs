@@ -52,6 +52,15 @@ pub struct Sloc {
     start: usize,
     end: usize,
     unit: bool,
+    // Physical lines removed from this space's span by `exclude_tests`
+    // pruning. `sloc` is the lone loc sub-metric computed by span
+    // subtraction rather than node-by-node accumulation, so a pruned
+    // subtree (which a `continue` in the walk suppresses for every
+    // accumulated metric) leaves the span untouched. We accumulate the
+    // inclusive row count of each pruned subtree here and subtract it
+    // in `sloc()` so SLOC drops in step with `ploc`/`cloc`/`lloc`
+    // (issue #722).
+    excluded_lines: usize,
     sloc_min: usize,
     sloc_max: usize,
 }
@@ -62,6 +71,7 @@ impl Default for Sloc {
             start: 0,
             end: 0,
             unit: false,
+            excluded_lines: 0,
             sloc_min: usize::MAX,
             sloc_max: 0,
         }
@@ -76,12 +86,34 @@ impl Sloc {
         // This metric counts the number of lines in a file
         // The if construct is needed to count the line of code that represents
         // the function signature in a function space
-        let sloc = if self.unit {
+        let span = if self.unit {
             self.end - self.start
         } else {
             (self.end - self.start) + 1
         };
-        sloc as u64
+        // Subtract the lines belonging to `exclude_tests`-pruned subtrees
+        // (issue #722). `saturating_sub` is defensive: `excluded_lines`
+        // can never exceed the span (each pruned subtree is contained in
+        // it), but a future caller that double-records a span must not
+        // wrap to `u64::MAX`.
+        span.saturating_sub(self.excluded_lines) as u64
+    }
+
+    /// Records a pruned (`exclude_tests`) subtree's inclusive row span so
+    /// that `sloc()` drops in step with the node-accumulated loc
+    /// sub-metrics. `start_row`/`end_row` are the pruned node's
+    /// `start_row()`/`end_row()`; both endpoints are real source rows, so
+    /// the line count is `end_row - start_row + 1`.
+    ///
+    /// Pruned subtrees are whole Rust items (`mod`/`fn`/`impl`/…) that
+    /// rustfmt places on dedicated rows, so they share no physical line
+    /// with a retained sibling and their spans are pairwise disjoint (the
+    /// walk `continue`s on a pruned node, never descending, so a nested
+    /// pruned item is never recorded twice). The counts therefore add
+    /// without an interval merge (issue #722).
+    #[inline]
+    pub(crate) fn exclude_span(&mut self, start_row: usize, end_row: usize) {
+        self.excluded_lines += (end_row - start_row) + 1;
     }
 
     /// The `Sloc` metric minimum value. See `min_or_zero` for the
@@ -434,6 +466,16 @@ impl Stats {
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.blank_min = self.blank_min.min(other.blank_min);
         self.blank_max = self.blank_max.max(other.blank_max);
+    }
+
+    /// Records an `exclude_tests`-pruned subtree spanning rows
+    /// `start_row..=end_row` so this space's `sloc()` excludes those
+    /// physical lines, matching the node-accumulated loc sub-metrics that
+    /// the pruning already drops (issue #722). Called from the walker for
+    /// the space enclosing each skipped subtree.
+    #[inline]
+    pub(crate) fn exclude_test_span(&mut self, start_row: usize, end_row: usize) {
+        self.sloc.exclude_span(start_row, end_row);
     }
 
     /// The `Sloc` metric.

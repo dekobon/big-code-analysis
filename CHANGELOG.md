@@ -2316,6 +2316,19 @@ for historical reference.
 
 ### Fixed
 
+- `--exclude-tests` (and `MetricsOptions::exclude_tests`) now prunes
+  unit- and function-level `loc.sloc` in step with the other loc
+  sub-metrics (#722). `sloc` is the lone loc metric computed by span
+  subtraction rather than node-by-node accumulation, so skipping a
+  test subtree left `sloc` pinned at the full-file extent while
+  `ploc`/`cloc`/`lloc` correctly dropped — an internally inconsistent
+  loc block, a `blank` count inflated by the elided lines, and a
+  `mi.*` whose `16.2·ln(SLOC)` term never benefited from test
+  exclusion. The walker now records each pruned subtree's row span on
+  its enclosing space and subtracts it from `sloc()`. The Markdown and
+  HTML report Total SLOC roll-ups, comment ratio, and Average-MI inputs
+  (which read `loc.sloc` directly) are corrected as a consequence.
+  The default (`exclude_tests` off) path is byte-for-byte unchanged.
 - Bare-relative glob patterns now match the same files as their `./`-prefixed
   equivalents: `--exclude 'dir/**'` is identical to `--exclude './dir/**'`
   (#726). The walker matches discovered files against a `./`-anchored

@@ -1172,17 +1172,37 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     stack.push((node, 0));
 
     while let Some((node, level)) = stack.pop() {
+        // Close any spaces left open by a deeper, already-walked subtree
+        // before doing anything else with this node. This must run before
+        // the test-subtree prune below so that, when we skip a pruned
+        // node, `state_stack.last_mut()` is the node's true enclosing
+        // space (#722) — not a sibling's still-open function/impl space.
+        if level < last_level {
+            finalize::<T>(&mut state_stack, last_level - level, selected);
+            last_level = level;
+        }
+
         // Prune test-only subtrees before any per-metric work runs.
         // The hook is gated on `exclude_tests` so the default
         // `metrics()` entry point keeps emitting the pre-#182
         // numbers byte-for-byte.
         if options.exclude_tests && T::Checker::should_skip_subtree(&node, code) {
+            // `sloc` is span-based, not node-accumulated, so unlike every
+            // other loc sub-metric it does not shrink just because we
+            // skip the subtree. Record the pruned node's row span on the
+            // enclosing space so its `sloc` drops in step (#722). Gated on
+            // the `Loc` selection so deselecting loc keeps the walk's work
+            // identical.
+            if selected.contains(Metric::Loc)
+                && let Some(state) = state_stack.last_mut()
+            {
+                state
+                    .space
+                    .metrics
+                    .loc
+                    .exclude_test_span(node.start_row(), node.end_row());
+            }
             continue;
-        }
-
-        if level < last_level {
-            finalize::<T>(&mut state_stack, last_level - level, selected);
-            last_level = level;
         }
 
         let func_space = T::Checker::promotes_to_func_space_with_code(&node, code);
@@ -2356,6 +2376,145 @@ mod tests {
             let pruned = analyse(source, true);
             assert_eq!(baseline.metrics.nom.functions_sum() as usize, 3);
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+
+        // #722: `sloc` is the lone loc sub-metric computed by span
+        // subtraction rather than node accumulation, so before the fix
+        // it stayed pinned at the full-file extent while `ploc`/`cloc`/
+        // `lloc` correctly dropped — leaving an internally inconsistent
+        // loc block (and a `blank` derived from the stale `sloc` that
+        // over-counted). Under `exclude_tests`, unit `sloc` must drop in
+        // step with the pruned test module.
+        //
+        // Layout (0-based rows): prod body rows 0..=3, blank row 4,
+        // the `#[cfg(test)]` attribute (a sibling of `mod_item`, NOT
+        // pruned) row 5, and the pruned `mod tests { … }` rows 6..=11.
+        // Baseline `sloc` is the full 12-row span; pruned drops the six
+        // module rows to 6, which equals the retained `ploc 5` (prod's
+        // four lines + the surviving attribute line) plus the single
+        // real `blank` line. Pre-fix, pruned `sloc` stayed 12 and
+        // `blank` reported 7 — six phantom blanks from the elided module.
+        #[test]
+        fn sloc_drops_with_pruned_cfg_test_mod() {
+            let source = "\
+fn prod() {
+    let x = 1;
+    println!(\"{x}\");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a() {
+        assert_eq!(1, 1);
+    }
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            assert_eq!(baseline.metrics.loc.sloc(), 12);
+            assert_eq!(baseline.metrics.loc.ploc(), 11);
+
+            // The headline fix: `sloc` falls in step with `ploc`.
+            assert_eq!(pruned.metrics.loc.sloc(), 6);
+            assert_eq!(pruned.metrics.loc.ploc(), 5);
+            // Internal consistency restored: one real blank line, not the
+            // pre-fix seven.
+            assert_eq!(pruned.metrics.loc.blank(), 1);
+        }
+
+        // Adjacent pruned modules: two top-level `#[cfg(test)] mod`
+        // blocks. Their spans are disjoint, so the excluded line counts
+        // simply add (no interval merge). Rows (0-based): prod row 0,
+        // attr row 1, `mod a` rows 2..=5, attr row 6, `mod b` rows
+        // 7..=10 — a 11-row span. Pruning removes both four-row modules,
+        // leaving rows 0/1/6 (prod + the two surviving sibling
+        // attributes) → `sloc 3`, matching `ploc 3` with zero blanks.
+        #[test]
+        fn sloc_drops_for_adjacent_test_modules() {
+            let source = "\
+fn prod() {}
+#[cfg(test)]
+mod a {
+    #[test]
+    fn x() {}
+}
+#[cfg(test)]
+mod b {
+    #[test]
+    fn y() {}
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            assert_eq!(baseline.metrics.loc.sloc(), 11);
+            assert_eq!(pruned.metrics.loc.sloc(), 3);
+            assert_eq!(pruned.metrics.loc.ploc(), 3);
+            assert_eq!(pruned.metrics.loc.blank(), 0);
+        }
+
+        // Nested pruned modules: a non-test `mod inner` lives inside a
+        // `#[cfg(test)] mod outer`. The walk `continue`s on `outer` and
+        // never descends, so `inner`'s span is folded into `outer`'s and
+        // never double-counted. Rows (0-based): prod row 0, attr row 1,
+        // `mod outer` rows 2..=7 (an 8-row span). Pruning removes the
+        // six outer rows, leaving rows 0/1 → `sloc 2`, matching `ploc 2`.
+        #[test]
+        fn sloc_drops_for_nested_test_modules() {
+            let source = "\
+fn prod() {}
+#[cfg(test)]
+mod outer {
+    mod inner {
+        #[test]
+        fn t() {}
+    }
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            assert_eq!(baseline.metrics.loc.sloc(), 8);
+            assert_eq!(pruned.metrics.loc.sloc(), 2);
+            assert_eq!(pruned.metrics.loc.ploc(), 2);
+            assert_eq!(pruned.metrics.loc.blank(), 0);
+        }
+
+        // A pruned test function nested inside a *retained* `impl` block
+        // must shrink that impl space's `sloc`, not just the unit's. This
+        // is why the prune hook records the span on the walker's current
+        // enclosing space (after `finalize`), rather than always on the
+        // unit root (#722). Rows (0-based): `impl Foo {` row 0,
+        // `fn prod` row 1, the `#[test]` attribute (a sibling, retained)
+        // row 2, the pruned single-line `fn t() {}` row 3, `}` row 4 — a
+        // five-row span. Pruning removes the one test-fn row, so the
+        // impl-level `sloc` drops from 5 to 4.
+        #[test]
+        fn sloc_drops_for_test_fn_nested_in_impl() {
+            let source = "\
+impl Foo {
+    fn prod(&self) {}
+    #[test]
+    fn t() {}
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            // The unit wraps exactly one `impl` space; assert on it
+            // directly (not via the unit root) so the test pins the
+            // *enclosing-space* attribution — recording the pruned span
+            // on the unit instead would leave this at 5. The length
+            // guard makes the single-child assumption explicit rather
+            // than relying on `[0]` ordering.
+            assert_eq!(baseline.spaces.len(), 1);
+            assert_eq!(pruned.spaces.len(), 1);
+            let baseline_impl = &baseline.spaces[0];
+            let pruned_impl = &pruned.spaces[0];
+            assert_eq!(baseline_impl.metrics.loc.sloc(), 5);
+            assert_eq!(pruned_impl.metrics.loc.sloc(), 4);
         }
     }
 
