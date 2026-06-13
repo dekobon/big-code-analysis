@@ -51,7 +51,12 @@
 //! defaults — see [Per-language Cargo features][feat] in the book.
 //!
 //! - Bash (`bash`)
-//! - C/C++ (`cpp`, also exposes the internal `Ccomment` / `Preproc` helpers)
+//! - C (`c`, upstream `tree-sitter-c`; owns `.c`)
+//! - C/C++ (`cpp`, upstream `tree-sitter-cpp`; the default for `.cpp` /
+//!   `.cc` / `.h` and also exposes the internal `Ccomment` / `Preproc`
+//!   C-family helpers)
+//! - C++, Firefox-internal "Mozcpp" (`mozcpp`, opt-in; owns no file
+//!   extensions — select it by name)
 //! - C# (`csharp`)
 //! - Elixir (`elixir`)
 //! - Go (`go`)
