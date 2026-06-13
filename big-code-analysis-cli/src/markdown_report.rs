@@ -263,6 +263,7 @@ pub(super) fn language_display_name(slug: &str) -> Cow<'_, str> {
     };
     let display = match lang {
         LANG::Bash => "Bash",
+        LANG::C => "C",
         LANG::Ccomment => "C Comment",
         LANG::Cpp => "C++",
         LANG::Csharp => "C#",

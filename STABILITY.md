@@ -1262,6 +1262,12 @@ loose ends that will be tightened at `2.0`:
   which is the source-level break. Unlike the JS flip, the Gecko
   overlay diverges from upstream on a small fraction of generic C++, so
   this carries a metric re-baseline of the integration snapshots (#719).
+- A dedicated `LANG::C` (slug `c`, upstream `tree-sitter-c`) is added
+  and the `.c` extension + `c` emacs mode move off `LANG::Cpp` onto it
+  (#721). Adding the variant and the `c` Cargo feature is additive, but
+  `.c` files now parse through the C grammar rather than the C++ one, so
+  their metric values shift (integration snapshots re-baselined). `.h`
+  stays on `Cpp` (asymmetric failure modes).
 - The Python bindings tighten their typed surface (#542): the
   `analyze_batch` `skip_generated` default flips from `False` to
   `True` to align with `analyze` (a generated file is now skipped, so

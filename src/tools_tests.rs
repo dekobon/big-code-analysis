@@ -222,8 +222,13 @@ fn test_guess_language() {
     let buf = b"/* hello world */\n";
     assert_eq!(guess_language(buf, "foo.cpp"), (Some(LANG::Cpp), "cpp"));
 
+    // Since #721 `.c` routes to the dedicated `LANG::C`. When the file
+    // extension and an emacs/vim modeline disagree, `guess_language`
+    // deliberately trusts the extension (see the "rely on extension"
+    // branch), so a `.c` file with a `ft=c++` modeline still resolves to
+    // C — the modeline does not override the extension.
     let buf = b"\n\n\n\n\n\n\n\n\n// vim: set ts=4 ft=c++\n\n\n";
-    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::Cpp), "cpp"));
+    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
 
     let buf = b"\n\n\n\n\n\n\n\n\n\n\n\n";
     assert_eq!(guess_language(buf, "foo.txt"), (None, ""));

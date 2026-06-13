@@ -7,6 +7,7 @@ gated behind the matching per-language Cargo feature documented in
 [Per-language Cargo features](./library/cargo-features.md).
 
 - [x] Bash
+- [x] C
 - [x] C/C++
 - [x] C#
 - [x] Elixir
@@ -34,14 +35,18 @@ Some entries are variants of a shared grammar pipeline. `JavaScript`
 SpiderMonkey fork, now opt-in — it owns only the `.jsm` (Firefox
 module) extension and reports the canonical slug `mozjs`. The two are
 metric-equivalent on ordinary JavaScript. `Tsx` is `Typescript` with
-JSX syntax enabled and reports the distinct slug `tsx`. C and C++ are
-analysed by the `C/C++` variant (slug `cpp`), backed since #720 by the
-upstream `tree-sitter-cpp` grammar; the Mozilla/Gecko C++ dialect is
-the opt-in `Mozcpp` variant (slug `mozcpp`), which owns no file
-extensions and is selected only by name — exactly as `Mozjs` relates
-to `JavaScript` (C# reports `csharp`). Every variant's slug is its
-`LANG::name`, lowercase and punctuation-free so it round-trips through
-`FromStr`.
+JSX syntax enabled and reports the distinct slug `tsx`. Since #721 C
+has its own variant `C` (slug `c`, upstream `tree-sitter-c`), owning
+`.c` and the `c` emacs mode; the `C/C++` variant (slug `cpp`, upstream
+`tree-sitter-cpp` since #720) keeps `.cpp` / `.cc` / `.h` and the rest.
+`.h` deliberately stays on `Cpp`: a C++ header through the C grammar
+ERROR-cascades on `class` / `template`, whereas a C header through the
+C++ grammar only trips on C++-keyword identifiers. The Mozilla/Gecko
+C++ dialect is the opt-in `Mozcpp` variant (slug `mozcpp`), which owns
+no file extensions and is selected only by name — exactly as `Mozjs`
+relates to `JavaScript` (C# reports `csharp`). Every variant's slug is
+its `LANG::name`, lowercase and punctuation-free so it round-trips
+through `FromStr`.
 
 ## Internal helper variants
 

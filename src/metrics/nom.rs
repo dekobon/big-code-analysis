@@ -258,6 +258,7 @@ implement_metric_trait!(
     TsxCode,
     CppCode,
     MozcppCode,
+    CCode,
     RustCode,
     PreprocCode,
     CcommentCode,

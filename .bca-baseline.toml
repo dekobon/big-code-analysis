@@ -51,7 +51,7 @@ path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "language_display_name"
 start_line = 260
 metric = "cyclomatic"
-value = 24.0
+value = 25.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
@@ -166,11 +166,25 @@ metric = "loc.sloc"
 value = 898.0
 
 [[entry]]
+path = "src/alterator.rs"
+qualified = "<file>"
+start_line = 1
+metric = "wmc"
+value = 61.0
+
+[[entry]]
 path = "src/count.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
 value = 7.0
+
+[[entry]]
+path = "src/metrics/nargs.rs"
+qualified = "<file>"
+start_line = 1
+metric = "wmc"
+value = 59.0
 
 [[entry]]
 path = "src/output/code_climate.rs"

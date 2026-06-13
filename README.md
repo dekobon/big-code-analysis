@@ -103,7 +103,7 @@ re-enable just the grammars they want:
 big-code-analysis = { version = "1.1.0", default-features = false, features = ["rust", "typescript"] }
 ```
 
-Supported language features: `bash`, `cpp`, `csharp`, `elixir`,
+Supported language features: `bash`, `c`, `cpp`, `csharp`, `elixir`,
 `go`, `groovy`, `irules`, `java`, `javascript`, `kotlin`, `lua`,
 `mozcpp`, `mozjs`, `perl`, `php`, `python`, `ruby`, `rust`, `tcl`,
 `typescript`. The `irules` feature adds F5 iRules (a Tcl
@@ -112,6 +112,9 @@ dialect; extensions `.irule` / `.irules`). The
 community `tree-sitter-cpp` grammar and, with the `Ccomment` and
 `Preproc` C-family helper variants, pulls in `tree-sitter-cpp`,
 `bca-tree-sitter-ccomment`, and `bca-tree-sitter-preproc` together.
+The `c` feature (added in #721) backs the dedicated `C` LANG variant
+with upstream `tree-sitter-c` and owns `.c`; it shares the same
+`ccomment` / `preproc` C-family helpers. `.h` stays on `Cpp`.
 The opt-in `mozcpp` feature adds the `Mozcpp` LANG variant — the
 Mozilla/Gecko C++ dialect (vendored `bca-tree-sitter-mozcpp` fork) —
 which owns no file extensions and is selected only by name

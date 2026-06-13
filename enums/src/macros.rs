@@ -35,6 +35,7 @@ macro_rules! mk_get_language {
                 Lang::Csharp => tree_sitter_c_sharp::LANGUAGE.into(),
                 Lang::Elixir => tree_sitter_elixir::LANGUAGE.into(),
                 Lang::Ccomment => tree_sitter_ccomment::LANGUAGE.into(),
+                Lang::C => tree_sitter_c::LANGUAGE.into(),
                 Lang::Cpp => tree_sitter_cpp::LANGUAGE.into(),
                 Lang::Mozcpp => tree_sitter_mozcpp::LANGUAGE.into(),
                 Lang::Mozjs => tree_sitter_mozjs::LANGUAGE.into(),

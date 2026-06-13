@@ -81,10 +81,11 @@ fn parse_scope_flag(raw: Option<&str>) -> Result<Scope, &'static str> {
 /// feature pin must change this invariant explicitly.
 const FEATURES_PINNED: &str = "web crate pins big-code-analysis features = [\"all-languages\"]";
 
-/// Swaps either C++ dialect (`Cpp` or the Mozilla fork `Mozcpp`, #720)
-/// to the `Ccomment` grammar for comment-removal endpoints.
+/// Swaps any C-family language (`C` since #721, or a C++ dialect — `Cpp`
+/// / the Mozilla fork `Mozcpp`, #720) to the `Ccomment` grammar for
+/// comment-removal endpoints.
 fn comment_language(language: LANG) -> LANG {
-    if matches!(language, LANG::Cpp | LANG::Mozcpp) {
+    if matches!(language, LANG::C | LANG::Cpp | LANG::Mozcpp) {
         LANG::Ccomment
     } else {
         language

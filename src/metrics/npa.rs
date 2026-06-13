@@ -1935,6 +1935,7 @@ impl Npa for MozjsCode {
 // Elixir Npa is implemented below (#275).
 implement_metric_trait!(
     Npa,
+    CCode,
     PreprocCode,
     CcommentCode,
     PerlCode,

@@ -188,6 +188,8 @@ impl_exit_match_kinds!(
 );
 impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
 impl_exit_match_kinds!(MozcppCode, Mozcpp, [ReturnStatement, ThrowStatement]);
+// C has no exceptions: `return` is the only exit kind (no `throw`).
+impl_exit_match_kinds!(CCode, C, [ReturnStatement]);
 // Java's `yield` is the Java-14+ switch-expression yield statement
 // (an unambiguous statement node, distinct from a labeled `break`).
 // It hands the switch-expression value back as an explicit exit, so it
@@ -622,6 +624,37 @@ mod tests {
                 );
             },
         );
+    }
+
+    /// The raison d'être of `LANG::C` (#721): C code that uses C++
+    /// keywords (`new`, `class`, `delete`) as plain identifiers parses
+    /// cleanly through `tree-sitter-c`, where the C++ grammar
+    /// ERROR-cascades. The load-bearing assertion is `!root.has_error()`:
+    /// the C++ grammar errors on this input yet *still* recovers a
+    /// function node and two `return`s, so a metric-count assertion alone
+    /// does not distinguish the two grammars — only the error-free parse
+    /// does. C has no `throw`, so `return` is the sole exit kind.
+    #[test]
+    fn c_keyword_identifiers_parse_and_returns_count() {
+        use std::path::PathBuf;
+
+        let source = "int process(int new, int class) {
+                 int delete = new + class;
+                 if (delete > 0) {
+                     return delete;
+                 }
+                 return 0;
+             }";
+        let parser = CParser::new(source.as_bytes().to_vec(), &PathBuf::from("foo.c"), None);
+        assert!(
+            !parser.root().has_error(),
+            "C grammar must parse C++-keyword identifiers without an error cascade"
+        );
+
+        check_metrics::<CParser>(source, "foo.c", |metric| {
+            assert_eq!(metric.nom.functions_sum(), 1);
+            assert_eq!(metric.nexits.nexits_sum(), 2);
+        });
     }
 
     /// `return` statements inside `try` and `catch` blocks both count;

@@ -127,7 +127,7 @@ pub use crate::langs::{LANG, get_from_emacs_mode, get_from_ext};
 // `<Lang>Code` tags are reached crate-internally through `use crate::*`
 // in the per-language `Checker` / `Getter` / `Alterator` / metric impls.
 pub(crate) use crate::langs::{
-    BashCode, CcommentCode, CppCode, CsharpCode, ElixirCode, GoCode, GroovyCode, IrulesCode,
+    BashCode, CCode, CcommentCode, CppCode, CsharpCode, ElixirCode, GoCode, GroovyCode, IrulesCode,
     JavaCode, JavascriptCode, KotlinCode, LuaCode, MozcppCode, MozjsCode, PerlCode, PhpCode,
     PreprocCode, PythonCode, RubyCode, RustCode, TclCode, TsxCode, TypescriptCode,
 };
@@ -137,10 +137,10 @@ pub(crate) use crate::langs::{
 // `unused` in a non-test build.
 #[allow(unused_imports)]
 pub(crate) use crate::langs::{
-    BashParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser, GroovyParser,
-    IrulesParser, JavaParser, JavascriptParser, KotlinParser, LuaParser, MozcppParser, MozjsParser,
-    PerlParser, PhpParser, PreprocParser, PythonParser, RubyParser, RustParser, TclParser,
-    TsxParser, TypescriptParser,
+    BashParser, CParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser,
+    GroovyParser, IrulesParser, JavaParser, JavascriptParser, KotlinParser, LuaParser,
+    MozcppParser, MozjsParser, PerlParser, PhpParser, PreprocParser, PythonParser, RubyParser,
+    RustParser, TclParser, TsxParser, TypescriptParser,
 };
 // `ParseLangError` is the `FromStr` error for `LANG`; it is defined in
 // the `mk_lang!` macro layer (`crate::macros`) rather than `crate::langs`.

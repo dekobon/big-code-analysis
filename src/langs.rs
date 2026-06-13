@@ -154,18 +154,34 @@ mk_langs!(
         ["irules"]
     ),
     (
+        "c",
+        C,
+        "The `C` language (upstream `tree-sitter-c` grammar). Owns `.c` \
+         and the `c` emacs mode since #721. C++ headers stay on \
+         `LANG::Cpp` (`.h` is asymmetric: a C++ header through the C \
+         grammar ERROR-cascades on `class` / `template`, while a C \
+         header through the C++ grammar only trips on C++-keyword \
+         identifiers).",
+        "c",
+        CCode,
+        CParser,
+        tree_sitter_c,
+        [c],
+        ["c"]
+    ),
+    (
         "cpp",
         Cpp,
         "The `C/C++` language (upstream `tree-sitter-cpp` grammar; the \
          default for `.cpp` / `.cc` / `.h` and the rest of the C-family \
-         extensions). The Mozilla/Gecko dialect moved to opt-in \
-         `LANG::Mozcpp` in #720.",
+         extensions). C moved to `LANG::C` (`.c`) in #721; the \
+         Mozilla/Gecko dialect moved to opt-in `LANG::Mozcpp` in #720.",
         "cpp",
         CppCode,
         CppParser,
         tree_sitter_cpp,
-        [cpp, cxx, cc, hxx, hpp, c, h, hh, inc, mm, m],
-        ["c++", "c", "objc", "objc++", "objective-c++", "objective-c"]
+        [cpp, cxx, cc, hxx, hpp, h, hh, inc, mm, m],
+        ["c++", "objc", "objc++", "objective-c++", "objective-c"]
     ),
     (
         "mozcpp",
@@ -595,6 +611,28 @@ mod tests {
             !LANG::into_enum_iter().any(|l| l == LANG::Mozcpp && !l.extensions().is_empty()),
             "Mozcpp must own no file extension"
         );
+    }
+
+    // The dedicated C language (#721) owns `.c` and the `c` emacs mode,
+    // both moved out of `Cpp`. `.h` stays on `Cpp` (decision-log #1:
+    // asymmetric failure modes — a C++ header through the C grammar
+    // ERROR-cascades, while a C header through C++ only trips on
+    // C++-keyword identifiers). Pin the reroute so a `mk_langs!` reorder
+    // cannot silently hand `.c` back to the C++ grammar.
+    #[test]
+    fn c_language_dispatch_owns_dot_c_and_h_stays_cpp() {
+        use std::str::FromStr;
+        assert_eq!(LANG::C.name(), "c");
+        assert_eq!(LANG::from_str("c"), Ok(LANG::C));
+        assert_eq!(get_from_ext("c"), Some(LANG::C));
+        assert_eq!(get_from_emacs_mode("c"), Some(LANG::C));
+        // `.h` and the C++ extensions remain on `Cpp`.
+        assert_eq!(get_from_ext("h"), Some(LANG::Cpp));
+        assert_eq!(get_from_ext("cpp"), Some(LANG::Cpp));
+        // `.m` / `.mm` (Objective-C) stay on `Cpp` (decision-log #2;
+        // proper ObjC support is tracked separately in #724).
+        assert_eq!(get_from_ext("m"), Some(LANG::Cpp));
+        assert_eq!(get_from_ext("mm"), Some(LANG::Cpp));
     }
 
     // Unknown / mis-cased input is rejected; matching is case-sensitive,

@@ -164,6 +164,7 @@ implement_metric_trait!(
     RustCode,
     CppCode,
     MozcppCode,
+    CCode,
     PreprocCode,
     CcommentCode,
     JavaCode,
