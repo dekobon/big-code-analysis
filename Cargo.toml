@@ -84,7 +84,7 @@ tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "./tree-sitter-tcl",
 # PyO3 powers the `big-code-analysis-py` cdylib. Pinned to a major
 # series; bumping is a deliberate, separate change because the Bound
 # API shape changed across minors.
-pyo3 = "=0.28.3"
+pyo3 = "=0.29.0"
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 csv = "=1.4.0"
