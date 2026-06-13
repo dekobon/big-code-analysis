@@ -1174,30 +1174,37 @@ impl Npa for MozcppCode {
     }
 }
 
+// Name-based for cross-grammar correctness (see `cpp_count_field_identifiers`).
 pub(crate) fn cpp_has_function_declarator(node: &Node) -> bool {
-    use Cpp::*;
-    node.children().any(|child| match child.kind_id().into() {
-        FunctionDeclarator | FunctionDeclarator2 | FunctionDeclarator3 => true,
+    node.children().any(|child| match child.kind() {
+        "function_declarator" => true,
         // Recurse through declarator wrappers that can sit above the
         // function_declarator (`Foo* operator->()`,
         // `template<...> T fn();`, constructor / destructor
         // `declaration`s inside a class body).
-        PointerDeclarator | PointerDeclarator2 | ReferenceDeclarator | ReferenceDeclarator2
-        | ReferenceDeclarator3 | ReferenceDeclarator4 | Declaration | Declaration2
-        | Declaration3 | Declaration4 => cpp_has_function_declarator(&child),
+        "pointer_declarator" | "reference_declarator" | "declaration" => {
+            cpp_has_function_declarator(&child)
+        }
         _ => false,
     })
 }
 
+// Matches on node-kind NAMES, not one grammar's enum discriminants, so it
+// is correct for every C-family grammar: upstream `Cpp` and the Mozilla
+// `Mozcpp` fork (#720) assign *different* kind_ids to the same node kinds,
+// and this helper is shared by both impls. (A `kind_id().into()` against a
+// fixed `Cpp` enum silently miscounted Mozcpp nodes, zeroing its `npa`.)
+// Each declarator's aliases all render to the one base name, so a single
+// string arm covers the family.
 pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
-    use Cpp::*;
     let mut count = 0;
     for child in node.children() {
-        match child.kind_id().into() {
-            FieldIdentifier => count += 1,
-            PointerDeclarator | PointerDeclarator2 | ArrayDeclarator | ArrayDeclarator2
-            | ArrayDeclarator3 | InitDeclarator | ReferenceDeclarator | ReferenceDeclarator2
-            | ReferenceDeclarator3 | ReferenceDeclarator4 => {
+        match child.kind() {
+            "field_identifier" => count += 1,
+            "pointer_declarator"
+            | "array_declarator"
+            | "init_declarator"
+            | "reference_declarator" => {
                 count += cpp_count_field_identifiers(&child);
             }
             _ => {}
