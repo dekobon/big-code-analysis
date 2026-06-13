@@ -1,12 +1,15 @@
 use super::{
-    anchor_against_seeds, cwd_relative_tail, file_seed_match_path, match_path_for, reanchor_seed,
-    strip_cur_dir, strip_dot_slash,
+    anchor_against_seeds, file_seed_match_path, match_path_for, reanchor_seed, strip_cur_dir,
+    strip_dot_slash,
 };
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 #[test]
 fn cwd_relative_tail_canonicalizes_both_sides_when_forms_diverge() {
+    // Imported here (not at module scope) so the symbol is not "unused"
+    // on non-unix targets, where this is the only caller in tests.
+    use super::cwd_relative_tail;
     // The third fallback: when `path` and `cwd` are spelled in forms that
     // share no lexical prefix even after canonicalizing `path` (on Windows
     // a `\\?\`-verbatim canonical path vs a non-verbatim CWD; simulated
