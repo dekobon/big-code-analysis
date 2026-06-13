@@ -1823,7 +1823,7 @@ mod tests {
 
     #[test]
     fn c_switch() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() { // +2 (+1 unit space)
                  switch (1) {
                      case 1: // +1
@@ -1867,7 +1867,7 @@ mod tests {
     /// Modified CCN: 3 case arms in one switch collapse to 1 decision.
     #[test]
     fn c_switch_modified() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  switch (x) {
                      case 1: break;
@@ -1903,7 +1903,7 @@ mod tests {
 
     #[test]
     fn c_real_function() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int sumOfPrimes(int max) { // +2 (+1 unit space)
                  int total = 0;
                  OUT: for (int i = 1; i <= max; ++i) { // +1
@@ -1942,7 +1942,7 @@ mod tests {
 
     #[test]
     fn c_unit_before() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "
             int a=42;
             if(a==42) //+2(+1 unit space)
@@ -1994,7 +1994,7 @@ mod tests {
     /// while the function sumOfPrimes has a complexity of 4.
     #[test]
     fn c_unit_after() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "
             int sumOfPrimes(int max) { // +1
                  int total = 0;
@@ -5823,7 +5823,7 @@ f() {
     /// unit decisions.  No condition expressions, so `&&` / `||` do not fire.
     #[test]
     fn c_nested_loops() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  for (int i = 0; i < 10; ++i) {     // +1
                      for (int j = 0; j < 10; ++j) { // +1
@@ -5985,7 +5985,7 @@ f() {
     /// Two nested ternaries in one expression therefore add 2 to each.
     #[test]
     fn c_ternary_chain() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b, int c) {
                  return a > 0 ? a : (b > 0 ? b : c); // +2 ternaries (?: each)
              }",
@@ -6021,7 +6021,7 @@ f() {
     /// operator token in the chain is a separate decision (Lizard parity).
     #[test]
     fn c_short_circuit_chain() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b, int c, int d) {
                  if (a && b || c && d) {            // 3 logical ops + 1 if = 4
                      return 1;
@@ -6061,7 +6061,7 @@ f() {
     /// arms into one switch container.
     #[test]
     fn c_switch_fallthrough() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int x) {
                  int r = 0;
                  switch (x) {
@@ -6113,7 +6113,7 @@ f() {
     /// macro fires here first.
     #[test]
     fn c_goto_not_counted() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int n) {
                  int i = 0;
              retry:

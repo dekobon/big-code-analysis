@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn c_single_function() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b) {
                  if (a) {
                      return a;
@@ -1026,7 +1026,7 @@ mod tests {
 
     #[test]
     fn c_functions() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b) {
                  if (a) {
                      return a;
@@ -1300,7 +1300,7 @@ mod tests {
     /// `is_non_arg` filter (which excludes only `(`, `)`, and `,`).
     #[test]
     fn c_variadic_function() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int printf(const char* fmt, ...) {
                  return 0;
              }",

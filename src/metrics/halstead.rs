@@ -614,7 +614,7 @@ mod tests {
     /// snapshot-anchor policy.
     #[test]
     fn c_pointer_arithmetic_operators() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int g(int* p, int* q) {
                  return *(p + 1) + *q;
              }",
@@ -638,7 +638,7 @@ mod tests {
     /// must NOT collapse, even though both render as ampersands.
     #[test]
     fn c_bitwise_and_logical_operators() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b) {
                  int x = (a & b) | (a ^ b);
                  int y = ~a;
@@ -670,7 +670,7 @@ mod tests {
     /// token classified as a primitive_type operator.
     #[test]
     fn c_increment_decrement_and_sizeof() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f(int* p) {
                  int n = sizeof(int);
                  ++p;

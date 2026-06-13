@@ -2014,7 +2014,7 @@ mod tests {
 
     #[test]
     fn c_blank() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "
 
             int a = 42;
@@ -2647,7 +2647,7 @@ mod tests {
 
     #[test]
     fn c_cloc() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "/*Block comment
             Block Comment*/
             //Line Comment
@@ -2815,7 +2815,7 @@ mod tests {
 
     #[test]
     fn c_lloc() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "for (;;)
                 break;",
             "foo.c",

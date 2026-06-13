@@ -2022,7 +2022,7 @@ mod tests {
 
     #[test]
     fn c_no_cognitive() {
-        check_metrics::<CppParser>("int a = 42;", "foo.c", |metric| {
+        check_metrics::<CParser>("int a = 42;", "foo.c", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
                 @r#"
@@ -2671,7 +2671,7 @@ mod tests {
 
     #[test]
     fn c_simple_function() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  if (a && b) { // +2 (+1 &&)
                      printf(\"test\");
@@ -2893,7 +2893,7 @@ mod tests {
 
     #[test]
     fn c_sequence_same_booleans() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  if (a && b && 1 == 1) { // +2 (+1 sequence of &&)
                      printf(\"test\");
@@ -3125,8 +3125,8 @@ mod tests {
     fn c_not_booleans() {
         // `!` does not break boolean sequences (issue #392): the inner
         // `&&` is folded into the outer `&&`'s span because pre-order
-        // visits the outer BinaryExpression first.
-        check_metrics::<CppParser>(
+        // visits the outer `binary_expression` first.
+        check_metrics::<CParser>(
             "void f() {
                  if (a && !(b && c)) { // +2 (+1 if, +1 outer &&; inner && continues)
                      printf(\"test\");
@@ -3272,7 +3272,7 @@ mod tests {
 
     #[test]
     fn c_sequence_different_booleans() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  if (a && b || 1 == 1) { // +3 (+1 &&, +1 ||)
                      printf(\"test\");
@@ -3432,7 +3432,7 @@ mod tests {
 
     #[test]
     fn c_1_level_nesting() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  if (1 == 1) { // +1
                      if (1 == 1) { // +2 (nesting = 1)
@@ -4073,7 +4073,7 @@ mod tests {
 
     #[test]
     fn c_goto() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
              OUT: for (int i = 1; i <= max; ++i) { // +1
                       for (int j = 2; j < i; ++j) { // +2 (nesting = 1)
@@ -4102,7 +4102,7 @@ mod tests {
 
     #[test]
     fn c_switch() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f() {
                  switch (1) { // +1
                      case 1:
@@ -4138,11 +4138,11 @@ mod tests {
 
     #[test]
     fn c_ternary() {
-        // Sonar's rule scores the C++ ternary `?:` as +1 (and +nesting), matching
-        // the JS/Java/Python/Rust families. `CppCode::compute` now matches on
-        // `ConditionalExpression`, so the operator participates in nesting like
-        // any other conditional construct.
-        check_metrics::<CppParser>(
+        // Sonar's rule scores the ternary `?:` as +1 (and +nesting), matching
+        // the JS/Java/Python/Rust families. The cognitive walker matches the
+        // `conditional_expression` node, so the operator participates in nesting
+        // like any other conditional construct.
+        check_metrics::<CParser>(
             "int f(int a) {
                  if (a) { // +1
                      return a > 0 ? 1 : -1; // +2 (1 + nesting 1)
@@ -4171,7 +4171,7 @@ mod tests {
     }
 
     #[test]
-    fn c_try_catch_single() {
+    fn cpp_try_catch_single() {
         check_metrics::<CppParser>(
             "void f() {
                  try {
@@ -4201,7 +4201,7 @@ mod tests {
     }
 
     #[test]
-    fn c_try_multiple_catches() {
+    fn cpp_try_multiple_catches() {
         check_metrics::<CppParser>(
             "void f() {
                  try {
@@ -4235,7 +4235,7 @@ mod tests {
     }
 
     #[test]
-    fn c_try_catch_in_loop() {
+    fn cpp_try_catch_in_loop() {
         check_metrics::<CppParser>(
             "void f() {
                  for (int i = 0; i < 10; ++i) { // +1
@@ -4267,7 +4267,7 @@ mod tests {
     }
 
     #[test]
-    fn c_range_based_for() {
+    fn cpp_range_based_for() {
         check_metrics::<CppParser>(
             "int sum(const std::vector<int>& v) {
                  int s = 0;
@@ -4299,7 +4299,7 @@ mod tests {
     }
 
     #[test]
-    fn c_nested_range_based_for() {
+    fn cpp_nested_range_based_for() {
         check_metrics::<CppParser>(
             "void f(const std::vector<std::vector<int>>& vv) {
                  for (const auto& row : vv) { // +1
@@ -4331,7 +4331,7 @@ mod tests {
 
     #[test]
     fn c_nested_for() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f(int n, int m) {
                  for (int i = 0; i < n; ++i) { // +1
                      for (int j = 0; j < m; ++j) { // +2 (nesting = 1)
@@ -4363,7 +4363,7 @@ mod tests {
 
     #[test]
     fn c_nested_while() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f(int n) {
                  while (n > 0) { // +1
                      while (n % 2 == 0) { // +2 (nesting = 1)
@@ -4399,7 +4399,7 @@ mod tests {
         // recursion is not tracked for C/C++ because the call graph is only
         // resolvable at run time. The body of `fact` therefore costs only
         // the explicit `if`.
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int fact(int n) {
                  if (n <= 1) { // +1
                      return 1;
@@ -4428,7 +4428,7 @@ mod tests {
 
     #[test]
     fn c_goto_sibling_jump() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f(int n) {
                  if (n < 0) { // +1
                      goto err; // +1
@@ -4462,7 +4462,7 @@ mod tests {
     }
 
     #[test]
-    fn c_lambda_inside_function() {
+    fn cpp_lambda_inside_function() {
         // Per `increase_nesting`, entering a lambda bumps the effective nesting
         // by one — so an `if` directly inside a top-level lambda is +2 charged
         // to the enclosing function (Cpp lambdas are not split into a separate
@@ -4504,7 +4504,7 @@ mod tests {
         // A `case` without `break` (fall-through) does not add cognitive cost
         // beyond the enclosing `switch` itself: only `switch` is in the match
         // arm. Same accounting as `c_switch` above — switch +1 only.
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f(int n) {
                  switch (n) { // +1
                      case 1:
@@ -4540,7 +4540,7 @@ mod tests {
 
     #[test]
     fn c_switch_in_loop() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void f(int n) {
                  for (int i = 0; i < n; ++i) { // +1
                      switch (i % 3) { // +2 (nesting = 1)
@@ -4582,7 +4582,7 @@ mod tests {
         // tracked for C/C++ — macros are treated as opaque tokens. This is the
         // defensive case: a control-flow-bearing macro contributes nothing on
         // its own; only the explicit `if` in the function body is counted.
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "#define CHECK(x) do { if (!(x)) return; } while (0)
              void f(int a, int b) {
                  CHECK(a);              // expansion is opaque: 0
@@ -7641,7 +7641,7 @@ end",
     fn c_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
         // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b, int c, int d) {
                  return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
              }",
@@ -7658,7 +7658,7 @@ end",
     fn c_nested_bool_same_op() {
         // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
         // Expected: ||(+1) + &&(+1) = 2.
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int a, int b, int c, int d) {
                  return a || (b && c && d);  // +1(||) +1(&&) = 2
              }",
