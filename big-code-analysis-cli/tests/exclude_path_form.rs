@@ -293,6 +293,149 @@ fn include_glob_is_anchored_to_walk_root_from_subdir() {
     );
 }
 
+/// Run `bca metrics` with an inline `--exclude <pattern>` (one per
+/// pattern) for the given `--paths` seed, returning the emitted JSON
+/// basenames. Unlike `walked_with_seed` this exercises the inline
+/// `--exclude` → `mk_globset` path, the surface #726 reported.
+fn walked_with_inline_excludes(
+    fixture: &Path,
+    cwd: &Path,
+    seed: &str,
+    excludes: &[&str],
+) -> Vec<String> {
+    let out = TempDir::new().unwrap();
+    let mut cmd = cli(fixture);
+    cmd.current_dir(cwd).args(["metrics", "--paths", seed]);
+    for pat in excludes {
+        cmd.args(["--exclude", pat]);
+    }
+    cmd.args(["-O", "json", "--output-dir", out.path().to_str().unwrap()])
+        .assert()
+        .success();
+    emitted_json(out.path())
+}
+
+#[test]
+fn bare_relative_exclude_matches_dot_prefixed_exclude() {
+    // #726: `--exclude 'vendor/**'` (bare-relative) must exclude the same
+    // files as `--exclude './vendor/**'`. Pre-fix the bare spelling never
+    // matched the `./`-prefixed walk-root form, so vendor/ and tests/ leaked
+    // straight back into the analysed set. Run both the `--paths .` and the
+    // absolute-seed form so the fix is pinned for every match-path shape.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+
+    let expected = vec!["keep.py.json".to_string()];
+
+    for seed in [".", fixture.to_str().unwrap()] {
+        let bare =
+            walked_with_inline_excludes(&fixture, &fixture, seed, &["vendor/**", "tests/**"]);
+        let dotted =
+            walked_with_inline_excludes(&fixture, &fixture, seed, &["./vendor/**", "./tests/**"]);
+        assert_eq!(
+            bare, expected,
+            "bare `vendor/**`/`tests/**` must exclude both dirs (seed {seed:?})"
+        );
+        assert_eq!(
+            dotted, expected,
+            "dotted `./vendor/**`/`./tests/**` must exclude both dirs (seed {seed:?})"
+        );
+        assert_eq!(
+            bare, dotted,
+            "bare and `./`-prefixed excludes must be identical (seed {seed:?})"
+        );
+    }
+}
+
+#[test]
+fn bare_relative_include_matches_dot_prefixed_include() {
+    // #726 mirror for the include surface: `--include 'src/**'` must keep
+    // the same files as `--include './src/**'`. Pre-fix the bare include
+    // matched the `./`-prefixed form nowhere and dropped every file.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let out_bare = TempDir::new().unwrap();
+    cli(&fixture)
+        .current_dir(&fixture)
+        .args([
+            "metrics",
+            "--paths",
+            ".",
+            "--include",
+            "src/**",
+            "-O",
+            "json",
+            "--output-dir",
+            out_bare.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        emitted_json(out_bare.path()),
+        vec!["keep.py.json".to_string()],
+        "bare `src/**` include must keep only src/keep.py (#726)"
+    );
+}
+
+#[test]
+fn explicit_file_seed_bypasses_exclude_but_honors_include() {
+    // #726 UX: a file named directly on the command line is a direct
+    // request and must not be dropped by a directory-walk exclude (the
+    // ripgrep/fd convention that an explicit path overrides ignore rules).
+    // The same exclude still drops the file in a *directory* walk, and an
+    // `--include` allow-list still narrows an explicitly-named file.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let vendored = fixture.join("vendor").join("drop.py");
+
+    // Directory walk: `--exclude vendor/** tests/**` leaves only keep.py.
+    let walked = walked_with_inline_excludes(&fixture, &fixture, ".", &["vendor/**", "tests/**"]);
+    assert_eq!(
+        walked,
+        vec!["keep.py.json".to_string()],
+        "directory walk must still honor the excludes"
+    );
+
+    // Explicit file seed under the excluded vendor/ dir, spelled
+    // *relative* so the bare `vendor/**` exclude would match it under the
+    // old `passes` gate — the exact form that test-via-revert perturbs.
+    // It must still be analyzed: the explicit request overrides the
+    // exclude deny-set.
+    let explicit =
+        walked_with_inline_excludes(&fixture, &fixture, "vendor/drop.py", &["vendor/**"]);
+    assert_eq!(
+        explicit,
+        vec!["drop.py.json".to_string()],
+        "an explicitly-named file must bypass the exclude deny-set (#726)"
+    );
+
+    // An `--include` allow-list still narrows it: include only *.rs drops
+    // the explicitly-named .py file.
+    let out = TempDir::new().unwrap();
+    cli(&fixture)
+        .current_dir(&fixture)
+        .args([
+            "metrics",
+            "--paths",
+            vendored.to_str().unwrap(),
+            "--include",
+            "*.rs",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert!(
+        emitted_json(out.path()).is_empty(),
+        "an explicitly-named file must still honor the --include allow-list"
+    );
+}
+
 #[test]
 fn absolute_subdir_seed_still_excludes() {
     // A seed that is an absolute path to a *subdirectory* of the walk

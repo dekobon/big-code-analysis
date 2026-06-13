@@ -91,6 +91,35 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     }
 }
 
+/// Strip a single leading `./` from a glob pattern so the bare-relative
+/// spelling (`dir/**`) and the explicit-CWD spelling (`./dir/**`) compile
+/// to the identical glob (#726).
+///
+/// `globset` matches are whole-path anchored, so before this strip
+/// `./dir/**` matched the `./`-prefixed walk-root form (see
+/// [`match_path_for`]) while `dir/**` required the path to *start with*
+/// `dir` and silently matched nothing. Normalising the pattern side here
+/// and the match-path side in [`strip_cur_dir`] makes the two spellings
+/// exactly equivalent. `**/`, `*`, and absolute (`/…`) patterns have no
+/// leading `./` and are returned untouched.
+pub(crate) fn strip_dot_slash(pattern: &str) -> &str {
+    pattern.strip_prefix("./").unwrap_or(pattern)
+}
+
+/// Strip a single leading `CurDir` (`.`) component from a match path so it
+/// compares in the same no-`./` space as a [`strip_dot_slash`]-normalised
+/// pattern (#726).
+///
+/// `strip_prefix(".")` is purely lexical: it removes only a leading
+/// `CurDir` component and leaves absolute or already-bare paths unchanged,
+/// so `./dir/foo` becomes `dir/foo` while `/abs/foo` and `dir/foo` pass
+/// through verbatim. Applied immediately before `is_match` at both match
+/// sites; the emitted output path (baseline keys, report names) derives
+/// from the real file path, not this match form, so it is unaffected.
+pub(crate) fn strip_cur_dir(match_path: &std::path::Path) -> &std::path::Path {
+    match_path.strip_prefix(".").unwrap_or(match_path)
+}
+
 /// Compute the path to match exclude/include globs against for a file
 /// `path` discovered under the directory walk `seed`.
 ///

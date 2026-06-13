@@ -78,6 +78,12 @@ bca report \
 > **Flag arity.** `--include` and `--exclude` take exactly one glob per
 > occurrence; repeat the flag for additional patterns. The `=` form
 > works the same way: `--include="*.rs" --exclude="**/target/**"`.
+>
+> **Leading `./` is optional.** A bare-relative pattern and its
+> `./`-prefixed spelling are equivalent: `--exclude "vendor/**"` matches
+> exactly what `--exclude "./vendor/**"` does. This holds for every glob
+> surface — `--include`, `--exclude`, `--exclude-from`, `.bcaignore`, and
+> the `[check.exclude]` gate-exemption set.
 
 For a stable repo-wide deny-set, keep the patterns in a file at the
 repo root (a `.bcaignore` by convention) and load it with

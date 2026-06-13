@@ -1,5 +1,93 @@
-use super::{anchor_against_seeds, match_path_for, reanchor_seed};
+use super::{anchor_against_seeds, match_path_for, reanchor_seed, strip_cur_dir, strip_dot_slash};
 use std::path::{Path, PathBuf};
+
+#[test]
+fn strip_dot_slash_normalises_only_a_single_leading_dot_slash() {
+    // #726: `dir/**` and `./dir/**` must compile to the identical glob.
+    assert_eq!(strip_dot_slash("./cve-corpus/**"), "cve-corpus/**");
+    assert_eq!(strip_dot_slash("cve-corpus/**"), "cve-corpus/**");
+    // Forms that already work are untouched: `**/`, `*`, and absolute.
+    assert_eq!(strip_dot_slash("**/cve-corpus/**"), "**/cve-corpus/**");
+    assert_eq!(strip_dot_slash("*.rs"), "*.rs");
+    assert_eq!(strip_dot_slash("/abs/dir/**"), "/abs/dir/**");
+    // A lone `.` (no slash) is not a `./` prefix and is left as-is.
+    assert_eq!(strip_dot_slash("."), ".");
+    // Only one `./` is stripped, never a `.//` double prefix.
+    assert_eq!(strip_dot_slash(".//x"), "/x");
+}
+
+#[test]
+fn strip_cur_dir_strips_only_a_leading_curdir_component() {
+    // #726: the match-path side drops a leading `./` so it compares in the
+    // same no-`./` space as a `strip_dot_slash`-normalised pattern.
+    assert_eq!(
+        strip_cur_dir(Path::new("./cve-corpus/foo.c")),
+        Path::new("cve-corpus/foo.c")
+    );
+    // Bare-relative and absolute paths have no leading `CurDir`: untouched.
+    assert_eq!(
+        strip_cur_dir(Path::new("cve-corpus/foo.c")),
+        Path::new("cve-corpus/foo.c")
+    );
+    assert_eq!(
+        strip_cur_dir(Path::new("/abs/cve-corpus/foo.c")),
+        Path::new("/abs/cve-corpus/foo.c")
+    );
+}
+
+#[test]
+fn bare_relative_pattern_matches_match_path_for_every_seed_form() {
+    // #726 core parity: a globset built from the bare-relative `cve-corpus/**`
+    // must exclude the `match_path_for(seed, file)` form for every seed
+    // spelling, exactly as the `./cve-corpus/**` spelling already did.
+    use globset::{Glob, GlobSet, GlobSetBuilder};
+
+    fn globset_of(pattern: &str) -> GlobSet {
+        let mut b = GlobSetBuilder::new();
+        b.add(Glob::new(strip_dot_slash(pattern)).expect("valid glob"));
+        b.build().expect("valid globset")
+    }
+
+    let bare = globset_of("cve-corpus/**");
+    let dotted = globset_of("./cve-corpus/**");
+
+    // Absolute walk root, `.` walk root, and bare-relative subdir seed all
+    // emit a `./`-prefixed match path that the bare pattern must now match.
+    let cases = [
+        (
+            PathBuf::from("/repo"),
+            PathBuf::from("/repo/cve-corpus/x.c"),
+        ),
+        (PathBuf::from("."), PathBuf::from("./cve-corpus/x.c")),
+        (PathBuf::from("src"), PathBuf::from("src/cve-corpus/x.c")),
+    ];
+    for (seed, file) in cases {
+        let match_path = match_path_for(&seed, &file);
+        let stripped = strip_cur_dir(&match_path);
+        assert!(
+            bare.is_match(stripped),
+            "bare `cve-corpus/**` must match {match_path:?} (seed {seed:?})"
+        );
+        assert_eq!(
+            bare.is_match(stripped),
+            dotted.is_match(stripped),
+            "`cve-corpus/**` and `./cve-corpus/**` must agree for {match_path:?}"
+        );
+    }
+
+    // A sibling directory must NOT be excluded by either spelling — guards
+    // against the strip widening the match.
+    let keep = match_path_for(&PathBuf::from("/repo"), &PathBuf::from("/repo/src/x.c"));
+    let keep = strip_cur_dir(&keep);
+    assert!(
+        !bare.is_match(keep),
+        "bare pattern must not match a sibling dir"
+    );
+    assert!(
+        !dotted.is_match(keep),
+        "dotted pattern must not match a sibling dir"
+    );
+}
 
 #[test]
 fn relative_seed_is_unchanged() {

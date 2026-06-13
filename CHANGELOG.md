@@ -2279,6 +2279,24 @@ for historical reference.
 
 ### Fixed
 
+- Bare-relative glob patterns now match the same files as their `./`-prefixed
+  equivalents: `--exclude 'dir/**'` is identical to `--exclude './dir/**'`
+  (#726). The walker matches discovered files against a `./`-anchored
+  walk-root path, but patterns were compiled verbatim, so a bare `dir/**`
+  silently matched nothing while `./dir/**` worked — affecting `--include`,
+  `--exclude`, `--exclude-from`, `.bcaignore`, and the `[check.exclude]`
+  gate-exemption set. A leading `./` is now stripped symmetrically from both
+  the pattern and the match path. `**/`-prefixed, `*`, and absolute patterns
+  were unaffected and remain unchanged.
+- A file named directly via `--paths` (or `--paths-from` / manifest `paths`)
+  is now always analyzed regardless of the project's exclude deny-set
+  (`.bcaignore`, `--exclude`, manifest `exclude`), matching the
+  `ripgrep`/`fd`/`git` convention that an explicitly-named path overrides
+  ignore rules (#726). Previously an exclude that matched the named file
+  silently produced "0 files matched"; this was masked for `./`-anchored
+  project patterns by the glob bug above, and surfaced once that was fixed.
+  Directory-walk excludes are unchanged, and an `--include` allow-list still
+  narrows which explicitly-named files are analyzed.
 - CLI `--help` text sweep (#608): relocated 80+ issue-tracker references
   (`#539`, `issue #328`, `pre-#182`, …) out of the user-facing clap
   doc-comments into adjacent `//` maintainer comments; the `bca check
