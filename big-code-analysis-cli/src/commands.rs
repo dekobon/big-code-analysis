@@ -707,7 +707,13 @@ fn apply_check_exclude(
     let before = violations.len();
     let kept: Vec<Violation> = violations
         .into_iter()
-        .filter(|v| !globset.is_match(crate::walk_seed::anchor_against_seeds(&seeds, &v.path)))
+        .filter(|v| {
+            // Anchor to the `./`-relative walk-root form, then strip the
+            // leading `./` so bare-relative `[check.exclude]` patterns match
+            // it just like `./`-prefixed ones (#726).
+            let anchored = crate::walk_seed::anchor_against_seeds(&seeds, &v.path);
+            !globset.is_match(crate::walk_seed::strip_cur_dir(&anchored))
+        })
         .collect();
     let skipped = before - kept.len();
     if skipped > 0 {

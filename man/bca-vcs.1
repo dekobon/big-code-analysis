@@ -112,10 +112,10 @@ Print help (see a summary with \*(Aq\-h\*(Aq)
 Input files or directories to analyze. Unioned with any positional `[PATHS]`. Defaults to the current directory (`.`) when omitted and no manifest `paths` is set; an explicitly\-given path that does not exist is an error (exit 1)
 .TP
 \fB\-I\fR, \fB\-\-include\fR \fI<INCLUDE>\fR
-Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed
+Glob to include files. Repeat the flag to add multiple globs (`\-I \*(Aq*.rs\*(Aq \-I \*(Aq*.toml\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. A leading `./` is optional: `dir/**` and `./dir/**` are equivalent
 .TP
 \fB\-X\fR, \fB\-\-exclude\fR \fI<EXCLUDE>\fR
-Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
+Glob to exclude files. Repeat the flag to add multiple globs (`\-X \*(Aq*.tmp\*(Aq \-X \*(Aq*.bak\*(Aq`); each occurrence takes exactly one value, so a positional argument that follows is never swallowed. A leading `./` is optional: `dir/**` and `./dir/**` are equivalent. CLI values are *merged with* (unioned, not a replacement for) any `bca.toml` `exclude` list and any `\-\-exclude\-from` patterns, so a CLI `\-\-exclude` never silently un\-excludes a directory the project config deliberately skipped. Pass `\-\-no\-config` to ignore the manifest entirely
 .TP
 \fB\-l\fR, \fB\-\-language\fR \fI<LANGUAGE>\fR
 Force a language instead of inferring from extension. Accepts a canonical language name (`rust`, `python`, `cpp`, …) or a file extension (`rs`, `py`, …). An unrecognized value is a hard error

@@ -70,6 +70,35 @@ fn check_exclude_flag_drops_matching_offenders_only() {
         ));
 }
 
+/// #726: a *bare-relative* `[check.exclude]` glob (no `**/`, no `./`)
+/// must match the `./`-anchored violation path just like a `./`-prefixed
+/// one. Pre-fix `excluded.rs` never matched the emitted `./excluded.rs`
+/// form, so the offender leaked past the gate. The existing tests all use
+/// `**/excluded.rs`, whose `**` absorbs the leading `./` and hides the
+/// bug; this case exercises the surface that actually regressed.
+#[test]
+fn check_exclude_bare_relative_glob_drops_matching_offenders() {
+    let dir = two_file_fixture();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude",
+            "excluded.rs",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("kept_offender"))
+        .stderr(predicate::str::contains("excluded_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}
+
 /// When the glob covers the *only* offender, the gate passes clean
 /// (exit 0). The file is still walked (so the "no input files matched"
 /// tool error does not fire) — its violation is simply dropped.

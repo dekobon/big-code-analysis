@@ -283,11 +283,13 @@ struct WalkSelectionArgs {
     /// Glob to include files. Repeat the flag to add multiple globs
     /// (`-I '*.rs' -I '*.toml'`); each occurrence takes exactly one
     /// value, so a positional argument that follows is never swallowed.
+    /// A leading `./` is optional: `dir/**` and `./dir/**` are equivalent.
     #[clap(long, short = 'I', num_args(1), action = clap::ArgAction::Append, help_heading = "Input selection")]
     include: Vec<String>,
     /// Glob to exclude files. Repeat the flag to add multiple globs
     /// (`-X '*.tmp' -X '*.bak'`); each occurrence takes exactly one
     /// value, so a positional argument that follows is never swallowed.
+    /// A leading `./` is optional: `dir/**` and `./dir/**` are equivalent.
     /// CLI values are *merged with* (unioned, not a replacement for) any
     /// `bca.toml` `exclude` list and any `--exclude-from` patterns, so a
     /// CLI `--exclude` never silently un-excludes a directory the
@@ -2371,7 +2373,13 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
         if e.is_empty() {
             continue;
         }
-        globset.add(Glob::new(e).map_err(|err| format!("invalid glob pattern {e:?}: {err}"))?);
+        // Normalise the optional leading `./` so `dir/**` and `./dir/**`
+        // compile to the same glob; the match-path side is stripped
+        // symmetrically in `WalkFilters::passes` / the `[check.exclude]`
+        // filter (#726).
+        let pattern = walk_seed::strip_dot_slash(e);
+        globset
+            .add(Glob::new(pattern).map_err(|err| format!("invalid glob pattern {e:?}: {err}"))?);
     }
     globset
         .build()
@@ -2669,8 +2677,22 @@ impl WalkFilters<'_> {
     /// walk root (#489), so `./`-anchored patterns match regardless of
     /// how the seed was spelled.
     fn passes(&self, match_path: &Path) -> bool {
+        // Strip a leading `./` so bare-relative patterns (`dir/**`) match
+        // the `./`-anchored walk-root form just like `./dir/**` does (#726).
+        let match_path = walk_seed::strip_cur_dir(match_path);
         (self.include.is_empty() || self.include.is_match(match_path))
             && (self.exclude.is_empty() || !self.exclude.is_match(match_path))
+    }
+
+    /// Does `match_path` satisfy only the include allow-list (empty =
+    /// "all")? Used for explicitly-named file seeds, which bypass the
+    /// exclude deny-set: a project's ignore rules shape *directory-walk*
+    /// scope and must not silently drop a file the user named on the
+    /// command line (#726). The include allow-list still narrows which
+    /// named files are analyzed.
+    fn includes(&self, match_path: &Path) -> bool {
+        let match_path = walk_seed::strip_cur_dir(match_path);
+        self.include.is_empty() || self.include.is_match(match_path)
     }
 }
 
@@ -2783,9 +2805,14 @@ fn expand_seed_paths(
         if kind.is_file() {
             // A single explicit file seed keeps the form the caller
             // spelled (its emitted `name` must match the single-file
-            // `bca.analyze()` API), and is matched against the globs
-            // as-is — the historical single-file filter behaviour.
-            if filters.passes(&seed) && seen.insert(seed.clone()) {
+            // `bca.analyze()` API). It bypasses the exclude deny-set: a
+            // file named directly on the command line is a direct request
+            // that a project's directory-walk ignore rules (`.bcaignore`,
+            // `--exclude`, manifest `exclude`) must not silently drop
+            // (#726), matching the ripgrep/fd convention that an explicit
+            // path overrides ignore rules. An `--include` allow-list still
+            // narrows which named files are analyzed.
+            if filters.includes(&seed) && seen.insert(seed.clone()) {
                 // Record the explicit seed (in its emitted form) so the
                 // per-file dispatch can distinguish it from a
                 // directory-expansion product: an explicitly-named file
