@@ -17,6 +17,7 @@
   - [CI integration](recipes/ci.md)
   - [Baselines](recipes/baselines.md)
   - [Local threshold gates](recipes/local-gates.md)
+  - [Feeding metrics to an agent](recipes/agent-feedback.md)
   - [AST queries](recipes/ast-queries.md)
   - [Exporting metric data](recipes/exporting-data.md)
   - [Driving the REST API](recipes/rest-api.md)

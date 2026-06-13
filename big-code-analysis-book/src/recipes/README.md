@@ -16,6 +16,10 @@ The recipes are grouped by goal:
   gate on a developer machine with a two-tier (hard + headroom)
   Makefile / `just` / `pre-commit` pattern, so regressions never
   reach the pull request.
+- [Feeding metrics to an agent](agent-feedback.md) — wire `bca check`
+  into an agentic coding tool's after-edit feedback loop (Claude Code
+  `PostToolUse` hook, opencode plugin), with the anti-gaming guidance
+  that keeps the loop honest.
 - [AST queries](ast-queries.md) — search for syntactic constructs,
   count node types, dump trees, and detect parse errors.
 - [Exporting metric data](exporting-data.md) — emit structured output

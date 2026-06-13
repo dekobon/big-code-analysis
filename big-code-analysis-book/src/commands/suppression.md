@@ -113,15 +113,16 @@ of the generated-code auto-skip mechanism (see
 The identifiers accepted inside `bca: suppress(...)` and
 `bca: suppress-file(...)` are:
 
-`abc`, `cognitive`, `cyclomatic`, `exit`, `halstead`, `loc`, `mi`,
-`nargs`, `nom`, `npa`, `npm`, `wmc`.
+`abc`, `cognitive`, `cyclomatic`, `halstead`, `loc`, `mi`, `nargs`,
+`nexits`, `nom`, `npa`, `npm`, `wmc`.
 
-They mostly match the JSON field names emitted on `CodeMetrics`, with
-two deliberate differences:
+These match the threshold names and the JSON field names emitted on
+`CodeMetrics`, with one deliberate exclusion:
 
-- `exit` is the suppression spelling for the threshold name `nexits`
-  (the JSON field is also `nexits`) — `bca: suppress(exit)` silences a
-  `nexits` threshold violation.
+- `nexits` is the canonical spelling — `bca: suppress(nexits)` silences
+  a `nexits` threshold violation. The legacy `exit` alias was retired
+  in #555 and is no longer accepted; spelling it `exit` is an unknown
+  identifier, which warns *and voids the entire marker* (see below).
 - `tokens` is a threshold-checkable metric (and a `CodeMetrics` JSON
   field) but is deliberately absent from the suppression list: a
   marker cannot turn it off. Treat `tokens` as a hard resource cap,

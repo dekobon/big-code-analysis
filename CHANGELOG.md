@@ -23,6 +23,17 @@ for historical reference.
 
 ### Added
 
+- New book recipe, *Feeding metrics to an agentic coding tool*
+  (`recipes/agent-feedback.md`): wires the existing `bca check` surface
+  into an agent's after-edit feedback loop with copy-pasteable sections
+  for Claude Code (`PostToolUse` hook with stderr/`additionalContext`
+  injection) and opencode (a `tool.execute.after` plugin that throws to
+  signal). Ships a verbatim anti-gaming guidance block, the exact
+  in-source suppression syntax (canonical `nexits`, never `exit`), and
+  the task-boundary-vs-per-edit and Goodhart caveats. Documentation
+  only — no binary changes; contrasts itself with the proposed
+  `bca lsp` (#384) (#733).
+
 - `LANG::C` (slug `c`) and the `c` Cargo feature: a dedicated C
   language backed by upstream `tree-sitter-c` `=0.24.2`, owning the
   `.c` extension and the `c` emacs mode (both moved off `LANG::Cpp`).
@@ -2329,6 +2340,14 @@ for historical reference.
   HTML report Total SLOC roll-ups, comment ratio, and Average-MI inputs
   (which read `loc.sloc` directly) are corrected as a consequence.
   The default (`exclude_tests` off) path is byte-for-byte unchanged.
+- Documentation: the [Suppression markers](commands/suppression.md)
+  metric-identifier list no longer advertises the retired `exit`
+  spelling. `exit` was retired in favour of the canonical `nexits` in
+  #555, but the book still listed `exit` and claimed
+  `bca: suppress(exit)` silenced a `nexits` violation — following it
+  produced an unknown-identifier warning that voided the whole marker.
+  The list now reads `nexits` and calls out that `exit` is rejected
+  (#733).
 - Bare-relative glob patterns now match the same files as their `./`-prefixed
   equivalents: `--exclude 'dir/**'` is identical to `--exclude './dir/**'`
   (#726). The walker matches discovered files against a `./`-anchored
