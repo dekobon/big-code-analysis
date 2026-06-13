@@ -3800,3 +3800,48 @@ after each fix, re-grep with a pattern derived from what you just fixed,
 not from the original symbol name.
 
 ---
+
+## 73. A filter that silently matches nothing is load-bearing — fixing it re-decides every consumer
+
+A pattern or predicate that silently matches nothing does not just
+fail its own feature: the surrounding system equilibrates around the
+bug. Other consumers of the shared mechanism, the test suite, and
+even the project's own config come to depend on the non-matching.
+Fixing the match un-masks all of it at once, and the fallout
+presents as unrelated failures far from the changed line.
+
+**The bare-relative glob fix changed explicit-file-seed semantics**
+(#726, `1a2c5f29`). `mk_globset` compiles one globset consumed by
+two sites: the directory-walk filter (matching `./`-anchored
+walk-root paths) and the explicit-file-seed filter (matching the
+seed as spelled). Stripping the leading `./` so `dir/**` finally
+worked for walks also made the repo's own `.bcaignore`
+(`./**/tests/**`) match the absolute fixture path `cli_smoke` names
+directly via `--paths` — seven tests went red with "0 files
+matched". Those tests had passed only because the bug kept
+`./`-anchored patterns from matching anything; the fix forced a
+genuine design decision the bug had been hiding (explicit file
+seeds now bypass the exclude deny-set, the ripgrep/fd convention
+that an explicitly named path overrides ignore rules).
+
+**Two overlapping causes made the failures look environmental**
+(#726). The first failure in the fresh worktree *was* environmental
+— uninitialized submodules ("path does not exist"). After
+`git submodule update --init`, the same seven tests still failed,
+now with "0 files matched": a second, distinct cause behind the
+same test names. The misattribution was only broken by bisecting
+against the pre-fix binary: stash the fix, rebuild, re-run the
+exact failing command, restore. The clean binary analyzed the file;
+the fixed one refused — proof the fix, not the environment, changed
+behavior.
+
+**Lesson:** Before fixing a predicate or pattern that silently
+matched nothing, enumerate every consumer of the shared mechanism
+(the globset, the checker predicate, the dispatch arm) and ask what
+each consumer's behavior becomes once the match starts working —
+the answer may be a design decision to surface, not a mechanical
+fix. When tests fail after such a fix, bisect against the pre-fix
+binary before blaming the environment, and treat "this test only
+passed because of the bug" as an expected finding, not a surprise.
+
+---
