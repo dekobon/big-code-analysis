@@ -44,10 +44,12 @@ mk_langs!(
     // graph and turns every dispatcher into
     // `Err(MetricsError::LanguageDisabled(_))`.
     //
-    // `Ccomment` and `Preproc` ride the `cpp` feature because they
-    // are internal helpers for the C/C++ pipeline; they share the
-    // `tree-sitter-ccomment` / `tree-sitter-preproc` crates that
-    // `cpp` (and `mozcpp`) pull in. `Tsx` rides `typescript` because
+    // `Ccomment` and `Preproc` ride the internal `c-family-helpers`
+    // feature because they are helpers for the C-family pipeline; that
+    // feature pulls the `tree-sitter-ccomment` / `tree-sitter-preproc`
+    // crates and is enabled by every C-family language feature (`cpp`,
+    // `c`, and `mozcpp`), so the helpers are compiled in whenever any of
+    // them is (#721). `Tsx` rides `typescript` because
     // both variants resolve to the `tree-sitter-typescript` crate
     // (TSX vs TypeScript is a per-grammar `LANGUAGE_*` constant
     // inside that one crate, see `get_language!` in `src/macros/mod.rs`).

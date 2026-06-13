@@ -42,7 +42,7 @@ per-language pipeline depends on).
 | `bash`       | `tree-sitter-bash`                                                             |
 | `c`          | `tree-sitter-c` (+ `c-family-helpers`); dedicated `C` variant owning `.c`, added in #721 |
 | `c-family-helpers` | `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` — **internal**, enabled automatically by `c` / `cpp` / `mozcpp`; gates the `Ccomment` / `Preproc` helper variants. Not meant to be selected directly |
-| `cpp`        | `tree-sitter-cpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (covers the `Cpp`, `Ccomment`, and `Preproc` variants; upstream grammar since #720) |
+| `cpp`        | `tree-sitter-cpp` (+ `c-family-helpers`); the `Cpp` variant, upstream grammar since #720. Also enables the `Ccomment` / `Preproc` helper variants |
 | `csharp`     | `tree-sitter-c-sharp`                                                          |
 | `elixir`     | `tree-sitter-elixir`                                                           |
 | `go`         | `tree-sitter-go`                                                               |
@@ -52,7 +52,7 @@ per-language pipeline depends on).
 | `javascript` | `tree-sitter-javascript`                                                       |
 | `kotlin`     | `tree-sitter-kotlin-ng`                                                        |
 | `lua`        | `tree-sitter-lua`                                                              |
-| `mozcpp`     | `bca-tree-sitter-mozcpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (opt-in Mozilla/Gecko C++ dialect, `Mozcpp` variant — owns no extensions, selected by name) |
+| `mozcpp`     | `bca-tree-sitter-mozcpp` (+ `c-family-helpers`); opt-in Mozilla/Gecko C++ dialect, `Mozcpp` variant — owns no extensions, selected by name |
 | `mozjs`      | `bca-tree-sitter-mozjs`                                                        |
 | `perl`       | `tree-sitter-perl`                                                             |
 | `php`        | `tree-sitter-php`                                                              |
