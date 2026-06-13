@@ -2235,42 +2235,37 @@ impl Abc for GoCode {
 
 // C++ ABC unary-conditional walker (Fitzpatrick Rule 9 in Figure 3;
 // see `rust_inspect_container` for the cross-language rationale).
-// `BinaryExpression` / `ParenthesizedExpression` / `UnaryExpression`
-// each have two token-id aliases in the C++ grammar (the second arises
-// under structured-binding / requires-clause production rules); the
-// walker matches both spellings.
+// Matches on node-kind NAMES so the helper is correct for every C-family
+// grammar: it is shared by the `CppCode` and `MozcppCode` ABC impls (#720),
+// and the Mozilla fork assigns different kind_ids to the same kinds (#732,
+// mirroring the npa fix in #731). Aliased kinds — `binary_expression`,
+// `parenthesized_expression`, `unary_expression` each have a second token-id
+// in the C++ grammar (under structured-binding / requires-clause production
+// rules) — all render to one base name, so a single string arm covers each
+// family: equivalent to the former `Cpp`-enum match for Cpp, and
+// grammar-agnostic for Mozcpp.
 fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
-    use Cpp::*;
-
     let mut node = *container_node;
-    let mut node_kind = node.kind_id().into();
+    let mut node_kind = node.kind();
     let Some(parent) = node.parent() else { return };
-    let parent_kind = parent.kind_id().into();
+    let parent_kind = parent.kind();
     let mut has_boolean_content = matches!(
         parent_kind,
-        BinaryExpression
-            | BinaryExpression2
-            | IfStatement
-            | WhileStatement
-            | DoStatement
-            | ForStatement
-    ) || (matches!(parent_kind, ConditionalExpression)
+        "binary_expression" | "if_statement" | "while_statement" | "do_statement" | "for_statement"
+    ) || (parent_kind == "conditional_expression"
         && node
             .previous_sibling()
-            .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
+            .is_none_or(|prev| !matches!(prev.kind(), "?" | ":")));
 
     loop {
-        // `ConditionClause` is the C++-grammar wrapper around an
+        // `condition_clause` is the C++-grammar wrapper around an
         // `if (...)` / `while (...)` head — same `(`, content, `)`
         // shape as `parenthesized_expression`, so it unwraps the
         // same way at child(1). `do { ... } while (...)`'s trailing
         // condition is a plain `parenthesized_expression`.
-        let is_parens = matches!(
-            node_kind,
-            ParenthesizedExpression | ParenthesizedExpression2 | ConditionClause
-        );
-        let is_not = matches!(node_kind, UnaryExpression | UnaryExpression2)
-            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+        let is_parens = matches!(node_kind, "parenthesized_expression" | "condition_clause");
+        let is_not =
+            node_kind == "unary_expression" && node.child(0).is_some_and(|c| c.kind() == "!");
 
         if !is_parens && !is_not {
             break;
@@ -2281,7 +2276,7 @@ fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
 
         let Some(child) = node.child(1) else { break };
         node = child;
-        node_kind = node.kind_id().into();
+        node_kind = node.kind();
 
         if matches!(node_kind, cpp_bool_terminal_kinds!()) {
             if has_boolean_content {
@@ -2305,19 +2300,15 @@ fn cpp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 }
 
 fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
-    use Cpp::*;
-
-    let list_kind = list_node.kind_id().into();
+    let list_kind = list_node.kind();
     let mut cursor = list_node.cursor();
 
     if cursor.goto_first_child() {
         loop {
             let node = cursor.node();
-            let node_kind = node.kind_id().into();
+            let node_kind = node.kind();
 
-            if matches!(node_kind, cpp_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression | BinaryExpression2)
-            {
+            if matches!(node_kind, cpp_bool_terminal_kinds!()) && list_kind == "binary_expression" {
                 *conditions += 1.;
             } else if node.is_named() {
                 cpp_inspect_container(&node, conditions);

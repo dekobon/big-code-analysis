@@ -139,12 +139,13 @@ mod mozcpp_metrics {
 
     /// ABC condition counting must also match across the two grammars.
     /// This guards the `cpp_inspect_container` / `cpp_count_unary_conditions`
-    /// helpers, which (unlike the name-based `npa` helpers) still key off
-    /// the `Cpp` enum discriminants; they happen to agree with Mozcpp
-    /// today only because the relevant `kind_id`s coincide. A future
-    /// grammar bump that shifts those ids would silently break Mozcpp ABC
-    /// — this test fails if that happens. (Latent fragility tracked in
-    /// #732.)
+    /// helpers, which match on node-kind *names* (#732, mirroring the
+    /// `npa` fix in #731) rather than the `Cpp` enum discriminants — the
+    /// Mozilla fork assigns different `kind_id`s to the same kinds, so a
+    /// name-agnostic match is the only grammar-correct option. This test
+    /// pins the equivalence so a future regression to id-based matching
+    /// (or a divergent grammar) is caught instead of silently corrupting
+    /// Mozcpp ABC.
     #[test]
     fn mozcpp_matches_cpp_on_conditions() {
         let src = "int f(int a, int b, int c) {
