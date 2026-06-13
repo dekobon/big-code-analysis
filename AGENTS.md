@@ -313,6 +313,44 @@ A behaviour-changing fix without the matching submodule bump leaves
 the next fresh clone with either an unfetchable submodule SHA or
 stranded `.snap.new` drift that blocks CI on every subsequent change.
 
+## Responding to bca metric feedback
+
+This repo dogfoods its own analyzer: a `bca check` threshold violation
+may surface mid-edit (via the optional Claude Code `PostToolUse` hook in
+`.claude/hooks/bca-check.sh`) or at the task boundary (`make self-scan`,
+`make pre-commit`). A violation (cognitive, cyclomatic, ABC, …) means
+*this function is hard for a human to follow* — the number is a proxy
+for that, not the goal. Make the code genuinely simpler, not the number
+smaller.
+
+- **Do not game the metric.** Do not extract a helper that exists only
+  to move complexity off one function, split a cohesive function at an
+  arbitrary line, collapse readable branches into a dense expression, or
+  inline/obfuscate logic to dodge the count. These lower the
+  per-function score while making the code worse — and a spurious helper
+  often *raises* file-level `nom`/`nargs`, so the file is no better off.
+- **Refactor only when it truly clarifies.** A good split has a name
+  that means something and a boundary a reader would have drawn anyway.
+  If you cannot name the extracted piece without inventing a `foo_part2`,
+  the split is gaming — stop.
+- **When the complexity is essential, suppress with a reason.** Some
+  functions are irreducibly complex *and clearest left whole* — a
+  dispatch `match`, a hand-rolled parser table, an exhaustive state
+  machine. For these, add an in-source marker with a one-line rationale
+  rather than contorting the code:
+  `// bca: suppress(<metrics>)` inside the function (per-file:
+  `// bca: suppress-file(<metrics>)`). Use canonical metric names — it
+  is `nexits`, **never** `exit`; an unknown identifier warns *and voids
+  the entire marker*. `tokens` is not suppressible. See
+  [Suppression markers](big-code-analysis-book/src/commands/suppression.md)
+  and the full recipe at
+  [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md).
+
+The per-edit hook is an early-warning convenience; the task-boundary
+gate (`make self-scan` / `make pre-commit`) is the real check before
+declaring work done. Thresholds are proxies, not correctness gates —
+weigh them, do not drive them to zero at any cost.
+
 ## Tree-sitter grammars
 
 External grammar crates are version-pinned (`=0.23.x`, etc.) in the root
