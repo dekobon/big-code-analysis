@@ -264,7 +264,7 @@ mk_langs!(
         ["sh"]
     ),
     (
-        "cpp",
+        "c-family-helpers",
         Ccomment,
         "The `Ccomment` language is a variant of the `C` language focused on comments",
         "ccomment",
@@ -275,7 +275,7 @@ mk_langs!(
         []
     ),
     (
-        "cpp",
+        "c-family-helpers",
         Preproc,
         "The `PreProc` language is a variant of the `C/C++` language focused on macros",
         "preproc",
