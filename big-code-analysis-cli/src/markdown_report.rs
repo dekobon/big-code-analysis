@@ -274,6 +274,7 @@ pub(super) fn language_display_name(slug: &str) -> Cow<'_, str> {
         LANG::Javascript => "JavaScript",
         LANG::Kotlin => "Kotlin",
         LANG::Lua => "Lua",
+        LANG::Mozcpp => "C++ (Mozilla)",
         LANG::Mozjs => "JavaScript (Mozilla)",
         LANG::Perl => "Perl",
         LANG::Php => "PHP",

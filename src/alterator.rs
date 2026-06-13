@@ -152,6 +152,49 @@ impl Alterator for CppCode {
     }
 }
 
+impl Alterator for MozcppCode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        mut children: Vec<AstNode>,
+    ) -> AstNode {
+        match Mozcpp::from(node.kind_id()) {
+            // RawStringLiteral (`R"(…)"`) is flattened alongside
+            // StringLiteral/CharLiteral so the AST dump matches what
+            // `Checker::is_string` already treats as a single
+            // string-like token. Without this arm, raw strings fall
+            // through to `get_default` and render with their
+            // structured delimiter / `string_content` children
+            // — see issue #398 (peer of #391 for Rust).
+            // ConcatenatedString (`"a" "b"`) is one string-like literal
+            // that `Checker::is_string` matches; flatten it too so the
+            // dump collapses its adjacent `string_literal` children
+            // rather than diverging from `is_string` (#699).
+            // CharLiteral is operand + flattened but deliberately absent
+            // from `Checker::is_string` (a char is not a string) — the
+            // same split Rust/Go apply to their char / rune literals.
+            Mozcpp::StringLiteral
+            | Mozcpp::CharLiteral
+            | Mozcpp::RawStringLiteral
+            | Mozcpp::ConcatenatedString => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+            }
+            Mozcpp::PreprocDef | Mozcpp::PreprocFunctionDef | Mozcpp::PreprocCall => {
+                if let Some(last) = children.last()
+                    && last.r#type == "\n"
+                {
+                    children.pop();
+                }
+                Self::get_default(node, code, span, field_name, children)
+            }
+            _ => Self::get_default(node, code, span, field_name, children),
+        }
+    }
+}
+
 impl Alterator for PythonCode {
     fn alterate(
         node: &Node,

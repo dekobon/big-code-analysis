@@ -79,25 +79,36 @@ pub(crate) fn language_for_file(path: &Path) -> Result<Option<&'static str>, Ana
     Ok(guess_language(&code, path).0.map(|lang| lang.name()))
 }
 
-/// Iterator over the `LANG` variants exposed to Python.
+/// Whether a `LANG` variant is a user-facing, Python-selectable
+/// language (as opposed to an internal C-family helper).
 ///
-/// "Public" means the variant has at least one registered file
-/// extension — internal helper variants without user-facing files
-/// (`Ccomment`, `Preproc`) are filtered out, since the Python
-/// facade has no way to feed them a file and exposing them on the
-/// `language` argument would let callers route arbitrary source
-/// through the C-preprocessing pipeline.
+/// `Ccomment` and `Preproc` are the only non-public variants: the
+/// Python facade has no way to feed them a file, and exposing them on
+/// the `language` argument would let callers route arbitrary source
+/// through the C-preprocessing pipeline. The predicate is *not* "has a
+/// registered extension" — since #720 the opt-in `Mozcpp` dialect owns
+/// zero extensions (it is selected explicitly by name) yet is fully
+/// public, so it must remain listed. Single-sourced here and reused by
+/// the `_enums.py` codegen (`codegen::language_slugs`) so the runtime
+/// `supported_languages()` set and the generated `Lang` enum cannot
+/// drift.
+pub(crate) fn is_public_language(lang: LANG) -> bool {
+    !matches!(lang, LANG::Ccomment | LANG::Preproc)
+}
+
+/// Iterator over the `LANG` variants exposed to Python — every variant
+/// for which [`is_public_language`] holds.
 fn public_languages() -> impl Iterator<Item = LANG> {
-    LANG::into_enum_iter().filter(|lang| !lang.extensions().is_empty())
+    LANG::into_enum_iter().filter(|&lang| is_public_language(lang))
 }
 
 /// Returns the supported language names, in declaration order.
 ///
 /// "Supported" here means the variant (a) is exposed to Python (i.e.
-/// it has at least one registered file extension — internal helper
-/// variants `Ccomment` / `Preproc` without user-facing files are
-/// filtered out because they cannot be reached through any extension
-/// table) AND (b) is enabled in the current build (its per-language
+/// it is not an internal C-family helper — `Ccomment` / `Preproc` are
+/// filtered out because they cannot be reached through any file, while
+/// the extension-less opt-in `Mozcpp` dialect *is* listed since it is
+/// selectable by name) AND (b) is enabled in the current build (its per-language
 /// Cargo feature is on). The bindings hard-code
 /// `default-features = true` on the `big-code-analysis` dep, so in
 /// the shipped wheel every grammar is compiled in and condition (b)
@@ -302,6 +313,12 @@ mod tests {
         // C/C++ pipeline with no registered extensions.
         assert!(!langs.contains(&"ccomment"));
         assert!(!langs.contains(&"preproc"));
+        // But the opt-in Mozilla C++ dialect `Mozcpp` (#720) also owns
+        // zero extensions and yet IS public — it is selected by name.
+        // This pins the predicate to "not an internal helper": under
+        // the pre-#720 `!extensions().is_empty()` filter, `mozcpp`
+        // would be wrongly excluded here and this assertion would fail.
+        assert!(langs.contains(&"mozcpp"));
     }
 
     // The disabled-grammar filter on `supported_languages()` cannot
@@ -347,7 +364,15 @@ mod tests {
         for lang in supported_languages() {
             let exts = language_extensions(lang)
                 .unwrap_or_else(|| panic!("language_extensions({lang}) should be Some"));
-            assert!(!exts.is_empty(), "language {lang} has no extensions");
+            if exts.is_empty() {
+                // Since #720 the opt-in Mozilla C++ dialect is the sole
+                // name-only language: selectable by name, owns no file
+                // extension, so it has nothing to round-trip through
+                // `language_for_file`. Any *other* extension-less
+                // supported language would be a bug.
+                assert_eq!(lang, "mozcpp", "unexpected extension-less language {lang}");
+                continue;
+            }
             for ext in exts {
                 let (_dir, path) = write_fixture(&format!("foo.{ext}"), b"");
                 assert_language(&path, Some(lang));

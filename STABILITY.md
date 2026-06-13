@@ -1253,6 +1253,15 @@ loose ends that will be tightened at `2.0`:
   `mozjs`), and `.cjs` is newly recognized. The two grammars are
   metric-equivalent on real-world code, so this is a naming/dispatch
   change with **no** JS metric re-baseline.
+- The default C++ grammar switches to upstream `tree-sitter-cpp`
+  (#720, mirroring #507): `LANG::Cpp` (slug `cpp`) keeps the C-family
+  extensions but is now backed by upstream `tree-sitter-cpp`; the
+  Mozilla/Gecko fork becomes the opt-in `LANG::Mozcpp` (slug `mozcpp`,
+  owning no extensions, selected by name). The `cpp` Cargo feature's
+  dependency set changes (`bca-tree-sitter-mozcpp` → `tree-sitter-cpp`),
+  which is the source-level break. Unlike the JS flip, the Gecko
+  overlay diverges from upstream on a small fraction of generic C++, so
+  this carries a metric re-baseline of the integration snapshots (#719).
 - The Python bindings tighten their typed surface (#542): the
   `analyze_batch` `skip_generated` default flips from `False` to
   `True` to align with `analyze` (a generated file is now skipped, so

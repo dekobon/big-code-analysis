@@ -80,8 +80,15 @@ fn lang_irules_resolves_to_tree_sitter_irules() {
 // guards against (issue #344). Asserting against `tree_sitter_mozcpp`
 // (not `tree_sitter_cpp`) is the load-bearing detail here.
 #[test]
-fn lang_cpp_resolves_to_mozcpp() {
-    assert_dispatch(Lang::Cpp, "Cpp", tree_sitter_mozcpp::LANGUAGE.into());
+fn lang_cpp_resolves_to_upstream_tree_sitter_cpp() {
+    // Since #720 `Lang::Cpp` is backed by the upstream community
+    // grammar; the Mozilla fork moved to `Lang::Mozcpp` below.
+    assert_dispatch(Lang::Cpp, "Cpp", tree_sitter_cpp::LANGUAGE.into());
+}
+
+#[test]
+fn lang_mozcpp_resolves_to_vendored_mozcpp() {
+    assert_dispatch(Lang::Mozcpp, "Mozcpp", tree_sitter_mozcpp::LANGUAGE.into());
 }
 
 #[test]
@@ -198,7 +205,7 @@ fn lang_groovy_resolves_to_dekobon_tree_sitter_groovy() {
 //
 // Bumping this number without adding a matching `lang_*_resolves_to_*`
 // test above is the failure mode this guard exists to catch.
-const EXPECTED_LANG_VARIANT_COUNT: usize = 22;
+const EXPECTED_LANG_VARIANT_COUNT: usize = 23;
 
 #[test]
 fn coverage_every_lang_variant_is_dispatched() {

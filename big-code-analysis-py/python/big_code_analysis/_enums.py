@@ -30,6 +30,7 @@ class Lang(StrEnum):
     TCL = "tcl"
     IRULES = "irules"
     CPP = "cpp"
+    MOZCPP = "mozcpp"
     CSHARP = "csharp"
     ELIXIR = "elixir"
     PYTHON = "python"

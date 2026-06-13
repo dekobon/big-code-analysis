@@ -187,6 +187,7 @@ impl_exit_match_kinds!(
     [ReturnStatement, ThrowStatement, YieldExpression]
 );
 impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
+impl_exit_match_kinds!(MozcppCode, Mozcpp, [ReturnStatement, ThrowStatement]);
 // Java's `yield` is the Java-14+ switch-expression yield statement
 // (an unambiguous statement node, distinct from a labeled `break`).
 // It hands the switch-expression value back as an explicit exit, so it

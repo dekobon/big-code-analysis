@@ -17,6 +17,7 @@ gated behind the matching per-language Cargo feature documented in
 - [x] JavaScript
 - [x] Kotlin
 - [x] Lua
+- [x] Mozcpp
 - [x] Mozjs
 - [x] Perl
 - [x] Php
@@ -34,21 +35,26 @@ SpiderMonkey fork, now opt-in — it owns only the `.jsm` (Firefox
 module) extension and reports the canonical slug `mozjs`. The two are
 metric-equivalent on ordinary JavaScript. `Tsx` is `Typescript` with
 JSX syntax enabled and reports the distinct slug `tsx`. C and C++ are
-analysed by the single `C/C++` variant, which reports the slug `cpp`
-(C# reports `csharp`). Every variant's slug is its `LANG::name`,
-lowercase and punctuation-free so it round-trips through `FromStr`.
+analysed by the `C/C++` variant (slug `cpp`), backed since #720 by the
+upstream `tree-sitter-cpp` grammar; the Mozilla/Gecko C++ dialect is
+the opt-in `Mozcpp` variant (slug `mozcpp`), which owns no file
+extensions and is selected only by name — exactly as `Mozjs` relates
+to `JavaScript` (C# reports `csharp`). Every variant's slug is its
+`LANG::name`, lowercase and punctuation-free so it round-trips through
+`FromStr`.
 
 ## Internal helper variants
 
 The following `LANG` variants are not user-facing languages — they
-are internal helpers in the C/C++ analysis pipeline (both ride the
-`cpp` Cargo feature) and are not selected directly when analysing
-source files:
+are internal helpers in the C-family analysis pipeline (they ride
+every C-family Cargo feature: `cpp`, `c`, and `mozcpp`) and are not
+selected directly when analysing source files:
 
 - `Ccomment` — focuses on C/C++ comments.
 - `Preproc` — focuses on C/C++ preprocessor macros.
 
-> **Note:** `Mozcpp` is a vendored grammar *crate*
-> (`bca-tree-sitter-mozcpp`, pulled in by the `cpp` feature), not a
-> `LANG` variant — it backs the `C/C++` variant rather than
-> appearing as a separate language.
+> **Note:** Since #720 the Mozilla/Gecko C++ dialect is exposed as the
+> `Mozcpp` `LANG` variant (backed by the vendored `bca-tree-sitter-mozcpp`
+> crate, pulled in by the opt-in `mozcpp` feature). It is a fully public,
+> name-selectable language that owns no file extensions — unlike the
+> `Ccomment` / `Preproc` helpers above, it is *not* internal.

@@ -364,10 +364,10 @@ mod tests {
         let rendered = String::from_utf8(sink.into_inner()).expect("dump output is utf-8");
 
         let expected = concat!(
-            "{translation_unit:308} from (1, 1) to (2, 1) \n",
-            "╰─ {declaration:344} from (1, 1) to (1, 12) : int a = 42; \n",
+            "{translation_unit:219} from (1, 1) to (2, 1) \n",
+            "╰─ {declaration:255} from (1, 1) to (1, 12) : int a = 42; \n",
             "   ├─ {primitive_type:96} from (1, 1) to (1, 4) : int \n",
-            "   ├─ {init_declarator:383} from (1, 5) to (1, 11) : a = 42 \n",
+            "   ├─ {init_declarator:294} from (1, 5) to (1, 11) : a = 42 \n",
             "   │  ├─ {identifier:1} from (1, 5) to (1, 6) : a \n",
             "   │  ├─ {=:74} from (1, 7) to (1, 8) : = \n",
             "   │  ╰─ {number_literal:158} from (1, 9) to (1, 11) : 42 \n",

@@ -302,8 +302,9 @@ fn dispatch_strip_comments(
     output: Option<&Path>,
 ) -> std::io::Result<()> {
     // C++ comment removal goes through the dedicated Ccomment grammar
-    // even when the file's primary language is Cpp.
-    let lang = if language == LANG::Cpp {
+    // even when the file's primary language is a C++ dialect (`Cpp` or
+    // the Mozilla fork `Mozcpp`, #720).
+    let lang = if matches!(language, LANG::Cpp | LANG::Mozcpp) {
         LANG::Ccomment
     } else {
         language
@@ -589,7 +590,7 @@ fn dispatch_exemptions(
 fn dispatch_preproc(source: Vec<u8>, path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     if let Some(preproc_lock) = &cfg.preproc_lock
         && let Some(language) = guess_language(&source, &path).0
-        && language == LANG::Cpp
+        && matches!(language, LANG::Cpp | LANG::Mozcpp)
     {
         let Ok(mut results) = preproc_lock.lock() else {
             if cfg.warning {

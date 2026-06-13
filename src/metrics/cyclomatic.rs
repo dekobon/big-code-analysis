@@ -493,6 +493,12 @@ fn rust_cyclomatic_increment(node: &Node<'_>, stats: &mut Stats, count_try: bool
 // already fire inside them; adding the statement nodes would
 // double-count (issue #284).
 impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression, [AMPAMP, PIPEPIPE]);
+impl_cyclomatic_c_family!(
+    MozcppCode,
+    Mozcpp,
+    ConditionalExpression,
+    [AMPAMP, PIPEPIPE]
+);
 
 // Java and Groovy share the same decision-kind set for cyclomatic
 // complexity; Groovy adds `Assert` as an extra branch (its `assert`

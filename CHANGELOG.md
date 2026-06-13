@@ -23,6 +23,19 @@ for historical reference.
 
 ### Added
 
+- `LANG::Mozcpp` (slug `mozcpp`) and the opt-in `mozcpp` Cargo feature:
+  the Mozilla/Gecko C++ dialect, backed by the vendored
+  `bca-tree-sitter-mozcpp` fork (upstream `tree-sitter-cpp` plus the
+  `MOZ_*` / `QM_TRY_*` / alone-macro overlay). It owns no file
+  extensions — select it explicitly with `--language mozcpp`, a
+  manifest, or the API, mirroring `mozjs` for `.jsm` since #507. The
+  `all-languages` feature now includes `mozcpp` (#720, part of #718).
+  `Mozcpp` is a first-class C++ dialect everywhere `Cpp` is: it shares
+  the preprocessor macro-replacement pass, the comment-stripping
+  redirect, and the `bca-web` `GET /v1/languages` listing (where it
+  appears with an empty `extensions` array, for parity with the Python
+  `supported_languages()` surface).
+
 - `exclude_tests` `bca.toml` manifest key: opt a project's `bca check` /
   `bca metrics` into Rust test-subtree pruning declaratively, mirroring
   the `--exclude-tests` flag (CLI wins; the presence-only flag means the
@@ -984,6 +997,18 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** `LANG::Cpp` (slug `cpp`) is now backed by the upstream
+  community `tree-sitter-cpp` grammar instead of the Mozilla fork. The
+  fork moved to the new opt-in `LANG::Mozcpp` (see Added). The `cpp`
+  Cargo feature's dependency set changed accordingly
+  (`bca-tree-sitter-mozcpp` → `tree-sitter-cpp`); a `--no-default-features`
+  consumer that enabled `cpp` for the Mozilla dialect must now also enable
+  `mozcpp`. Default (`all-languages`) builds analyze the same `.c` / `.h` /
+  `.cpp` / … extensions as before. Generic C++ metric values shift
+  slightly where the Gecko overlay diverged from upstream (≈0.6% of files
+  in the measurement corpus, #719); the integration snapshots were
+  re-baselined in the same change. Deferred to the **2.0** milestone
+  (#720, part of #718).
 - **(Python)** `analyze(..., vcs=True)` and
   `analyze(..., vcs_per_function=True)` now release the GIL across their
   per-file history walk / blame-engine open via `Python::detach`, the same

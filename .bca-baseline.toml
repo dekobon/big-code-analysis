@@ -51,7 +51,7 @@ path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "language_display_name"
 start_line = 260
 metric = "cyclomatic"
-value = 23.0
+value = 24.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"

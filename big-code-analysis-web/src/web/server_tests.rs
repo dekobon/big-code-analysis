@@ -2535,6 +2535,22 @@ async fn test_web_languages_endpoint_lists_slugs_and_extensions() {
             exts.contains(&"cpp"),
             "cpp extensions should include `cpp`: {exts:?}"
         );
+
+        // The opt-in Mozilla C++ dialect (#720) is name-selectable and
+        // owns no extension, yet must still be listed for parity with the
+        // Python `supported_languages()` surface. Under the pre-#720
+        // `!extensions().is_empty()` filter it would be wrongly dropped,
+        // so this also guards that the listing predicate is "not an
+        // internal helper", not "has an extension".
+        let mozcpp = languages
+            .iter()
+            .find(|entry| entry["name"] == json!("mozcpp"))
+            .expect("`mozcpp` must be listed despite owning no extensions");
+        assert_eq!(
+            mozcpp["extensions"],
+            json!([]),
+            "mozcpp owns no file extensions"
+        );
     }
 }
 

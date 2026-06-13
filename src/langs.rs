@@ -156,13 +156,30 @@ mk_langs!(
     (
         "cpp",
         Cpp,
-        "The `C/C++` language",
+        "The `C/C++` language (upstream `tree-sitter-cpp` grammar; the \
+         default for `.cpp` / `.cc` / `.h` and the rest of the C-family \
+         extensions). The Mozilla/Gecko dialect moved to opt-in \
+         `LANG::Mozcpp` in #720.",
         "cpp",
         CppCode,
         CppParser,
         tree_sitter_cpp,
         [cpp, cxx, cc, hxx, hpp, c, h, hh, inc, mm, m],
         ["c++", "c", "objc", "objc++", "objective-c++", "objective-c"]
+    ),
+    (
+        "mozcpp",
+        Mozcpp,
+        "The Mozilla/Gecko `C++` dialect (vendored `tree-sitter-mozcpp` \
+         fork: upstream `tree-sitter-cpp` plus the `MOZ_*` / `QM_TRY_*` / \
+         alone-macro overlay; opt-in, owns no file extensions — select it \
+         explicitly with `--language mozcpp`, a manifest, or the API).",
+        "mozcpp",
+        MozcppCode,
+        MozcppParser,
+        tree_sitter_mozcpp,
+        [],
+        []
     ),
     (
         "csharp",
@@ -544,6 +561,40 @@ mod tests {
         // The dropped pretty forms no longer parse.
         assert!(LANG::from_str("c/c++").is_err());
         assert!(LANG::from_str("c#").is_err());
+    }
+
+    // Since #720 the C++ pair is split like the JS pair: upstream
+    // `Cpp` ("cpp", the default for the C-family extensions) and the
+    // opt-in Mozilla fork `Mozcpp` ("mozcpp"). Distinct slugs, both
+    // round-trip — no aliasing collapse (the #540 injectivity contract).
+    #[test]
+    fn cpp_pair_has_distinct_names() {
+        use std::str::FromStr;
+        assert_eq!(LANG::Cpp.name(), "cpp");
+        assert_eq!(LANG::Mozcpp.name(), "mozcpp");
+        assert_eq!(LANG::from_str("cpp"), Ok(LANG::Cpp));
+        assert_eq!(LANG::from_str("mozcpp"), Ok(LANG::Mozcpp));
+    }
+
+    // Extension dispatch after the #720 default-grammar swap: the
+    // C-family extensions resolve to the upstream `Cpp` grammar, while
+    // the Mozilla fork `Mozcpp` owns *no* extension — it is reachable
+    // only by explicit `--language mozcpp` / manifest / API selection.
+    // Pin this so a future `mk_langs!` reorder cannot silently hand a
+    // C-family extension to the fork (the failure mode #720 guards).
+    #[test]
+    fn cpp_extension_dispatch_defaults_to_upstream() {
+        assert_eq!(get_from_ext("cpp"), Some(LANG::Cpp));
+        assert_eq!(get_from_ext("cc"), Some(LANG::Cpp));
+        assert_eq!(get_from_ext("hpp"), Some(LANG::Cpp));
+        // `.h` stays on `Cpp` (decision-log #1: asymmetric failure modes).
+        assert_eq!(get_from_ext("h"), Some(LANG::Cpp));
+        // The fork claims zero extensions.
+        assert!(LANG::Mozcpp.extensions().is_empty());
+        assert!(
+            !LANG::into_enum_iter().any(|l| l == LANG::Mozcpp && !l.extensions().is_empty()),
+            "Mozcpp must own no file extension"
+        );
     }
 
     // Unknown / mis-cased input is rejected; matching is case-sensitive,

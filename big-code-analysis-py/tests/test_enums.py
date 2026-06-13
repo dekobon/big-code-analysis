@@ -41,6 +41,9 @@ def test_lang_members_equal_their_slug() -> None:
     assert _eq(Lang.TYPESCRIPT, "typescript")
     assert _eq(Lang.JAVASCRIPT, "javascript")
     assert _eq(Lang.MOZJS, "mozjs")
+    # Opt-in Mozilla C++ dialect: owns zero file extensions yet is a
+    # public, name-selectable language (#720).
+    assert _eq(Lang.MOZCPP, "mozcpp")
     assert _eq(Lang.PYTHON, "python")
     assert _eq(Lang.RUST, "rust")
 

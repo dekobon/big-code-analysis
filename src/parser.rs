@@ -98,7 +98,10 @@ fn get_fake_code<T: LanguageInfo>(
 ) -> Option<Vec<u8>> {
     if let Some(pr) = pr {
         match T::lang() {
-            LANG::Cpp => {
+            // Both C++ dialects share the preprocessor macro-replacement
+            // pass: `Mozcpp` is upstream `Cpp` plus the Gecko overlay, so
+            // it needs the same `#define` expansion (#720).
+            LANG::Cpp | LANG::Mozcpp => {
                 let macros = get_macros(path, &pr.files);
                 c_macro::replace(code, &macros)
             }
