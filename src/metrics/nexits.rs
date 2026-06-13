@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn c_no_exit() {
-        check_metrics::<CppParser>("int a = 42;", "foo.c", |metric| {
+        check_metrics::<CParser>("int a = 42;", "foo.c", |metric| {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
@@ -596,7 +596,7 @@ mod tests {
     /// `Cpp::ReturnStatement` adds +1 — there is no early-out collapse.
     #[test]
     fn c_multiple_returns_in_branches() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int f(int x) {
                  if (x < 0) {
                      return -1;
@@ -698,7 +698,7 @@ mod tests {
     /// trailing return — every reachable `return` is an exit.
     #[test]
     fn c_early_return_in_loop() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int find(int* a, int n, int target) {
                  for (int i = 0; i < n; ++i) {
                      if (a[i] == target) {
@@ -731,7 +731,7 @@ mod tests {
     /// The implicit fall-through return is intentionally not modelled.
     #[test]
     fn c_void_no_explicit_return() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "void greet(const char* who) {
                  printf(\"hi %s\\n\", who);
              }",

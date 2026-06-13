@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn c_nom() {
-        check_metrics::<CppParser>(
+        check_metrics::<CParser>(
             "int foo();
 
              int foo() {

@@ -1556,12 +1556,12 @@ mod tests {
     }
 
     #[test]
-    fn c_scope_resolution_operator() {
+    fn cpp_scope_resolution_operator() {
         check_func_space::<CppParser, _>(
             "void Foo::bar(){
                 return;
             }",
-            "foo.c",
+            "foo.cpp",
             |func_space| {
                 insta::assert_json_snapshot!(
                     func_space.spaces[0].name,
