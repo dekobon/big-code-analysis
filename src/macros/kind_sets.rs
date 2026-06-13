@@ -190,26 +190,25 @@ macro_rules! go_bool_terminal_kinds {
 }
 
 macro_rules! cpp_bool_terminal_kinds {
-    // `QualifiedIdentifier` has four numeric kind_ids (573..576) per
-    // tree-sitter-cpp's production-rule path. Halstead's getter
-    // already matches all four; the ABC walker needs them too so
-    // `if (ns::flag) {}` reaches the terminal-bool count.
-    //
-    // `CastExpression` (`(bool)v`) evaluates to a boolean in
+    // Matches on node-kind NAMES, not one grammar's enum discriminants,
+    // so it is correct for every C-family grammar: the shared ABC helpers
+    // run over both upstream `Cpp` and the Mozilla `Mozcpp` fork (#720),
+    // which assign *different* kind_ids to the same kinds (#732, mirroring
+    // the npa fix in #731). `qualified_identifier` has four numeric ids
+    // (573..576) in tree-sitter-cpp's production-rule path, but all four
+    // render to the one base name, so a single arm covers them — the
+    // ABC walker needs them so `if (ns::flag) {}` reaches the terminal
+    // count. `cast_expression` (`(bool)v`) evaluates to a boolean in
     // idiomatic C++ — mirrors the C# fix in #372 (lesson 19).
     () => {
-        $crate::Cpp::Identifier
-            | $crate::Cpp::True
-            | $crate::Cpp::False
-            | $crate::Cpp::CallExpression
-            | $crate::Cpp::CallExpression2
-            | $crate::Cpp::FieldExpression
-            | $crate::Cpp::SubscriptExpression
-            | $crate::Cpp::CastExpression
-            | $crate::Cpp::QualifiedIdentifier
-            | $crate::Cpp::QualifiedIdentifier2
-            | $crate::Cpp::QualifiedIdentifier3
-            | $crate::Cpp::QualifiedIdentifier4
+        "identifier"
+            | "true"
+            | "false"
+            | "call_expression"
+            | "field_expression"
+            | "subscript_expression"
+            | "cast_expression"
+            | "qualified_identifier"
     };
 }
 
