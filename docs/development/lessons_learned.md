@@ -3845,3 +3845,83 @@ binary before blaming the environment, and treat "this test only
 passed because of the bug" as an expected finding, not a surprise.
 
 ---
+
+## 74. A language that owns no file extension has no snapshot coverage — pin it with a cross-grammar parity test
+
+The integration-snapshot corpus only exercises a `LANG` variant when
+some file *routes* to it by extension. An opt-in dialect that owns
+**zero** extensions — selected only by name (`--language mozcpp`, a
+manifest, the API) — is therefore invisible to the entire submodule
+snapshot suite. Its per-language metric impls can regress and every
+gate stays green, because nothing feeds it a file. Per-language
+mirror impls (the `src/languages/` clones) make this acute: the
+extension-less variant is usually a clone of an extension-owning
+sibling, so a bug introduced while editing the family hits exactly
+the one impl no corpus covers.
+
+**The Mozcpp ABC arms were silently stripped while adding `LANG::C`,
+and `make pre-commit` passed green on the broken state** (#721; caught
+in review, fixed in `7c502af1`). `MozcppCode` is a deliberate clone of
+`CppCode` (the upstream-vs-fork split mirrors #507's JavaScript/Mozjs).
+A region-scoped bulk edit (`lines[start:start+220]` from
+`impl Abc for CCode`) overran into the **adjacent**
+`impl Abc for MozcppCode` block — the clone insertion order is `Cpp`,
+`CCode`, `Mozcpp`, so the window past the CCode block landed inside
+Mozcpp — and deleted its `AssignmentExpression2` / `NewExpression` /
+`<=>` / `try` / `catch` arms. The full gate passed on that broken
+state (the failure rode in an intermediate commit, later amended away):
+`Mozcpp` owns no extension, so no DeepSpeech file routes to it and no
+snapshot moved. Only an adversarial review that reasoned "Mozcpp and
+Cpp must agree on non-Gecko C++" caught it. The fix (`7c502af1`)
+restored the arms and added `tests/cpp_mozcpp_parity.rs`, which parses
+one C++ fixture (exercising `new` / compound-assign / `<=>` /
+`try`-`catch`) through both `LANG::Cpp` and `LANG::Mozcpp` and asserts
+identical metric sums; test-via-revert confirmed it fails when an arm
+is dropped.
+
+**Lesson:** When a `LANG` variant owns no file extension, the snapshot
+corpus cannot cover it — add a parity test that drives a shared input
+through the extension-less variant and its extension-owning sibling and
+asserts identical output. Treat any region-based bulk edit across the
+`src/languages/` mirror clones as dangerous: scope each edit to a single
+`impl` block (find the next top-level `impl `), because a clone inserted
+between two siblings makes a too-wide window silently corrupt its
+neighbour — in the one impl no corpus will catch.
+
+---
+
+## 75. A metric assertion that passes under the wrong grammar verifies nothing — pin the actual claim
+
+A test that parses an input and asserts on derived metrics can exercise
+the right code path yet still verify nothing language-specific, because
+the *wrong* grammar produces the same numbers. tree-sitter error
+recovery is the trap: a grammar that ERROR-cascades on its input still
+builds a partial tree, and that tree often retains enough structure
+(the function node, the `return`s) for count-based metrics to match the
+clean parse exactly. The assertion then holds under both grammars and
+discriminates neither.
+
+**`c_keyword_identifiers_parse_and_returns_count` passed under the C++
+grammar it was meant to exclude** (#721, `7c502af1`). The test's whole
+purpose is the motivation for `LANG::C`: C code using C++ keywords
+(`new`, `class`, `delete`) as identifiers parses cleanly under
+`tree-sitter-c` where the C++ grammar ERROR-cascades. But it asserted
+only `functions_sum() == 1` and `nexits_sum() == 2` — and a probe showed
+`CppParser` yields the *same* `1` / `2` on that input despite the error
+cascade (it recovers a function and two `return`s anyway). The test
+would have passed even if `.c` had stayed routed to the C++ grammar,
+i.e. it did not pin the fix at all. The load-bearing assertion is
+`!parser.root().has_error()`, which only the C grammar satisfies;
+swapping in `CppParser` makes the strengthened test fail.
+
+**Lesson:** When a test's claim is "grammar X parses construct Y"
+(not "the metric value is N"), assert the property that actually
+distinguishes the grammars — for a clean-parse claim that is
+`!root.has_error()`, not a downstream count. Sanity-check the
+discriminating power by running the assertion against the grammar the
+test means to exclude: if it still passes, the test is verifying the
+wrong thing. (Related to lesson #33, which proves each assertion slot is
+exercised; this lesson is the complementary failure where the slot *is*
+exercised but the assertion does not depend on the behavior under test.)
+
+---
