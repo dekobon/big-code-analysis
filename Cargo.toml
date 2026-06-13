@@ -280,23 +280,26 @@ bash = ["dep:tree-sitter-bash"]
 # `cpp` dep set changed in #720 (`tree-sitter-mozcpp` → `tree-sitter-cpp`)
 # — a SemVer break for `--no-default-features` consumers, recorded in
 # CHANGELOG under the 2.0 milestone.
-cpp = [
-  "dep:tree-sitter-cpp",
-  "dep:tree-sitter-ccomment",
-  "dep:tree-sitter-preproc",
-]
+# Internal: the C-family comment-stripping (`Ccomment`) and
+# preprocessor (`Preproc`) helper variants. Enabled automatically by
+# every C-family language feature below (`cpp`, `c`, `mozcpp`) so those
+# helper LANG variants are compiled in whenever any C-family grammar is.
+# Not meant to be selected on its own — it pulls no user-facing language.
+# (Before #721 these crates were listed directly on each C-family
+# feature, but the `Ccomment` / `Preproc` LANG variants were gated on
+# `cpp` alone, so a `--features c` / `--features mozcpp` build without
+# `cpp` had the crates yet disabled the variants — breaking `strip-comments`
+# / `preproc` for C-only and Mozcpp-only builds.)
+c-family-helpers = ["dep:tree-sitter-ccomment", "dep:tree-sitter-preproc"]
+cpp = ["dep:tree-sitter-cpp", "c-family-helpers"]
 # Dedicated C language (`LANG::C`, upstream `tree-sitter-c`), added in
 # #721. Owns `.c`; shares the C-family `ccomment` / `preproc` helpers.
-c = ["dep:tree-sitter-c", "dep:tree-sitter-ccomment", "dep:tree-sitter-preproc"]
+c = ["dep:tree-sitter-c", "c-family-helpers"]
 # Opt-in Mozilla/Gecko C++ dialect (vendored `tree-sitter-mozcpp` fork,
 # `LANG::Mozcpp`). Owns zero file extensions — selected only explicitly
 # (`--language mozcpp`, manifest, API), mirroring `mozjs` since #507.
 # Enabling `mozcpp` alone therefore analyzes no files by extension.
-mozcpp = [
-  "dep:tree-sitter-mozcpp",
-  "dep:tree-sitter-ccomment",
-  "dep:tree-sitter-preproc",
-]
+mozcpp = ["dep:tree-sitter-mozcpp", "c-family-helpers"]
 csharp = ["dep:tree-sitter-c-sharp"]
 elixir = ["dep:tree-sitter-elixir"]
 go = ["dep:tree-sitter-go"]
