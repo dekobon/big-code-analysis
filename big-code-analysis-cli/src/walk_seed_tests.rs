@@ -1,8 +1,36 @@
 use super::{
-    anchor_against_seeds, file_seed_match_path, match_path_for, reanchor_seed, strip_cur_dir,
-    strip_dot_slash,
+    anchor_against_seeds, cwd_relative_tail, file_seed_match_path, match_path_for, reanchor_seed,
+    strip_cur_dir, strip_dot_slash,
 };
 use std::path::{Path, PathBuf};
+
+#[cfg(unix)]
+#[test]
+fn cwd_relative_tail_canonicalizes_both_sides_when_forms_diverge() {
+    // The third fallback: when `path` and `cwd` are spelled in forms that
+    // share no lexical prefix even after canonicalizing `path` (on Windows
+    // a `\\?\`-verbatim canonical path vs a non-verbatim CWD; simulated
+    // here with a symlinked `cwd`), canonicalizing BOTH sides must still
+    // recover the relative tail. Pre-fix this returned `None` and the
+    // explicit-file include anchoring silently fell back to the absolute
+    // as-spelled form on Windows CI.
+    let td = tempfile::tempdir().expect("tempdir");
+    let real_root = td.path().canonicalize().expect("canonical tempdir");
+    let sub = real_root.join("sub");
+    std::fs::create_dir(&sub).expect("create subdir");
+    std::fs::write(sub.join("f.rs"), "fn f() {}\n").expect("write fixture");
+    let link = real_root.join("root-link");
+    std::os::unix::fs::symlink(&real_root, &link).expect("create symlink");
+
+    // `path` is canonical; `cwd` is spelled through the symlink, so the
+    // lexical strip and the canonical-`path` strip both fail — only the
+    // canonical-`cwd` retry succeeds.
+    assert_eq!(
+        cwd_relative_tail(&sub.join("f.rs"), &link),
+        Some(PathBuf::from("sub/f.rs")),
+        "diverging path/cwd spellings must still yield the relative tail"
+    );
+}
 
 #[test]
 fn file_seed_match_path_anchors_absolute_file_under_cwd_to_relative_tail() {

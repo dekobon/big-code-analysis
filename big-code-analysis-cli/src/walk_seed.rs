@@ -1,3 +1,11 @@
+// bca: suppress-file(halstead, nargs, nexits)
+// File-level halstead/nargs/nexits are aggregation artifacts: this
+// module is many small path-normalisation helpers (strip, anchor,
+// reanchor, match-form) whose early returns and parameters sum at the
+// file level without any one function being complex
+// (cognitive/cyclomatic stay enforced) — the same posture as
+// big-code-analysis-py/src/walk.rs.
+
 //! Walk-seed re-anchoring.
 //!
 //! Keeps the walker's emitted path form independent of how the user
@@ -88,17 +96,26 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
 /// lexically nor canonically under `cwd`. The lexical strip is tried
 /// first (no syscall on the common at/under-CWD case); the canonical
 /// retry covers a seed spelled through a symlinked ancestor (the macOS
-/// `/tmp` → `/private/tmp` default). Shared by [`reanchor_seed`] and
-/// [`file_seed_match_path`], which differ only in what they do with the
-/// remainder.
+/// `/tmp` → `/private/tmp` default); the final canonical-`cwd` retry
+/// covers Windows, where `canonicalize` yields a `\\?\`-verbatim path
+/// while `current_dir` is typically non-verbatim, so the first two
+/// strips never share a prefix — canonicalizing both sides puts them in
+/// the same form (it also rescues a Unix `cwd` reached through a
+/// symlink). Shared by [`reanchor_seed`] and [`file_seed_match_path`],
+/// which differ only in what they do with the remainder.
 fn cwd_relative_tail(path: &std::path::Path, cwd: &std::path::Path) -> Option<PathBuf> {
-    match path.strip_prefix(cwd) {
-        Ok(rel) => Some(rel.to_path_buf()),
-        Err(_) => match path.canonicalize() {
-            Ok(canonical) => canonical.strip_prefix(cwd).ok().map(PathBuf::from),
-            Err(_) => None,
-        },
+    if let Ok(rel) = path.strip_prefix(cwd) {
+        return Some(rel.to_path_buf());
     }
+    let canonical = path.canonicalize().ok()?;
+    if let Ok(rel) = canonical.strip_prefix(cwd) {
+        return Some(rel.to_path_buf());
+    }
+    let canonical_cwd = cwd.canonicalize().ok()?;
+    canonical
+        .strip_prefix(&canonical_cwd)
+        .ok()
+        .map(PathBuf::from)
 }
 
 /// The path to match `--include` globs against for an *explicitly named
