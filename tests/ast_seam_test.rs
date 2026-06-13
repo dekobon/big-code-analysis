@@ -124,6 +124,42 @@ fn parse_then_metrics_cpp_with_preproc_matches_hand_computed_values() {
     assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
 }
 
+/// The C-family preprocessor arm in `get_fake_code` (#721) runs
+/// `c_macro::replace` for the dedicated `LANG::C` too, not just the C++
+/// dialects — a `#define`d identifier is substituted before the C parser
+/// sees the source. This mirrors the `Cpp` preproc test above so the new
+/// C arm of that `match` has direct coverage.
+#[cfg(feature = "c")]
+#[test]
+fn parse_then_metrics_c_with_preproc_matches_hand_computed_values() {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use big_code_analysis::{PreprocFile, PreprocResults};
+
+    // `DBG` is declared as a macro, so `c_macro::replace` runs before the
+    // C parser sees the source and substitutes `DBG` → `$$$`. The
+    // resulting `int f(int x) { return $$$ ? x : 0; }` still has one
+    // ternary, so cyclomatic_sum = unit-1 + fn-1 + ?:-1 = 3.
+    let source = b"int f(int x) { return DBG ? x : 0; }".as_slice();
+    let path = PathBuf::from("foo.c");
+    let files = HashMap::from([(path.clone(), PreprocFile::new_macros(&["DBG"]))]);
+    let pr = Arc::new(PreprocResults { files });
+
+    let space = Ast::parse(
+        Source::new(LANG::C, source)
+            .with_name(Some("foo.c".to_owned()))
+            .with_preproc_path(Some(&path))
+            .with_preproc(Some(pr)),
+    )
+    .expect("c feature enabled")
+    .metrics(MetricsOptions::default())
+    .expect("walker succeeds");
+
+    assert_eq!(space.name.as_deref(), Some("foo.c"));
+    assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
+}
+
 // ----- Reuse: two with_only calls against the same parse -----------------
 
 #[cfg(feature = "rust")]
