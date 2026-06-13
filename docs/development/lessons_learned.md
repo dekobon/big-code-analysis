@@ -3925,3 +3925,46 @@ exercised; this lesson is the complementary failure where the slot *is*
 exercised but the assertion does not depend on the behavior under test.)
 
 ---
+
+## 76. Subtree pruning via `continue` only suppresses *accumulated* metrics, not span-derived ones
+
+A traversal-level filter that skips a subtree with a bare `continue`
+in the walk loop silently elides only the metrics built up
+*node-by-node* during that walk — line sets (`ploc`/`cloc`/`lloc`),
+node counters (cyclomatic, Halstead). Any metric computed by a
+*different* mechanism — span subtraction, or a roll-up in `finalize` —
+never sees the skip and keeps its full-tree value. The result is an
+internally inconsistent metric block: some fields drop, siblings that
+should move with them do not, and anything *derived* from the stale
+field inherits the error.
+
+**`exclude_tests` pruning left unit-level `loc.sloc` at the full-file
+extent** (#722, `1f52b742`). `Checker::should_skip_subtree` (a
+`continue` gated on `MetricsOptions::exclude_tests`) correctly dropped
+`ploc`/`cloc`/`lloc` and the node-counted metrics for a pruned
+`#[cfg(test)]` subtree, but `sloc` for the file space is a pure span
+subtraction (`end_row - start_row` of the root node), so skipping
+children never moved it. A file reported `sloc 11757` next to
+`ploc 2451`; `blank` (computed as `sloc - ploc - comment_lines`)
+inflated by the elided rows; and `mi.*`'s `16.2·ln(SLOC)` term never
+benefited from the exclusion. The fix records each pruned subtree's
+inclusive row span on its enclosing space and subtracts it in
+`sloc()` — and had to move the `finalize` call *ahead* of the prune
+`continue` so `state_stack.last_mut()` is the pruned node's true
+enclosing space, not a sibling's still-open function/impl space.
+
+**Lesson:** When you add a traversal-level filter (a new language's
+`should_skip_subtree`, a "skip generated" hook) or a new metric, audit
+*every* metric against the filter, not just the ones that happen to
+accumulate during the walk. A `continue` is invisible to span-based and
+`finalize`-derived computations, and to any metric *derived* from those
+(here `blank` and `mi`). Either route every metric through the same
+node-accumulated path, or give each non-accumulated metric an explicit
+hook the filter calls (as `sloc` now gets `exclude_span`). Related to
+lesson #24 (per-metric gating must cover the finalize helpers, not just
+per-node compute) and #19 (a metric path that doesn't enumerate a
+construct scores it wrong silently) — all three are the same family:
+a cross-cutting traversal feature that some metrics opt into implicitly
+and others miss.
+
+---
