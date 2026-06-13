@@ -573,8 +573,8 @@ impl VcsRepoCache {
 /// the [`analyze_batch`] result shape (issue #658).
 ///
 /// Each positional `path` may be a file or a directory; directories are
-/// walked with `.gitignore` awareness (the same [`ignore`](crate::walk)
-/// crate the CLI walker uses), honouring the `include` / `exclude` globs.
+/// walked with `.gitignore` awareness honouring `include` / `exclude` —
+/// see [`crate::walk`] for the glob and file-seed semantics (#726).
 /// The walk is the discovery step `analyze_batch` lacks; per-file analysis,
 /// the never-raise contract (failures become `AnalysisFailure` elements),
 /// the generated-file filter, and language inference are identical to

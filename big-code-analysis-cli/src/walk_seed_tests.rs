@@ -1,5 +1,36 @@
-use super::{anchor_against_seeds, match_path_for, reanchor_seed, strip_cur_dir, strip_dot_slash};
+use super::{
+    anchor_against_seeds, file_seed_match_path, match_path_for, reanchor_seed, strip_cur_dir,
+    strip_dot_slash,
+};
 use std::path::{Path, PathBuf};
+
+#[test]
+fn file_seed_match_path_anchors_absolute_file_under_cwd_to_relative_tail() {
+    // #726 include-side: `--paths "$PWD/src/lib.rs" --include 'src/**'`
+    // must match like `--paths src/lib.rs`. The match form (not the
+    // emitted name) becomes the CWD-relative tail.
+    let mut seed = std::env::current_dir().expect("cwd available in test");
+    seed.push("src");
+    seed.push("lib.rs");
+    assert!(seed.is_file(), "crate src/lib.rs must exist for this test");
+    assert_eq!(file_seed_match_path(&seed), Path::new("src/lib.rs"));
+}
+
+#[test]
+fn file_seed_match_path_leaves_relative_and_outside_cwd_seeds_as_spelled() {
+    // A relative seed already is its own match form.
+    assert_eq!(
+        file_seed_match_path(Path::new("vendor/drop.py")),
+        Path::new("vendor/drop.py")
+    );
+    // A file outside the CWD has no relative identity: as spelled.
+    let outside = if cfg!(windows) {
+        PathBuf::from(r"C:\definitely\not\under\cwd\f.rs")
+    } else {
+        PathBuf::from("/definitely/not/under/cwd/f.rs")
+    };
+    assert_eq!(file_seed_match_path(&outside), outside);
+}
 
 #[test]
 fn strip_dot_slash_normalises_only_a_single_leading_dot_slash() {
@@ -12,8 +43,12 @@ fn strip_dot_slash_normalises_only_a_single_leading_dot_slash() {
     assert_eq!(strip_dot_slash("/abs/dir/**"), "/abs/dir/**");
     // A lone `.` (no slash) is not a `./` prefix and is left as-is.
     assert_eq!(strip_dot_slash("."), ".");
-    // Only one `./` is stripped, never a `.//` double prefix.
-    assert_eq!(strip_dot_slash(".//x"), "/x");
+    // A doubled-slash spelling is NOT stripped: `.//x` minus `./` would
+    // be the absolute-anchored `/x`, silently changing the pattern's
+    // meaning. Malformed input keeps its (non-matching) form.
+    assert_eq!(strip_dot_slash(".//x"), ".//x");
+    // A bare `./` strips to empty; `mk_globset` skips it post-strip.
+    assert_eq!(strip_dot_slash("./"), "");
 }
 
 #[test]

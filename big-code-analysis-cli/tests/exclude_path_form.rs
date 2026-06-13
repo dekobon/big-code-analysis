@@ -348,6 +348,28 @@ fn bare_relative_exclude_matches_dot_prefixed_exclude() {
     }
 }
 
+/// Run `bca metrics --paths . --include <pattern>` from the fixture root
+/// and return the emitted JSON basenames.
+fn walked_with_include(fixture: &Path, include: &str) -> Vec<String> {
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(fixture)
+        .args([
+            "metrics",
+            "--paths",
+            ".",
+            "--include",
+            include,
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    emitted_json(out.path())
+}
+
 #[test]
 fn bare_relative_include_matches_dot_prefixed_include() {
     // #726 mirror for the include surface: `--include 'src/**'` must keep
@@ -356,26 +378,21 @@ fn bare_relative_include_matches_dot_prefixed_include() {
     let dir = TempDir::new().unwrap();
     let fixture = dir.path().canonicalize().unwrap();
     make_tree(&fixture);
-    let out_bare = TempDir::new().unwrap();
-    cli(&fixture)
-        .current_dir(&fixture)
-        .args([
-            "metrics",
-            "--paths",
-            ".",
-            "--include",
-            "src/**",
-            "-O",
-            "json",
-            "--output-dir",
-            out_bare.path().to_str().unwrap(),
-        ])
-        .assert()
-        .success();
+
+    let expected = vec!["keep.py.json".to_string()];
+    let bare = walked_with_include(&fixture, "src/**");
+    let dotted = walked_with_include(&fixture, "./src/**");
     assert_eq!(
-        emitted_json(out_bare.path()),
-        vec!["keep.py.json".to_string()],
+        bare, expected,
         "bare `src/**` include must keep only src/keep.py (#726)"
+    );
+    assert_eq!(
+        dotted, expected,
+        "dotted `./src/**` include must keep only src/keep.py"
+    );
+    assert_eq!(
+        bare, dotted,
+        "bare and `./`-prefixed includes must be identical (#726)"
     );
 }
 
@@ -433,6 +450,41 @@ fn explicit_file_seed_bypasses_exclude_but_honors_include() {
     assert!(
         emitted_json(out.path()).is_empty(),
         "an explicitly-named file must still honor the --include allow-list"
+    );
+}
+
+#[test]
+fn explicit_absolute_file_seed_include_matches_cwd_relative_form() {
+    // #726 include-side anchoring: a dir-prefixed include (`vendor/**`)
+    // must accept an explicitly named *absolute* file under the CWD the
+    // same way it accepts the relative spelling — the include is matched
+    // against the seed's CWD-relative tail, not the raw absolute string.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let vendored = fixture.join("vendor").join("drop.py");
+
+    let out = TempDir::new().unwrap();
+    cli(&fixture)
+        .current_dir(&fixture)
+        .args([
+            "metrics",
+            "--paths",
+            vendored.to_str().unwrap(),
+            "--include",
+            "vendor/**",
+            "-O",
+            "json",
+            "--output-dir",
+            out.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        emitted_json(out.path()),
+        vec!["drop.py.json".to_string()],
+        "an absolute explicit file under the CWD must match a dir-prefixed \
+         include via its CWD-relative tail (#726)"
     );
 }
 

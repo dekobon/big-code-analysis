@@ -2370,14 +2370,16 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
 
     let mut globset = GlobSetBuilder::new();
     for e in &elems {
-        if e.is_empty() {
-            continue;
-        }
         // Normalise the optional leading `./` so `dir/**` and `./dir/**`
         // compile to the same glob; the match-path side is stripped
         // symmetrically in `WalkFilters::passes` / the `[check.exclude]`
-        // filter (#726).
+        // filter (#726). The emptiness skip runs *after* the strip so a
+        // bare `./` (empty once normalised) is skipped like an empty
+        // pattern instead of compiling an empty glob.
         let pattern = walk_seed::strip_dot_slash(e);
+        if pattern.is_empty() {
+            continue;
+        }
         globset
             .add(Glob::new(pattern).map_err(|err| format!("invalid glob pattern {e:?}: {err}"))?);
     }
@@ -2811,8 +2813,11 @@ fn expand_seed_paths(
             // `--exclude`, manifest `exclude`) must not silently drop
             // (#726), matching the ripgrep/fd convention that an explicit
             // path overrides ignore rules. An `--include` allow-list still
-            // narrows which named files are analyzed.
-            if filters.includes(&seed) && seen.insert(seed.clone()) {
+            // narrows which named files are analyzed, matched against the
+            // seed's CWD-relative form so `--include 'src/**'` treats
+            // `--paths "$PWD/src/f.rs"` and `--paths src/f.rs` alike.
+            let include_form = walk_seed::file_seed_match_path(&seed);
+            if filters.includes(&include_form) && seen.insert(seed.clone()) {
                 // Record the explicit seed (in its emitted form) so the
                 // per-file dispatch can distinguish it from a
                 // directory-expansion product: an explicitly-named file

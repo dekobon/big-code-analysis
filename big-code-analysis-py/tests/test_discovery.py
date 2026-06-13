@@ -143,6 +143,29 @@ def test_analyze_paths_include_exclude_globs(tmp_path: Path) -> None:
     assert _names(no_py) == {"a.rs"}
 
 
+def test_analyze_paths_dot_slash_glob_equivalence(tmp_path: Path) -> None:
+    """#726: a leading ``./`` on a glob is optional — ``dir/**`` and
+    ``./dir/**`` filter identically (the ``./`` spelling silently matched
+    nothing before the fix)."""
+    _write(tmp_path, "src/keep.rs", "fn keep() {}\n")
+    _write(tmp_path, "vendor/drop.rs", "fn drop_it() {}\n")
+    bare = bca.analyze_paths(tmp_path, exclude="vendor/**")
+    dotted = bca.analyze_paths(tmp_path, exclude="./vendor/**")
+    assert _names(bare) == {"keep.rs"}
+    assert _names(bare) == _names(dotted)
+
+
+def test_analyze_paths_file_seed_bypasses_exclude(tmp_path: Path) -> None:
+    """#726: a seed naming a file directly is analysed even when an
+    ``exclude`` glob matches it (explicit request overrides ignore-style
+    rules, CLI parity); ``include`` still narrows it by basename."""
+    vendored = _write(tmp_path, "vendor/drop.rs", "fn drop_it() {}\n")
+    kept = bca.analyze_paths(vendored, exclude="*.rs")
+    assert _names(kept) == {"drop.rs"}
+    narrowed = bca.analyze_paths(vendored, include="*.py")
+    assert _names(narrowed) == set()
+
+
 def test_analyze_paths_multiple_seeds(tmp_path: Path) -> None:
     """#658: multiple positional seeds are each walked (file or dir)."""
     d1 = tmp_path / "d1"

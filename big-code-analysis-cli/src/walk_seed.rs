@@ -74,20 +74,59 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     // failure path, so the common at/under-CWD seed pays no extra syscall); an
     // unresolvable or genuinely-outside seed keeps its as-spelled absolute
     // form, the only stable identity for it.
-    let stripped = match seed.strip_prefix(&cwd) {
-        Ok(rel) => Some(rel.to_path_buf()),
-        Err(_) => match seed.canonicalize() {
-            Ok(canonical) => canonical.strip_prefix(&cwd).ok().map(PathBuf::from),
-            Err(_) => None,
-        },
-    };
-    match stripped {
+    match cwd_relative_tail(&seed, &cwd) {
         Some(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
         Some(rel) => rel,
         // Neither lexically nor canonically under the CWD (an unresolvable or
         // genuinely-outside seed). Keep the as-spelled absolute seed; its
         // emitted paths keep that form, the only stable identity for them.
         None => seed,
+    }
+}
+
+/// The CWD-relative remainder of `path`, or `None` when it is neither
+/// lexically nor canonically under `cwd`. The lexical strip is tried
+/// first (no syscall on the common at/under-CWD case); the canonical
+/// retry covers a seed spelled through a symlinked ancestor (the macOS
+/// `/tmp` → `/private/tmp` default). Shared by [`reanchor_seed`] and
+/// [`file_seed_match_path`], which differ only in what they do with the
+/// remainder.
+fn cwd_relative_tail(path: &std::path::Path, cwd: &std::path::Path) -> Option<PathBuf> {
+    match path.strip_prefix(cwd) {
+        Ok(rel) => Some(rel.to_path_buf()),
+        Err(_) => match path.canonicalize() {
+            Ok(canonical) => canonical.strip_prefix(cwd).ok().map(PathBuf::from),
+            Err(_) => None,
+        },
+    }
+}
+
+/// The path to match `--include` globs against for an *explicitly named
+/// file seed*: its CWD-relative tail when the file lies under the CWD,
+/// otherwise the seed as spelled.
+///
+/// [`reanchor_seed`] deliberately leaves file seeds untouched because it
+/// rewrites the *emitted* `name` (which must echo the caller's spelling
+/// for single-file API parity, #488). This helper exists for the *match*
+/// form only — the same emit/match separation `match_path_for` draws for
+/// directory walks (#489) — so `--paths "$PWD/src/foo.rs" --include
+/// 'src/**'` matches exactly like `--paths src/foo.rs` does, without
+/// changing what the run emits (#726). A relative seed already is its
+/// own match form; a file outside the CWD has no relative identity and
+/// is matched as spelled (a `**/`-prefixed or `*`-style include still
+/// applies to it).
+pub(crate) fn file_seed_match_path(seed: &std::path::Path) -> PathBuf {
+    if seed.is_relative() {
+        return seed.to_path_buf();
+    }
+    let Ok(cwd) = std::env::current_dir() else {
+        return seed.to_path_buf();
+    };
+    match cwd_relative_tail(seed, &cwd) {
+        // A file seed can never *be* the CWD, so a non-empty remainder is
+        // the only Some shape reachable here; guard anyway.
+        Some(rel) if !rel.as_os_str().is_empty() => rel,
+        _ => seed.to_path_buf(),
     }
 }
 
@@ -101,9 +140,15 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
 /// `dir` and silently matched nothing. Normalising the pattern side here
 /// and the match-path side in [`strip_cur_dir`] makes the two spellings
 /// exactly equivalent. `**/`, `*`, and absolute (`/…`) patterns have no
-/// leading `./` and are returned untouched.
+/// leading `./` and are returned untouched. A doubled-slash spelling
+/// (`.//x`) is also returned untouched: stripping it would leave `/x`,
+/// silently turning a (malformed) relative pattern into an
+/// absolute-anchored one.
 pub(crate) fn strip_dot_slash(pattern: &str) -> &str {
-    pattern.strip_prefix("./").unwrap_or(pattern)
+    pattern
+        .strip_prefix("./")
+        .filter(|rest| !rest.starts_with('/'))
+        .unwrap_or(pattern)
 }
 
 /// Strip a single leading `CurDir` (`.`) component from a match path so it

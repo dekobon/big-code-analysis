@@ -46,8 +46,12 @@ results = bca.analyze_paths("path/to/repo", include="*.py")
 
 Each positional seed may be a file or a directory; directories are
 walked honouring `.gitignore`, the `include` / `exclude` globs (a
-single glob string or a sequence), and the generated-file filter.
-`respect_gitignore=False` opts into walking ignored files. The
+single glob string or a sequence; a leading `./` is optional, so
+`dir/**` ≡ `./dir/**`), and the generated-file filter. A seed naming
+a file directly is always analysed regardless of `exclude` — an
+explicit request overrides ignore-style rules — while `include`
+still narrows it by basename. `respect_gitignore=False` opts into
+walking ignored files. The
 result is the same `list[FuncSpaceDict | AnalysisFailure]` shape and
 never-raise contract as `analyze_batch`, and it forwards the same
 `exclude_tests` / `allow_lossy_path` / `skip_generated` / `metrics` /
