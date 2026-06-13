@@ -14,7 +14,8 @@ mk_langs!(
     Rust,
     Tcl,  // -> bca-tree-sitter-tcl (vendored fork, see Cargo.toml)
     Irules, // -> tree_sitter_irules (F5 iRules, a Tcl dialect)
-    Cpp,  // -> bca-tree-sitter-mozcpp (vendored Mozilla C++ grammar)
+    Cpp,    // -> tree_sitter_cpp (upstream community C++ grammar)
+    Mozcpp, // -> bca-tree-sitter-mozcpp (vendored Mozilla C++ fork, opt-in)
     Python,
     Tsx,        // -> tree_sitter_typescript::LANGUAGE_TSX
     Typescript, // -> tree_sitter_typescript::LANGUAGE_TYPESCRIPT

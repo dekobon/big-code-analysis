@@ -4,7 +4,13 @@ pub(crate) use c_macros::*;
 mod c_specials;
 pub(crate) use c_specials::*;
 
-#[cfg(test)]
+// These samples exercise the Mozilla/Gecko macro overlay
+// (`MOZ_*`, `QM_TRY_*`, `nsPrintfCString`, …). Since #720 that overlay
+// lives only in the opt-in `Mozcpp` grammar — upstream `tree-sitter-cpp`
+// (now backing `LANG::Cpp`) ERROR-cascades on these forms — so the
+// parse helper drives `MozcppParser`, and the module is gated on the
+// `mozcpp` feature.
+#[cfg(all(test, feature = "mozcpp"))]
 #[allow(
     clippy::float_cmp,
     clippy::cast_precision_loss,
@@ -22,13 +28,13 @@ mod tests {
     use crate::*;
 
     fn parse(samples: &[&str], debug: bool) {
-        let path = PathBuf::from("foo.c");
+        let path = PathBuf::from("foo.cpp");
         for (n, sample) in samples.iter().enumerate() {
             let v_sample = sample.as_bytes().to_vec();
-            let parser = CppParser::new(v_sample.clone(), &path, None);
+            let parser = MozcppParser::new(v_sample.clone(), &path, None);
             let root = parser.root();
             if debug || root.has_error() {
-                eprintln!("Sample (CPP) {n}: {sample}");
+                eprintln!("Sample (MOZCPP) {n}: {sample}");
                 dump_node(&v_sample, &root, -1, None, None).unwrap();
             }
             assert!(!root.has_error());

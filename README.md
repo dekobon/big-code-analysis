@@ -105,14 +105,19 @@ big-code-analysis = { version = "1.1.0", default-features = false, features = ["
 
 Supported language features: `bash`, `cpp`, `csharp`, `elixir`,
 `go`, `groovy`, `irules`, `java`, `javascript`, `kotlin`, `lua`,
-`mozjs`, `perl`, `php`, `python`, `ruby`, `rust`, `tcl`,
+`mozcpp`, `mozjs`, `perl`, `php`, `python`, `ruby`, `rust`, `tcl`,
 `typescript`. The `irules` feature adds F5 iRules (a Tcl
 dialect; extensions `.irule` / `.irules`). The
-`cpp` feature covers the `Cpp`, `Ccomment`, and `Preproc` LANG
-variants and pulls in `bca-tree-sitter-mozcpp`,
-`bca-tree-sitter-ccomment`, and `bca-tree-sitter-preproc` together
-(published forks of the matching Mozilla grammars — see the publish
-strategy notes in `RELEASING.md`).
+`cpp` feature backs the `Cpp` LANG variant with the upstream
+community `tree-sitter-cpp` grammar and, with the `Ccomment` and
+`Preproc` C-family helper variants, pulls in `tree-sitter-cpp`,
+`bca-tree-sitter-ccomment`, and `bca-tree-sitter-preproc` together.
+The opt-in `mozcpp` feature adds the `Mozcpp` LANG variant — the
+Mozilla/Gecko C++ dialect (vendored `bca-tree-sitter-mozcpp` fork) —
+which owns no file extensions and is selected only by name
+(`--language mozcpp`, manifest, or API), mirroring `mozjs` for
+`.jsm`. Since #720 `cpp` no longer pulls `bca-tree-sitter-mozcpp`
+(a breaking dep-set change for `--no-default-features` consumers).
 
 The `LANG` enum keeps every variant defined regardless of the active
 feature set; selecting a [`LANG`] variant whose feature is off

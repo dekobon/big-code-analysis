@@ -34,6 +34,9 @@ pub use language_bash::*;
 pub mod language_cpp;
 pub use language_cpp::*;
 
+pub mod language_mozcpp;
+pub use language_mozcpp::*;
+
 pub mod language_csharp;
 pub use language_csharp::*;
 

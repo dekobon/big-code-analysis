@@ -11,7 +11,7 @@
 #[allow(unused_macros)]
 macro_rules! get_language {
     (tree_sitter_cpp) => {
-        tree_sitter_mozcpp::LANGUAGE.into()
+        tree_sitter_cpp::LANGUAGE.into()
     };
     (tree_sitter_typescript) => {
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()

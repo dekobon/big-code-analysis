@@ -31,8 +31,13 @@ pub(crate) const ENUMS_MODULE_PATH: &str = "python/big_code_analysis/_enums.py";
 /// `Ccomment` / `Preproc` helpers are filtered out), so every member
 /// round-trips through `analyze_source` and `language_extensions`.
 fn language_slugs() -> Vec<&'static str> {
+    // Single-source the public-language predicate with the runtime
+    // `supported_languages()` set (`language::is_public_language`) so the
+    // generated `Lang` enum cannot drift from it. Extension-less but
+    // public languages — the opt-in `Mozcpp` dialect since #720 — are
+    // included; only the internal `Ccomment` / `Preproc` helpers are not.
     LANG::into_enum_iter()
-        .filter(|lang| !lang.extensions().is_empty())
+        .filter(|&lang| crate::language::is_public_language(lang))
         .map(|lang| lang.name())
         .collect()
 }

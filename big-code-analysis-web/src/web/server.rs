@@ -81,9 +81,10 @@ fn parse_scope_flag(raw: Option<&str>) -> Result<Scope, &'static str> {
 /// feature pin must change this invariant explicitly.
 const FEATURES_PINNED: &str = "web crate pins big-code-analysis features = [\"all-languages\"]";
 
-/// Swaps C++ to the `Ccomment` grammar for comment-removal endpoints.
+/// Swaps either C++ dialect (`Cpp` or the Mozilla fork `Mozcpp`, #720)
+/// to the `Ccomment` grammar for comment-removal endpoints.
 fn comment_language(language: LANG) -> LANG {
-    if language == LANG::Cpp {
+    if matches!(language, LANG::Cpp | LANG::Mozcpp) {
         LANG::Ccomment
     } else {
         language
@@ -1066,17 +1067,20 @@ struct LanguagesResponse {
 /// extensions, sourced from the library `LANG` table (#541).
 ///
 /// "Supported" mirrors the Python `supported_languages()` surface: a
-/// variant is listed when it (a) has at least one registered file
-/// extension — internal helper variants (`Ccomment`, `Preproc`) carry
-/// none and are filtered out — and (b) is enabled in the current build.
-/// The web crate pins `features = ["all-languages"]`, so (b) is always
-/// true here; the `is_enabled` filter keeps the listing honest if that
-/// pin is ever loosened. The list is never hardcoded: both the names
+/// variant is listed when it (a) is not an internal C-family helper —
+/// `Ccomment` / `Preproc` are filtered out — and (b) is enabled in the
+/// current build. The predicate is *not* "has a registered extension":
+/// since #720 the opt-in `Mozcpp` dialect owns zero extensions yet is a
+/// public, name-selectable language, so it is listed (with an empty
+/// `extensions` array), keeping parity with the Python bindings. The
+/// web crate pins `features = ["all-languages"]`, so (b) is always true
+/// here; the `is_enabled` filter keeps the listing honest if that pin is
+/// ever loosened. The list is never hardcoded: both the names
 /// (`LANG::name`) and the extensions (`LANG::extensions`) come from the
 /// enum table.
 async fn languages() -> HttpResponse {
     let languages = LANG::into_enum_iter()
-        .filter(|lang| !lang.extensions().is_empty())
+        .filter(|lang| !matches!(lang, LANG::Ccomment | LANG::Preproc))
         .filter(LANG::is_enabled)
         .map(|lang| LanguageEntry {
             name: lang.name(),

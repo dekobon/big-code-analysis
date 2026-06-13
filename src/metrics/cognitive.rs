@@ -640,6 +640,67 @@ impl Cognitive for CppCode {
     }
 }
 
+impl Cognitive for MozcppCode {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Mozcpp::*;
+
+        // Macro expansion is not tracked; macros are treated as opaque tokens.
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ForStatement
+            | ForRangeLoop
+            | WhileStatement
+            | DoStatement
+            | SwitchStatement
+            | CatchClause
+            | ConditionalExpression => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            GotoStatement | Else /* else-if also */ => {
+                increment_by_one(stats);
+            }
+            BinaryExpression2 => {
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            }
+            LambdaExpression => {
+                lambda += 1;
+            }
+            // At a (possibly nested) function-definition boundary, reset
+            // structural nesting to zero and bump the function-depth
+            // surcharge when this definition is itself nested inside
+            // another — matching Rust and the 9-of-13 sibling
+            // families. Without this, a method defined inside a control
+            // construct inherited the enclosing nesting and every nested
+            // definition missed the SonarSource B-nesting amplification
+            // (#696).
+            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3 | FunctionDefinition4 => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[
+                        FunctionDefinition,
+                        FunctionDefinition2,
+                        FunctionDefinition3,
+                        FunctionDefinition4,
+                    ],
+                );
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 macro_rules! js_cognitive {
     ($lang:ident) => {
         fn compute<'a>(

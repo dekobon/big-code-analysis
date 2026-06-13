@@ -271,6 +271,25 @@ impl NArgs for CppCode {
     }
 }
 
+impl NArgs for MozcppCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            if let Some(declarator) = node.child_by_field_name("declarator") {
+                let new_node = declarator;
+                compute_args::<Self>(&new_node, &mut stats.fn_nargs);
+            }
+            return;
+        }
+
+        if Self::is_closure(node)
+            && let Some(declarator) = node.child_by_field_name("declarator")
+        {
+            let new_node = declarator;
+            compute_args::<Self>(&new_node, &mut stats.closure_nargs);
+        }
+    }
+}
+
 // Go's `parameter_declaration` allows multiple names to share one type
 // (`func f(a, b int)` is one parameter_declaration with two `name` children
 // but two formal parameters). Count names rather than declarations so the

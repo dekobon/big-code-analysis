@@ -379,8 +379,8 @@ table.hotspot tr:nth-child(even) td.risk-heat-4,table.hotspot td.risk-heat-4\
 /// slug for every variant (`"cpp"`, `"csharp"`, `"tsx"`). `LANG::Tsx`
 /// (`"tsx"`) reuses the `"typescript"` tint (it is TypeScript + JSX),
 /// and the Mozilla-fork `"mozjs"` reuses the `"javascript"` tint (it
-/// is JavaScript, just a different grammar) — neither needs its own
-/// CSS rule.
+/// is JavaScript, just a different grammar), and likewise `"mozcpp"`
+/// reuses the `"cpp"` tint — none needs its own CSS rule.
 const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("rust", "rust"),
     ("python", "python"),
@@ -392,6 +392,7 @@ const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("kotlin", "kotlin"),
     ("go", "go"),
     ("cpp", "cpp"),
+    ("mozcpp", "cpp"),
     ("csharp", "csharp"),
     ("php", "php"),
     ("bash", "bash"),

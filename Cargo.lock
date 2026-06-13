@@ -440,6 +440,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
  "tree-sitter-elixir",
  "tree-sitter-go",
  "tree-sitter-irules",

@@ -477,7 +477,14 @@ def test_language_extensions_round_trips_to_language_for_file(
     """
     for lang in bca.supported_languages():
         extensions = bca.language_extensions(lang)
-        assert extensions, f"language {lang} has no extensions registered"
+        if not extensions:
+            # Since #720 the opt-in Mozilla C++ dialect is the sole
+            # name-only language: it owns no file extension (selected by
+            # name), so there is nothing to round-trip through
+            # ``language_for_file``. Any other extension-less language
+            # would be a bug.
+            assert lang == "mozcpp", f"unexpected extension-less language {lang}"
+            continue
         for ext in extensions:
             fixture = tmp_path / f"foo.{ext}"
             fixture.write_bytes(b"")

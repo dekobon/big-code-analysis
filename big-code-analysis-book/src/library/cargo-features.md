@@ -40,7 +40,7 @@ per-language pipeline depends on).
 | Feature      | Grammar crates pulled in                                                       |
 |--------------|--------------------------------------------------------------------------------|
 | `bash`       | `tree-sitter-bash`                                                             |
-| `cpp`        | `bca-tree-sitter-mozcpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (covers the `Cpp`, `Ccomment`, and `Preproc` variants) |
+| `cpp`        | `tree-sitter-cpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (covers the `Cpp`, `Ccomment`, and `Preproc` variants; upstream grammar since #720) |
 | `csharp`     | `tree-sitter-c-sharp`                                                          |
 | `elixir`     | `tree-sitter-elixir`                                                           |
 | `go`         | `tree-sitter-go`                                                               |
@@ -50,6 +50,7 @@ per-language pipeline depends on).
 | `javascript` | `tree-sitter-javascript`                                                       |
 | `kotlin`     | `tree-sitter-kotlin-ng`                                                        |
 | `lua`        | `tree-sitter-lua`                                                              |
+| `mozcpp`     | `bca-tree-sitter-mozcpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (opt-in Mozilla/Gecko C++ dialect, `Mozcpp` variant — owns no extensions, selected by name) |
 | `mozjs`      | `bca-tree-sitter-mozjs`                                                        |
 | `perl`       | `tree-sitter-perl`                                                             |
 | `php`        | `tree-sitter-php`                                                              |

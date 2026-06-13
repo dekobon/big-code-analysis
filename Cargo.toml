@@ -57,6 +57,11 @@ tree-sitter-python = "=0.25.0"
 tree-sitter-ruby = "=0.23.1"
 tree-sitter-rust = "=0.24.2"
 tree-sitter-typescript = "=0.23.2"
+# Upstream community C++ grammar backing `LANG::Cpp` since #720 (the
+# Mozilla fork `tree-sitter-mozcpp` moved to the opt-in `LANG::Mozcpp`).
+# Pinned to mozcpp's exact base so the flip diffs only by the Gecko
+# overlay (see #719). Mirror in enums/Cargo.toml.
+tree-sitter-cpp = "=0.23.4"
 # Vendored grammar forks. Each is published under a `bca-tree-sitter-*`
 # package name (so we do not collide with the upstream Mozilla / community
 # crates on crates.io), but the produced Rust crate keeps its original
@@ -200,6 +205,7 @@ tree-sitter-rust = { workspace = true, optional = true }
 tree-sitter-typescript = { workspace = true, optional = true }
 tree-sitter-ccomment = { workspace = true, optional = true }
 tree-sitter-mozcpp = { workspace = true, optional = true }
+tree-sitter-cpp = { workspace = true, optional = true }
 tree-sitter-mozjs = { workspace = true, optional = true }
 tree-sitter-preproc = { workspace = true, optional = true }
 tree-sitter-tcl = { workspace = true, optional = true }
@@ -219,9 +225,9 @@ tree-sitter-tcl = { workspace = true, optional = true }
 # disabled variant produces `Err(MetricsError::LanguageDisabled(LANG))`
 # from every entry point that returns a `Result`.
 #
-# `cpp` shares grammar crates with `mozcpp` (`tree-sitter-mozcpp`,
-# `tree-sitter-ccomment`, `tree-sitter-preproc`); listing the deps on
-# both leaves their union enabled when either feature is on.
+# `cpp`, `c`, and `mozcpp` share the C-family helper crates
+# (`tree-sitter-ccomment`, `tree-sitter-preproc`); listing the deps on
+# each leaves their union enabled when any of those features is on.
 [features]
 default = ["all-languages"]
 # Change-history (VCS) metrics (issue #328). `vcs` is the umbrella
@@ -247,6 +253,7 @@ all-languages = [
   "javascript",
   "kotlin",
   "lua",
+  "mozcpp",
   "mozjs",
   "perl",
   "php",
@@ -257,14 +264,26 @@ all-languages = [
   "typescript",
 ]
 bash = ["dep:tree-sitter-bash"]
-# The `Cpp` LANG variant uses `tree-sitter-mozcpp` as its grammar
-# (see `get_language!(tree_sitter_cpp)` in `src/macros.rs`); the
-# `Ccomment` and `Preproc` LANG variants share the `cpp` feature
-# because they are internal helpers for the C/C++ pipeline. There
-# is no standalone `mozcpp` feature because no LANG variant rides
-# it independently of `cpp` — adding one would be a SemVer break
-# documented in the changelog.
+# Since #720 the `Cpp` LANG variant uses the upstream community
+# `tree-sitter-cpp` grammar (see `get_language!(tree_sitter_cpp)` in
+# `src/macros.rs`); the Mozilla fork moved to the opt-in `mozcpp`
+# feature / `LANG::Mozcpp` below. The `Ccomment` and `Preproc` LANG
+# variants are internal C-family helpers (comment stripping +
+# preprocessor directives) shared by all three C-family features, so
+# `cpp`, `c` (added in #721), and `mozcpp` each pull them. NOTE: the
+# `cpp` dep set changed in #720 (`tree-sitter-mozcpp` → `tree-sitter-cpp`)
+# — a SemVer break for `--no-default-features` consumers, recorded in
+# CHANGELOG under the 2.0 milestone.
 cpp = [
+  "dep:tree-sitter-cpp",
+  "dep:tree-sitter-ccomment",
+  "dep:tree-sitter-preproc",
+]
+# Opt-in Mozilla/Gecko C++ dialect (vendored `tree-sitter-mozcpp` fork,
+# `LANG::Mozcpp`). Owns zero file extensions — selected only explicitly
+# (`--language mozcpp`, manifest, API), mirroring `mozjs` since #507.
+# Enabling `mozcpp` alone therefore analyzes no files by extension.
+mozcpp = [
   "dep:tree-sitter-mozcpp",
   "dep:tree-sitter-ccomment",
   "dep:tree-sitter-preproc",

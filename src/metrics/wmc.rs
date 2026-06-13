@@ -310,6 +310,16 @@ impl Wmc for CppCode {
     }
 }
 
+impl Wmc for MozcppCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        let mapped = match space_kind {
+            SpaceKind::Struct => SpaceKind::Class,
+            other => other,
+        };
+        class_interface_compute(mapped, cyclomatic, stats);
+    }
+}
+
 // TypeScript / TSX both expose `class_declaration`,
 // `abstract_class_declaration` (mapped to `SpaceKind::Class` in
 // `getter.rs`) and `interface_declaration` (`SpaceKind::Interface`).
