@@ -108,15 +108,22 @@ alongside `SLOC` so two complementary size proxies are visible per row.
 1. **Project summary** — files analyzed, languages, total SLOC / PLOC /
    comment counts, function and class counts, comment ratio.
 2. **Per-language overview table** — one row per language with file
-   count, SLOC, function count, average Maintainability Index (MI),
-   average Cyclomatic Complexity (CC), and average Cognitive
-   Complexity.
+   count, SLOC, function count, the SLOC-weighted average
+   Maintainability Index (MI), average Cyclomatic Complexity (CC), and
+   average Cognitive Complexity. The MI average is size-weighted and
+   uses the *unclamped* Visual Studio value, so a language whose files
+   are mostly unmaintainable reads negative instead of saturating at the
+   0 floor of the per-file `MI` column.
 3. **Per-language hotspot sections** (repeated for each language). Every
    hotspot title follows one template, `<Concept> hotspots (top N by
    <column>)` — the truncation clause states the actual `--top` state
    (`top 20 by CC`, or `all, by CC` for `--top 0`):
-   - *Summary* — file count, SLOC, PLOC, comment ratio, average MI
-     with a GOOD / MODERATE / LOW rating.
+   - *Summary* — file count, SLOC, PLOC, comment ratio, and
+     `Average MI (SLOC-weighted)` with a GOOD / MODERATE / LOW rating.
+     The headline is the SLOC-weighted mean of the *unclamped* Visual
+     Studio MI: large files dominate, and a file whose displayed MI
+     clamps to 0 still contributes its true (often negative)
+     maintainability rather than a misleading 0.
    - *Actionable Summary* — counts of functions exceeding common
      thresholds (CC > 10, cognitive > 15, SLOC > 100, args > 3,
      Halstead bugs > 1). Emitted **first**, directly after the Summary

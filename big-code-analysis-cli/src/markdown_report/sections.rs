@@ -20,7 +20,7 @@ use super::hotspot::{Cell, CyclomaticStats, HotspotSpec};
 use super::{Align, FunctionSummary, escape_cell, escape_name, mi_rating, thousands, write_table};
 
 pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
-    let (files, sloc, ploc, cloc, mi_sum) = units.iter().fold(
+    let (files, sloc, ploc, cloc, mi_numerator) = units.iter().fold(
         (0usize, 0usize, 0usize, 0usize, 0.0f64),
         |(f, sl, pl, cl, mi), s| {
             (
@@ -28,7 +28,7 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
                 sl + s.sloc,
                 pl + s.ploc,
                 cl + s.cloc,
-                mi + s.mi_visual_studio,
+                mi + super::mi_weight_numerator(s),
             )
         },
     );
@@ -37,11 +37,7 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
     } else {
         0.0
     };
-    let avg_mi = if files > 0 {
-        mi_sum / files as f64
-    } else {
-        0.0
-    };
+    let avg_mi = super::sloc_weighted_avg_mi(mi_numerator, sloc);
     let rating = mi_rating(avg_mi);
 
     // A two-column (metric | value) table renders identically in every GFM
@@ -52,7 +48,10 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
         vec!["SLOC".to_string(), thousands(sloc)],
         vec!["PLOC".to_string(), thousands(ploc)],
         vec!["Comment ratio".to_string(), format!("{cr:.1}%")],
-        vec!["Average MI".to_string(), format!("{avg_mi:.1} ({rating})")],
+        vec![
+            super::AVG_MI_LABEL.to_string(),
+            format!("{avg_mi:.1} ({rating})"),
+        ],
     ];
 
     let _ = writeln!(out, "### Summary\n");

@@ -121,6 +121,12 @@ pub(crate) const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio rescal
 /// (`mi.original` / `mi.sei`), so the column number and the gate number are
 /// not one-to-one comparable.
 pub(crate) const MI_NOTE: &str = "MI shown is the Visual Studio rescale (mi_visual_studio), clamped to 0\u{2013}100: GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW. Large files commonly clamp to 0 \u{2014} a property of the formula's range, not a meaningful score; rows are still ranked by the unclamped value so the order remains informative. The bca check gate may evaluate a different MI variant (mi.original or mi.sei), so its threshold is not directly comparable to this column.";
+/// Tooltip for the Per-language overview's `Avg MI` column. Distinct from
+/// [`MI_TOOLTIP`] (the per-file hotspot column, which shows the *clamped*
+/// `mi_visual_studio`): the overview average is SLOC-weighted and derived
+/// from the *unclamped* value, so it can go negative for an unmaintainable
+/// codebase instead of saturating at 0 (issue #725).
+pub(crate) const AVG_MI_TOOLTIP: &str = "Average Maintainability Index, SLOC-weighted across the language's files so larger files dominate. Unlike the per-file MI column it uses the unclamped Visual Studio value, so a codebase of unmaintainable files reads negative rather than saturating at 0. GOOD \u{2265} 20, MODERATE \u{2265} 10, else LOW.";
 pub(crate) const SLOC_TOOLTIP: &str =
     "Source Lines Of Code: total physical lines, including blanks and comments.";
 pub(crate) const PLOC_TOOLTIP: &str =

@@ -45,7 +45,8 @@ use big_code_analysis::{SpaceKind, SuppressionPolicy};
 use crate::markdown_report::advisory::{AdvisoryCounts, AdvisoryThresholds};
 use crate::markdown_report::hotspot::{self, Align, Cell, HotspotSpec, SPECS, Source};
 use crate::markdown_report::{
-    FunctionSummary, is_class_like, language_display_name, mi_rating, thousands,
+    FunctionSummary, is_class_like, language_display_name, mi_rating, mi_weight_numerator,
+    sloc_weighted_avg_mi, thousands,
 };
 
 /// HTML-escape a string for safe interpolation into element text or
@@ -449,15 +450,18 @@ rows.forEach(function(r){tbody.appendChild(r);});\
 
 /// Tooltips for the Per-language overview table's columns, which are NOT
 /// part of the hotspot `SPECS` (they are per-language aggregates, not
-/// per-function rows). The averaged columns reuse the shared metric
-/// definitions from [`crate::markdown_report::hotspot`] so "Avg CC" and
-/// the hotspot "CC" column can never describe the same metric differently.
+/// per-function rows). The averaged CC / Cognitive columns reuse the
+/// shared metric definitions from [`crate::markdown_report::hotspot`] so
+/// "Avg CC" and the hotspot "CC" column can never describe the same metric
+/// differently. "Avg MI" is the exception: it is SLOC-weighted and derived
+/// from the *unclamped* MI, so it uses [`hotspot::AVG_MI_TOOLTIP`] rather
+/// than the per-file `MI_TOOLTIP` (issue #725).
 /// "Files" here means *source files analysed*; the bus-factor table's
 /// like-named column means files-per-directory and supplies its own
 /// tooltip (issue #610), so this entry never leaks onto it.
 const AST_OVERVIEW_TOOLTIPS: &[(&str, &str)] = &[
     ("SLOC", hotspot::SLOC_TOOLTIP),
-    ("Avg MI", hotspot::MI_TOOLTIP),
+    ("Avg MI", hotspot::AVG_MI_TOOLTIP),
     ("Avg CC", hotspot::CC_TOOLTIP),
     ("Avg Cognitive", hotspot::COGNITIVE_TOOLTIP),
     ("Functions", "Number of functions and methods analysed."),
@@ -834,7 +838,7 @@ fn write_global_summary(out: &mut String, totals: &GlobalTotals, by_lang: &LangG
 fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<String> {
     let mut unit_count = 0usize;
     let mut sloc = 0usize;
-    let mut mi_sum = 0.0f64;
+    let mut mi_numerator = 0.0f64;
     let mut func_count = 0usize;
     let mut cc_sum = 0.0f64;
     let mut cog_sum = 0.0f64;
@@ -843,7 +847,7 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
             SpaceKind::Unit => {
                 unit_count += 1;
                 sloc += s.sloc;
-                mi_sum += s.mi_visual_studio;
+                mi_numerator += mi_weight_numerator(s);
             }
             SpaceKind::Function => {
                 func_count += 1;
@@ -853,11 +857,7 @@ fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<Str
             _ => {}
         }
     }
-    let avg_mi = if unit_count > 0 {
-        mi_sum / unit_count as f64
-    } else {
-        0.0
-    };
+    let avg_mi = sloc_weighted_avg_mi(mi_numerator, sloc);
     let (avg_cc, avg_cog) = if func_count > 0 {
         (cc_sum / func_count as f64, cog_sum / func_count as f64)
     } else {
@@ -1102,7 +1102,10 @@ struct LanguageTotals {
     sloc: usize,
     ploc: usize,
     cloc: usize,
-    mi_sum: f64,
+    /// SLOC-weighted numerator of the unclamped Visual Studio MI: the sum
+    /// of [`mi_weight_numerator`] over the units. Divided by `sloc` (not
+    /// `files`) to form the headline average (issue #725).
+    mi_numerator: f64,
 }
 
 impl LanguageTotals {
@@ -1112,14 +1115,14 @@ impl LanguageTotals {
             sloc: 0,
             ploc: 0,
             cloc: 0,
-            mi_sum: 0.0,
+            mi_numerator: 0.0,
         };
         for s in units {
             t.files += 1;
             t.sloc += s.sloc;
             t.ploc += s.ploc;
             t.cloc += s.cloc;
-            t.mi_sum += s.mi_visual_studio;
+            t.mi_numerator += mi_weight_numerator(s);
         }
         t
     }
@@ -1129,11 +1132,7 @@ impl LanguageTotals {
     }
 
     fn avg_mi(&self) -> f64 {
-        if self.files > 0 {
-            self.mi_sum / self.files as f64
-        } else {
-            0.0
-        }
+        sloc_weighted_avg_mi(self.mi_numerator, self.sloc)
     }
 }
 
@@ -1172,7 +1171,8 @@ fn write_language_summary(
     );
     let _ = writeln!(
         out,
-        "<p class=\"note\">Average MI: {avg_mi:.1} ({rating})</p>"
+        "<p class=\"note\">{}: {avg_mi:.1} ({rating})</p>",
+        crate::markdown_report::AVG_MI_LABEL
     );
 }
 
@@ -1462,7 +1462,10 @@ mod tests {
             halstead_effort: 500.0,
             halstead_bugs: 0.1,
             halstead_time: 28.0,
-            mi_original: 80.0,
+            // 85.5 * 100/171 = 50.0, so the unclamped Visual Studio value
+            // matches the displayed `mi_visual_studio` and the SLOC-weighted
+            // headline average stays a clean 50.0 (issue #725).
+            mi_original: 85.5,
             mi_sei: 85.0,
             mi_visual_studio: 50.0,
             nargs: 2,
@@ -2281,6 +2284,37 @@ mod tests {
     fn snapshot_two_lang_report() {
         let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
         insta::assert_snapshot!("html_report_two_lang", out);
+    }
+
+    /// Issue #725 (HTML side): the per-language Summary headline averages
+    /// the unclamped Visual Studio MI, SLOC-weighted, so a catastrophic
+    /// file whose displayed value clamps to 0 pulls the headline negative
+    /// instead of contributing 0. Mirrors the Markdown-side regression in
+    /// `markdown_report::tests::avg_mi_is_sloc_weighted_over_unclamped_values`.
+    #[test]
+    fn avg_mi_headline_is_sloc_weighted_and_unclamped() {
+        let mut bad = make_summary("bad.rs", "src/bad.rs", SpaceKind::Unit, LANG::Rust);
+        bad.sloc = 400;
+        bad.mi_original = -342.0; // unclamped VS = -200.0
+        bad.mi_visual_studio = 0.0;
+        let mut good = make_summary("good.rs", "src/good.rs", SpaceKind::Unit, LANG::Rust);
+        good.sloc = 10;
+        good.mi_original = 171.0; // unclamped VS = 100.0
+        good.mi_visual_studio = 100.0;
+
+        let out = generate_html_report(&[bad, good], 20, SuppressionPolicy::Honor);
+        let note = out
+            .lines()
+            .find(|l| l.contains("class=\"note\"") && l.contains("Average MI (SLOC-weighted)"))
+            .expect("headline note present");
+        // -79_000 / 410 ≈ -192.7. Pinning the exact rendered value (not just
+        // "negative + LOW") guards SLOC-weighting on the HTML render path:
+        // an unweighted mean would be (-200 + 100) / 2 = -50.0, also negative
+        // and LOW, so a looser check would not catch dropping the weight.
+        assert!(
+            note.contains("-192.7 (LOW)"),
+            "headline must render the SLOC-weighted -192.7 (LOW):\n{note}"
+        );
     }
 
     /// Collect every `<tag attr1="…" id="VALUE" …>` `id` attribute in

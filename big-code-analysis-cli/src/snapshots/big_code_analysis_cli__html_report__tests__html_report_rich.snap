@@ -68,17 +68,17 @@ expression: out
 <p class="sort-hint">Click a column header to sort any table.</p>
 <div class="table-wrap">
 <table class="hotspot">
-<thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Maintainability Index (Visual Studio rescale, clamped to 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable. GOOD ≥ 20, MODERATE ≥ 10, else LOW. Large files commonly clamp to 0 — a property of the formula&#39;s range, not a meaningful score.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
+<thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: total physical lines, including blanks and comments."><a href="https://dekobon.github.io/big-code-analysis/metrics.html#lines-of-code">SLOC</a></th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Average Maintainability Index, SLOC-weighted across the language&#39;s files so larger files dominate. Unlike the per-file MI column it uses the unclamped Visual Studio value, so a codebase of unmaintainable files reads negative rather than saturating at 0. GOOD ≥ 20, MODERATE ≥ 10, else LOW.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
 <tbody>
 <tr><td>Python</td><td class="numeric">1</td><td class="numeric">120</td><td class="numeric">2</td><td class="numeric">28.0</td><td class="numeric">8.5</td><td class="numeric">9.0</td></tr>
-<tr><td>Rust</td><td class="numeric">2</td><td class="numeric">280</td><td class="numeric">8</td><td class="numeric">28.5</td><td class="numeric">23.4</td><td class="numeric">22.6</td></tr>
+<tr><td>Rust</td><td class="numeric">2</td><td class="numeric">280</td><td class="numeric">8</td><td class="numeric">21.4</td><td class="numeric">23.4</td><td class="numeric">22.6</td></tr>
 </tbody>
 </table>
 </div>
 <section class="lang-section lang-python"><h2 id="python">Python</h2>
 <h3 id="python-summary">Summary</h3>
 <p class="note">Files: 1 | SLOC: 120 | PLOC: 25 | Comment ratio: 4.2%</p>
-<p class="note">Average MI: 28.0 (GOOD)</p>
+<p class="note">Average MI (SLOC-weighted): 28.0 (GOOD)</p>
 <h3 id="python-actionable-summary">Actionable Summary</h3>
 <p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
 <p class="note">Raw counts across all functions, ignoring suppression markers.</p>
@@ -159,7 +159,7 @@ expression: out
 <section class="lang-section lang-rust"><h2 id="rust">Rust</h2>
 <h3 id="rust-summary">Summary</h3>
 <p class="note">Files: 2 | SLOC: 280 | PLOC: 265 | Comment ratio: 8.9%</p>
-<p class="note">Average MI: 28.5 (GOOD)</p>
+<p class="note">Average MI (SLOC-weighted): 21.4 (GOOD)</p>
 <h3 id="rust-actionable-summary">Actionable Summary</h3>
 <p class="note">Advisory thresholds: built-in defaults (distinct from `bca check`&#39;s gate).</p>
 <p class="note">Raw counts across all functions; the hotspot tables hide suppressed rows (cyclomatic: 1) — re-run with --no-suppress to list them.</p>

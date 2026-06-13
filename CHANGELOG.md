@@ -1020,6 +1020,21 @@ for historical reference.
 
 ### Changed
 
+- The HTML and Markdown report's headline **Average MI** is now the
+  **SLOC-weighted mean of the *unclamped* Visual Studio MI** and is
+  relabelled `Average MI (SLOC-weighted)`. Previously it averaged the
+  *clamped* `mi_visual_studio` (floored at 0) over the file count, so a
+  catastrophically unmaintainable file (true MI ≈ −400) and a marginally
+  bad one (≈ −5) both contributed 0 and were indistinguishable, and a
+  five-line file counted as much as a five-thousand-line one. The new
+  headline mirrors the MI hotspot ranking (which already sorts on the
+  unclamped value, #627): large files dominate and the figure can go
+  negative for an unmaintainable codebase. The per-language overview's
+  `Avg MI` column changes the same way and gains its own tooltip. The
+  per-file `MI` hotspot column is unchanged (still the clamped Visual
+  Studio value). Report output is not contract-locked, so this is not a
+  SemVer break, but published headline numbers move (#725, follow-up to
+  #627).
 - **(breaking)** `LANG::Cpp` (slug `cpp`) is now backed by the upstream
   community `tree-sitter-cpp` grammar instead of the Mozilla fork. The
   fork moved to the new opt-in `LANG::Mozcpp` (see Added). The `cpp`

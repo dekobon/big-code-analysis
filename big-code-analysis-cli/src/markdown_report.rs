@@ -356,6 +356,52 @@ pub(super) fn mi_rating(mi: f64) -> &'static str {
     }
 }
 
+/// Headline label for the SLOC-weighted average MI, shared by the Markdown
+/// Summary row and the HTML per-language summary so the two formats name
+/// the metric identically. The `(SLOC-weighted)` qualifier flags that the
+/// figure is size-weighted and derived from the unclamped value, unlike the
+/// per-file `MI` hotspot column (issue #725).
+pub(super) const AVG_MI_LABEL: &str = "Average MI (SLOC-weighted)";
+
+/// Visual Studio MI rescale factor. `mi.original()` is the raw `171 −
+/// 5.2·ln V − 0.23·G − 16.2·ln SLOC` formula; `mi.visual_studio()`
+/// rescales it onto 0–100 and floors at 0. Multiplying `mi_original` by
+/// this factor recovers the *unclamped* Visual Studio value — the same
+/// expression `mi_visual_studio` clamps — so a file whose displayed MI
+/// saturates at 0 still contributes its true (often negative)
+/// maintainability to the headline average (issue #725).
+const MI_VS_SCALE: f64 = 100.0 / 171.0;
+
+/// Per-file contribution to the SLOC-weighted average-MI numerator: the
+/// file's *unclamped* Visual Studio MI times its SLOC. Summing this over
+/// the units and dividing by their total SLOC yields the headline
+/// `Average MI (SLOC-weighted)`.
+///
+/// Averaging the unclamped value (via `mi_original`) mirrors the #627
+/// hotspot ranking, which already sorts on `mi_original` so the order
+/// stays informative when the displayed `mi_visual_studio` clamps to 0.
+/// Before #725 the headline averaged the *clamped* value, so a
+/// catastrophically unmaintainable file (true MI ≈ −400, clamped to 0)
+/// and a marginally bad one (true MI ≈ −5, also clamped to 0) both
+/// contributed 0 and were indistinguishable. SLOC weighting additionally
+/// lets a large file dominate the codebase-health reading instead of
+/// counting equally with a five-line file.
+pub(super) fn mi_weight_numerator(s: &FunctionSummary) -> f64 {
+    s.mi_original * MI_VS_SCALE * s.sloc as f64
+}
+
+/// Divide a [`mi_weight_numerator`] sum by the units' total SLOC to get the
+/// SLOC-weighted average MI. Returns 0.0 when the units carry no SLOC, so
+/// an all-empty input yields a neutral headline rather than a division by
+/// zero.
+pub(super) fn sloc_weighted_avg_mi(mi_numerator: f64, total_sloc: usize) -> f64 {
+    if total_sloc > 0 {
+        mi_numerator / total_sloc as f64
+    } else {
+        0.0
+    }
+}
+
 pub(crate) fn write_table(
     out: &mut String,
     headers: &[&str],
@@ -547,12 +593,17 @@ pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
     u_lib.cloc = 20;
     u_lib.tokens = 1500;
     u_lib.halstead_volume = 8000.0;
+    // Unclamped Visual Studio MI = mi_original * 100/171, so keep the two
+    // coherent: 20.5 * 100/171 ≈ 12.0 (the displayed per-file value).
+    u_lib.mi_original = 20.5;
     u_lib.mi_visual_studio = 12.0;
     v.push(u_lib);
     let mut u_util = base("util.rs", "src/util.rs", SpaceKind::Unit, LANG::Rust, 1);
     u_util.sloc = 80;
     u_util.tokens = 600;
     u_util.halstead_volume = 2000.0;
+    // 77.0 * 100/171 ≈ 45.0 (coherent with the displayed value).
+    u_util.mi_original = 77.0;
     u_util.mi_visual_studio = 45.0;
     v.push(u_util);
 
@@ -627,6 +678,8 @@ pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
     u_main.sloc = 120;
     u_main.tokens = 800;
     u_main.halstead_volume = 3000.0;
+    // 47.9 * 100/171 ≈ 28.0 (coherent with the displayed value).
+    u_main.mi_original = 47.9;
     u_main.mi_visual_studio = 28.0;
     v.push(u_main);
     for row in [
@@ -854,17 +907,13 @@ fn lang_overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Ve
 fn unit_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, usize, f64) {
     let mut count = 0usize;
     let mut sloc = 0usize;
-    let mut mi_sum = 0.0f64;
+    let mut mi_numerator = 0.0f64;
     for s in lang_summaries.iter().filter(|s| s.kind == SpaceKind::Unit) {
         count += 1;
         sloc += s.sloc;
-        mi_sum += s.mi_visual_studio;
+        mi_numerator += mi_weight_numerator(s);
     }
-    let avg_mi = if count > 0 {
-        mi_sum / count as f64
-    } else {
-        0.0
-    };
+    let avg_mi = sloc_weighted_avg_mi(mi_numerator, sloc);
     (count, sloc, avg_mi)
 }
 
@@ -1026,6 +1075,68 @@ mod tests {
             npa: 0.0,
             npm: 0.0,
         }
+    }
+
+    /// Issue #725: the headline Average MI must average the *unclamped*
+    /// Visual Studio MI (`mi_original` rescaled by 100/171), SLOC-weighted,
+    /// so a catastrophic file whose displayed `mi_visual_studio` clamps to
+    /// 0 still drags the headline down instead of contributing 0. The
+    /// integer products are chosen so the unclamped values are exact:
+    /// `-342 * 100/171 = -200`, `171 * 100/171 = 100`.
+    #[test]
+    fn avg_mi_is_sloc_weighted_over_unclamped_values() {
+        // Catastrophic 400-SLOC file: true MI is deeply negative and the
+        // displayed Visual Studio value clamps to 0.0.
+        let mut bad = make_summary("bad.rs", "src/bad.rs", SpaceKind::Unit, LANG::Rust);
+        bad.sloc = 400;
+        bad.mi_original = -342.0; // unclamped VS = -200.0
+        bad.mi_visual_studio = 0.0;
+        // Healthy 10-SLOC file: unclamped VS = +100.0.
+        let mut good = make_summary("good.rs", "src/good.rs", SpaceKind::Unit, LANG::Rust);
+        good.sloc = 10;
+        good.mi_original = 171.0; // unclamped VS = 100.0
+        good.mi_visual_studio = 100.0;
+
+        // numerator = -200*400 + 100*10 = -79_000; total SLOC = 410.
+        let numerator = mi_weight_numerator(&bad) + mi_weight_numerator(&good);
+        assert!(
+            (numerator - (-79_000.0)).abs() < 1e-6,
+            "weighted numerator should be -79000, got {numerator}"
+        );
+        let avg = sloc_weighted_avg_mi(numerator, 410);
+        assert!(
+            (avg - (-192.683)).abs() < 1e-3,
+            "SLOC-weighted unclamped average should be ≈ -192.7, got {avg}"
+        );
+        assert_eq!(mi_rating(avg), "LOW");
+        // Contrast: the pre-#725 clamped, unweighted mean was
+        // (0.0 + 100.0) / 2 = 50.0 and rated GOOD — masking the
+        // unmaintainable bulk that the new headline rates LOW.
+        let pre_725_clamped_mean = 50.0;
+        assert_eq!(mi_rating(pre_725_clamped_mean), "GOOD");
+
+        // The rendered headline carries the SLOC-weighted label and a
+        // negative, LOW-rated value (single language → one summary line).
+        let report = generate_report(&[bad, good], 20, SuppressionPolicy::Honor);
+        let line = report
+            .lines()
+            .find(|l| l.contains("Average MI (SLOC-weighted)"))
+            .expect("headline row present");
+        // The rendered headline pins both the value and the rating: -192.7
+        // is the SLOC-weighted result (an unweighted mean would be -50.0).
+        assert!(
+            line.contains("-192.7 (LOW)"),
+            "headline must render the SLOC-weighted -192.7 (LOW):\n{line}"
+        );
+    }
+
+    /// A unit set carrying no SLOC must not divide by zero; the headline
+    /// falls back to a neutral 0.0 (issue #725). The numerator is arbitrary
+    /// and non-zero on purpose: the guard depends only on `total_sloc == 0`,
+    /// so any numerator must still yield 0.0.
+    #[test]
+    fn sloc_weighted_avg_mi_zero_sloc_is_neutral() {
+        assert_eq!(sloc_weighted_avg_mi(1_234.5, 0), 0.0);
     }
 
     /// Byte baseline for the whole Markdown report over the rich,
