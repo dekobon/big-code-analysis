@@ -512,7 +512,12 @@ def analyze_paths(
     ``include`` / ``exclude`` accept a single glob string or a sequence
     of them; globs are matched against each file's path relative to its
     walk seed (so ``include="*.rs"`` matches ``src/lib.rs`` by its
-    basename). Pass ``respect_gitignore=False`` to walk ignored files
+    basename), and a leading ``./`` on a pattern is optional —
+    ``dir/**`` and ``./dir/**`` are equivalent. A seed that names a
+    *file* directly is always analysed regardless of ``exclude`` (an
+    explicit request overrides ignore-style rules); ``include`` still
+    narrows it, matched on its basename.
+    Pass ``respect_gitignore=False`` to walk ignored files
     too. The remaining kwargs (``exclude_tests`` / ``allow_lossy_path``
     / ``skip_generated`` / ``metrics`` / ``vcs`` / ``vcs_per_function``)
     forward to per-file analysis exactly as on :func:`analyze` /

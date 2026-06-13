@@ -2287,7 +2287,10 @@ for historical reference.
   `--exclude`, `--exclude-from`, `.bcaignore`, and the `[check.exclude]`
   gate-exemption set. A leading `./` is now stripped symmetrically from both
   the pattern and the match path. `**/`-prefixed, `*`, and absolute patterns
-  were unaffected and remain unchanged.
+  were unaffected and remain unchanged. The Python bindings' `analyze_paths`
+  walker had the mirror-image bug — it matched bare seed-relative paths, so
+  `./dir/**` silently matched nothing there — and now accepts both spellings
+  identically as well.
 - A file named directly via `--paths` (or `--paths-from` / manifest `paths`)
   is now always analyzed regardless of the project's exclude deny-set
   (`.bcaignore`, `--exclude`, manifest `exclude`), matching the
@@ -2296,7 +2299,12 @@ for historical reference.
   silently produced "0 files matched"; this was masked for `./`-anchored
   project patterns by the glob bug above, and surfaced once that was fixed.
   Directory-walk excludes are unchanged, and an `--include` allow-list still
-  narrows which explicitly-named files are analyzed.
+  narrows which explicitly-named files are analyzed — matched against the
+  seed's CWD-relative form, so `--include 'src/**'` now accepts
+  `--paths "$PWD/src/f.rs"` exactly like `--paths src/f.rs` (the emitted
+  `name` keeps the as-spelled form). The Python bindings' `analyze_paths`
+  applies the same rule: a file seed bypasses `exclude`, and `include`
+  still narrows it by basename.
 - CLI `--help` text sweep (#608): relocated 80+ issue-tracker references
   (`#539`, `issue #328`, `pre-#182`, …) out of the user-facing clap
   doc-comments into adjacent `//` maintainer comments; the `bca check
