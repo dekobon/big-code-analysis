@@ -17,6 +17,7 @@ mk_langs!(
     C,      // -> tree_sitter_c (upstream community C grammar)
     Cpp,    // -> tree_sitter_cpp (upstream community C++ grammar)
     Mozcpp, // -> bca-tree-sitter-mozcpp (vendored Mozilla C++ fork, opt-in)
+    Objc,   // -> tree_sitter_objc (Objective-C; `.mm` ObjC++ stays on Cpp)
     Python,
     Tsx,        // -> tree_sitter_typescript::LANGUAGE_TSX
     Typescript, // -> tree_sitter_typescript::LANGUAGE_TYPESCRIPT

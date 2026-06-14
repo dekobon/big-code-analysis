@@ -670,7 +670,14 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // metric is genuinely 0):
 //   - PreprocCode, CcommentCode: no executable code (comments /
 //     preprocessor lines only).
-implement_metric_trait!(Abc, PreprocCode, CcommentCode);
+// ObjC's ABC (assignment/branch/call) count is left at the no-op
+// default for now and so reads 0 on `.m` input. Unlike Preproc /
+// Ccomment this is a deferral, not a genuine zero — ObjC is a C
+// superset, so ABC is computable (a real impl would mirror `impl Abc
+// for CCode` plus `message_expression` calls). Tracked in #737 with the
+// OO metrics (npa/npm/wmc); the primary metrics (cyclomatic, cognitive,
+// exit, halstead, loc, nom, nargs) are real.
+implement_metric_trait!(Abc, PreprocCode, CcommentCode, ObjcCode);
 
 // JS / TS / TSX / Mozjs share an expression / statement vocabulary;
 // the helper macro below generates the per-language unary-conditional

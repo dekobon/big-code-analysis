@@ -519,6 +519,34 @@ impl Cyclomatic for CCode {
     }
 }
 
+// Objective-C cannot reuse `impl_cyclomatic_c_family!` either: that
+// macro counts the C++ `catch` *keyword* token, but ObjC's grammar has
+// no bare `catch` token — `@catch` is the `ATcatch` keyword and the
+// handler body is a `catch_clause` node. Counting `CatchClause` adds one
+// branch per `@catch`, the same edge `catch` contributes in C++.
+// Fast enumeration (`for (id x in xs)`) folds into `for_statement`, so
+// the `For` keyword-token arm already covers it — no separate node
+// (issue #284: count keyword tokens, never the statement nodes, or the
+// `For`/`While`/`If` keyword and their `*Statement` wrappers double-count).
+impl Cyclomatic for ObjcCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Objc::*;
+        match node.kind_id().into() {
+            Case => stats.cyclomatic += 1.,
+            SwitchStatement => stats.cyclomatic_modified += 1.,
+            // `CatchClause` (the `@catch` handler) contributes the same
+            // branch as the other decision kinds, so it rides the
+            // combined arm — the C++ family macro folds `Catch` in the
+            // same way.
+            CatchClause | If | For | While | ConditionalExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 // Java and Groovy share the same decision-kind set for cyclomatic
 // complexity; Groovy adds `Assert` as an extra branch (its `assert`
 // keyword is a runtime check that branches on its condition,
@@ -6859,6 +6887,117 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3);
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 2);
+            },
+        );
+    }
+
+    /// Objective-C floor: an `if` nested inside a `for` inside a
+    /// `method_definition` held by an `@implementation`. The
+    /// `@implementation` opens a Class space (+1). Standard CCN =
+    /// unit(1) + class(1) + method(1) + for(1) + if(1) = 5.
+    #[test]
+    fn objc_nested_control() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar:(NSArray *)arr {
+    for (int i = 0; i < 10; ++i) {
+        if (i > 5) {
+            [self use:i];
+        }
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum() as u32, 5);
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
+                {
+                  "sum": 5,
+                  "average": 5.0,
+                  "min": 1,
+                  "max": 3,
+                  "modified": {
+                    "sum": 5,
+                    "average": 5.0,
+                    "min": 1,
+                    "max": 3
+                  }
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C `@try { } @catch { }`: the `catch_clause` node adds
+    /// one decision point. Standard CCN = unit(1) + class(1) + method(1)
+    /// + catch(1) = 4.
+    #[test]
+    fn objc_try_catch() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar {
+    @try {
+        [self doWork];
+    } @catch (NSException *e) {
+        [self log:e];
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum() as u32, 4);
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 1,
+                  "max": 2,
+                  "modified": {
+                    "sum": 4,
+                    "average": 4.0,
+                    "min": 1,
+                    "max": 2
+                  }
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C fast enumeration `for (id x in arr)` folds into a
+    /// `for_statement` whose `for` keyword fires once, exactly like a
+    /// classic `for`. Standard CCN = unit(1) + class(1) + method(1) +
+    /// for(1) = 4.
+    #[test]
+    fn objc_fast_enumeration() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar:(NSArray *)arr {
+    for (id x in arr) {
+        [self use:x];
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum() as u32, 4);
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
+                {
+                  "sum": 4,
+                  "average": 4.0,
+                  "min": 1,
+                  "max": 2,
+                  "modified": {
+                    "sum": 4,
+                    "average": 4.0,
+                    "min": 1,
+                    "max": 2
+                  }
+                }
+                "#);
             },
         );
     }

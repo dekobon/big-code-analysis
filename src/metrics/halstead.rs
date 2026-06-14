@@ -431,6 +431,12 @@ impl Halstead for CCode {
     }
 }
 
+impl Halstead for ObjcCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 impl Halstead for MozcppCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
         compute_halstead::<Self>(node, code, halstead_maps);
@@ -3897,5 +3903,63 @@ f() {
                 "Display must not emit the space-separated `purity ratio`:\n{out}"
             );
         });
+    }
+
+    /// Comprehensive Objective-C Halstead fixture exercising a message
+    /// send (`[self log:@"hi"]`), an ObjC string literal (`@"hi"`), an
+    /// `if`, a short-circuit `&&`, arithmetic (`+`), comparisons, and
+    /// assignment. Pins every field and enforces the lesson-4 invariants
+    /// `unique_operators == n1` / `unique_operands == n2` via the
+    /// independent `--ops` store.
+    #[test]
+    fn objc_operators_and_operands() {
+        let source = "@implementation Foo
+- (int)bar:(int)x {
+    int y = x + 1;
+    if (x > 0 && y < 10) {
+        [self log:@\"hi\"];
+    }
+    return y;
+}
+@end
+";
+        check_metrics::<ObjcParser>(source, "foo.m", |metric| {
+            // n1 = 15 unique operators:
+            //   `&&`, `()`, `+`, `-`, `:`, `;`, `<`, `=`, `>`, `@`,
+            //   `[]` (message send), `if`, `int`, `return`, `{}`.
+            // n2 = 10 unique operands:
+            //   `Foo`, `bar`, `log`, `self`, `x`, `y`, `0`, `1`, `10`,
+            //   `@"hi"` (the ObjC string literal).
+            assert_eq!(metric.halstead.unique_operators(), 15);
+            assert_eq!(metric.halstead.unique_operands(), 10);
+            insta::assert_json_snapshot!(metric.halstead, @r#"
+            {
+              "unique_operators": 15,
+              "total_operators": 23,
+              "unique_operands": 10,
+              "total_operands": 14,
+              "length": 37,
+              "estimated_program_length": 91.82263988300141,
+              "purity_ratio": 2.481692969810849,
+              "vocabulary": 25,
+              "volume": 171.8226790216648,
+              "difficulty": 10.5,
+              "level": 0.09523809523809523,
+              "effort": 1804.1381297274804,
+              "time": 100.22989609597113,
+              "bugs": 0.049399808887691035
+            }
+            "#);
+        });
+        // Lesson-4 invariant: dedupe(ops.operands) == n2 (10), via the
+        // independent text-keyed `--ops` store.
+        assert_ops_operands::<ObjcParser>(
+            source,
+            "foo.m",
+            10,
+            vec![
+                "Foo", "bar", "log", "self", "x", "y", "0", "1", "10", "@\"hi\"",
+            ],
+        );
     }
 }

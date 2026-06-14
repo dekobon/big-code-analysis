@@ -259,6 +259,7 @@ implement_metric_trait!(
     CppCode,
     MozcppCode,
     CCode,
+    ObjcCode,
     RustCode,
     PreprocCode,
     CcommentCode,
@@ -2152,6 +2153,48 @@ proc helper { x } {
                 assert_eq!(metric.nom.functions_sum(), 3);
                 assert_eq!(metric.nom.closures_sum(), 0);
                 assert_eq!(metric.nom.total(), 3);
+            },
+        );
+    }
+
+    /// Objective-C `@implementation` with two `method_definition`s and a
+    /// `block_literal`: the two methods are functions, the block is a
+    /// closure (it does not open its own space), so functions = 2,
+    /// closures = 1, total = 3.
+    #[test]
+    fn objc_nom() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)one {
+    void (^blk)(void) = ^{
+        [self two];
+    };
+    blk();
+}
+- (void)two {
+    [self one];
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2);
+                assert_eq!(metric.nom.closures_sum(), 1);
+                assert_eq!(metric.nom.total(), 3);
+                insta::assert_json_snapshot!(metric.nom, @r#"
+                {
+                  "functions": 2,
+                  "closures": 1,
+                  "functions_average": 0.5,
+                  "closures_average": 0.25,
+                  "total": 3,
+                  "average": 0.75,
+                  "functions_min": 0,
+                  "functions_max": 1,
+                  "closures_min": 0,
+                  "closures_max": 1
+                }
+                "#);
             },
         );
     }

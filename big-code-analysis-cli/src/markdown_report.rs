@@ -277,6 +277,7 @@ pub(super) fn language_display_name(slug: &str) -> Cow<'_, str> {
         LANG::Lua => "Lua",
         LANG::Mozcpp => "C++ (Mozilla)",
         LANG::Mozjs => "JavaScript (Mozilla)",
+        LANG::Objc => "Objective-C",
         LANG::Perl => "Perl",
         LANG::Php => "PHP",
         LANG::Preproc => "C/C++ Preprocessor",

@@ -70,6 +70,9 @@ pub use language_mozjs::*;
 pub mod language_javascript;
 pub use language_javascript::*;
 
+pub mod language_objc;
+pub use language_objc::*;
+
 pub mod language_perl;
 pub use language_perl::*;
 

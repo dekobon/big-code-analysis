@@ -691,6 +691,64 @@ impl Cognitive for CCode {
     }
 }
 
+impl Cognitive for ObjcCode {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Objc::*;
+
+        // Macro expansion is not tracked; macros are treated as opaque tokens.
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `@catch` (the `catch_clause` node) nests like a C++ catch.
+            // Fast enumeration folds into `for_statement`, so `ForStatement`
+            // already covers it.
+            ForStatement
+            | WhileStatement
+            | DoStatement
+            | SwitchStatement
+            | CatchClause
+            | ConditionalExpression => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            GotoStatement | Else /* else-if also */ => {
+                increment_by_one(stats);
+            }
+            // Both `binary_expression` aliases are listed: a node carries
+            // exactly one kind_id, so this cannot double-count, and it is
+            // robust to which alias the grammar emits for `&&` / `||`
+            // (Step 3.5 aliased-variant audit).
+            BinaryExpression | BinaryExpression2 => {
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            }
+            // ObjC blocks `^{ … }` are the language's closures.
+            BlockLiteral => {
+                lambda += 1;
+            }
+            // Functions and `@implementation` methods are definition
+            // boundaries: reset structural nesting and bump the
+            // function-depth surcharge when nested inside another (#696).
+            FunctionDefinition | FunctionDefinition2 | MethodDefinition => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[FunctionDefinition, FunctionDefinition2, MethodDefinition],
+                );
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 impl Cognitive for MozcppCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -1972,7 +2030,7 @@ impl Cognitive for RubyCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::tools::{check_func_space, check_metrics};
 
     use super::*;
 
@@ -10299,6 +10357,188 @@ end",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 3);
             },
+        );
+    }
+
+    /// Objective-C straight-line method body has zero cognitive
+    /// complexity.
+    #[test]
+    fn objc_no_cognitive() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (int)bar {
+    int a = 1;
+    return a;
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C single `if` at method top level: +1, no nesting
+    /// surcharge.
+    #[test]
+    fn objc_simple_if() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar:(int)x {
+    if (x > 0) {
+        [self use:x];
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C chained booleans `a && b && c`: SonarSource counts
+    /// one for the first `&&` and zero for each additional same-operator
+    /// link in the sequence, so the whole `if (a && b && c)` is +1 (if)
+    /// + 1 (one boolean sequence) = 2.
+    #[test]
+    fn objc_sequence_same_booleans() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar:(int)a b:(int)b c:(int)c {
+    if (a && b && c) {
+        [self use:a];
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C nesting surcharge: an `if` nested inside a `for`
+    /// scores `for` (+1) + `if` (+1 base +1 nesting) = 3.
+    #[test]
+    fn objc_nested() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar:(NSArray *)arr {
+    for (id x in arr) {
+        if ([x boolValue]) {
+            [self use:x];
+        }
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3,
+                  "average": 3.0,
+                  "min": 0,
+                  "max": 3
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C `if / else if / else if / else` chain must score
+    /// LOWER than the same number of singly-nested `if`s, because
+    /// else-if links add no nesting surcharge while deepening `if`s do.
+    /// This guards the `is_else_if` predicate (a regression that failed
+    /// to recognise the else-if extension would inflate the chain to the
+    /// nested score).
+    #[test]
+    fn objc_else_if_chain() {
+        use std::cell::Cell;
+
+        let chain_sum = Cell::new(u64::MAX);
+        check_func_space::<ObjcParser, _>(
+            "@implementation Foo
+- (int)bar:(int)x {
+    if (x == 1) {
+        return 1;
+    } else if (x == 2) {
+        return 2;
+    } else if (x == 3) {
+        return 3;
+    } else {
+        return 0;
+    }
+}
+@end
+",
+            "foo.m",
+            |fs| chain_sum.set(fs.metrics.cognitive.cognitive_sum()),
+        );
+
+        let nested_sum = Cell::new(u64::MAX);
+        check_func_space::<ObjcParser, _>(
+            "@implementation Foo
+- (int)bar:(int)x {
+    if (x == 1) {
+        if (x == 2) {
+            if (x == 3) {
+                return 3;
+            }
+        }
+    }
+    return 0;
+}
+@end
+",
+            "foo.m",
+            |fs| nested_sum.set(fs.metrics.cognitive.cognitive_sum()),
+        );
+
+        // expected chain (matches the C-family else-if structure): each
+        // `else if`/`else` adds +1 with NO nesting surcharge because
+        // `is_else_if` recognises the else-clause-nested `if_statement` as
+        // a branch extension — if(+1) + else-if(+1) + else-if(+1) +
+        // else(+1) = 4. Were the predicate broken, the nested
+        // `if_statement`s would accrue nesting (+2, +3) and the chain
+        // would climb to 7. expected nested: if(+1) + if(+1+1) +
+        // if(+1+2) = 6. The chain must remain strictly cheaper.
+        assert_eq!(chain_sum.get(), 4, "else-if chain cognitive sum");
+        assert_eq!(nested_sum.get(), 6, "triple-nested if cognitive sum");
+        assert!(
+            chain_sum.get() < nested_sum.get(),
+            "else-if chain ({}) must score lower than triple-nested ifs ({})",
+            chain_sum.get(),
+            nested_sum.get(),
         );
     }
 }

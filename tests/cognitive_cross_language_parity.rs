@@ -204,6 +204,20 @@ func f(x int) string {
 ",
         "irule",
     );
+    // Objective-C uses a free C `function_definition` (valid in a `.m`
+    // file); its `switch_statement` is the single decision point and the
+    // `default:` arm is free, matching the family.
+    let objc = cognitive_max(
+        LANG::Objc,
+        r"void f(int x) {
+    switch (x) {
+        case 1: break;
+        default: break;
+    }
+}
+",
+        "m",
+    );
 
     // expected: one explicit arm + wildcard/default in a single
     // switch/match contributes one cognitive decision point.
@@ -222,4 +236,5 @@ func f(x int) string {
     assert_eq!(groovy, expected, "groovy");
     assert_eq!(tcl, expected, "tcl");
     assert_eq!(irules, expected, "irules");
+    assert_eq!(objc, expected, "objc");
 }

@@ -51,14 +51,14 @@ path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "language_display_name"
 start_line = 260
 metric = "cyclomatic"
-value = 25.0
+value = 26.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1547.0
+value = 987.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_alias.rs"
@@ -66,13 +66,6 @@ qualified = "<file>"
 start_line = 1
 metric = "nexits"
 value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 963.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
@@ -89,20 +82,6 @@ metric = "nexits"
 value = 5.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/vcs_report.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1440.0
-
-[[entry]]
-path = "big-code-analysis-py/src/batch.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 815.0
-
-[[entry]]
 path = "big-code-analysis-py/src/codegen.rs"
 qualified = "<file>"
 start_line = 1
@@ -114,7 +93,7 @@ path = "big-code-analysis-py/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 932.0
+value = 904.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
@@ -159,18 +138,11 @@ metric = "nargs"
 value = 12.0
 
 [[entry]]
-path = "big-code-analysis-web/src/web/vcs.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 898.0
-
-[[entry]]
 path = "src/alterator.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 61.0
+value = 66.0
 
 [[entry]]
 path = "src/count.rs"
@@ -184,21 +156,7 @@ path = "src/metrics/nargs.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 59.0
-
-[[entry]]
-path = "src/output/code_climate.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 821.0
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 871.0
+value = 70.0
 
 [[entry]]
 path = "src/preproc.rs"
@@ -227,13 +185,6 @@ qualified = "record_indirect_includes"
 start_line = 320
 metric = "cognitive"
 value = 25.0
-
-[[entry]]
-path = "src/tools.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 770.0
 
 [[entry]]
 path = "src/vcs/error.rs"

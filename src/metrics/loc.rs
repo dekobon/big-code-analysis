@@ -1109,6 +1109,80 @@ impl Loc for CCode {
     }
 }
 
+impl Loc for ObjcCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Objc::*;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            // ObjC has no raw string literals. `instance_variables` is
+            // the `{ … }` ivar block of an `@interface` /
+            // `@implementation`; like `DeclarationList` it is a brace
+            // container, not a logical line.
+            StringLiteral | DeclarationList | FieldDeclarationList | InstanceVariables
+            | TranslationUnit => {}
+            Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+            // C's statement set plus the ObjC `@throw` / `@try` /
+            // `@synchronized` statements (each a dedicated node). There
+            // is no `@autoreleasepool` node — only the `@autoreleasepool`
+            // keyword token — so its inner statements are counted
+            // individually and the block header adds no logical line.
+            WhileStatement
+            | SwitchStatement
+            | CaseStatement
+            | IfStatement
+            | ForStatement
+            | ReturnStatement
+            | BreakStatement
+            | ContinueStatement
+            | GotoStatement
+            | ThrowStatement
+            | TryStatement
+            | SynchronizedStatement
+            | ExpressionStatement
+            | ExpressionStatement2
+            | LabeledStatement
+            | StatementIdentifier => {
+                stats.lloc.logical_lines += 1;
+            }
+            Declaration => {
+                // A declaration in a `for`/`while`/`if` *header* (not its
+                // braced body) is part of that statement's logical line,
+                // so it must not add a second one. Mirrors the C / C++
+                // gating exactly.
+                if node.count_specific_ancestors::<ObjcCode>(
+                    |node| {
+                        matches!(
+                            node.kind_id().into(),
+                            WhileStatement | ForStatement | IfStatement
+                        )
+                    },
+                    |node| node.kind_id() == CompoundStatement,
+                ) == 0
+                {
+                    stats.lloc.logical_lines += 1;
+                }
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+
+                // tree-sitter-objc inherits tree-sitter-cpp's unexpanded
+                // macro handling: a single `PreprocArg` node spans the
+                // whole macro argument, so every line it covers is PLOC.
+                if let PreprocArg = node.kind_id().into() {
+                    (node.start_row() + 1..=node.end_row()).for_each(|line| {
+                        stats.ploc.lines.insert(line);
+                    });
+                }
+            }
+        }
+    }
+}
+
 impl Loc for MozcppCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         use Mozcpp::*;
@@ -10637,6 +10711,185 @@ class A {
             "foo.irule",
             |metric| {
                 assert_eq!(metric.loc.lloc(), 2);
+            },
+        );
+    }
+
+    /// Objective-C blank-line accounting: two code lines separated by
+    /// blank lines.
+    #[test]
+    fn objc_blank() {
+        check_metrics::<ObjcParser>(
+            "
+
+            int a = 42;
+
+            int b = 43;
+
+            ",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.loc.blank(), 1);
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 3,
+                  "ploc": 2,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 1,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 3,
+                  "sloc_max": 3,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 1,
+                  "blank_max": 1
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C comment accounting: a block comment and a line
+    /// comment each contribute to `cloc`.
+    #[test]
+    fn objc_cloc() {
+        check_metrics::<ObjcParser>(
+            "/* Block comment
+            still the block */
+            // Line comment
+            int a = 42; // trailing",
+            "foo.m",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 4,
+                  "ploc": 1,
+                  "lloc": 1,
+                  "cloc": 4,
+                  "blank": 0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 4.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4,
+                  "sloc_max": 4,
+                  "cloc_min": 4,
+                  "cloc_max": 4,
+                  "ploc_min": 1,
+                  "ploc_max": 1,
+                  "lloc_min": 1,
+                  "lloc_max": 1,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C logical-line accounting: a method whose body has three
+    /// statements. The `method_definition` opens a function space but is
+    /// not itself a logical line; each statement adds one.
+    #[test]
+    fn objc_lloc() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (int)bar {
+    int a = 1;
+    int b = 2;
+    return a + b;
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                // expected: decl `int a` (1) + decl `int b` (1) +
+                // `return` (1) = 3.
+                assert_eq!(metric.loc.lloc(), 3);
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 7,
+                  "ploc": 7,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 2.3333333333333335,
+                  "ploc_average": 2.3333333333333335,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 7,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 7,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C for-header gating: the `int i = 0` declaration in a
+    /// classic `for` init slot is part of the `for` statement's logical
+    /// line and must NOT add a second one (mirrors the C / C++ gate).
+    /// Reverting the `count_specific_ancestors` gate would push lloc from
+    /// 2 to 3.
+    #[test]
+    fn objc_no_declaration_in_for_header_lloc() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar {
+    for (int i = 0; i < 10; ++i) {
+        [self use:i];
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                // expected: for-statement (1) + body expression
+                // `[self use:i]` (1) = 2. The header `int i = 0`
+                // declaration is gated out; without the gate this is 3.
+                assert_eq!(metric.loc.lloc(), 2);
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 7,
+                  "ploc": 7,
+                  "lloc": 2,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 2.3333333333333335,
+                  "ploc_average": 2.3333333333333335,
+                  "lloc_average": 0.6666666666666666,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5,
+                  "sloc_max": 7,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 5,
+                  "ploc_max": 7,
+                  "lloc_min": 2,
+                  "lloc_max": 2,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#);
             },
         );
     }

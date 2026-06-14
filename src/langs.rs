@@ -177,13 +177,16 @@ mk_langs!(
         "The `C/C++` language (upstream `tree-sitter-cpp` grammar; the \
          default for `.cpp` / `.cc` / `.h` and the rest of the C-family \
          extensions). C moved to `LANG::C` (`.c`) in #721; the \
-         Mozilla/Gecko dialect moved to opt-in `LANG::Mozcpp` in #720.",
+         Mozilla/Gecko dialect moved to opt-in `LANG::Mozcpp` in #720. \
+         Objective-C (`.m`) moved to `LANG::Objc` in #724; `.mm` \
+         Objective-C++ stays here because the C++ grammar handles the \
+         C++ half (the ObjC glue still ERROR-cascades).",
         "cpp",
         CppCode,
         CppParser,
         tree_sitter_cpp,
-        [cpp, cxx, cc, hxx, hpp, h, hh, inc, mm, m],
-        ["c++", "objc", "objc++", "objective-c++", "objective-c"]
+        [cpp, cxx, cc, hxx, hpp, h, hh, inc, mm],
+        ["c++", "objc++", "objective-c++"]
     ),
     (
         "mozcpp",
@@ -198,6 +201,22 @@ mk_langs!(
         tree_sitter_mozcpp,
         [],
         []
+    ),
+    (
+        "objc",
+        Objc,
+        "The `Objective-C` language (upstream `tree-sitter-objc` \
+         grammar). Owns `.m` and the `objc` / `objective-c` emacs \
+         modes since #724. Objective-C++ (`.mm`) stays on `LANG::Cpp`: \
+         the ObjC grammar parses C but not the C++ half of a `.mm` \
+         file, and C++ is the larger surface, so `Cpp` degrades more \
+         gracefully there (the same trade-off #721 used for `.h`).",
+        "objc",
+        ObjcCode,
+        ObjcParser,
+        tree_sitter_objc,
+        [m],
+        ["objc", "objective-c"]
     ),
     (
         "csharp",
@@ -332,29 +351,6 @@ mk_langs!(
         ["groovy"]
     )
 );
-
-pub(crate) mod fake {
-    // Objective-C / Objective-C++ files are parsed with the C/C++
-    // grammar (`LANG::Cpp`), so `guess_language` reports them as
-    // `"cpp"` — the same canonical slug `LANG::Cpp.name()` emits and a
-    // valid `FromStr` lookup token. The earlier `"obj-c/c++"` pseudo-
-    // name surfaced through `/metrics` and CLI JSON but round-tripped
-    // to nothing; folding it onto `"cpp"` keeps every reported
-    // `language` value parseable (issue #540).
-    pub(crate) fn get_true(ext: &str, mode: &str) -> Option<&'static str> {
-        if ext == "m"
-            || ext == "mm"
-            || mode == "objc"
-            || mode == "objc++"
-            || mode == "objective-c++"
-            || mode == "objective-c"
-        {
-            Some(crate::LANG::Cpp.name())
-        } else {
-            None
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -631,10 +627,18 @@ mod tests {
         // `.h` and the C++ extensions remain on `Cpp`.
         assert_eq!(get_from_ext("h"), Some(LANG::Cpp));
         assert_eq!(get_from_ext("cpp"), Some(LANG::Cpp));
-        // `.m` / `.mm` (Objective-C) stay on `Cpp` (decision-log #2;
-        // proper ObjC support is tracked separately in #724).
-        assert_eq!(get_from_ext("m"), Some(LANG::Cpp));
+        // `.m` (Objective-C) now owns `LANG::Objc` (#724); `.mm`
+        // Objective-C++ stays on `Cpp` by design (the ObjC grammar
+        // can't parse the C++ half of a `.mm` file).
+        assert_eq!(get_from_ext("m"), Some(LANG::Objc));
         assert_eq!(get_from_ext("mm"), Some(LANG::Cpp));
+        assert_eq!(LANG::Objc.name(), "objc");
+        assert_eq!(LANG::from_str("objc"), Ok(LANG::Objc));
+        assert_eq!(get_from_emacs_mode("objc"), Some(LANG::Objc));
+        assert_eq!(get_from_emacs_mode("objective-c"), Some(LANG::Objc));
+        // The ObjC++ emacs modes remain mapped to `Cpp`.
+        assert_eq!(get_from_emacs_mode("objc++"), Some(LANG::Cpp));
+        assert_eq!(get_from_emacs_mode("objective-c++"), Some(LANG::Cpp));
     }
 
     // Unknown / mis-cased input is rejected; matching is case-sensitive,

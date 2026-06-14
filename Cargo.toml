@@ -51,6 +51,7 @@ tree-sitter-java = "=0.23.5"
 tree-sitter-javascript = "=0.25.0"
 tree-sitter-kotlin-ng = "=1.1.0"
 tree-sitter-lua = "=0.5.0"
+tree-sitter-objc = "=3.0.2"
 tree-sitter-perl = "=1.1.2"
 tree-sitter-php = "=0.24.2"
 tree-sitter-python = "=0.25.0"
@@ -201,6 +202,7 @@ tree-sitter-java = { workspace = true, optional = true }
 tree-sitter-javascript = { workspace = true, optional = true }
 tree-sitter-kotlin-ng = { workspace = true, optional = true }
 tree-sitter-lua = { workspace = true, optional = true }
+tree-sitter-objc = { workspace = true, optional = true }
 tree-sitter-perl = { workspace = true, optional = true }
 tree-sitter-php = { workspace = true, optional = true }
 tree-sitter-python = { workspace = true, optional = true }
@@ -261,6 +263,7 @@ all-languages = [
   "lua",
   "mozcpp",
   "mozjs",
+  "objc",
   "perl",
   "php",
   "python",
@@ -310,6 +313,10 @@ javascript = ["dep:tree-sitter-javascript"]
 kotlin = ["dep:tree-sitter-kotlin-ng"]
 lua = ["dep:tree-sitter-lua"]
 mozjs = ["dep:tree-sitter-mozjs"]
+# Objective-C (`LANG::Objc`, upstream `tree-sitter-objc`). Owns `.m`;
+# `.mm` Objective-C++ stays on `LANG::Cpp` (the ObjC grammar parses C
+# but not the C++ half of `.mm` files) — see #724.
+objc = ["dep:tree-sitter-objc"]
 perl = ["dep:tree-sitter-perl"]
 php = ["dep:tree-sitter-php"]
 python = ["dep:tree-sitter-python"]

@@ -193,6 +193,37 @@ impl Alterator for CCode {
     }
 }
 
+impl Alterator for ObjcCode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        mut children: Vec<AstNode>,
+    ) -> AstNode {
+        // ObjC is C plus message sends; the literal-flattening and
+        // preprocessor newline-trimming rules are identical to the C
+        // alterator. `@"…"` parses as a bare `@` token followed by a
+        // plain `string_literal`, so the `StringLiteral` arm flattens
+        // the quoted part exactly as for C (the `@` renders separately).
+        match Objc::from(node.kind_id()) {
+            Objc::StringLiteral | Objc::CharLiteral | Objc::ConcatenatedString => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+            }
+            Objc::PreprocDef | Objc::PreprocFunctionDef | Objc::PreprocCall => {
+                if let Some(last) = children.last()
+                    && last.r#type == "\n"
+                {
+                    children.pop();
+                }
+                Self::get_default(node, code, span, field_name, children)
+            }
+            _ => Self::get_default(node, code, span, field_name, children),
+        }
+    }
+}
+
 impl Alterator for MozcppCode {
     fn alterate(
         node: &Node,
