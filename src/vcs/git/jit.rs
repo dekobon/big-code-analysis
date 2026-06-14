@@ -59,8 +59,12 @@ pub(super) struct Touched {
 
 impl Touched {
     /// Total churn (added + deleted) — the entropy weight and size term.
+    ///
+    /// Saturating like every other vcs churn accumulator (`stats.rs`,
+    /// `diff_parse.rs`, `size_features`), upholding the subsystem's
+    /// no-panic-on-overflow invariant (issue #742).
     fn churn(&self) -> u64 {
-        self.added + self.deleted
+        self.added.saturating_add(self.deleted)
     }
 }
 
@@ -499,4 +503,31 @@ fn experience_features(
         }
     }
     Ok(experience)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn touched(added: u64, deleted: u64) -> Touched {
+        Touched {
+            path: PathBuf::new(),
+            parent_path: None,
+            added,
+            deleted,
+            hunks: 0,
+        }
+    }
+
+    #[test]
+    fn churn_sums_added_and_deleted() {
+        assert_eq!(touched(3, 4).churn(), 7);
+    }
+
+    #[test]
+    fn churn_saturates_on_overflow() {
+        // Plain `+` would panic in a debug build on this overflow; the
+        // saturating add caps at u64::MAX instead (issue #742).
+        assert_eq!(touched(u64::MAX, 5).churn(), u64::MAX);
+    }
 }
