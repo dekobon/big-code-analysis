@@ -1430,53 +1430,34 @@ impl MetricsOptions {
         self
     }
 
-    /// Restrict computation to an already-resolved [`MetricSet`].
+    /// Restrict computation to the metrics in `metrics`, closing the
+    /// set under [`Metric::dependencies`] before storing it.
     ///
-    /// # Caller responsibility
+    /// Like [`MetricsOptions::with_only`], a derived metric pulls in
+    /// the inputs it needs: passing `MetricSet::empty().with(Metric::Mi)`
+    /// also selects [`Metric::Loc`], [`Metric::Cyclomatic`], and
+    /// [`Metric::Halstead`], so the maintainability index is computed
+    /// from real inputs rather than zero-valued defaults (#743). The
+    /// resolution is idempotent: an already-closed set is stored
+    /// unchanged.
     ///
-    /// The input set MUST be closed under
-    /// [`Metric::dependencies`] before it reaches this builder.
-    /// Use [`MetricSet::from_slice_with_deps`] to construct a
-    /// dependency-closed set from a slice of metric names, or call
-    /// [`MetricsOptions::with_only`] (which performs the closure
-    /// internally) when you have a `&[Metric]` rather than a
-    /// pre-built set.
+    /// Use this builder when you already hold a [`MetricSet`]; reach
+    /// for [`MetricsOptions::with_only`] when you have a `&[Metric]`.
     ///
-    /// This builder is NOT equivalent to
-    /// [`MetricsOptions::with_only`]: `with_only` runs the closure
-    /// resolver; `with_metric_set` consumes the set verbatim and
-    /// trusts the caller. The two methods are interchangeable only
-    /// when the input is already closed.
-    ///
-    /// # Pitfall
-    ///
-    /// Passing an unresolved set silently corrupts derived metrics
-    /// — the walker computes [`Metric::Mi`] or [`Metric::Wmc`]
-    /// using zero-valued dependency inputs and emits a number with
-    /// no error. For example:
+    /// # Examples
     ///
     /// ```
     /// use big_code_analysis::{Metric, MetricSet, MetricsOptions};
     ///
-    /// // WRONG: `Mi` selected without its dependencies — the
-    /// // resulting MI value is garbage (formula divides by a
-    /// // zero-valued Loc / Halstead).
-    /// let bad = MetricSet::empty().with(Metric::Mi);
-    /// let _opts = MetricsOptions::default().with_metric_set(bad);
-    ///
-    /// // RIGHT: closure resolved upstream; `with_metric_set`
-    /// // attaches the already-closed set.
-    /// let good = MetricSet::from_slice_with_deps(&[Metric::Mi]);
-    /// let _opts = MetricsOptions::default().with_metric_set(good);
+    /// // `Mi` alone — Loc + Cyclomatic + Halstead are auto-added so the
+    /// // resulting MI value is meaningful.
+    /// let set = MetricSet::empty().with(Metric::Mi);
+    /// let _opts = MetricsOptions::default().with_metric_set(set);
     /// ```
-    ///
-    /// The closure-resolved form above is equivalent to
-    /// `MetricsOptions::with_only(&[Metric::Mi])` — prefer that
-    /// builder if you don't already have a `MetricSet`.
     #[inline]
     #[must_use]
     pub fn with_metric_set(mut self, metrics: MetricSet) -> Self {
-        self.metrics = metrics;
+        self.metrics = metrics.resolved();
         self
     }
 }
@@ -2999,6 +2980,75 @@ end
                 "with_only(&[]) must elide every metric, got keys {:?}",
                 metrics.keys().collect::<Vec<_>>()
             );
+        }
+
+        // #743: `with_metric_set` must close the caller-supplied set
+        // under its dependencies, exactly like `with_only`. A verbatim
+        // `empty().with(Mi)` would otherwise compute the MI formula
+        // against zero-valued Loc / Cyclomatic / Halstead inputs and
+        // emit a meaningless score with no error.
+        #[test]
+        fn with_metric_set_resolves_dependency_closure() {
+            let unresolved = MetricSet::empty().with(Metric::Mi);
+            assert!(
+                !unresolved.contains(Metric::Loc),
+                "test premise: the verbatim set must omit Mi's deps"
+            );
+
+            let opts = MetricsOptions::default().with_metric_set(unresolved);
+            let space = analyze(
+                Source::new(LANG::Rust, SOURCE.as_bytes()).with_name(Some("lib.rs".to_owned())),
+                opts,
+            )
+            .expect("analyze must yield a top-level space");
+
+            let sel = space.metrics.selected();
+            assert!(sel.contains(Metric::Mi));
+            assert!(sel.contains(Metric::Loc), "Mi depends on Loc");
+            assert!(sel.contains(Metric::Cyclomatic), "Mi depends on Cyclomatic");
+            assert!(sel.contains(Metric::Halstead), "Mi depends on Halstead");
+
+            // The dependencies must actually be computed, not just
+            // bit-set: Loc ploc > 0 and Cyclomatic sum > 0 prove the
+            // walker ran them.
+            assert!(
+                space.metrics.loc.ploc() > 0,
+                "Loc must have run (Mi dependency); got ploc=0"
+            );
+            assert!(
+                space.metrics.cyclomatic.cyclomatic_sum() > 0,
+                "Cyclomatic must have run (Mi dependency); got sum=0"
+            );
+
+            // The resolved `with_metric_set` form must match the
+            // `with_only(&[Mi])` result bit-for-bit, both in the
+            // selected set and the computed MI value.
+            let via_only = analyze(
+                Source::new(LANG::Rust, SOURCE.as_bytes()).with_name(Some("lib.rs".to_owned())),
+                MetricsOptions::default().with_only(&[Metric::Mi]),
+            )
+            .expect("analyze must yield a top-level space");
+            assert_eq!(sel, via_only.metrics.selected());
+            let mi_value = space.metrics.mi.original();
+            assert!(
+                mi_value.is_finite() && mi_value != 0.0,
+                "MI must be finite and non-default once its deps are computed; got {mi_value}"
+            );
+            assert_eq!(mi_value, via_only.metrics.mi.original());
+        }
+
+        // An already-resolved set passes through `with_metric_set`
+        // unchanged (idempotence at the builder level).
+        #[test]
+        fn with_metric_set_passes_resolved_set_unchanged() {
+            let resolved = MetricSet::from_slice_with_deps(&[Metric::Mi]);
+            let opts = MetricsOptions::default().with_metric_set(resolved);
+            let space = analyze(
+                Source::new(LANG::Rust, SOURCE.as_bytes()).with_name(Some("lib.rs".to_owned())),
+                opts,
+            )
+            .expect("analyze must yield a top-level space");
+            assert_eq!(space.metrics.selected(), resolved);
         }
     }
 }

@@ -81,8 +81,12 @@ section.
     is the opaque bitfield consumed by
     `MetricsOptions::with_only(&[Metric])` and read back through
     `CodeMetrics::selected()`. Its constructors (`empty`, `all`,
-    `with`, `union`) and inspectors (`contains`) are stable; the
-    underlying integer representation is not. `Metric` is the single
+    `with`, `union`), the dependency-closure operations
+    (`from_slice_with_deps`, `resolved`), and inspectors
+    (`contains`) are stable; the underlying integer representation
+    is not. `MetricsOptions::with_metric_set` closes the supplied
+    set under `Metric::dependencies` before storing it (#743), so a
+    derived metric always reaches the walker with its inputs. `Metric` is the single
     metric vocabulary for both selection and suppression: it now
     derives `Ord`/`PartialOrd` (declaration order, so a
     `BTreeSet<Metric>` iterates deterministically) and implements

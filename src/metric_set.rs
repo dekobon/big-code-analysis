@@ -377,14 +377,44 @@ impl MetricSet {
     #[must_use]
     pub fn from_slice_with_deps(metrics: &[Metric]) -> Self {
         let mut set = Self::empty();
-        let mut worklist: Vec<Metric> = metrics.to_vec();
-        while let Some(m) = worklist.pop() {
-            if set.contains(m) {
-                continue;
-            }
+        for &m in metrics {
             set.insert(m);
+        }
+        set.resolved()
+    }
+
+    /// Returns this set closed under [`Metric::dependencies`].
+    ///
+    /// Every selected metric's transitive dependencies are added so a
+    /// set carrying a derived metric (e.g. [`Metric::Mi`]) also carries
+    /// the inputs that metric's finalize step consumes
+    /// ([`Metric::Loc`], [`Metric::Cyclomatic`], [`Metric::Halstead`]).
+    /// Resolving an already-closed set is a no-op, so the operation is
+    /// idempotent: `set.resolved().resolved() == set.resolved()`.
+    ///
+    /// This is the set-in/set-out counterpart of
+    /// [`MetricSet::from_slice_with_deps`] and is what
+    /// [`MetricsOptions::with_metric_set`](crate::MetricsOptions::with_metric_set)
+    /// applies so a caller-supplied set can never select a derived
+    /// metric without its prerequisites (#743).
+    ///
+    /// Implementation note: uses a worklist rather than a single pass
+    /// so a future derived metric whose dependency is itself derived
+    /// still resolves the complete closure. The loop terminates
+    /// because each iteration either inserts a new bit or the worklist
+    /// drains; the bitfield is bounded at `Metric` variant count.
+    #[must_use]
+    pub fn resolved(self) -> Self {
+        let mut set = self;
+        let mut worklist: Vec<Metric> = Metric::ALL
+            .iter()
+            .copied()
+            .filter(|&m| self.contains(m))
+            .collect();
+        while let Some(m) = worklist.pop() {
             for &dep in m.dependencies() {
                 if !set.contains(dep) {
+                    set.insert(dep);
                     worklist.push(dep);
                 }
             }
