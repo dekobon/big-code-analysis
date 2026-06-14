@@ -23,6 +23,25 @@ for historical reference.
 
 ### Added
 
+- `LANG::Objc` (slug `objc`) and the `objc` Cargo feature: dedicated
+  Objective-C support backed by upstream `tree-sitter-objc` `=3.0.2`,
+  owning the `.m` extension and the `objc` / `objective-c` emacs modes
+  (all moved off `LANG::Cpp`). Objective-C is a strict superset of C, so
+  `.m` files now parse correctly instead of ERROR-cascading every
+  `@interface` / `@implementation` / message send through the C++
+  grammar. Objective-C++ (`.mm`) deliberately stays on `LANG::Cpp`: the
+  Objective-C grammar cannot parse the C++ half of a `.mm` file, and C++
+  is the larger surface, so the C++ grammar degrades more gracefully
+  there — the same asymmetric trade-off `.h` uses (a known limitation;
+  metrics for the Objective-C portions of `.mm` files are approximate).
+  Real metric impls ship for cyclomatic, cognitive, exit, Halstead,
+  LoC, nom, and nargs; `abc` (computable but deferred) and the OO
+  metrics `npa` / `npm` / `wmc` read `0` pending dedicated impls
+  (tracked in #737). The retired internal `fake::get_true`
+  Objective-C slug overlay (#540) is gone — `.m` reports `"objc"` and
+  `.mm` reports `"cpp"` natively. `all-languages` now includes `objc`
+  (#724, part of #718).
+
 - New book recipe, *Feeding metrics to an agentic coding tool*
   (`recipes/agent-feedback.md`): wires the existing `bca check` surface
   into an agent's after-edit feedback loop with copy-pasteable sections

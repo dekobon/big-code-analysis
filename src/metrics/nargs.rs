@@ -309,6 +309,55 @@ impl NArgs for MozcppCode {
     }
 }
 
+// Objective-C carries parameters in three different shapes, so it cannot
+// share the single-`declarator`-field C/C++ impl:
+//   * free `function_definition`s use the C declarator → `parameters`
+//     field, counted exactly as in C;
+//   * a `method_definition` lists one `method_parameter` per labelled
+//     argument (`- (void)foo:(int)a bar:(int)b` → 2; the unary
+//     `- (void)foo` → 0);
+//   * a block `^(int x){ … }` holds its params in a `parameter_list`
+//     child rather than under a `parameters` field.
+impl NArgs for ObjcCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        match node.kind_id().into() {
+            Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
+                if let Some(declarator) = node.child_by_field_name("declarator") {
+                    compute_args::<Self>(&declarator, &mut stats.fn_nargs);
+                }
+            }
+            Objc::MethodDefinition => {
+                // Both `method_parameter` aliases are accepted per the
+                // #285 / lesson-2 defensive convention: real parse trees
+                // emit `MethodParameter` (475), but the grammar also
+                // declares the `MethodParameter2` (476) alias, so list it
+                // too rather than risk a future bump emitting it.
+                node.act_on_child(&mut |n| {
+                    if matches!(
+                        n.kind_id().into(),
+                        Objc::MethodParameter | Objc::MethodParameter2
+                    ) {
+                        stats.fn_nargs += 1;
+                    }
+                });
+            }
+            Objc::BlockLiteral => {
+                if let Some(params) = node.first_child(|id| Objc::ParameterList == id) {
+                    params.act_on_child(&mut |n| {
+                        if matches!(
+                            n.kind_id().into(),
+                            Objc::ParameterDeclaration | Objc::VariadicParameter
+                        ) {
+                            stats.closure_nargs += 1;
+                        }
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // Go's `parameter_declaration` allows multiple names to share one type
 // (`func f(a, b int)` is one parameter_declaration with two `name` children
 // but two formal parameters). Count names rather than declarations so the
@@ -3141,6 +3190,135 @@ when HTTP_REQUEST { log local0. \"hit\" }
             |metric| {
                 assert_eq!(metric.nargs.function_args_sum(), 2);
                 assert_eq!(metric.nom.functions_sum(), 2);
+            },
+        );
+    }
+
+    /// Objective-C unary method `- (void)foo` declares zero arguments.
+    #[test]
+    fn objc_no_args() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)foo {
+    [self doWork];
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.total(), 0);
+                insta::assert_json_snapshot!(metric.nargs, @r#"
+                {
+                  "function_args": 0,
+                  "closure_args": 0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0,
+                  "average": 0.0,
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C keyword method `- (void)foo:(int)a bar:(int)b` has two
+    /// `method_parameter` children, so `function_args` is 2.
+    #[test]
+    fn objc_method_two_args() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)foo:(int)a bar:(int)b {
+    [self use:a];
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.function_args_sum(), 2);
+                insta::assert_json_snapshot!(metric.nargs, @r#"
+                {
+                  "function_args": 2,
+                  "closure_args": 0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2,
+                  "average": 2.0,
+                  "function_args_min": 0,
+                  "function_args_max": 2,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Free C `function_definition` inside an ObjC translation unit counts
+    /// its declarator parameters: `void f(int a, int b, int c)` has 3.
+    #[test]
+    fn objc_function_args() {
+        check_metrics::<ObjcParser>(
+            "void f(int a, int b, int c) {
+    return;
+}
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.function_args_sum(), 3);
+                insta::assert_json_snapshot!(metric.nargs, @r#"
+                {
+                  "function_args": 3,
+                  "closure_args": 0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3,
+                  "average": 3.0,
+                  "function_args_min": 0,
+                  "function_args_max": 3,
+                  "closure_args_min": 0,
+                  "closure_args_max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C block literal `^(int x, int y){ … }` is a closure
+    /// whose `parameter_list` holds two `parameter_declaration`s, so
+    /// `closure_args` is 2.
+    #[test]
+    fn objc_block_args() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar {
+    void (^blk)(int, int) = ^(int x, int y){
+        [self use:x];
+    };
+    blk(1, 2);
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 2);
+                insta::assert_json_snapshot!(metric.nargs, @r#"
+                {
+                  "function_args": 0,
+                  "closure_args": 2,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 2.0,
+                  "total": 2,
+                  "average": 1.0,
+                  "function_args_min": 0,
+                  "function_args_max": 0,
+                  "closure_args_min": 0,
+                  "closure_args_max": 2
+                }
+                "#);
             },
         );
     }

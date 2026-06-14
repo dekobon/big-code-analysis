@@ -36,8 +36,10 @@ Combines the extension lookup with an Emacs/Vim *mode line* scan of the
 buffer and a shebang scan of the first line. Returns `(Option<LANG>,
 &str)` where the second element is the canonical lowercase language slug
 (`"cpp"`, `"csharp"`, `"rust"`, etc.) — the same string `LANG::name`
-emits and a valid `FromStr` lookup token. Objective-C / Objective-C++
-files parse with the C/C++ grammar and report `"cpp"`.
+emits and a valid `FromStr` lookup token. Objective-C (`.m`) parses with
+the dedicated `tree-sitter-objc` grammar and reports `"objc"`;
+Objective-C++ (`.mm`) stays on the C++ grammar and reports `"cpp"` (see
+[Objective-C and Objective-C++](#objective-c-and-objective-c) below).
 
 Mode line scanning runs three regexes (compiled once via `OnceLock`):
 
@@ -70,9 +72,7 @@ as follows:
    consulted **after** the extension and mode-line lookups have both
    come back empty, so an explicit `.py` extension or `mode: python`
    line on a script with `#!/bin/sh` still resolves to Python.
-6. **Nothing matches** — return `(None, "")`, with the Objective-C
-   override still able to set a display name (e.g. for a `.m` file
-   whose extension we map to `Cpp` already).
+6. **Nothing matches** — return `(None, "")`.
 
 #### Shebang scan
 
@@ -99,18 +99,30 @@ A non-UTF-8 shebang line yields `None` (no panic). Anything other
 than the interpreters above is unrecognised and falls through to the
 final `(None, "")` result.
 
-### The Objective-C overlay (`fake::get_true`)
+### Objective-C and Objective-C++
 
-Objective-C and Objective-C++ are parsed by the C++ tree-sitter grammar,
-so they share `LANG::Cpp`. `fake::get_true(ext, mode)` reports the
-canonical `"cpp"` slug (matching `LANG::Cpp.name()`) when:
+Since #724, Objective-C has its own dedicated grammar:
 
-- the extension is `m` or `mm`, or
-- the mode is `objc`, `objc++`, `objective-c`, or `objective-c++`.
+- **`.m` (and the `objc` / `objective-c` Emacs modes)** → `LANG::Objc`,
+  the upstream `tree-sitter-objc` grammar. Objective-C is a strict
+  superset of C, so `tree-sitter-objc` parses `.m` files fully and
+  reports the `"objc"` slug.
+- **`.mm` (and the `objc++` / `objective-c++` Emacs modes)** →
+  `LANG::Cpp`, reporting `"cpp"`. Objective-C++ mixes Objective-C and
+  C++; the `tree-sitter-objc` grammar parses the Objective-C and C
+  parts but not C++ constructs (templates, namespaces, classes, `::`).
+  Because a `.mm` file is `.mm` precisely because it contains C++ — the
+  larger, more pervasive surface — the C++ grammar degrades more
+  gracefully on `.mm` than the Objective-C grammar would (it only trips
+  on the Objective-C glue, not the whole C++ half). This is the same
+  asymmetric-failure trade-off #721 used to keep `.h` on `LANG::Cpp`.
+  Metrics for the Objective-C portions of a `.mm` file are therefore
+  approximate — a known limitation tracked in the original #724 decision.
 
-Since #540 this is just the same slug `LANG::Cpp` would report anyway —
-the earlier `"obj-c/c++"` pseudo-name was dropped because it was not a
-valid `FromStr` lookup token. The `LANG` variant remains `Cpp`.
+The earlier `fake::get_true` overlay — which folded both extensions onto
+the `"cpp"` slug while they shared one grammar (#540) — was retired in
+the #724 change: `.m` now reports `"objc"` natively and `.mm` reports
+`"cpp"` natively, so no override is needed.
 
 ## Where the extension and mode tables come from
 

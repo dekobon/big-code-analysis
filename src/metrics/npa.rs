@@ -1943,6 +1943,7 @@ impl Npa for MozjsCode {
 implement_metric_trait!(
     Npa,
     CCode,
+    ObjcCode,
     PreprocCode,
     CcommentCode,
     PerlCode,

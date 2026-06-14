@@ -32,6 +32,7 @@ class Lang(StrEnum):
     C = "c"
     CPP = "cpp"
     MOZCPP = "mozcpp"
+    OBJC = "objc"
     CSHARP = "csharp"
     ELIXIR = "elixir"
     PYTHON = "python"

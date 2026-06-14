@@ -54,6 +54,7 @@ per-language pipeline depends on).
 | `lua`        | `tree-sitter-lua`                                                              |
 | `mozcpp`     | `bca-tree-sitter-mozcpp` (+ `c-family-helpers`); opt-in Mozilla/Gecko C++ dialect, `Mozcpp` variant — owns no extensions, selected by name |
 | `mozjs`      | `bca-tree-sitter-mozjs`                                                        |
+| `objc`       | `tree-sitter-objc`; the `Objc` variant (Objective-C). Owns `.m`; `.mm` Objective-C++ stays on `Cpp` |
 | `perl`       | `tree-sitter-perl`                                                             |
 | `php`        | `tree-sitter-php`                                                              |
 | `python`     | `tree-sitter-python`                                                           |

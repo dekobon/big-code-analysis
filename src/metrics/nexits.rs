@@ -190,6 +190,9 @@ impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
 impl_exit_match_kinds!(MozcppCode, Mozcpp, [ReturnStatement, ThrowStatement]);
 // C has no exceptions: `return` is the only exit kind (no `throw`).
 impl_exit_match_kinds!(CCode, C, [ReturnStatement]);
+// Objective-C adds `@throw` on top of C's `return` (the `throw_statement`
+// node), mirroring the C++ exit set.
+impl_exit_match_kinds!(ObjcCode, Objc, [ReturnStatement, ThrowStatement]);
 // Java's `yield` is the Java-14+ switch-expression yield statement
 // (an unambiguous statement node, distinct from a labeled `break`).
 // It hands the switch-expression value back as an explicit exit, so it
@@ -2552,6 +2555,61 @@ end",
             "foo.irule",
             |metric| {
                 assert_eq!(metric.nexits.nexits_sum(), 1);
+            },
+        );
+    }
+
+    /// Objective-C method with no `return` and no `@throw` has zero exit
+    /// points.
+    #[test]
+    fn objc_no_exit() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar {
+    [self doWork];
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 0);
+                insta::assert_json_snapshot!(metric.nexits, @r#"
+                {
+                  "sum": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#);
+            },
+        );
+    }
+
+    /// Objective-C exit set is `return_statement` + `@throw`
+    /// (`throw_statement`): a method with one of each counts 2.
+    #[test]
+    fn objc_return_and_throw() {
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (int)bar:(int)x {
+    if (x < 0) {
+        @throw [NSException exceptionWithName:@\"e\" reason:@\"r\" userInfo:nil];
+    }
+    return x;
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.nexits.nexits_sum(), 2);
+                insta::assert_json_snapshot!(metric.nexits, @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#);
             },
         );
     }

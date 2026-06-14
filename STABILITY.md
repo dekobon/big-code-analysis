@@ -1268,6 +1268,16 @@ loose ends that will be tightened at `2.0`:
   `.c` files now parse through the C grammar rather than the C++ one, so
   their metric values shift (integration snapshots re-baselined). `.h`
   stays on `Cpp` (asymmetric failure modes).
+- A dedicated `LANG::Objc` (slug `objc`, upstream `tree-sitter-objc`) is
+  added and the `.m` extension + `objc` / `objective-c` emacs modes move
+  off `LANG::Cpp` onto it (#724). Adding the variant and the `objc`
+  Cargo feature is additive, but `.m` files now parse through the
+  Objective-C grammar rather than the C++ one, so their metric values
+  shift and their reported slug changes from `cpp` to `objc` (the
+  internal `fake::get_true` slug overlay from #540 is retired).
+  Objective-C++ (`.mm`) stays on `Cpp` — the same asymmetric
+  failure-mode trade-off as `.h`, since the Objective-C grammar cannot
+  parse the C++ half of a `.mm` file.
 - The Python bindings tighten their typed surface (#542): the
   `analyze_batch` `skip_generated` default flips from `False` to
   `True` to align with `analyze` (a generated file is now skipped, so

@@ -557,6 +557,28 @@ f() {
             "irule",
         ),
     );
+    // Objective-C uses a free C `function_definition` (valid in a `.m`
+    // file), which is top-level, so no class offset. Each `else if`
+    // condition is a decision, the trailing `else` is free.
+    sums.insert(
+        "objc",
+        ccn_sum(
+            LANG::Objc,
+            r"int f(int x) {
+    if (x == 1) {
+        return 10;
+    } else if (x == 2) {
+        return 20;
+    } else if (x == 3) {
+        return 30;
+    } else {
+        return 0;
+    }
+}
+",
+            "m",
+        ),
+    );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
     assert_parity("if_else_if_else_chain", &sums, &offsets);
 
@@ -669,6 +691,21 @@ f() {
 }
 ",
             "groovy",
+        ),
+    );
+    // Objective-C free C function (top-level, no class offset): a single
+    // `if` with no `else` is one decision point.
+    sums.insert(
+        "objc",
+        ccn_sum(
+            LANG::Objc,
+            r"void f(int x) {
+    if (x == 1) {
+        x = x;
+    }
+}
+",
+            "m",
         ),
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);

@@ -98,6 +98,13 @@ fn lang_mozcpp_resolves_to_vendored_mozcpp() {
 }
 
 #[test]
+fn lang_objc_resolves_to_tree_sitter_objc() {
+    // Dedicated Objective-C language added in #724 (upstream
+    // `tree-sitter-objc`). `.mm` Objective-C++ stays on `Lang::Cpp`.
+    assert_dispatch(Lang::Objc, "Objc", tree_sitter_objc::LANGUAGE.into());
+}
+
+#[test]
 fn lang_python_resolves_to_tree_sitter_python() {
     assert_dispatch(Lang::Python, "Python", tree_sitter_python::LANGUAGE.into());
 }
@@ -211,7 +218,7 @@ fn lang_groovy_resolves_to_dekobon_tree_sitter_groovy() {
 //
 // Bumping this number without adding a matching `lang_*_resolves_to_*`
 // test above is the failure mode this guard exists to catch.
-const EXPECTED_LANG_VARIANT_COUNT: usize = 24;
+const EXPECTED_LANG_VARIANT_COUNT: usize = 25;
 
 #[test]
 fn coverage_every_lang_variant_is_dispatched() {

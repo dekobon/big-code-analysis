@@ -408,6 +408,7 @@ impl Wmc for ElixirCode {
 implement_metric_trait!(
     Wmc,
     CCode,
+    ObjcCode,
     PreprocCode,
     CcommentCode,
     GoCode,

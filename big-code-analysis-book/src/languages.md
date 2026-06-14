@@ -20,6 +20,7 @@ gated behind the matching per-language Cargo feature documented in
 - [x] Lua
 - [x] Mozcpp
 - [x] Mozjs
+- [x] Objective-C
 - [x] Perl
 - [x] Php
 - [x] Python
@@ -44,7 +45,15 @@ ERROR-cascades on `class` / `template`, whereas a C header through the
 C++ grammar only trips on C++-keyword identifiers. The Mozilla/Gecko
 C++ dialect is the opt-in `Mozcpp` variant (slug `mozcpp`), which owns
 no file extensions and is selected only by name — exactly as `Mozjs`
-relates to `JavaScript` (C# reports `csharp`). Every variant's slug is
+relates to `JavaScript` (C# reports `csharp`). Since #724 `Objective-C`
+(slug `objc`, upstream `tree-sitter-objc`) owns `.m` and the `objc` /
+`objective-c` emacs modes. Objective-C++ (`.mm`) stays on `Cpp`: a
+`.mm` file mixes Objective-C with C++, and the `tree-sitter-objc`
+grammar cannot parse the C++ half (templates, namespaces, `::`), so the
+C++ grammar — which only stumbles on the Objective-C glue — degrades
+more gracefully there, the same trade-off `.h` uses. Metrics for the
+Objective-C parts of a `.mm` file are therefore approximate. Every
+variant's slug is
 its `LANG::name`, lowercase and punctuation-free so it round-trips
 through `FromStr`.
 

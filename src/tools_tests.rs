@@ -233,9 +233,12 @@ fn test_guess_language() {
     let buf = b"\n\n\n\n\n\n\n\n\n\n\n\n";
     assert_eq!(guess_language(buf, "foo.txt"), (None, ""));
 
-    // Objective-C / Objective-C++ files parse with the C/C++ grammar
-    // and report the canonical `"cpp"` slug since #540 (the former
-    // `"obj-c/c++"` pseudo-name was unparseable as a `FromStr` token).
+    // Objective-C (`.m`) gets its own `LANG::Objc` and reports `"objc"`
+    // since #724. Objective-C++ (`.mm`) stays on the C++ grammar (the
+    // ObjC grammar can't parse the C++ half of a `.mm` file) and reports
+    // `"cpp"` natively — the former `fake`/`#540` override is gone.
+    let buf = b"// -*- mode: objc -*-\n";
+    assert_eq!(guess_language(buf, "foo.m"), (Some(LANG::Objc), "objc"));
     let buf = b"// -*- foo: bar; mode: Objective-C++; hello: world\n";
     assert_eq!(guess_language(buf, "foo.mm"), (Some(LANG::Cpp), "cpp"));
 }
@@ -287,10 +290,10 @@ fn guess_language_name_outlives_input_buffer() {
         let buf: Vec<u8> = b"// -*- foo: bar; mode: Objective-C++; hello: world\n".to_vec();
         let (lang, name) = guess_language(&buf, "foo.mm");
         assert_eq!(lang, Some(LANG::Cpp));
-        // `name` comes from the `fake::get_true` objc override, which
-        // since #540 returns the canonical `LANG::Cpp.name()` slug — a
-        // `&'static str` from static tables / literals, never borrowed
-        // from `buf` (issue #506).
+        // `.mm` stays on `Cpp`; `name` is `LANG::Cpp.name()` directly
+        // (the `fake` override was retired with #724) — a `&'static str`
+        // from static tables / literals, never borrowed from `buf`
+        // (issue #506).
         name
     };
     assert_eq!(name, "cpp");
