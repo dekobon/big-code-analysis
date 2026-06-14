@@ -107,6 +107,47 @@ fn empty_slice_yields_empty_set() {
     assert_eq!(MetricSet::from_slice_with_deps(&[]), MetricSet::empty());
 }
 
+// #743: `resolved()` closes a verbatim-built set under its
+// dependencies. `empty().with(Mi)` carries only the `Mi` bit until
+// resolved; afterwards it must carry the full Mi closure.
+#[test]
+fn resolved_closes_unresolved_set() {
+    let unresolved = MetricSet::empty().with(Metric::Mi);
+    assert!(unresolved.contains(Metric::Mi));
+    assert!(
+        !unresolved.contains(Metric::Loc),
+        "test premise: the verbatim set must be missing Mi's deps"
+    );
+
+    let resolved = unresolved.resolved();
+    assert!(resolved.contains(Metric::Mi));
+    assert!(resolved.contains(Metric::Loc), "Mi depends on Loc");
+    assert!(
+        resolved.contains(Metric::Cyclomatic),
+        "Mi depends on Cyclomatic"
+    );
+    assert!(
+        resolved.contains(Metric::Halstead),
+        "Mi depends on Halstead"
+    );
+    // Unrelated metrics stay out.
+    assert!(!resolved.contains(Metric::Abc));
+    assert!(!resolved.contains(Metric::Tokens));
+    // Equivalent to building the closure straight from the slice.
+    assert_eq!(resolved, MetricSet::from_slice_with_deps(&[Metric::Mi]));
+}
+
+// Resolving an already-closed set is a no-op: idempotence.
+#[test]
+fn resolved_is_idempotent() {
+    let once = MetricSet::empty().with(Metric::Mi).resolved();
+    assert_eq!(once, once.resolved(), "resolved() must be idempotent");
+    // A fully-populated set is unchanged.
+    assert_eq!(MetricSet::all().resolved(), MetricSet::all());
+    // The empty set has no dependencies to pull in.
+    assert_eq!(MetricSet::empty().resolved(), MetricSet::empty());
+}
+
 /// Every `Metric` variant. Tests that need to walk the enum
 /// exhaustively reach for this constant. The array initialiser
 /// itself has no exhaustiveness check, so the
@@ -345,21 +386,23 @@ fn names_table_is_alphabetised() {
     );
 }
 
-// `MetricsOptions::with_metric_set` consumes its argument
-// verbatim — no closure resolution. Pinning the contrast with
-// `with_only` (which DOES resolve deps) catches a future
-// "helpful" refactor that adds auto-resolution to
-// `with_metric_set`: such a change would silently fix some
-// callers but invalidate the public-API contract documented
-// on the builder, where "this set MUST be closed before it
-// reaches this builder" is the load-bearing precondition.
+// `MetricSet::with` is the low-level bit primitive: it sets one
+// bit and does NOT resolve dependencies. Closure resolution is a
+// distinct, explicit step (`resolved` / `from_slice_with_deps`),
+// applied by the builders (`with_only`, `with_metric_set`) before
+// the set reaches the walker. Pinning this contrast guards against
+// a "helpful" refactor that bakes auto-resolution into the
+// primitive itself, where it would surprise every caller that
+// composes sets bit-by-bit (#743 keeps resolution at the builder
+// boundary, not in `with`).
 //
 // The test lives alongside `MetricSet` rather than in
 // `spaces.rs` because the contrast is between two `MetricSet`
-// operations: `from_slice_with_deps` (closure-resolving) vs.
-// raw construction via `empty().with(...)` (no resolution).
+// operations: `from_slice_with_deps` / `resolved`
+// (closure-resolving) vs. raw construction via `empty().with(...)`
+// (no resolution).
 #[test]
-fn with_metric_set_does_not_resolve_dependencies() {
+fn with_primitive_does_not_resolve_dependencies() {
     // `from_slice_with_deps(&[Mi])` includes Loc, Cyclomatic,
     // Halstead alongside Mi…
     let resolved = MetricSet::from_slice_with_deps(&[Metric::Mi]);
@@ -368,10 +411,10 @@ fn with_metric_set_does_not_resolve_dependencies() {
     assert!(resolved.contains(Metric::Cyclomatic));
     assert!(resolved.contains(Metric::Halstead));
 
-    // …whereas `empty().with(Mi)` does NOT auto-resolve, and
-    // the caller-owned closure precondition documented on
-    // `MetricsOptions::with_metric_set` is what guards
-    // against MI being computed against zero-valued inputs.
+    // …whereas `empty().with(Mi)` does NOT auto-resolve. The
+    // `with_metric_set` builder applies `resolved()` itself (#743),
+    // so an unresolved set never reaches the walker through the
+    // public API — but the bit primitive stays minimal.
     let bare = MetricSet::empty().with(Metric::Mi);
     assert!(bare.contains(Metric::Mi));
     assert!(!bare.contains(Metric::Loc), "with(Mi) must NOT pull Loc");
