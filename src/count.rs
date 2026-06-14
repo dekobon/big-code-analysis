@@ -110,9 +110,19 @@ impl CountCollector {
     /// that a worker panicked mid-update and poisoned the inner mutex
     /// (issue #445): the recovered guard still holds the fully-applied
     /// tally because the aggregation is two monotonically-incremented
-    /// counters. If the `Arc` is unexpectedly still shared (a worker
-    /// failed to join), falls back to a clone of the current tally
-    /// rather than panicking.
+    /// counters.
+    ///
+    /// If the `Arc` is unexpectedly **still shared**, a peer clone
+    /// survived past this call — a worker failed to join — which is a
+    /// caller-side coordination bug, not a recoverable runtime state.
+    /// Another clone may still call [`CountCollector::add`] afterwards,
+    /// so the value returned here is a **best-effort snapshot of a tally
+    /// that is not yet final**, not the complete aggregate the
+    /// `#[must_use]` return implies (issue #757). A `debug_assert!`
+    /// trips loudly on this path so the coordination bug surfaces in
+    /// debug and test builds; release builds still degrade to the
+    /// snapshot rather than panicking, honoring the project's
+    /// no-panic-in-production contract.
     #[must_use]
     pub fn into_count(self) -> Count {
         match Arc::try_unwrap(self.0) {
@@ -120,6 +130,16 @@ impl CountCollector {
                 .into_inner()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
             Err(shared) => {
+                // A still-shared `Arc` means a worker has not joined: the
+                // returned tally is a non-final snapshot (issue #757).
+                // Trip loudly in debug/test builds to expose the
+                // coordination bug while release degrades gracefully.
+                debug_assert!(
+                    false,
+                    "CountCollector::into_count called while the collector \
+                     is still shared (a worker failed to join); the \
+                     returned Count is a non-final snapshot"
+                );
                 let guard = shared
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -262,6 +282,27 @@ mod tests {
         let count = collector.into_count();
         assert_eq!(count.good, 3, "poison recovery must preserve the tally");
         assert_eq!(count.total, 7, "poison recovery must preserve the tally");
+    }
+
+    // Regression test for issue #757: calling `into_count` while a peer
+    // clone is still alive (a worker failed to join) is a coordination
+    // bug that used to return a non-final snapshot silently. The
+    // `debug_assert!` in the `Err(shared)` arm must trip loudly so the
+    // misuse cannot masquerade as a final aggregate. Gated on
+    // `debug_assertions`: `debug_assert!` is a no-op under `--release`,
+    // where the call degrades to the snapshot instead of panicking.
+    // Verified by revert per `.claude/rules/testing.md`: without the
+    // `debug_assert!`, `into_count` returns normally and this test fails
+    // (no panic), proving the assert is what makes the misuse loud.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "still shared")]
+    fn into_count_panics_in_debug_when_still_shared() {
+        let collector = CountCollector::with_count(Count { good: 1, total: 2 });
+        // Hold a live clone so the `Arc` strong count stays above one,
+        // forcing `Arc::try_unwrap` down the still-shared `Err` arm.
+        let _surviving_peer = collector.clone();
+        let _ = collector.into_count();
     }
 
     // Regression test for issue #709: the default `Count { good: 0, total: 0 }`
