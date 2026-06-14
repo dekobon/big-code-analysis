@@ -10893,4 +10893,58 @@ class A {
             },
         );
     }
+
+    #[test]
+    fn objc_at_directives_lloc() {
+        // The only ObjC-specific LLOC work the impl does beyond the C
+        // inheritance: `@synchronized` is a dedicated `synchronized_statement`
+        // node (counts as a logical line), but `@autoreleasepool` emits
+        // only a keyword token with no wrapping node, so its *header* adds
+        // nothing and only its inner statements count.
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar {
+    @synchronized (self) {
+        [self use];
+    }
+    @autoreleasepool {
+        [self use];
+    }
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                // expected: @synchronized statement (1) + its body
+                // `[self use]` (1) + the @autoreleasepool body `[self use]`
+                // (1) = 3. The `@autoreleasepool` header contributes no
+                // logical line (it has no node); if it did, this would be 4.
+                assert_eq!(metric.loc.lloc(), 3);
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 10,
+                  "ploc": 10,
+                  "lloc": 3,
+                  "cloc": 0,
+                  "blank": 0,
+                  "sloc_average": 3.3333333333333335,
+                  "ploc_average": 3.3333333333333335,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 8,
+                  "sloc_max": 10,
+                  "cloc_min": 0,
+                  "cloc_max": 0,
+                  "ploc_min": 8,
+                  "ploc_max": 10,
+                  "lloc_min": 3,
+                  "lloc_max": 3,
+                  "blank_min": 0,
+                  "blank_max": 0
+                }
+                "#);
+            },
+        );
+    }
 }
