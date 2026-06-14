@@ -75,8 +75,18 @@ impl Ops {
             }
             _ => (node.start_row() + 1, node.end_row() + 1),
         };
+        // The top-level Unit's name is overwritten by `ops_inner` with the
+        // caller-supplied name before returning, so computing it here is
+        // wasted work. Non-top-level Unit spaces have no resolvable name, so
+        // leaving `None` matches the documented "could not be resolved"
+        // semantics rather than inventing the `<anonymous>` placeholder the
+        // default getter returns. Other kinds keep the AST-derived name.
+        // Mirrors the `SpaceKind::Unit` handling in `FuncSpace::new`.
+        let name = (kind != SpaceKind::Unit)
+            .then(|| T::get_func_space_name(node, code).map(str::to_owned))
+            .flatten();
         Self {
-            name: T::get_func_space_name(node, code).map(str::to_owned),
+            name,
             name_was_lossy: false,
             spaces: Vec::new(),
             kind,
@@ -761,6 +771,37 @@ mod tests {
                 "Prims", "a", "b", "c", "d", "e", "f", "g", "h", "i", "1", "2", "3", "4", "'x'",
                 "1.0f", "2.0", "true", "false",
             ],
+        );
+    }
+
+    /// A `Unit` space must never carry the synthetic `<anonymous>`
+    /// placeholder that the default getter invents for nodes without a
+    /// `name` field. The public docs describe `None` as the
+    /// "name could not be resolved" state, and the metrics-side
+    /// `FuncSpace::new` already special-cases `SpaceKind::Unit` the same
+    /// way; this pins the `Ops::new` mirror so a regression to the old
+    /// `Some("<anonymous>")` initialisation fails here rather than only
+    /// surfacing for a (currently unreachable) non-top-level `Unit`
+    /// space, where `ops_inner`'s top-level override would not rescue it.
+    /// See issue #755.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn unit_space_name_is_none_not_anonymous() {
+        use crate::getter::Getter;
+        use crate::traits::ParserTrait;
+        use crate::{RustCode, RustParser, SpaceKind};
+
+        let code = b"fn f() {}\n";
+        let parser = RustParser::new(code.to_vec(), std::path::Path::new("foo.rs"), None);
+        let root = parser.root();
+        // The Rust `source_file` root is a `Unit` and has no `name`/`type`
+        // field, so the default getter would invent `<anonymous>`.
+        assert_eq!(SpaceKind::Unit, RustCode::get_space_kind(&root));
+
+        let ops = super::Ops::new::<RustCode>(&root, code, SpaceKind::Unit);
+        assert_eq!(
+            ops.name, None,
+            "Unit space must preserve name = None, not invent <anonymous>"
         );
     }
 }
