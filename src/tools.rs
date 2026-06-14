@@ -66,6 +66,13 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(data)
 }
 
+/// Bytes from the start of the file probed to decide whether the contents
+/// look like UTF-8 before the whole file is read. A small fixed window keeps
+/// the rejection of obviously-binary files cheap; the last character of the
+/// window may be a multibyte sequence split by this boundary, which the
+/// classifier tolerates only when more file follows (see `read_file_with_eol`).
+const UTF8_PROBE_BYTES: usize = 64;
+
 /// Reads a file, normalising all CR-only and CRLF line endings to LF, and ensures
 /// the buffer ends with exactly one `\n`. Returns `None` for files ≤ 3 bytes or
 /// files that appear to be non-UTF-8.
@@ -96,7 +103,8 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
     let mut file = File::open(path)?;
 
-    let mut start = vec![0; 64.min(file_size)];
+    let probe_len = UTF8_PROBE_BYTES.min(file_size);
+    let mut start = vec![0; probe_len];
     let start = if file.read_exact(&mut start).is_ok() {
         // Skip the bom if one
         if start[..2] == [b'\xFE', b'\xFF'] || start[..2] == [b'\xFF', b'\xFE'] {
@@ -110,13 +118,26 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
         return Ok(None);
     };
 
-    // so start contains more or less 64 chars
-    let mut head = String::from_utf8_lossy(start).into_owned();
-    // The last char could be wrong because we were in the middle of an utf-8 sequence
-    head.pop();
-    // now check if there is an invalid char
-    if head.contains('\u{FFFD}') {
-        return Ok(None);
+    // Validate the probe as UTF-8 at the byte level rather than via a lossy
+    // string round-trip. The probe is only the first `UTF8_PROBE_BYTES`, so a
+    // file longer than the probe may legitimately have its last multibyte
+    // character split across the window boundary. `String::from_utf8_lossy`
+    // could not distinguish that benign truncation (issue #746) from a real
+    // encoding error, and its replacement character `U+FFFD` collided with the
+    // same scalar appearing legitimately in the source (issue #758).
+    //
+    // `probe_truncated` is true only when the file continues past the probe;
+    // when the probe is the whole file there is no more data to complete a
+    // trailing partial sequence, so such a sequence is genuine corruption.
+    let probe_truncated = file_size > probe_len;
+    match std::str::from_utf8(start) {
+        Ok(_) => {}
+        Err(e) if e.error_len().is_none() && probe_truncated => {
+            // Only a trailing incomplete multibyte sequence: the bytes before
+            // `valid_up_to()` are valid UTF-8 and the truncated tail is
+            // completed by data later in the file.
+        }
+        Err(_) => return Ok(None),
     }
 
     let mut data = Vec::with_capacity(file_size + 2);

@@ -2363,6 +2363,19 @@ for historical reference.
 
 ### Fixed
 
+- `read_file_with_eol` now validates its 64-byte UTF-8 probe at the
+  byte level with `std::str::from_utf8` instead of the previous
+  `from_utf8_lossy` + unconditional `pop` + `U+FFFD` scan (#746, #758).
+  The old heuristic dropped the probe's final character unconditionally,
+  which both hid a genuinely invalid trailing byte (wrongly accepting
+  non-UTF-8 input) and rejected files that legitimately contained the
+  `U+FFFD` replacement scalar within the probe window. A trailing
+  incomplete multibyte sequence is now tolerated only when the file
+  continues past the probe (so the split character is completed by later
+  bytes); when the probe is the whole file, an incomplete tail is
+  treated as genuine corruption. The public `Ok(None)` /
+  `Ok(Some(..))` contract is unchanged.
+
 - `--exclude-tests` (and `MetricsOptions::exclude_tests`) now prunes
   unit- and function-level `loc.sloc` in step with the other loc
   sub-metrics (#722). `sloc` is the lone loc metric computed by span
