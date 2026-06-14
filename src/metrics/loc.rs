@@ -131,7 +131,8 @@ impl Sloc {
         self.sloc_max as u64
     }
 
-    /// Folds `other` into `self`, updating the min/max accumulators.
+    /// Folds `other` into `self`, updating the min/max accumulators and
+    /// accumulating the child's `exclude_tests`-pruned line count.
     #[inline]
     pub fn merge(&mut self, other: &Sloc) {
         // Fold the child's own min/max (not its aggregate `sloc()`), so the
@@ -140,6 +141,21 @@ impl Sloc {
         // exit, nargs, nom, tokens, abc) and fixed issue #437.
         self.sloc_min = self.sloc_min.min(other.sloc_min);
         self.sloc_max = self.sloc_max.max(other.sloc_max);
+
+        // Propagate the child's pruned line count upward so an ancestor's
+        // span-based `sloc()` drops by the same lines, mirroring how `Ploc`
+        // unions its line-set upward (`Ploc::merge`). The prune hook records
+        // each pruned subtree's span only on its innermost enclosing
+        // func-space; without this fold a `#[test] fn` inside a retained
+        // `impl`/`trait`/closure would shrink only that space's `sloc`,
+        // leaving every enclosing space (including the unit, which feeds
+        // MI's SLOC term) inflated (issue #741, #722 follow-up). Each
+        // ancestor's span already includes the pruned rows exactly once, so
+        // subtracting the accumulated count once per level cannot
+        // double-count: pruned subtrees never descend, so a nested pruned
+        // item is recorded on a single space and folded up one altitude at
+        // a time.
+        self.excluded_lines += other.excluded_lines;
     }
 
     #[inline]
