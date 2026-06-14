@@ -20,6 +20,50 @@ fn is_identifier_starter(c: u8) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_lowercase() || c == b'_'
 }
 
+/// True when the `'` at `code[i]` is a C++14 / C23 single-quote digit
+/// separator (`1'000`, `0xDEAD'BEEF`, `3.14'159`) rather than a
+/// character-literal opener.
+///
+/// Per [lex.icon] / [lex.fcon] a separator may appear only *inside* a
+/// numeric literal, flanked on both sides by a digit; hex digits cover
+/// decimal, so a single `is_ascii_hexdigit` test suffices per side. The
+/// `in_number` guard is load-bearing: a length-prefixed char literal
+/// (`L'x'`, `u'x'`, `U'x'`, `u8'x'`) also has an alphanumeric byte
+/// before the `'`, but those prefixes are *identifier* runs, never
+/// numeric runs, so `in_number` is false and the literal still opens
+/// Char correctly.
+#[inline]
+fn is_digit_separator(code: &[u8], i: usize, in_number: bool) -> bool {
+    in_number
+        && i > 0
+        && code[i - 1].is_ascii_hexdigit()
+        && i + 1 < code.len()
+        && code[i + 1].is_ascii_hexdigit()
+}
+
+/// Numeric-literal sub-state tracker for [`step_normal`]. Updates
+/// `in_number` for the byte at `code[i]` and reports whether that byte
+/// is a digit separator that [`step_normal`] should consume verbatim.
+///
+/// A run starts at a digit when not already inside an identifier
+/// (`k_start == 0`) or number, continues through identifier bytes and
+/// `.` (the float fraction), and ends on anything else. Returning early
+/// for the separator keeps the separator `'` from reaching the
+/// char-literal opener path.
+#[inline]
+fn track_numeric_run(code: &[u8], i: usize, k_start: usize, in_number: &mut bool) -> bool {
+    let c = code[i];
+    if c == b'\'' && is_digit_separator(code, i, *in_number) {
+        return true;
+    }
+    if *in_number {
+        *in_number = is_identifier_part(c) || c == b'.';
+    } else if k_start == 0 && c.is_ascii_digit() {
+        *in_number = true;
+    }
+    false
+}
+
 #[inline]
 fn is_macro<S: ::std::hash::BuildHasher>(mac: &str, macros: &HashSet<String, S>) -> bool {
     macros.contains(mac) || is_predefined_macros(mac)
@@ -48,23 +92,44 @@ enum LexState {
     },
 }
 
+/// Mutable working state of the macro-masking prepass, threaded
+/// together through [`step_normal`]. Bundling these keeps the byte
+/// scanner's accumulator in one place rather than as a fistful of
+/// `&mut` parameters.
+struct MaskState {
+    /// 1-based start of the current identifier run (`0` = none).
+    k_start: usize,
+    /// Index up to which `code` has been copied into `new_code`.
+    code_start: usize,
+    /// True while scanning a numeric literal, so a `'` between digits is
+    /// recognized as a C++14 / C23 separator rather than a char opener.
+    in_number: bool,
+    /// Output buffer with macro identifiers overwritten by `$`.
+    new_code: Vec<u8>,
+}
+
 fn step_normal<S: ::std::hash::BuildHasher>(
     code: &[u8],
     i: usize,
-    k_start: &mut usize,
-    code_start: &mut usize,
-    new_code: &mut Vec<u8>,
+    mask: &mut MaskState,
     macros: &HashSet<String, S>,
     state: &mut LexState,
 ) -> usize {
     let c = code[i];
 
+    // Advance the numeric-literal sub-state first. A `'` that is a
+    // C++14 / C23 digit separator (`1'000`, `0xDEAD'BEEF`) is consumed
+    // here so it never reaches the char-literal opener below.
+    if track_numeric_run(code, i, mask.k_start, &mut mask.in_number) {
+        return 1;
+    }
+
     // Identifier-run termination must happen *before* state transitions
     // — a sequence like `DBG//` or `DBG"` must classify `DBG` as a macro
     // even though the very next byte also starts a new lexical state.
-    if *k_start != 0 && !is_identifier_part(c) {
-        let start = *k_start - 1;
-        *k_start = 0;
+    if mask.k_start != 0 && !is_identifier_part(c) {
+        let start = mask.k_start - 1;
+        mask.k_start = 0;
         let keyword = str::from_utf8(&code[start..i])
             .expect("invariant: bytes filtered to ASCII-only by is_identifier_part");
         if c == b'"' && is_raw_string_prefix(&code[start..i]) {
@@ -74,9 +139,10 @@ fn step_normal<S: ::std::hash::BuildHasher>(
             return enter_raw_string(code, i, state);
         }
         if is_macro(keyword, macros) {
-            new_code.extend(&code[*code_start..start]);
-            new_code.resize(new_code.len() + (i - start), b'$');
-            *code_start = i;
+            mask.new_code.extend(&code[mask.code_start..start]);
+            mask.new_code
+                .resize(mask.new_code.len() + (i - start), b'$');
+            mask.code_start = i;
         }
     }
 
@@ -104,8 +170,8 @@ fn step_normal<S: ::std::hash::BuildHasher>(
         *state = LexState::Char;
         return 1;
     }
-    if *k_start == 0 && is_identifier_starter(c) {
-        *k_start = i + 1;
+    if mask.k_start == 0 && is_identifier_starter(c) {
+        mask.k_start = i + 1;
     }
     1
 }
@@ -208,25 +274,19 @@ pub fn replace<S: ::std::hash::BuildHasher>(
     code: &[u8],
     macros: &HashSet<String, S>,
 ) -> Option<Vec<u8>> {
-    let mut new_code = Vec::with_capacity(code.len());
-    let mut code_start = 0;
-    let mut k_start = 0;
+    let mut mask = MaskState {
+        k_start: 0,
+        code_start: 0,
+        in_number: false,
+        new_code: Vec::with_capacity(code.len()),
+    };
     let mut state = LexState::Normal;
     let mut i = 0;
 
     while i < code.len() {
         match state {
             LexState::Normal => {
-                let consumed = step_normal(
-                    code,
-                    i,
-                    &mut k_start,
-                    &mut code_start,
-                    &mut new_code,
-                    macros,
-                    &mut state,
-                );
-                i += consumed;
+                i += step_normal(code, i, &mut mask, macros, &mut state);
             }
             LexState::String => i += step_quoted(code, i, b'"', &mut state),
             LexState::Char => i += step_quoted(code, i, b'\'', &mut state),
@@ -241,25 +301,26 @@ pub fn replace<S: ::std::hash::BuildHasher>(
 
     // Trailing identifier at end of input (only if we end in Normal state
     // and were tracking an identifier when input ran out).
-    if k_start != 0 && matches!(state, LexState::Normal) {
-        let start = k_start - 1;
+    if mask.k_start != 0 && matches!(state, LexState::Normal) {
+        let start = mask.k_start - 1;
         let end = code.len();
         let keyword = str::from_utf8(&code[start..end])
             .expect("invariant: bytes filtered to ASCII-only by is_identifier_part");
         if is_macro(keyword, macros) {
-            new_code.extend(&code[code_start..start]);
-            new_code.resize(new_code.len() + (end - start), b'$');
-            code_start = end;
+            mask.new_code.extend(&code[mask.code_start..start]);
+            mask.new_code
+                .resize(mask.new_code.len() + (end - start), b'$');
+            mask.code_start = end;
         }
     }
 
-    if code_start == 0 {
+    if mask.code_start == 0 {
         None
     } else {
         // `code[code_start..]` is `&[]` when `code_start == code.len()`,
         // so the extend is a no-op in that case — no branch needed.
-        new_code.extend(&code[code_start..]);
-        Some(new_code)
+        mask.new_code.extend(&code[mask.code_start..]);
+        Some(mask.new_code)
     }
 }
 
@@ -495,6 +556,104 @@ mod tests {
         // The `R` prefix and the inner DBG are untouched; only the
         // trailing DBG outside the raw string is masked.
         let expected = b"auto s = R\"(DBG)\"; $$$ x;".to_vec();
+        assert_eq!(expected, replace(src, &mac).unwrap());
+    }
+
+    #[test]
+    fn digit_separator_does_not_open_char_state() {
+        // C++14 / C23 digit separator `1'000`: the `'` sits between two
+        // decimal digits inside a numeric literal, so it must NOT enter
+        // Char state. With no macros present, the input is untouched.
+        let mac = dbg_macros();
+        assert!(replace(b"int x = 1'000;", &mac).is_none());
+    }
+
+    #[test]
+    fn hex_digit_separator_does_not_open_char_state() {
+        // `0xDEAD'BEEF`: the `'` is flanked by hex digits `D` and `B`.
+        let mac = dbg_macros();
+        assert!(replace(b"unsigned m = 0xDEAD'BEEF;", &mac).is_none());
+    }
+
+    #[test]
+    fn float_digit_separator_does_not_open_char_state() {
+        // `3.14'159`: separator inside the fractional part of a float.
+        let mac = dbg_macros();
+        assert!(replace(b"double pi = 3.14'159;", &mac).is_none());
+    }
+
+    #[test]
+    fn macro_after_odd_separator_literal_still_masked() {
+        // Regression for issue #765: an odd-separator-count literal has
+        // no balancing `'`. Before the fix, the first `'` opened a
+        // spurious Char state that never closed, so every later macro
+        // identifier leaked through unmasked. The trailing DBG must be
+        // masked.
+        let mac = dbg_macros();
+        let src = b"int x = 100'000; DBG y;";
+        let expected = b"int x = 100'000; $$$ y;".to_vec();
+        assert_eq!(expected, replace(src, &mac).unwrap());
+    }
+
+    #[test]
+    fn macro_after_hex_separator_literal_still_masked() {
+        // Same leak via a hex separator with an odd count.
+        let mac = dbg_macros();
+        let src = b"auto m = 0xAB'CD; DBG y;";
+        let expected = b"auto m = 0xAB'CD; $$$ y;".to_vec();
+        assert_eq!(expected, replace(src, &mac).unwrap());
+    }
+
+    #[test]
+    fn plain_char_literal_still_opens_char_state() {
+        // A real char literal `'D'` (preceded by `=`/space, not a digit)
+        // must still suppress masking of the inner `D`.
+        let mut mac = HashSet::new();
+        mac.insert("D".to_string());
+        assert!(replace(b"char c = 'D';", &mac).is_none());
+    }
+
+    #[test]
+    fn prefixed_char_literal_still_opens_char_state() {
+        // Length-prefixed char literals `L'x'`, `u'x'`, `U'x'`, `u8'x'`
+        // have an *alphanumeric* byte before the `'`, but the prefix is
+        // an identifier run, not a numeric one — so the literal must
+        // still open Char state and mask the inner `DBG`.
+        let mac = dbg_macros();
+        assert!(replace(b"auto a = L'DBG';", &mac).is_none());
+        assert!(replace(b"auto b = u'DBG';", &mac).is_none());
+        assert!(replace(b"auto c = U'DBG';", &mac).is_none());
+        assert!(replace(b"auto d = u8'DBG';", &mac).is_none());
+    }
+
+    #[test]
+    fn prefixed_char_literal_resumes_masking_after_close() {
+        // After a `u8'x'` literal closes, a trailing macro must still be
+        // masked — proves the prefix path enters AND exits Char state.
+        let mac = dbg_macros();
+        let src = b"auto d = u8'x'; DBG y;";
+        let expected = b"auto d = u8'x'; $$$ y;".to_vec();
+        assert_eq!(expected, replace(src, &mac).unwrap());
+    }
+
+    #[test]
+    fn escaped_quote_char_literal_still_opens_char_state() {
+        // `'\''` — an escaped single quote inside a char literal. The
+        // backslash-escape in `step_quoted` must keep the inner `'` from
+        // closing the literal early, and `DBG` after it stays masked.
+        let mac = dbg_macros();
+        let src = b"char q = '\\''; DBG y;";
+        let expected = b"char q = '\\''; $$$ y;".to_vec();
+        assert_eq!(expected, replace(src, &mac).unwrap());
+    }
+
+    #[test]
+    fn newline_char_literal_still_opens_char_state() {
+        // `'\n'` is an ordinary char literal; the `'` after `=`/space is
+        // a Char opener, and the trailing macro is still masked.
+        let mac = dbg_macros();
+        let src = b"char n = '\\n'; DBG y;";
+        let expected = b"char n = '\\n'; $$$ y;".to_vec();
         assert_eq!(expected, replace(src, &mac).unwrap());
     }
 }
