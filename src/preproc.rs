@@ -664,15 +664,21 @@ mod tests {
         assert!(!macros.contains("NEVER_DEFINED"));
     }
 
-    /// A `#define` that follows a `#undef` re-introduces the macro: the
-    /// final source-order directive wins, so FOO ends up defined. Set-diff
-    /// approaches get this wrong; source-order replay is required.
+    /// Regression for #705's source-order replay: a `#define` that follows a
+    /// `#undef` in source order re-introduces the macro. The AST walk visits
+    /// siblings in *reverse* source order, so the raw encounter order is
+    /// `define` then `undef` (which would drop FOO); only the byte-offset
+    /// re-sort in `apply_macro_events` recovers the correct `undef` → `define`
+    /// order. The fixture is deliberately asymmetric (undef first, define
+    /// last) so a missing or reversed sort flips the result — a `define`
+    /// … `undef` … `define` sequence ends on a `define` either way and would
+    /// not exercise the ordering at all.
     #[test]
-    fn preprocess_redefine_after_undef_keeps_macro() {
-        let macros = macros_of("#define FOO 1\n#undef FOO\n#define FOO 2\n");
+    fn preprocess_define_after_undef_reintroduces_in_source_order() {
+        let macros = macros_of("#undef FOO\n#define FOO 1\n");
         assert!(
             macros.contains("FOO"),
-            "the trailing #define must win; got {macros:?}"
+            "the trailing source-order #define must win; got {macros:?}"
         );
     }
 
@@ -682,6 +688,24 @@ mod tests {
         let macros = macros_of("#define FOO 1\n#define BAR 2\n#undef FOO\n");
         assert!(!macros.contains("FOO"));
         assert!(macros.contains("BAR"));
+    }
+
+    /// `classify_preproc_node` drops `#define`s of compiler/type "special"
+    /// tokens (the `is_specials` filter — `size_t`, `NULL`, keywords, …) so
+    /// they never pollute the recorded macro set, while an ordinary macro on
+    /// an adjacent line is still recorded. Pins the `is_specials` guard that
+    /// the #736 refactor moved out of the inline walk and into the helper.
+    #[test]
+    fn preprocess_define_of_special_token_is_skipped() {
+        let macros = macros_of("#define size_t unsigned\n#define APP_FLAG 1\n");
+        assert!(
+            !macros.contains("size_t"),
+            "special token `size_t` must be filtered out; got {macros:?}"
+        );
+        assert!(
+            macros.contains("APP_FLAG"),
+            "an ordinary adjacent macro must still be recorded; got {macros:?}"
+        );
     }
 
     /// Regression for #705 (ambiguous include fan-out): when an `#include`
