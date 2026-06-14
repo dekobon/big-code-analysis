@@ -34,13 +34,15 @@ for historical reference.
   is the larger surface, so the C++ grammar degrades more gracefully
   there — the same asymmetric trade-off `.h` uses (a known limitation;
   metrics for the Objective-C portions of `.mm` files are approximate).
-  Real metric impls ship for cyclomatic, cognitive, exit, Halstead,
-  LoC, nom, and nargs; `abc` (computable but deferred) and the OO
-  metrics `npa` / `npm` / `wmc` read `0` pending dedicated impls
-  (tracked in #737). The retired internal `fake::get_true`
-  Objective-C slug overlay (#540) is gone — `.m` reports `"objc"` and
-  `.mm` reports `"cpp"` natively. `all-languages` now includes `objc`
-  (#724, part of #718).
+  Real impls ship for all metrics: cyclomatic, cognitive, exit,
+  Halstead, LoC, nom, and nargs (#724), plus `abc` (message sends count
+  as calls; `@try` / `@catch` as conditions) and the OO metrics `npa`
+  (`@property` and `@public` instance variables), `npm` (`@interface` /
+  `@protocol` declarations and `@implementation` definitions), and `wmc`
+  (per-method cyclomatic rolled into the `@implementation` class) (#737).
+  The retired internal `fake::get_true` Objective-C slug overlay (#540)
+  is gone — `.m` reports `"objc"` and `.mm` reports `"cpp"` natively.
+  `all-languages` now includes `objc` (#724, part of #718).
 
 - New book recipe, *Feeding metrics to an agentic coding tool*
   (`recipes/agent-feedback.md`): wires the existing `bca check` surface

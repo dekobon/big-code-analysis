@@ -670,14 +670,7 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // metric is genuinely 0):
 //   - PreprocCode, CcommentCode: no executable code (comments /
 //     preprocessor lines only).
-// ObjC's ABC (assignment/branch/call) count is left at the no-op
-// default for now and so reads 0 on `.m` input. Unlike Preproc /
-// Ccomment this is a deferral, not a genuine zero — ObjC is a C
-// superset, so ABC is computable (a real impl would mirror `impl Abc
-// for CCode` plus `message_expression` calls). Tracked in #737 with the
-// OO metrics (npa/npm/wmc); the primary metrics (cyclomatic, cognitive,
-// exit, halstead, loc, nom, nargs) are real.
-implement_metric_trait!(Abc, PreprocCode, CcommentCode, ObjcCode);
+implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 
 // JS / TS / TSX / Mozjs share an expression / statement vocabulary;
 // the helper macro below generates the per-language unary-conditional
@@ -2544,6 +2537,77 @@ impl Abc for CCode {
             // `f(!a, !b)` — argument list walker. Two aliases —
             // `argument_list` is emitted as ArgumentList or
             // ArgumentList2 depending on production rule path.
+            ArgumentList | ArgumentList2 => {
+                cpp_count_unary_conditions(node, &mut stats.conditions);
+            }
+            _ => {}
+        }
+    }
+}
+
+// Objective-C ABC. ObjC is C plus message sends and `@`-directives, so
+// the walker is the C/C++ shape (it reuses the grammar-agnostic
+// `cpp_inspect_container` / `cpp_inspect_child` / `cpp_count_unary_conditions`
+// helpers, which match on node-kind strings) with two ObjC additions:
+//   * the `B` (branch) dimension counts `message_expression`
+//     (`[obj msg:x]`) alongside C `call_expression`s — a message send is
+//     a call. ObjC has no `new` allocator (`[Foo alloc]` is itself a
+//     message send), so there is no `NewExpression` arm.
+//   * the `C` (condition) dimension counts `@try` (the `@try` keyword)
+//     and each `@catch` handler (`catch_clause`), mirroring how the C++
+//     impl counts `try` / `catch`. ObjC has no bare `catch` keyword token
+//     (it is `@catch` + a `catch_clause` node) and no `<=>` spaceship.
+//     `@throw` is not a condition (the C++ impl likewise does not count
+//     `throw`).
+impl Abc for ObjcCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Objc::*;
+
+        match node.kind_id().into() {
+            AssignmentExpression | UpdateExpression => {
+                stats.assignments += 1.;
+            }
+            InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
+                stats.assignments += 1.;
+            }
+            // Every call counts: C `call_expression` (two aliased ids) and
+            // an ObjC message send `[obj msg:x]`.
+            CallExpression | CallExpression2 | MessageExpression => {
+                stats.branches += 1.;
+            }
+            // Comparison operators, `else` / `case` / `?` branch openers,
+            // and the `@try` / `@catch` exception conditions. `&&` / `||`
+            // are deliberately excluded (Fitzpatrick Rule 7; the
+            // unary-conditional counterpart is Rule 9, handled below).
+            LTEQ | GTEQ | EQEQ | BANGEQ | Else | Case | QMARK | ATtry | CatchClause => {
+                stats.conditions += 1.;
+            }
+            // Plain `<` / `>` count only in comparison position (parent is
+            // a `binary_expression`). ObjC has no templates, but the parent
+            // check is kept for parity with the C/C++ impl.
+            LT | GT
+                if node.parent().is_some_and(|p| {
+                    matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
+                }) =>
+            {
+                stats.conditions += 1.;
+            }
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    cpp_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
+            IfStatement | WhileStatement => {
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    cpp_inspect_container(&cond, &mut stats.conditions);
+                }
+            }
+            ReturnStatement => {
+                cpp_inspect_child(node, 1, &mut stats.conditions);
+            }
+            DoStatement => {
+                cpp_inspect_child(node, 3, &mut stats.conditions);
+            }
             ArgumentList | ArgumentList2 => {
                 cpp_count_unary_conditions(node, &mut stats.conditions);
             }
@@ -5963,6 +6027,71 @@ mod tests {
              }",
             "foo.cpp",
             |metric| assert_eq!(metric.abc.conditions_sum(), 2),
+        );
+    }
+
+    #[test]
+    fn objc_abc() {
+        // ObjC ABC reuses the C/C++ walker with two additions: a message
+        // send `[obj msg]` is a call (B), and `@try` / `@catch` count as
+        // conditions (C) like C++ try/catch.
+        //   A: `int total = 0`, `int i = 0`, `i++`, `total = total + …`,
+        //      `total = -1` = 5.
+        //   B: `[self valueAt:i]`, `[self risky]` = 2 message sends.
+        //   C: `i < n`, `@try`, `@catch`, `total >= 0` = 4.
+        check_metrics::<ObjcParser>(
+            "@implementation Foo\n\
+             - (int)bar:(int)n {\n\
+                 int total = 0;\n\
+                 for (int i = 0; i < n; i++) {\n\
+                     total = total + [self valueAt:i];\n\
+                 }\n\
+                 @try {\n\
+                     [self risky];\n\
+                 } @catch (NSException *e) {\n\
+                     total = -1;\n\
+                 }\n\
+                 if (total >= 0) {\n\
+                     return total;\n\
+                 }\n\
+                 return 0;\n\
+             }\n\
+             @end\n",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 5);
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    #[test]
+    fn objc_abc_conditions() {
+        // Exercises the condition-slot arms shared with C/C++: a `while`
+        // head, a `&&` chain, a `do … while` trailing condition, and a
+        // `return <comparison>`. ObjC routes these through the same
+        // grammar-agnostic `cpp_inspect_*` helpers.
+        //   A: `p++`, `p--` = 2.   B: no calls = 0.
+        //   C: `p != 0`, `*p > 0`, `*p < 9`, `*p == 0` = 4.
+        check_metrics::<ObjcParser>(
+            "@implementation Foo\n\
+             - (int)g:(int *)p {\n\
+                 while (p != 0 && *p > 0) {\n\
+                     p++;\n\
+                 }\n\
+                 do {\n\
+                     p--;\n\
+                 } while (*p < 9);\n\
+                 return *p == 0;\n\
+             }\n\
+             @end\n",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 0);
+                assert_eq!(metric.abc.conditions_sum(), 4);
+            },
         );
     }
 

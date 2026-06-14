@@ -320,6 +320,18 @@ impl Wmc for MozcppCode {
     }
 }
 
+// Objective-C: `@implementation` is a `SpaceKind::Class` and `@interface`
+// / `@protocol` are `SpaceKind::Interface` (see `getter.rs`); each
+// `method_definition` opens a `SpaceKind::Function` whose cyclomatic sum
+// rolls into its enclosing class via the shared aggregator — the same
+// shape as Java / TS. ObjC has no `struct`-as-class, so no `Struct`
+// remap is needed.
+impl Wmc for ObjcCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 // TypeScript / TSX both expose `class_declaration`,
 // `abstract_class_declaration` (mapped to `SpaceKind::Class` in
 // `getter.rs`) and `interface_declaration` (`SpaceKind::Interface`).
@@ -408,7 +420,6 @@ impl Wmc for ElixirCode {
 implement_metric_trait!(
     Wmc,
     CCode,
-    ObjcCode,
     PreprocCode,
     CcommentCode,
     GoCode,
@@ -3495,6 +3506,32 @@ mod tests {
                 // Only `defmacro multi` is a method of Foo: entry(1)
                 // → wmc = 1.
                 assert_eq!(metric.wmc.class_wmc_sum(), 1);
+            },
+        );
+    }
+
+    // ----- Objective-C -----
+
+    #[test]
+    fn objc_wmc() {
+        // `@implementation` is a Class space; each `method_definition`
+        // opens a Function space whose cyclomatic rolls up. `a` has one
+        // `if` (cyclomatic 2), `b` is empty (cyclomatic 1) → class WMC = 3.
+        // The `@interface` is an Interface space whose method *declaration*
+        // has no body, so it contributes 0 — `interface_wmc_sum` stays 0
+        // even though a declared method exists.
+        check_metrics::<ObjcParser>(
+            "@interface Foo : NSObject\n\
+             - (int)a:(int)x;\n\
+             @end\n\
+             @implementation Foo\n\
+             - (int)a:(int)x { if (x > 0) { return 1; } return 0; }\n\
+             - (void)b { }\n\
+             @end\n",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0);
             },
         );
     }
