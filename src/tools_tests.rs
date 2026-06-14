@@ -742,3 +742,97 @@ fn min_distance_candidates_strictly_decreasing_distances() {
     let got = min_distance_candidates(&possibilities, &current);
     assert_eq!(got, vec![pb("a/b/x.h")]);
 }
+
+// Probe-window UTF-8 validation (issues #746 and #758). These cases need
+// files longer than the 64-byte probe so the boundary behaviour is actually
+// exercised; the inline `test_read` table above covers only sub-probe sizes.
+//
+// Each test writes a uniquely named temp file so the suite stays safe under
+// the default parallel test runner.
+fn write_tmp(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(name);
+    write_file(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn read_eol_accepts_multibyte_split_at_probe_boundary() {
+    // #746 (acceptance side): a valid UTF-8 file whose first 64 bytes end in
+    // the middle of a multibyte character must not be rejected. 63 ASCII bytes
+    // push the two-byte `é` (0xC3 0xA9) so its lead byte lands at offset 63 and
+    // its continuation byte lands at offset 64 — outside the probe window. The
+    // tail completing the sequence proves the classifier validates the prefix
+    // up to `valid_up_to()` rather than rejecting on the split.
+    let mut bytes = vec![b'a'; 63];
+    bytes.extend_from_slice("é tail content past the probe window\n".as_bytes());
+    let path = write_tmp("bca_read_eol_split_multibyte", &bytes);
+
+    let got = read_file_with_eol(&path).unwrap();
+    let mut expected = vec![b'a'; 63];
+    expected.extend_from_slice("é tail content past the probe window\n".as_bytes());
+    assert_eq!(got, Some(expected));
+}
+
+#[test]
+fn read_eol_rejects_invalid_byte_hidden_by_old_pop() {
+    // #746 (rejection side): the old classifier `from_utf8_lossy(...).pop()`
+    // unconditionally dropped the trailing replacement character, so a probe
+    // whose only non-ASCII byte was an invalid lead byte at the very end
+    // (here 0xFF at offset 63) was wrongly accepted — the pop hid the only
+    // U+FFFD. A real 0xFF byte is never valid UTF-8 (`error_len` is `Some`),
+    // so the byte-level classifier must reject regardless of more file
+    // following. This case fails against the pre-fix code.
+    let mut bytes = vec![b'a'; 63];
+    bytes.push(0xFF);
+    bytes.extend_from_slice(&[b'a'; 40]); // ensure file > probe window
+    let path = write_tmp("bca_read_eol_invalid_byte_hidden", &bytes);
+
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
+#[test]
+fn read_eol_accepts_replacement_char_in_probe() {
+    // #758: U+FFFD is a legal Unicode scalar; a file that legitimately
+    // contains it within the probe window must be accepted, not mistaken for
+    // the lossy-decode sentinel the old classifier scanned for.
+    let mut bytes = "prefix \u{FFFD} suffix".as_bytes().to_vec();
+    // Pad past the probe so the file is longer than the 64-byte window.
+    bytes.extend_from_slice(&[b'z'; 80]);
+    bytes.push(b'\n');
+    let path = write_tmp("bca_read_eol_replacement_char", &bytes);
+
+    let got = read_file_with_eol(&path).unwrap();
+    assert_eq!(got, Some(bytes));
+}
+
+#[test]
+fn read_eol_rejects_stray_invalid_byte_in_probe() {
+    // A genuinely invalid byte (0xFF is never a valid UTF-8 lead byte) inside
+    // the probe is real corruption and must be rejected, even when more file
+    // follows (so it cannot be confused with a truncated trailing sequence).
+    let mut bytes = b"valid prefix \xFF more".to_vec();
+    bytes.extend_from_slice(&[b'q'; 80]);
+    bytes.push(b'\n');
+    let path = write_tmp("bca_read_eol_stray_invalid_byte", &bytes);
+
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
+#[test]
+fn read_eol_rejects_short_file_truncated_mid_multibyte() {
+    // A short file (<= probe size) that ends in an incomplete multibyte
+    // sequence is genuinely truncated — there is no further data to complete
+    // it — so it must be rejected. `0xC3` is the lead byte of a two-byte
+    // sequence with no continuation byte following.
+    let path = write_tmp("bca_read_eol_short_truncated", b"abcd\xC3");
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
+#[test]
+fn read_eol_accepts_plain_ascii_past_probe() {
+    // Sanity: an ordinary ASCII file longer than the probe is accepted and
+    // line-ending normalised.
+    let bytes = b"the quick brown fox jumps over the lazy dog several times over\n".repeat(3);
+    let path = write_tmp("bca_read_eol_plain_ascii", &bytes);
+    assert_eq!(read_file_with_eol(&path).unwrap(), Some(bytes));
+}
