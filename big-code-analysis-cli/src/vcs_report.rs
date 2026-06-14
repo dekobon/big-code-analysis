@@ -525,16 +525,18 @@ fn vcs_tooltips(specs: &[&VcsColumn]) -> Vec<Option<&'static str>> {
     specs.iter().map(|c| c.tooltip).collect()
 }
 
-/// The per-directory rows (directory, bus factor, files) for the shared
-/// table renderers.
-fn bus_factor_rows(bf: &big_code_analysis::vcs::BusFactor) -> Vec<Vec<String>> {
+/// The per-directory rows (directory, bus factor, files) as typed [`Cell`]s,
+/// so each format applies its own escaping: the directory is a [`Cell::Path`]
+/// (GFM-escaped for Markdown, HTML-escaped for HTML) and the two counts are
+/// pre-formatted [`Cell::Num`]s (issue #739).
+fn bus_factor_rows(bf: &big_code_analysis::vcs::BusFactor) -> Vec<Vec<Cell>> {
     bf.by_directory
         .iter()
         .map(|dir| {
             vec![
-                dir.directory.clone(),
-                dir.group.bus_factor.to_string(),
-                dir.group.files.to_string(),
+                Cell::Path(dir.directory.clone()),
+                Cell::Num(dir.group.bus_factor.to_string()),
+                Cell::Num(dir.group.files.to_string()),
             ]
         })
         .collect()
@@ -553,9 +555,11 @@ fn files_plural(n: u32) -> &'static str {
 }
 
 /// Append the bus-factor subsection: a plain-English sentence, the repo
-/// number, then the per-directory breakdown via the shared Markdown table
-/// renderer (which escapes cells). `level` is the heading depth supplied
-/// by the caller so the document outline stays gap-free (issue #618).
+/// number, then the per-directory breakdown. The shared `write_md_table`
+/// only pads cells, so each row is GFM-escaped here via `render_cell_md`
+/// (issue #739) the way the ranked-files path does. `level` is the heading
+/// depth supplied by the caller so the document outline stays gap-free
+/// (issue #618).
 fn write_markdown_bus_factor(
     out: &mut String,
     bf: &big_code_analysis::vcs::BusFactor,
@@ -573,12 +577,11 @@ fn write_markdown_bus_factor(
         bf.coverage_threshold,
     );
     if !bf.by_directory.is_empty() {
-        write_md_table(
-            out,
-            &bus_factor_headers(),
-            &bus_factor_aligns(),
-            &bus_factor_rows(bf),
-        );
+        let rows: Vec<Vec<String>> = bus_factor_rows(bf)
+            .into_iter()
+            .map(|row| row.into_iter().map(render_cell_md).collect())
+            .collect();
+        write_md_table(out, &bus_factor_headers(), &bus_factor_aligns(), &rows);
     }
 }
 
@@ -703,6 +706,10 @@ fn write_html_bus_factor(
         bf.coverage_threshold,
     );
     if !bf.by_directory.is_empty() {
+        let rows: Vec<Vec<String>> = bus_factor_rows(bf)
+            .into_iter()
+            .map(|row| row.into_iter().map(cell_text).collect())
+            .collect();
         write_table_with_tooltips(
             out,
             &bus_factor_headers(),
@@ -711,7 +718,7 @@ fn write_html_bus_factor(
             // The bus-factor table is not pre-ranked by a single metric
             // column, so no header announces an initial sort.
             None,
-            &bus_factor_rows(bf),
+            &rows,
         );
     }
     let _ = out.write_str("</section>\n");
@@ -867,6 +874,52 @@ mod tests {
         // table column structure.
         assert!(md.contains("docs/with\\|pipe.md"));
         insta::assert_snapshot!("vcs_report_markdown_rich", md);
+    }
+
+    /// A bus-factor directory path may legally contain `|` on Unix; the
+    /// Markdown writer must GFM-escape it (issue #739) so it renders
+    /// literally instead of injecting a spurious column separator. Before
+    /// the fix the raw `|` reached `write_md_table` (which only pads),
+    /// breaking the table.
+    #[test]
+    fn markdown_bus_factor_gfm_escapes_pipe_in_directory() {
+        use big_code_analysis::vcs::{
+            BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor,
+        };
+        let bf = BusFactor {
+            bus_factor_schema_version: BUS_FACTOR_SCHEMA_VERSION,
+            coverage_threshold: 0.5,
+            doa_threshold: 0.75,
+            repo: GroupBusFactor {
+                bus_factor: 1,
+                files: 1,
+                authors: 1,
+                key_author_ids: None,
+            },
+            by_directory: vec![DirectoryBusFactor {
+                directory: "weird|dir".to_owned(),
+                group: GroupBusFactor {
+                    bus_factor: 1,
+                    files: 1,
+                    authors: 1,
+                    key_author_ids: None,
+                },
+            }],
+        };
+        let mut out = String::new();
+        write_markdown_bus_factor(&mut out, &bf, 2);
+        // The directory cell carries the GFM-escaped form (`\|`)...
+        assert!(
+            out.contains("weird\\|dir"),
+            "directory pipe must be GFM-escaped: {out}"
+        );
+        // ...and the only raw `|` characters remaining are the table's own
+        // column delimiters, never the unescaped path's. Stripping the
+        // escaped pipe must leave no bare `weird|dir`.
+        assert!(
+            !out.replace("\\|", "").contains("weird|dir"),
+            "unescaped directory pipe leaked into the table: {out}"
+        );
     }
 
     #[test]
