@@ -741,8 +741,10 @@ impl Npm for ObjcCode {
             match child.kind_id().into() {
                 // `@interface` lists `method_declaration`s as direct
                 // children; a `@protocol`'s first (unqualified) members
-                // are direct too.
-                MethodDeclaration | MethodDefinition => methods += 1,
+                // are direct too. (`@implementation` method *definitions*
+                // are never direct children — they are always wrapped in
+                // an `implementation_definition`, handled below.)
+                MethodDeclaration => methods += 1,
                 // `@implementation` wraps each member in an
                 // `implementation_definition`, and a `@protocol` groups
                 // members after an `@required` / `@optional` marker under a

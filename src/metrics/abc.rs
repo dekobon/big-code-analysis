@@ -2570,10 +2570,18 @@ impl Abc for ObjcCode {
             InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
                 stats.assignments += 1.;
             }
-            // Every call counts: C `call_expression` (two aliased ids) and
-            // an ObjC message send `[obj msg:x]`.
-            CallExpression | CallExpression2 | MessageExpression => {
+            // Every call counts: C `call_expression` (two aliased ids).
+            CallExpression | CallExpression2 => {
                 stats.branches += 1.;
+            }
+            // An ObjC message send `[obj msg:x]` is also a call (B). Its
+            // arguments are direct children of `message_expression` (there
+            // is no `argument_list` wrapper, unlike a C call), so unary
+            // conditions in them (`[obj msg:!x]`, Fitzpatrick Rule 9) are
+            // inspected here rather than via the `ArgumentList` arm below.
+            MessageExpression => {
+                stats.branches += 1.;
+                cpp_count_unary_conditions(node, &mut stats.conditions);
             }
             // Comparison operators, `else` / `case` / `?` branch openers,
             // and the `@try` / `@catch` exception conditions. `&&` / `||`
@@ -6091,6 +6099,29 @@ mod tests {
                 assert_eq!(metric.abc.assignments_sum(), 2);
                 assert_eq!(metric.abc.branches_sum(), 0);
                 assert_eq!(metric.abc.conditions_sum(), 4);
+            },
+        );
+    }
+
+    #[test]
+    fn objc_abc_message_send_unary_condition() {
+        // A negated boolean passed as a message-send argument is a unary
+        // condition (Fitzpatrick Rule 9), the same as in a C-call argument.
+        // Message args are direct children of `message_expression` (no
+        // `argument_list`), so they are inspected in the `MessageExpression`
+        // arm. Here: `[self use:!a]` (1 call + 1 unary condition) +
+        // `cFunc(!a)` (1 call + 1 unary condition) → B=2, C=2.
+        check_metrics::<ObjcParser>(
+            "@implementation Foo\n\
+             - (void)bar:(int)a {\n\
+                 [self use:!a];\n\
+                 cFunc(!a);\n\
+             }\n\
+             @end\n",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2);
+                assert_eq!(metric.abc.conditions_sum(), 2);
             },
         );
     }
