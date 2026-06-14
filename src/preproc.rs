@@ -28,6 +28,7 @@ use crate::c_langs_macros::is_specials;
 
 use crate::langs::*;
 use crate::languages::language_preproc::*;
+use crate::node::{Cursor, Node};
 use crate::tools::*;
 use crate::traits::*;
 
@@ -325,35 +326,42 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
     diagnostics: &mut Vec<PreprocDiagnostic>,
 ) {
     for (path, start) in nodes {
-        let mut dfs = Dfs::new(g, *start);
-        if let Some(pf) = files.get_mut(path) {
-            let x_inc = &mut pf.indirect_includes;
-            while let Some(node) = dfs.next(g) {
-                let w = g
-                    .node_weight(node)
-                    .expect("invariant: DFS-visited node must have weight in graph");
-                if w == &PathBuf::from("") {
-                    if let Some(paths) = scc_map.get(&node) {
-                        for p in paths {
-                            x_inc.insert(p.clone());
-                        }
-                    } else {
-                        unreachable!(
-                            "every empty-path node is an SCC replacement and must have a scc_map entry"
-                        );
-                    }
-                } else {
-                    let Some(s) = w.to_str() else {
-                        diagnostics.push(PreprocDiagnostic::NonUtf8IndirectInclude {
-                            path: w.display().to_string(),
-                        });
-                        continue;
-                    };
-                    x_inc.insert(s.to_string());
-                }
-            }
-        } else {
+        let Some(pf) = files.get_mut(path) else {
             diagnostics.push(PreprocDiagnostic::NotPreprocessed { file: path.clone() });
+            continue;
+        };
+        accumulate_reachable_includes(g, *start, scc_map, &mut pf.indirect_includes, diagnostics);
+    }
+}
+
+/// Walk the include graph from `start`, inserting the transitive closure of
+/// reachable include paths into `x_inc`. An SCC replacement node (empty path)
+/// contributes every member path it stands in for; a non-UTF-8 path is
+/// reported and skipped. Factored out of [`record_indirect_includes`] so the
+/// per-file accumulation reads as one step rather than three nested loops.
+fn accumulate_reachable_includes(
+    g: &IncludeGraph,
+    start: NodeIndex,
+    scc_map: &HashMap<NodeIndex, HashSet<String>>,
+    x_inc: &mut HashSet<String>,
+    diagnostics: &mut Vec<PreprocDiagnostic>,
+) {
+    let mut dfs = Dfs::new(g, start);
+    while let Some(node) = dfs.next(g) {
+        let w = g
+            .node_weight(node)
+            .expect("invariant: DFS-visited node must have weight in graph");
+        if w == &PathBuf::from("") {
+            let paths = scc_map.get(&node).expect(
+                "every empty-path node is an SCC replacement and must have a scc_map entry",
+            );
+            x_inc.extend(paths.iter().cloned());
+        } else if let Some(s) = w.to_str() {
+            x_inc.insert(s.to_string());
+        } else {
+            diagnostics.push(PreprocDiagnostic::NonUtf8IndirectInclude {
+                path: w.display().to_string(),
+            });
         }
     }
 }
@@ -436,7 +444,6 @@ pub(crate) fn preprocess_with_parser(
 ) {
     let node = parser.root();
     let mut cursor = node.cursor();
-    let mut stack = Vec::new();
     let code = parser.code();
     let mut file_result = PreprocFile::default();
 
@@ -448,62 +455,84 @@ pub(crate) fn preprocess_with_parser(
     // re-introduces it (issue #705).
     let mut macro_events: Vec<(usize, MacroEvent)> = Vec::new();
 
-    stack.push(node);
-
+    let mut stack = vec![node];
     while let Some(node) = stack.pop() {
-        cursor.reset(&node);
-        if cursor.goto_first_child() {
-            loop {
-                stack.push(cursor.node());
-                if !cursor.goto_next_sibling() {
-                    break;
-                }
-            }
-        }
-
-        let id = Preproc::from(node.kind_id());
-        match id {
-            Preproc::Define | Preproc::Undef => {
-                cursor.reset(&node);
-                cursor.goto_first_child();
-                let identifier = cursor.node();
-
-                if identifier.kind_id() == Preproc::Identifier {
-                    let Some(macro_text) = identifier.utf8_text(code) else {
-                        continue;
-                    };
-                    if !is_specials(macro_text) {
-                        // `#undef` un-defines: a macro is in the final set
-                        // only if its last directive was a `#define`.
-                        let event = if id == Preproc::Undef {
-                            MacroEvent::Undef(macro_text.to_string())
-                        } else {
-                            MacroEvent::Define(macro_text.to_string())
-                        };
-                        macro_events.push((identifier.start_byte(), event));
-                    }
-                }
-            }
-            Preproc::PreprocInclude => {
-                cursor.reset(&node);
-                cursor.goto_first_child();
-                let file = cursor.node();
-
-                if file.kind_id() == Preproc::StringLiteral
-                    && let Some(include) =
-                        strip_include_quotes(code, file.start_byte(), file.end_byte())
-                {
-                    file_result.direct_includes.insert(include.to_string());
-                }
-            }
-            _ => {}
-        }
+        push_children(&mut cursor, &node, &mut stack);
+        classify_preproc_node(&node, code, &mut file_result, &mut macro_events);
     }
 
-    // Replay the `#define`/`#undef` directives in source order. A stable
-    // sort on the byte offset preserves the (already unique) directive
-    // order; ties cannot occur because each identifier starts at a
-    // distinct byte.
+    apply_macro_events(macro_events, &mut file_result);
+
+    results.files.insert(path.to_path_buf(), file_result);
+}
+
+/// Push `node`'s children onto `stack` for the stack-based DFS in
+/// [`preprocess_with_parser`]. Children are pushed in source order so they
+/// pop in reverse; directive order is recovered from byte offsets in
+/// [`apply_macro_events`], so visit order does not affect the result.
+fn push_children<'a>(cursor: &mut Cursor<'a>, node: &Node<'a>, stack: &mut Vec<Node<'a>>) {
+    cursor.reset(node);
+    if cursor.goto_first_child() {
+        loop {
+            stack.push(cursor.node());
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+/// Classify one node from the [`preprocess_with_parser`] walk: a
+/// `#define`/`#undef` is captured as a [`MacroEvent`] tagged with its byte
+/// offset (replayed in source order later), and a quoted `#include` is
+/// recorded directly into `file_result`. All other nodes are ignored.
+fn classify_preproc_node<'a>(
+    node: &Node<'a>,
+    code: &'a [u8],
+    file_result: &mut PreprocFile,
+    macro_events: &mut Vec<(usize, MacroEvent)>,
+) {
+    let id = Preproc::from(node.kind_id());
+    match id {
+        Preproc::Define | Preproc::Undef => {
+            let mut cursor = node.cursor();
+            cursor.goto_first_child();
+            let identifier = cursor.node();
+            if identifier.kind_id() == Preproc::Identifier
+                && let Some(macro_text) = identifier.utf8_text(code)
+                && !is_specials(macro_text)
+            {
+                // `#undef` un-defines: a macro is in the final set only if
+                // its last directive was a `#define`.
+                let event = if id == Preproc::Undef {
+                    MacroEvent::Undef(macro_text.to_string())
+                } else {
+                    MacroEvent::Define(macro_text.to_string())
+                };
+                macro_events.push((identifier.start_byte(), event));
+            }
+        }
+        Preproc::PreprocInclude => {
+            let mut cursor = node.cursor();
+            cursor.goto_first_child();
+            let file = cursor.node();
+            if file.kind_id() == Preproc::StringLiteral
+                && let Some(include) =
+                    strip_include_quotes(code, file.start_byte(), file.end_byte())
+            {
+                file_result.direct_includes.insert(include.to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Replay collected `#define`/`#undef` directives in source order so the
+/// final macro set reflects the last directive seen for each name (issue
+/// #705). A stable sort on the byte offset preserves the (already unique)
+/// directive order; ties cannot occur because each identifier starts at a
+/// distinct byte.
+fn apply_macro_events(mut macro_events: Vec<(usize, MacroEvent)>, file_result: &mut PreprocFile) {
     macro_events.sort_by_key(|(offset, _)| *offset);
     for (_, event) in macro_events {
         match event {
@@ -515,8 +544,6 @@ pub(crate) fn preprocess_with_parser(
             }
         }
     }
-
-    results.files.insert(path.to_path_buf(), file_result);
 }
 
 /// A single `#define`/`#undef` directive captured during the AST walk,

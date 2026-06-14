@@ -115,39 +115,7 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<Touched>, Error> {
             continue;
         };
 
-        if line.starts_with("@@") {
-            // Check the hunk header before the `+`/`-` content branches so a
-            // `@@@`/`@@` line is never mistaken for a body line.
-            parse_hunk_header(line)?;
-            file.saw_hunk = true;
-            file.hunks = file.hunks.saturating_add(1);
-        } else if !file.saw_hunk && line.starts_with("+++ ") {
-            // The `+++ b/<path>` new-side header only ever appears *before*
-            // the first `@@` of a file. Once a hunk is open, a `+++ …` line
-            // is a real added body line whose content starts with `++ `
-            // (e.g. a `++` operator), so it falls through to the `+` branch.
-            if let Some(path) = line.strip_prefix("+++ ") {
-                file.set_new_path(path);
-            }
-        } else if !file.saw_hunk && line.starts_with("--- ") {
-            // Pre-hunk old-side path: not needed (diffusion keys on the new
-            // side), and must not be counted as a deleted body line. After a
-            // hunk opens, a `--- …` line is a real deleted body line (e.g. a
-            // SQL/Lua/Haskell `--` comment) and falls through to the `-`
-            // branch — gating on `!saw_hunk` is what stops that deletion from
-            // being silently dropped.
-        } else if line.starts_with('+') {
-            file.require_open_hunk()?;
-            file.added = file.added.saturating_add(1);
-        } else if line.starts_with('-') {
-            file.require_open_hunk()?;
-            file.deleted = file.deleted.saturating_add(1);
-        }
-        // Everything else is ignored: context lines (' '), `index`,
-        // `old/new mode`, `rename from/to`, a `Binary files … differ`
-        // marker (the file still flushes as a zero-churn touched entry, like
-        // the commit path skips binary blobs), and `\ No newline at end of
-        // file`.
+        file.classify_body_line(line)?;
     }
     flush_diff_file(&mut files, current.take());
     if files.is_empty() && saw_orphan_marker {
@@ -204,6 +172,47 @@ impl DiffFile {
                 "a +/- line appears before any @@ hunk header".to_owned(),
             ))
         }
+    }
+
+    /// Classify one `line` that falls *inside* this open file stanza,
+    /// updating the hunk count and added/deleted body-line counters. The
+    /// caller ([`parse_unified_diff`]) handles stanza framing (the
+    /// `diff --git` header and the no-stanza-open preamble); this method owns
+    /// only the per-line body grammar so the two concerns read separately.
+    fn classify_body_line(&mut self, line: &str) -> Result<(), Error> {
+        if line.starts_with("@@") {
+            // Check the hunk header before the `+`/`-` content branches so a
+            // `@@@`/`@@` line is never mistaken for a body line.
+            parse_hunk_header(line)?;
+            self.saw_hunk = true;
+            self.hunks = self.hunks.saturating_add(1);
+        } else if !self.saw_hunk && line.starts_with("+++ ") {
+            // The `+++ b/<path>` new-side header only ever appears *before*
+            // the first `@@` of a file. Once a hunk is open, a `+++ …` line
+            // is a real added body line whose content starts with `++ `
+            // (e.g. a `++` operator), so it falls through to the `+` branch.
+            if let Some(path) = line.strip_prefix("+++ ") {
+                self.set_new_path(path);
+            }
+        } else if !self.saw_hunk && line.starts_with("--- ") {
+            // Pre-hunk old-side path: not needed (diffusion keys on the new
+            // side), and must not be counted as a deleted body line. After a
+            // hunk opens, a `--- …` line is a real deleted body line (e.g. a
+            // SQL/Lua/Haskell `--` comment) and falls through to the `-`
+            // branch — gating on `!saw_hunk` is what stops that deletion from
+            // being silently dropped.
+        } else if line.starts_with('+') {
+            self.require_open_hunk()?;
+            self.added = self.added.saturating_add(1);
+        } else if line.starts_with('-') {
+            self.require_open_hunk()?;
+            self.deleted = self.deleted.saturating_add(1);
+        }
+        // Everything else is ignored: context lines (' '), `index`,
+        // `old/new mode`, `rename from/to`, a `Binary files … differ` marker
+        // (the file still flushes as a zero-churn touched entry, like the
+        // commit path skips binary blobs), and `\ No newline at end of file`.
+        Ok(())
     }
 }
 
