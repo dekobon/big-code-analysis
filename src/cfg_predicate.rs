@@ -97,6 +97,25 @@ fn cfg_predicate_marks_test(pred: &str) -> bool {
         if trimmed == "test" {
             return true;
         }
+        // Bare comma-separated predicate lists like `cfg(test, foo)`
+        // — pre-#278 callers relied on this form being treated as
+        // `cfg(all(test, foo))`. This MUST run before the
+        // single-operand `not`/`all`/`any` prefix checks below: those
+        // checks classify by the operand's leading prefix and trailing
+        // `)`, which only describe a single operand. For a list whose
+        // first operand is `not(...)` and last ends in `)` — e.g.
+        // `not(foo), all(test)` — `strip_prefix("not")` leaves
+        // `(foo), all(test)`, which both starts with `(` and ends with
+        // `)`, so the `not` short-circuit would otherwise swallow the
+        // whole list and drop the trailing `test` (regression for #763).
+        // `cfg_split_top_level_args` respects paren depth, so a comma
+        // nested inside a predicate's own parens — `not(foo, bar)`,
+        // `all(test, unix)` — is a single operand and falls through to
+        // the prefix checks unchanged.
+        if cfg_split_top_level_args(trimmed).nth(1).is_some() {
+            stack.extend(cfg_split_top_level_args(trimmed));
+            continue;
+        }
         // `not(...)` short-circuits: we do not look inside, because
         // `not(test)` excludes the item from test builds. Drop it
         // without pushing its contents.
@@ -118,14 +137,6 @@ fn cfg_predicate_marks_test(pred: &str) -> bool {
             && let Some(args) = args.strip_suffix(')')
         {
             stack.extend(cfg_split_top_level_args(args));
-            continue;
-        }
-        // Bare comma-separated predicate lists like `cfg(test, foo)`
-        // — pre-#278 callers relied on this form being treated as
-        // `cfg(all(test, foo))`. Only descend if a top-level comma
-        // exists, so a single ident does not accidentally fall through.
-        if cfg_split_top_level_args(trimmed).nth(1).is_some() {
-            stack.extend(cfg_split_top_level_args(trimmed));
         }
     }
     false
@@ -238,6 +249,37 @@ mod tests {
         // Nested `not(test)` inside `any(...)` is still non-matching;
         // `not(...)` short-circuits at any depth.
         assert!(!attribute_marks_test("cfg(any(unix, not(test)))"));
+    }
+
+    #[test]
+    fn rust_attr_test_not_led_comma_list_keeps_later_test_operand() {
+        // Regression for #763. A top-level comma list whose FIRST
+        // operand is `not(...)` and whose LAST operand ends in `)` was
+        // misclassified as a single `not(...)` operand: the `not`
+        // short-circuit fired on the entire list, discarding the
+        // trailing `test`-bearing operand. These must mark test-only.
+        assert!(
+            attribute_marks_test("cfg(not(foo), all(test))"),
+            "not(foo), all(test) list must still see the trailing test"
+        );
+        assert!(
+            attribute_marks_test("cfg(not(unix), any(test))"),
+            "not(unix), any(test) list must still see the trailing test"
+        );
+        // Cases that were already correct must keep working: the
+        // wrapped form, and a list not ending in `)`.
+        assert!(attribute_marks_test("cfg(all(not(foo), all(test)))"));
+        assert!(attribute_marks_test("cfg(not(foo), test)"));
+        // A pure `not(test)` (single operand, no top-level comma) still
+        // short-circuits to production-only.
+        assert!(!attribute_marks_test("cfg(not(test))"));
+        // A comma INSIDE the `not(...)` predicate's own parens is a
+        // single operand, not a list — `not(foo, bar)` must remain a
+        // short-circuiting non-match, and `all(test, unix)` must still
+        // match via its own operand walk.
+        assert!(!attribute_marks_test("cfg(not(foo, bar))"));
+        assert!(!attribute_marks_test("cfg(not(test, unix))"));
+        assert!(attribute_marks_test("cfg(all(test, unix))"));
     }
 
     #[test]
