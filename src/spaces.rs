@@ -1190,9 +1190,12 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             // `sloc` is span-based, not node-accumulated, so unlike every
             // other loc sub-metric it does not shrink just because we
             // skip the subtree. Record the pruned node's row span on the
-            // enclosing space so its `sloc` drops in step (#722). Gated on
-            // the `Loc` selection so deselecting loc keeps the walk's work
-            // identical.
+            // innermost enclosing func-space so its `sloc` drops in step
+            // (#722); `Sloc::merge` then folds that count upward so every
+            // enclosing space — including the unit, which feeds MI's SLOC
+            // term — drops too, even when the test item is nested in a
+            // retained `impl`/`trait`/closure (#741). Gated on the `Loc`
+            // selection so deselecting loc keeps the walk's work identical.
             if selected.contains(Metric::Loc)
                 && let Some(state) = state_stack.last_mut()
             {
@@ -2483,14 +2486,17 @@ mod outer {
         }
 
         // A pruned test function nested inside a *retained* `impl` block
-        // must shrink that impl space's `sloc`, not just the unit's. This
-        // is why the prune hook records the span on the walker's current
-        // enclosing space (after `finalize`), rather than always on the
-        // unit root (#722). Rows (0-based): `impl Foo {` row 0,
-        // `fn prod` row 1, the `#[test]` attribute (a sibling, retained)
-        // row 2, the pruned single-line `fn t() {}` row 3, `}` row 4 — a
-        // five-row span. Pruning removes the one test-fn row, so the
-        // impl-level `sloc` drops from 5 to 4.
+        // must shrink BOTH that impl space's `sloc` AND every enclosing
+        // space up to the unit root. The prune hook records the span on the
+        // walker's current enclosing func-space (after `finalize`), and
+        // `Sloc::merge` folds the pruned line count upward so the unit's
+        // span-based `sloc` drops in step — mirroring how `Ploc` unions its
+        // line-set upward (issue #741, a #722 follow-up). Rows (0-based):
+        // `impl Foo {` row 0, `fn prod` row 1, the `#[test]` attribute (a
+        // sibling, retained) row 2, the pruned single-line `fn t() {}` row
+        // 3, `}` row 4 — a five-row impl span inside a six-row unit span.
+        // Pruning removes the one test-fn row, so both the impl-level and
+        // the unit-level `sloc` drop by exactly one.
         #[test]
         fn sloc_drops_for_test_fn_nested_in_impl() {
             let source = "\
@@ -2503,18 +2509,101 @@ impl Foo {
             let baseline = analyse(source, false);
             let pruned = analyse(source, true);
 
-            // The unit wraps exactly one `impl` space; assert on it
-            // directly (not via the unit root) so the test pins the
-            // *enclosing-space* attribution — recording the pruned span
-            // on the unit instead would leave this at 5. The length
-            // guard makes the single-child assumption explicit rather
-            // than relying on `[0]` ordering.
+            // The unit wraps exactly one `impl` space; the length guard
+            // makes the single-child assumption explicit rather than
+            // relying on `[0]` ordering.
             assert_eq!(baseline.spaces.len(), 1);
             assert_eq!(pruned.spaces.len(), 1);
+
+            // Enclosing-space attribution: the impl space shrinks by the
+            // one pruned test-fn row.
             let baseline_impl = &baseline.spaces[0];
             let pruned_impl = &pruned.spaces[0];
             assert_eq!(baseline_impl.metrics.loc.sloc(), 5);
             assert_eq!(pruned_impl.metrics.loc.sloc(), 4);
+
+            // Unit-root propagation (the #741 fix): the pruned line count
+            // folds upward through `Sloc::merge`, so the unit's `sloc` drops
+            // by the same one row. Before the fix this stayed at the
+            // baseline value because only the impl's `excluded_lines` grew.
+            assert_eq!(baseline.metrics.loc.sloc(), 5);
+            assert_eq!(pruned.metrics.loc.sloc(), 4);
+        }
+
+        // A `#[test] fn` directly inside a production `impl` (no separate
+        // `#[cfg(test)] mod`): the unit's span-based `sloc` must still drop
+        // by the pruned test-fn rows. Rows (0-based): `impl Calc {` row 0,
+        // `fn add` rows 1..=3 (a retained production method), `#[test]` row
+        // 4, `fn t` rows 5..=7 (pruned), `}` row 8 — a nine-row unit span.
+        // Pruning removes the three test-fn rows (5..=7), so the unit `sloc`
+        // drops from 9 to 6, matching `ploc`.
+        #[test]
+        fn sloc_drops_for_test_fn_in_production_impl() {
+            let source = "\
+impl Calc {
+    fn add(&self, x: i32) -> i32 {
+        x + 1
+    }
+    #[test]
+    fn t() {
+        assert_eq!(1 + 1, 2);
+    }
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            assert_eq!(baseline.metrics.loc.sloc(), 9);
+            assert_eq!(pruned.metrics.loc.sloc(), 6);
+            assert_eq!(pruned.metrics.loc.ploc(), pruned.metrics.loc.sloc());
+        }
+
+        // A pruned test item nested inside a *retained* closure: the closure
+        // body opens its own func-space (Rust `ClosureExpression`), so the
+        // prune hook records the span on the closure, not the unit. The fix
+        // must still propagate the count up to the unit. Rows (0-based):
+        // `fn make() {` row 0, `let f = || {` row 1, `#[test]` row 2,
+        // `fn t() {}` row 3 (pruned), `};` row 4, `}` row 5 — a six-row unit
+        // span. Pruning removes the one test-fn row, so the unit `sloc`
+        // drops from 6 to 5.
+        #[test]
+        fn sloc_drops_for_test_fn_nested_in_closure() {
+            let source = "\
+fn make() {
+    let f = || {
+        #[test]
+        fn t() {}
+    };
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            assert_eq!(baseline.metrics.loc.sloc(), 6);
+            assert_eq!(pruned.metrics.loc.sloc(), 5);
+        }
+
+        // A non-test `impl` with no test items must be unaffected by the
+        // upward-propagation fold: with nothing pruned, `excluded_lines`
+        // stays zero at every level, so pruned and baseline `sloc` agree.
+        #[test]
+        fn non_test_impl_sloc_unaffected_by_pruning() {
+            let source = "\
+impl Calc {
+    fn add(&self, x: i32) -> i32 {
+        x + 1
+    }
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            assert_eq!(baseline.metrics.loc.sloc(), pruned.metrics.loc.sloc());
+            assert_eq!(pruned.spaces.len(), 1);
+            assert_eq!(
+                baseline.spaces[0].metrics.loc.sloc(),
+                pruned.spaces[0].metrics.loc.sloc()
+            );
         }
     }
 
