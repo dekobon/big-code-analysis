@@ -458,7 +458,13 @@ pub(crate) fn preprocess_with_parser(
     let mut stack = vec![node];
     while let Some(node) = stack.pop() {
         push_children(&mut cursor, &node, &mut stack);
-        classify_preproc_node(&node, code, &mut file_result, &mut macro_events);
+        classify_preproc_node(
+            &mut cursor,
+            &node,
+            code,
+            &mut file_result,
+            &mut macro_events,
+        );
     }
 
     apply_macro_events(macro_events, &mut file_result);
@@ -486,7 +492,12 @@ fn push_children<'a>(cursor: &mut Cursor<'a>, node: &Node<'a>, stack: &mut Vec<N
 /// `#define`/`#undef` is captured as a [`MacroEvent`] tagged with its byte
 /// offset (replayed in source order later), and a quoted `#include` is
 /// recorded directly into `file_result`. All other nodes are ignored.
+///
+/// Takes the walk's shared `cursor` by `&mut` and `reset`s it to reach the
+/// directive's first child, rather than allocating a fresh cursor per node —
+/// the caller is done with `cursor` by the time this runs.
 fn classify_preproc_node<'a>(
+    cursor: &mut Cursor<'a>,
     node: &Node<'a>,
     code: &'a [u8],
     file_result: &mut PreprocFile,
@@ -495,7 +506,7 @@ fn classify_preproc_node<'a>(
     let id = Preproc::from(node.kind_id());
     match id {
         Preproc::Define | Preproc::Undef => {
-            let mut cursor = node.cursor();
+            cursor.reset(node);
             cursor.goto_first_child();
             let identifier = cursor.node();
             if identifier.kind_id() == Preproc::Identifier
@@ -513,7 +524,7 @@ fn classify_preproc_node<'a>(
             }
         }
         Preproc::PreprocInclude => {
-            let mut cursor = node.cursor();
+            cursor.reset(node);
             cursor.goto_first_child();
             let file = cursor.node();
             if file.kind_id() == Preproc::StringLiteral
