@@ -1751,29 +1751,32 @@ fn resolve_structured_output(
     StructuredOutput::Stdout
 }
 
+/// Resolve the `--metrics` selection (#691) into the library `Metric`
+/// families to compute, or `None` (compute all metrics) when the flag is
+/// absent. Every requested name is validated against the catalog via the
+/// shared #662 did-you-mean validator first, so an unrecognized name is a
+/// hard error (exit 1) rather than a silently dropped selection.
+fn resolve_selected_metrics(names: &[String]) -> Option<Vec<big_code_analysis::Metric>> {
+    if names.is_empty() {
+        return None;
+    }
+    crate::metric_alias::validate_diff_metrics(names).unwrap_or_else(|e| die(e));
+    let mut selected: Vec<big_code_analysis::Metric> = names
+        .iter()
+        .filter_map(|name| crate::metric_alias::metric_for_name(name))
+        .collect();
+    selected.sort_unstable();
+    selected.dedup();
+    Some(selected)
+}
+
 fn run_command_metrics(
     globals: GlobalOpts,
     args: MetricsArgs,
     preproc: Option<Arc<PreprocResults>>,
 ) {
     let mut structured = args.structured;
-    // `--metrics` (issue #691): validate every requested name against the
-    // catalog (reusing the #662 did-you-mean validator), then map each to
-    // its library `Metric` family. An unknown name errors (exit 1). An
-    // empty list (flag absent) leaves the selection `None` → all metrics.
-    let selected_metrics = if args.metrics.is_empty() {
-        None
-    } else {
-        crate::metric_alias::validate_diff_metrics(&args.metrics).unwrap_or_else(|e| die(e));
-        let mut selected: Vec<big_code_analysis::Metric> = args
-            .metrics
-            .iter()
-            .filter_map(|name| crate::metric_alias::metric_for_name(name))
-            .collect();
-        selected.sort_unstable();
-        selected.dedup();
-        Some(selected)
-    };
+    let selected_metrics = resolve_selected_metrics(&args.metrics);
     // `--format text` (issue #604) is a surface alias for the historical
     // no-`--format` default — the human-readable tree. Collapse it to
     // `None` here so every downstream guard and the dispatch see the
@@ -2080,24 +2083,18 @@ fn run_command_report(
         None => AdvisoryThresholds::DEFAULT,
     };
 
-    let report = match (format, vcs.as_ref()) {
-        (ReportFormat::Markdown, None) => {
-            generate_report_with_vcs(&summaries, top, policy, &advisory, None, Some(&prov))
+    // `generate_*_with_vcs` already accept the change-history section as an
+    // `Option`, so dispatch only on the output format and pass the optional
+    // report straight through rather than enumerating the four format×vcs
+    // combinations.
+    let vcs = vcs.as_ref();
+    let report = match format {
+        ReportFormat::Markdown => {
+            generate_report_with_vcs(&summaries, top, policy, &advisory, vcs, Some(&prov))
         }
-        (ReportFormat::Markdown, Some(vcs)) => {
-            generate_report_with_vcs(&summaries, top, policy, &advisory, Some(vcs), Some(&prov))
+        ReportFormat::Html => {
+            generate_html_report_with_vcs(&summaries, top, policy, &advisory, vcs, Some(&prov))
         }
-        (ReportFormat::Html, None) => {
-            generate_html_report_with_vcs(&summaries, top, policy, &advisory, None, Some(&prov))
-        }
-        (ReportFormat::Html, Some(vcs)) => generate_html_report_with_vcs(
-            &summaries,
-            top,
-            policy,
-            &advisory,
-            Some(vcs),
-            Some(&prov),
-        ),
     };
     write_output_or_stdout(args.output.as_deref(), "write report to", report.as_bytes());
 }

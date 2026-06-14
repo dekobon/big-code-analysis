@@ -261,6 +261,12 @@ pub(super) fn language_display_name(slug: &str) -> Cow<'_, str> {
     let Ok(lang) = slug.parse::<LANG>() else {
         return Cow::Owned(title_case(slug));
     };
+    // bca: suppress(cyclomatic)
+    // Exhaustive, wildcard-free `match LANG` display table (one arm per
+    // language variant), kept whole on purpose: the doc comment above relies
+    // on it being a compile error to add a language without choosing a name.
+    // Its branch count is the size of the language set, not logic a reader
+    // needs to follow; splitting it would only scatter the table.
     let display = match lang {
         LANG::Bash => "Bash",
         LANG::C => "C",

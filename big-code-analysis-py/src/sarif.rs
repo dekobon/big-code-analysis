@@ -60,7 +60,7 @@
 //! `thresholds` produces a well-formed SARIF run with `results: []`
 //! and `rules: []`, matching the CLI's empty case.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pyo3::Bound;
 use pyo3::PyResult;
@@ -482,6 +482,73 @@ fn qualified_symbol(fields: &SpaceFields, parent_prefix: &str) -> String {
     }
 }
 
+/// Evaluate one space's `metrics` against every threshold, pushing an
+/// [`OffenderRecord`] for each breach. Factored out of [`collect_offenders`]
+/// so the tree walk reads as "evaluate this space, then descend" rather than
+/// inlining the per-threshold comparison.
+fn record_threshold_breaches(
+    metrics: &Bound<'_, PyAny>,
+    fields: &SpaceFields,
+    qualified: &str,
+    path: &Path,
+    thresholds: &[Threshold],
+    out: &mut Vec<OffenderRecord>,
+) {
+    for threshold in thresholds {
+        if fields.is_unit && threshold.skip_at_unit {
+            continue;
+        }
+        let Some(value) = extract_metric(metrics, threshold.path) else {
+            continue;
+        };
+        // `mi.*` is lower-is-worse: a value below the limit is the violation.
+        // Every other metric flags above the limit. The exact-limit value is
+        // acceptable either way (#698).
+        let breaches = if threshold.lower_is_worse {
+            value < threshold.limit
+        } else {
+            value > threshold.limit
+        };
+        if !breaches {
+            continue;
+        }
+        out.push(OffenderRecord {
+            path: path.to_path_buf(),
+            function: Some(qualified.to_string()),
+            start_line: fields.start_line,
+            end_line: fields.end_line,
+            start_col: None,
+            metric: threshold.name.to_string(),
+            value,
+            limit: threshold.limit,
+            severity: Severity::default(),
+        });
+    }
+}
+
+/// Push each child space of `space` onto the walk `stack`, tagged with
+/// `child_prefix` as the parent qualified prefix. Non-dict children are
+/// skipped (mirroring the original inline tolerance). Factored out of
+/// [`collect_offenders`].
+fn push_child_spaces<'py>(
+    space: &Bound<'py, PyDict>,
+    child_prefix: &str,
+    stack: &mut Vec<(Bound<'py, PyDict>, String)>,
+) -> PyResult<()> {
+    let py = space.py();
+    if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
+        && let Ok(seq) = spaces.try_iter()
+    {
+        for child in seq {
+            let child = child?;
+            if let Ok(child_dict) = child.cast_into::<PyDict>() {
+                stack.push((child_dict, child_prefix.to_string()));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn collect_offenders(
     result: &Bound<'_, PyDict>,
     thresholds: &[Threshold],
@@ -510,36 +577,7 @@ fn collect_offenders(
         let fields = extract_space_fields(&space)?;
         let qualified = qualified_symbol(&fields, &parent_prefix);
 
-        for threshold in thresholds {
-            if fields.is_unit && threshold.skip_at_unit {
-                continue;
-            }
-            let Some(value) = extract_metric(&metrics, threshold.path) else {
-                continue;
-            };
-            // `mi.*` is lower-is-worse: a value below the limit is the
-            // violation. Every other metric flags above the limit. The
-            // exact-limit value is acceptable either way (#698).
-            let breaches = if threshold.lower_is_worse {
-                value < threshold.limit
-            } else {
-                value > threshold.limit
-            };
-            if !breaches {
-                continue;
-            }
-            out.push(OffenderRecord {
-                path: path.clone(),
-                function: Some(qualified.clone()),
-                start_line: fields.start_line,
-                end_line: fields.end_line,
-                start_col: None,
-                metric: threshold.name.to_string(),
-                value,
-                limit: threshold.limit,
-                severity: Severity::default(),
-            });
-        }
+        record_threshold_breaches(&metrics, &fields, &qualified, &path, thresholds, out);
 
         // Children inherit this space's qualified symbol as their prefix,
         // except the file root, which stays empty so a top-level function
@@ -549,17 +587,7 @@ fn collect_offenders(
         } else {
             qualified
         };
-
-        if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
-            && let Ok(seq) = spaces.try_iter()
-        {
-            for child in seq {
-                let child = child?;
-                if let Ok(child_dict) = child.cast_into::<PyDict>() {
-                    stack.push((child_dict, child_prefix.clone()));
-                }
-            }
-        }
+        push_child_spaces(&space, &child_prefix, &mut stack)?;
     }
     Ok(())
 }

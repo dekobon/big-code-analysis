@@ -40,20 +40,6 @@ metric = "nom"
 value = 30.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/lib.rs"
-qualified = "expand_seed_paths"
-start_line = 2758
-metric = "cognitive"
-value = 24.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/markdown_report.rs"
-qualified = "language_display_name"
-start_line = 260
-metric = "cyclomatic"
-value = 26.0
-
-[[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
@@ -101,20 +87,6 @@ qualified = "_native"
 start_line = 829
 metric = "abc"
 value = 67.0
-
-[[entry]]
-path = "big-code-analysis-py/src/sarif.rs"
-qualified = "collect_offenders"
-start_line = 485
-metric = "cognitive"
-value = 31.0
-
-[[entry]]
-path = "big-code-analysis-py/src/sarif.rs"
-qualified = "collect_offenders"
-start_line = 485
-metric = "cyclomatic"
-value = 15.0
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"
@@ -166,36 +138,8 @@ metric = "nexits"
 value = 5.0
 
 [[entry]]
-path = "src/preproc.rs"
-qualified = "preprocess_with_parser"
-start_line = 432
-metric = "cognitive"
-value = 33.0
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "preprocess_with_parser"
-start_line = 432
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "record_indirect_includes"
-start_line = 320
-metric = "cognitive"
-value = 25.0
-
-[[entry]]
 path = "src/vcs/error.rs"
 qualified = "Error::fmt"
 start_line = 124
 metric = "cyclomatic"
 value = 17.0
-
-[[entry]]
-path = "src/vcs/git/diff_parse.rs"
-qualified = "parse_unified_diff"
-start_line = 74
-metric = "cyclomatic"
-value = 16.0

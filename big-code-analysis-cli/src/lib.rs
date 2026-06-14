@@ -2761,7 +2761,6 @@ fn expand_seed_paths(
     no_ignore: bool,
     filters: &WalkFilters<'_>,
 ) -> ResolvedFiles {
-    use ignore::WalkBuilder;
     if let Some(src) = paths_from {
         paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
     }
@@ -2828,46 +2827,7 @@ fn expand_seed_paths(
             }
             continue;
         }
-        let mut wb = WalkBuilder::new(&seed);
-        wb.hidden(true)
-            .follow_links(false)
-            .require_git(false)
-            .git_ignore(!no_ignore)
-            .git_exclude(!no_ignore)
-            .git_global(!no_ignore)
-            .ignore(!no_ignore)
-            .parents(!no_ignore);
-        for entry in wb.build() {
-            // A per-entry walk error (an unreadable subdirectory, a
-            // broken symlink, a racing unlink) skips-with-warning rather
-            // than aborting the entire run (#704): a single EACCES
-            // directory deep in a large tree previously took down every
-            // file the walk had yet to reach. This mirrors the per-file
-            // tolerance the worker pool already applies to unparseable
-            // files.
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(e) => {
-                    eprintln!(
-                        "bca: warning: skipping walk entry in {}: {e}",
-                        seed.display()
-                    );
-                    continue;
-                }
-            };
-            if entry.file_type().is_some_and(|t| t.is_file()) {
-                let path = entry.into_path();
-                // Anchor the glob match to the walk root rather than the
-                // emitted (possibly absolute) path, so `./`-anchored
-                // excludes match regardless of how the seed resolved —
-                // including a manifest root above the CWD (#489).
-                if filters.passes(&walk_seed::match_path_for(&seed, &path))
-                    && seen.insert(path.clone())
-                {
-                    out.push(path);
-                }
-            }
-        }
+        walk_directory_seed(&seed, no_ignore, filters, &mut out, &mut seen);
     }
     // A walk that resolved zero files is almost always a mistake — an
     // over-narrow `--include`, an `--exclude` that swept everything, or
@@ -2881,6 +2841,59 @@ fn expand_seed_paths(
     ResolvedFiles {
         files: out,
         explicit_files,
+    }
+}
+
+/// Walk the directory `seed`, pushing every supported file that passes the
+/// include/exclude `filters` into `out` exactly once (deduped through `seen`).
+/// Factored out of [`expand_seed_paths`] so its per-seed loop reads as
+/// "handle a file seed, else expand a directory seed" rather than inlining the
+/// whole `ignore::WalkBuilder` setup and per-entry handling.
+///
+/// A per-entry walk error (an unreadable subdirectory, a broken symlink, a
+/// racing unlink) skips that entry with a warning rather than aborting the
+/// run (#704): a single EACCES directory deep in a large tree previously took
+/// down every file the walk had yet to reach. This mirrors the per-file
+/// tolerance the worker pool already applies to unparseable files.
+fn walk_directory_seed(
+    seed: &Path,
+    no_ignore: bool,
+    filters: &WalkFilters<'_>,
+    out: &mut Vec<PathBuf>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+) {
+    use ignore::WalkBuilder;
+    let mut wb = WalkBuilder::new(seed);
+    wb.hidden(true)
+        .follow_links(false)
+        .require_git(false)
+        .git_ignore(!no_ignore)
+        .git_exclude(!no_ignore)
+        .git_global(!no_ignore)
+        .ignore(!no_ignore)
+        .parents(!no_ignore);
+    for entry in wb.build() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!(
+                    "bca: warning: skipping walk entry in {}: {e}",
+                    seed.display()
+                );
+                continue;
+            }
+        };
+        if entry.file_type().is_some_and(|t| t.is_file()) {
+            let path = entry.into_path();
+            // Anchor the glob match to the walk root rather than the emitted
+            // (possibly absolute) path, so `./`-anchored excludes match
+            // regardless of how the seed resolved — including a manifest root
+            // above the CWD (#489).
+            if filters.passes(&walk_seed::match_path_for(seed, &path)) && seen.insert(path.clone())
+            {
+                out.push(path);
+            }
+        }
     }
 }
 
