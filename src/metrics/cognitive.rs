@@ -10475,6 +10475,38 @@ end",
         );
     }
 
+    #[test]
+    fn objc_block_nesting() {
+        // A decision inside an ObjC block `^{ … }` picks up the lambda
+        // surcharge: the `if` scores base (1) + lambda nesting (1) = 2,
+        // exercising the `BlockLiteral => lambda += 1` path (the ObjC
+        // closure analogue of the C++ lambda).
+        check_metrics::<ObjcParser>(
+            "@implementation Foo
+- (void)bar {
+    void (^blk)(int) = ^(int x) {
+        if (x > 0) {
+            [self use];
+        }
+    };
+}
+@end
+",
+            "foo.m",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#);
+            },
+        );
+    }
+
     /// Objective-C `if / else if / else if / else` chain must score
     /// LOWER than the same number of singly-nested `if`s, because
     /// else-if links add no nesting surcharge while deepening `if`s do.

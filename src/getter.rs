@@ -905,10 +905,10 @@ impl Getter for ObjcCode {
         // The operator alphabet is therefore the C set (`src/getter.rs`
         // `impl Getter for CCode`) extended with the ObjC structural
         // keywords: fast-enumeration `in`, the boxing/`@`-literal marker
-        // `@`, and the `@try` / `@catch` / `@finally` / `@throw` /
-        // `@synchronized` / `@autoreleasepool` / `@selector` / `@encode`
-        // control keywords. Each keeps a distinct kind_id, so keying by
-        // kind_id keeps them distinct in n1.
+        // `@`, the `@try` / `@catch` / `@finally` / `@throw` /
+        // `@synchronized` / `@autoreleasepool` control keywords, and the
+        // `@selector` / `@encode` compile-time directives. Each keeps a
+        // distinct kind_id, so keying by kind_id keeps them distinct in n1.
         match node.kind_id().into() {
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
