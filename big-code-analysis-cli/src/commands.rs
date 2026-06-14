@@ -2171,6 +2171,33 @@ fn run_command_strip_comments(
     run_walk_resolved(resolved.files, num_jobs, cfg);
 }
 
+/// Recovers the accumulated [`PreprocResults`] from the shared worker
+/// accumulator once every worker has joined.
+///
+/// Mirrors the panic-free recovery of [`CountCollector::into_count`]
+/// (issue #445): a worker that panicked mid-update poisons the inner
+/// mutex, and a worker that failed to join leaves the `Arc` shared.
+/// Both failure modes degrade to the recovered data rather than
+/// panicking (issue #740). The recovered guard still holds the
+/// fully-applied append-collections, since each worker inserts a
+/// distinct file's entry.
+fn into_preproc_data(preproc_lock: Arc<Mutex<PreprocResults>>) -> PreprocResults {
+    match Arc::try_unwrap(preproc_lock) {
+        Ok(mutex) => mutex
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        Err(shared) => {
+            let mut guard = shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // The `Arc` is still shared (a worker failed to join), so we
+            // cannot move the data out by value; take it from behind the
+            // guard, leaving an empty default in its place.
+            std::mem::take(&mut *guard)
+        }
+    }
+}
+
 fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
     let preproc_lock = Arc::new(Mutex::new(PreprocResults::default()));
     let output = args.output;
@@ -2189,10 +2216,7 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
     // `bca preproc` include resolution — see #495.
     let all_files = group_files_by_basename(paths);
 
-    let mut data = Arc::try_unwrap(preproc_lock)
-        .expect("all worker threads have joined; Arc refcount is 1")
-        .into_inner()
-        .expect("mutex not poisoned");
+    let mut data = into_preproc_data(preproc_lock);
     // Include-resolution diagnostics (self-inclusion, cycles, non-UTF-8
     // paths, un-preprocessed files) are returned rather than written to
     // stderr by the library, so the CLI surfaces them here.

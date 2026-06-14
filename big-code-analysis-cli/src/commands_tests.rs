@@ -1045,3 +1045,69 @@ fn resolve_provenance_maps_each_tier_branch() {
         baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM)
     );
 }
+
+// Regression test for issue #740: `bca preproc` finalization must not
+// panic when a worker poisoned the shared accumulator's mutex. The
+// recovered guard still holds every joined worker's file entry, so
+// `into_preproc_data` degrades to the accumulated data rather than
+// re-panicking on `.expect("mutex not poisoned")`. Verified by revert
+// per `.claude/rules/testing.md`: restoring the `.expect()` chain makes
+// this test panic instead of recovering.
+#[test]
+fn into_preproc_data_degrades_on_poisoned_mutex() {
+    use big_code_analysis::PreprocFile;
+    use std::thread;
+
+    let mut results = PreprocResults::default();
+    results
+        .files
+        .insert(PathBuf::from("a.c"), PreprocFile::default());
+    let preproc_lock = Arc::new(Mutex::new(results));
+
+    // Poison the mutex: panic while holding the guard on a helper thread.
+    let poisoner = preproc_lock.clone();
+    let handle = thread::spawn(move || {
+        let _guard = poisoner.lock().expect("fresh mutex is unpoisoned");
+        panic!("intentional panic to poison the preproc mutex");
+    });
+    assert!(
+        handle.join().is_err(),
+        "poisoner thread should have panicked"
+    );
+    assert!(
+        preproc_lock.is_poisoned(),
+        "test setup failed to poison the mutex"
+    );
+
+    // Finalization must recover the accumulated data, not panic. The
+    // `Arc` here is sole-owned (the poisoner dropped its clone on
+    // unwind), so this exercises the `Ok` + poisoned-`into_inner` arm.
+    let data = into_preproc_data(preproc_lock);
+    assert!(
+        data.files.contains_key(&PathBuf::from("a.c")),
+        "poison recovery must preserve the accumulated file entries"
+    );
+}
+
+// `into_preproc_data` must also degrade when the `Arc` is still shared
+// (a worker failed to join), taking the data from behind the guard
+// rather than panicking on the un-joined-`Arc` `.expect()` (#740).
+#[test]
+fn into_preproc_data_degrades_on_shared_arc() {
+    use big_code_analysis::PreprocFile;
+
+    let mut results = PreprocResults::default();
+    results
+        .files
+        .insert(PathBuf::from("b.c"), PreprocFile::default());
+    let preproc_lock = Arc::new(Mutex::new(results));
+
+    // Hold a second clone so `Arc::try_unwrap` returns `Err(shared)`.
+    let _still_shared = preproc_lock.clone();
+
+    let data = into_preproc_data(preproc_lock);
+    assert!(
+        data.files.contains_key(&PathBuf::from("b.c")),
+        "shared-Arc recovery must surface the accumulated file entries"
+    );
+}
