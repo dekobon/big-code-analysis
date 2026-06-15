@@ -35,8 +35,10 @@ pub(crate) enum MetricsFormat {
     /// `--format` is omitted. Selecting it explicitly produces
     /// byte-identical output to omitting the flag, so it is the way to
     /// request the default in a script or to override a `bca.toml` that
-    /// set a structured format. Unlike the structured serializers it
-    /// ignores `--output` (it only ever streams to stdout).
+    /// set a structured format. It only ever streams to stdout, so unlike
+    /// the structured serializers it has no file destination: pairing it
+    /// with `--output`/`--output-dir` is a hard error (since #661), not a
+    /// silent no-op — pass a structured `--format` to write files.
     // The named `text` default was introduced in issue #604.
     Text,
     Cbor,
