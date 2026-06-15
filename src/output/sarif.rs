@@ -40,6 +40,29 @@ use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
 const SARIF_SCHEMA: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
 
+/// A `C:`-style Windows drive prefix that must be emitted as `file:///C:`
+/// so the leading drive letter is not parsed as a URI scheme.
+fn is_windows_drive_abs(bytes: &[u8]) -> bool {
+    bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes.len() == 2 || bytes[2] == b'/' || bytes[2] == b'\\')
+}
+
+/// A relative reference (no leading separator, not a Windows drive) whose
+/// first path segment carries a colon is scheme-ambiguous under RFC 3986
+/// §4.2; the `./` prefix in [`path_to_uri_reference`] neutralizes it
+/// (#798). The first segment ends at the first `/` or `\` separator.
+fn relative_first_segment_has_colon(bytes: &[u8]) -> bool {
+    !is_windows_drive_abs(bytes)
+        && bytes.first() != Some(&b'/')
+        && bytes.first() != Some(&b'\\')
+        && bytes
+            .iter()
+            .take_while(|&&b| b != b'/' && b != b'\\')
+            .any(|&b| b == b':')
+}
+
 /// Convert an OS path string into a SARIF `artifactLocation.uri`
 /// value (an RFC 3986 URI reference).
 ///
@@ -63,22 +86,8 @@ const SARIF_VERSION: &str = "2.1.0";
 ///   the first `/` is already RFC-legal and passes through untouched.
 fn path_to_uri_reference(path: &str) -> String {
     let bytes = path.as_bytes();
-    let is_windows_drive_abs = bytes.len() >= 2
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && (bytes.len() == 2 || bytes[2] == b'/' || bytes[2] == b'\\');
-
-    // A relative reference (no leading separator, not a Windows drive)
-    // whose first path segment carries a colon is scheme-ambiguous under
-    // RFC 3986 §4.2; the `./` prefix below neutralizes it (#798). The
-    // first segment ends at the first `/` or `\` separator.
-    let first_segment_has_colon = !is_windows_drive_abs
-        && bytes.first() != Some(&b'/')
-        && bytes.first() != Some(&b'\\')
-        && bytes
-            .iter()
-            .take_while(|&&b| b != b'/' && b != b'\\')
-            .any(|&b| b == b':');
+    let is_windows_drive_abs = is_windows_drive_abs(bytes);
+    let first_segment_has_colon = relative_first_segment_has_colon(bytes);
 
     let mut out = String::with_capacity(
         path.len()
