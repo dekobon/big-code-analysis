@@ -162,6 +162,19 @@ impl DiffFile {
         }
     }
 
+    /// Set the new-side path authoritatively from a `rename to <path>` line.
+    /// Unlike the ambiguous `diff --git a/<old> b/<new>` header (whose
+    /// space-containing halves cannot be split unambiguously), the
+    /// `rename to` line carries the bare new path on its own, so it is the
+    /// reliable source for a rename-only stanza with a spaced or otherwise
+    /// tricky name (issue #813). The path is unquoted with git's C-style
+    /// decoder but carries no `a/`/`b/` prefix to strip.
+    fn set_rename_to_path(&mut self, raw: &str) {
+        if let Some(path) = rename_to_path(raw) {
+            self.new_path = Some(path);
+        }
+    }
+
     /// Confirm a hunk header has opened, so a subsequent body line is
     /// well-formed (a `+`/`-` line before any `@@` is a malformed diff).
     fn require_open_hunk(&self) -> Result<(), Error> {
@@ -194,6 +207,17 @@ impl DiffFile {
             if let Some(path) = line.strip_prefix("+++ ") {
                 self.set_new_path(path);
             }
+        } else if !self.saw_hunk && line.starts_with("rename to ") {
+            // A pure rename (similarity 100%, no body) emits no `+++ b/<new>`
+            // line to self-correct, so the new-side path would otherwise be
+            // taken solely from the ambiguous `diff --git a/<old> b/<new>`
+            // header — truncated at the first space for a spaced name (issue
+            // #813). The `rename to <new>` line carries the bare new path
+            // unambiguously; use it. Gating on `!saw_hunk` keeps a post-hunk
+            // body line that happens to start `rename to ` counted as content.
+            if let Some(path) = line.strip_prefix("rename to ") {
+                self.set_rename_to_path(path);
+            }
         } else if !self.saw_hunk && line.starts_with("--- ") {
             // Pre-hunk old-side path: not needed (diffusion keys on the new
             // side), and must not be counted as a deleted body line. After a
@@ -209,7 +233,7 @@ impl DiffFile {
             self.deleted = self.deleted.saturating_add(1);
         }
         // Everything else is ignored: context lines (' '), `index`,
-        // `old/new mode`, `rename from/to`, a `Binary files … differ` marker
+        // `old/new mode`, `rename from`, a `Binary files … differ` marker
         // (the file still flushes as a zero-churn touched entry, like the
         // commit path skips binary blobs), and `\ No newline at end of file`.
         Ok(())
@@ -420,6 +444,21 @@ fn unquote_git_path(token: &str) -> Cow<'_, str> {
     match String::from_utf8(out) {
         Ok(s) => Cow::Owned(s),
         Err(e) => Cow::Owned(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
+}
+
+/// The new path from a `rename to <path>` line (the text after
+/// `rename to `). Unlike [`unified_path`], this carries no `a/`/`b/` prefix
+/// to strip: git writes the bare repo-relative path, quoted with its C-style
+/// escaping (`core.quotePath`) only when the name has special bytes. Decode
+/// the quoting and return the path, or `None` if it is empty.
+fn rename_to_path(raw: &str) -> Option<PathBuf> {
+    let decoded = unquote_git_path(raw.trim());
+    let path = decoded.as_ref();
+    if path.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(path))
     }
 }
 
