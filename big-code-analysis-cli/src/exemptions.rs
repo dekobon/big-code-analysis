@@ -38,10 +38,11 @@ use crate::check_format::escape_gfm_cell;
 use crate::format_util::{MetricScalar, strip_path_prefix};
 
 /// Per-file marker batch streamed from the walk worker pool to the
-/// post-walk aggregator. `path` is the display path (already
-/// `strip_prefix`-trimmed at collection time is *not* done here — the
-/// renderer applies the prefix so the raw walked path stays intact for
-/// JSON consumers that want the on-disk path).
+/// post-walk aggregator. `path` is the raw UTF-8 path as walked; no
+/// `strip_prefix` trimming is applied at collection time. Each renderer
+/// — text, Markdown, and JSON alike — applies `strip_prefix` at render
+/// time, so a non-empty `--strip-prefix` trims paths in JSON output
+/// exactly as it does for the other formats.
 pub(crate) struct FileMarkers {
     /// File the markers were found in (UTF-8 path as walked).
     pub(crate) path: String,
