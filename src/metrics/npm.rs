@@ -352,6 +352,38 @@ fn csharp_count_member(member: &Node) -> usize {
     }
 }
 
+// Counts the public methods contributed by a *public* property / indexer
+// member. A C# accessor inherits the member's visibility unless it
+// narrows it with its own `private` / `protected` modifier
+// (`public int X { get; private set; }` exposes one public getter, not
+// two). So of the member's `csharp_count_member` total, only the
+// accessors *without* an explicit narrowing modifier count toward npm.
+//
+// The `.max(1)` total covers the accessor-less expression-bodied form
+// (`public int Z => 0;`) and the single-accessor auto-property
+// (`public int W { get; }`): both define one implicit/sole getter that
+// inherits the member's public visibility, so the public count equals
+// the total and no narrowing can apply.
+fn csharp_member_public_method_count(member: &Node) -> usize {
+    use Csharp::*;
+    let total = csharp_count_member(member);
+    let narrowed = member
+        .children()
+        .filter(|c| matches!(c.kind_id().into(), AccessorList))
+        .flat_map(|list| list.children())
+        .filter(|c| matches!(c.kind_id().into(), AccessorDeclaration))
+        .filter(|accessor| {
+            accessor.children().any(|child| {
+                matches!(child.kind_id().into(), Modifier)
+                    && child
+                        .first_child(|id| id == Private as u16 || id == Protected as u16)
+                        .is_some()
+            })
+        })
+        .count();
+    total.saturating_sub(narrowed)
+}
+
 impl Npm for CsharpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;
@@ -370,10 +402,12 @@ impl Npm for CsharpCode {
         match parent_kind {
             ClassDeclaration | StructDeclaration | RecordDeclaration => {
                 for member in node.children() {
-                    let count = csharp_count_member(&member);
-                    stats.class_nm += count;
+                    stats.class_nm += csharp_count_member(&member);
+                    // A public member exposes all its accessors as public
+                    // methods *except* those that narrow visibility with
+                    // their own `private` / `protected` modifier.
                     if super::npa::csharp_is_explicit_public(&member) {
-                        stats.class_npm += count;
+                        stats.class_npm += csharp_member_public_method_count(&member);
                     }
                 }
             }
@@ -2101,6 +2135,42 @@ mod tests {
             }",
             "foo.cs",
             |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_narrowed_accessor_visibility() {
+        // #783 — a C# accessor inherits the member's visibility unless it
+        // narrows it with its own `private` / `protected` modifier. A
+        // narrowed accessor still counts as a method (nm) but is NOT a
+        // public method (npm). Members exercised:
+        //   X  public { get; private set; }   nm 2, npm 1 (get only)
+        //   Idx public this[...] { get; protected set; } nm 2, npm 1
+        //   Y  public { get; set; }           nm 2, npm 2 (unchanged guard)
+        //   W  public { get; }                nm 1, npm 1 (auto-property)
+        //   Z  public => 0                    nm 1, npm 1 (expression body)
+        //   P  (no modifier) { get; set; }    nm 2, npm 0 (private member)
+        // expected nm  = 2 + 2 + 2 + 1 + 1 + 2 = 10
+        // expected npm = 1 + 1 + 2 + 1 + 1 + 0 = 6
+        check_metrics::<CsharpParser>(
+            "class A {
+                public int X { get; private set; }
+                public int this[int i] { get; protected set; }
+                public int Y { get; set; }
+                public int W { get; }
+                public int Z => 0;
+                int P { get; set; }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 10, "all accessors count as nm");
+                assert_eq!(
+                    metric.npm.class_npm_sum(),
+                    6,
+                    "narrowed private/protected accessors are not public methods"
+                );
+                insta::assert_json_snapshot!(metric.npm);
+            },
         );
     }
 

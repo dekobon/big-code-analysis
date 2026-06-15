@@ -1,0 +1,15 @@
+---
+source: src/metrics/npm.rs
+expression: metric.npm
+---
+{
+  "class_npm_sum": 6,
+  "interface_npm_sum": 0,
+  "class_methods": 10,
+  "interface_methods": 0,
+  "class_coa": 0.6,
+  "interface_coa": 0.0,
+  "total": 6,
+  "total_methods": 10,
+  "coa": 0.6
+}
