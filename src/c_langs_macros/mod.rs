@@ -4,6 +4,74 @@ pub(crate) use c_macros::*;
 mod c_specials;
 pub(crate) use c_specials::*;
 
+// Regression tests pinning specific bogus entries that the
+// codegen-generated `*_lookup` smoke tests cannot cover (those are
+// rendered generically from `names[0]`/`names[1]`). These guard the
+// pruning of non-existent standard names from the generated tables;
+// see dekobon/big-code-analysis#760 (unsigned types have no `*_MIN`
+// macro — the minimum of any unsigned type is 0) and #762
+// (`char64_t`/`charptr_t` are not real C/C++ types).
+#[cfg(test)]
+mod prune_regression_tests {
+    use super::*;
+
+    // ISO C defines `UINTN_MAX` but no `UINTN_MIN`: the minimum of an
+    // unsigned type is always 0, so no such macro exists (#760).
+    #[test]
+    fn unsigned_min_macros_are_not_predefined() {
+        for name in [
+            "UINT16_MIN",
+            "UINT32_MIN",
+            "UINT64_MIN",
+            "UINT8_MIN",
+            "UINTMAX_MIN",
+            "UINTPTR_MIN",
+            "UINT_FAST8_MIN",
+            "UINT_FAST16_MIN",
+            "UINT_FAST32_MIN",
+            "UINT_FAST64_MIN",
+            "UINT_LEAST8_MIN",
+            "UINT_LEAST16_MIN",
+            "UINT_LEAST32_MIN",
+            "UINT_LEAST64_MIN",
+        ] {
+            assert!(
+                !is_predefined_macros(name),
+                "{name} is not a real C standard macro and must not be predefined"
+            );
+        }
+    }
+
+    // The signed `INT*_MIN` macros are genuine and must stay (#760).
+    #[test]
+    fn signed_min_macros_remain_predefined() {
+        for name in ["INT16_MIN", "INTMAX_MIN", "INTPTR_MIN", "INT_FAST8_MIN"] {
+            assert!(
+                is_predefined_macros(name),
+                "{name} is a real C standard macro and must stay predefined"
+            );
+        }
+        // The unsigned `*_MAX` macros are genuine too.
+        assert!(is_predefined_macros("UINT16_MAX"));
+    }
+
+    // `char64_t` and `charptr_t` are not real C/C++ types and the
+    // generator never emits them (#762).
+    #[test]
+    fn bogus_special_types_are_not_specials() {
+        assert!(!is_specials("char64_t"));
+        assert!(!is_specials("charptr_t"));
+    }
+
+    // The genuine fixed-width character types must stay (#762).
+    #[test]
+    fn real_char_types_remain_specials() {
+        assert!(is_specials("char8_t"));
+        assert!(is_specials("char16_t"));
+        assert!(is_specials("char32_t"));
+    }
+}
+
 // These samples exercise the Mozilla/Gecko macro overlay
 // (`MOZ_*`, `QM_TRY_*`, `nsPrintfCString`, …). Since #720 that overlay
 // lives only in the opt-in `Mozcpp` grammar — upstream `tree-sitter-cpp`
