@@ -32,12 +32,17 @@ this script):
         category: big-code-analysis
 
 Why thresholds matter for SARIF: ``bca.to_sarif`` emits findings
-only for metrics that breach a configured threshold. Passing
-``thresholds=None`` produces a valid-but-empty SARIF document
+only for metrics that breach a configured threshold. At that
+library layer, passing ``thresholds=None`` is equivalent to an
+empty policy and produces a valid-but-empty SARIF document
 (`results: []`), which GitHub Code Scanning will happily ingest —
 and which then silently masks every metric-quality regression
-behind a "no new findings" banner. The default thresholds below
-mirror the CLI's documented review bars; tune them per repo.
+behind a "no new findings" banner. This script's :func:`run`
+deliberately does *not* inherit that meaning: it treats
+``thresholds=None`` as "use the default policy" and substitutes
+``DEFAULT_THRESHOLDS`` (see :func:`run` for the full contract).
+The default thresholds below mirror the CLI's documented review
+bars; tune them per repo.
 
 The output SARIF carries an ``automationDetails.id`` derived from
 the script name so re-runs across PRs collapse into a single
@@ -109,6 +114,15 @@ def run(
 ) -> dict[str, object]:
     """Analyse ``paths``, render SARIF, write to ``output``.
 
+    Thresholds: ``thresholds=None`` (the default) falls back to
+    ``DEFAULT_THRESHOLDS``, so this call emits default-policy
+    findings — it does *not* produce the empty SARIF that
+    ``bca.to_sarif(thresholds=None)`` would. To opt into the
+    explicit empty policy (no findings), pass ``thresholds={}``.
+    This inverts the ``to_sarif`` sentinel meaning on purpose; the
+    module docstring's None paragraph describes ``bca.to_sarif``,
+    not this function.
+
     Returns a summary dict (``output``, ``results``, ``rules``,
     ``analyzed``, ``errors``, ``skipped``) so callers / tests can
     assert on the document without re-reading the file. The summary
@@ -139,9 +153,13 @@ def run(
 
     # `thresholds is None` (not truthiness) means "use the default
     # policy" — an explicitly-empty `{}` is a deliberate opt-out and
-    # must be honoured. Falsy-check would silently swap `{}` for the
-    # default table, masking the very "empty SARIF on no thresholds"
-    # behaviour the module docstring at lines 38-43 calls out.
+    # must be honoured. A falsy-check would silently swap `{}` for the
+    # default table, collapsing the two sentinels that this function
+    # keeps distinct: `None` -> `DEFAULT_THRESHOLDS` (findings), `{}`
+    # -> empty policy (no findings). Note the `None` meaning here is
+    # the inverse of `bca.to_sarif`'s, where `None` is itself the
+    # empty policy (see this function's docstring and the module
+    # docstring's `to_sarif` paragraph).
     effective: Mapping[str, float] = DEFAULT_THRESHOLDS if thresholds is None else thresholds
     sarif_text = bca.to_sarif(batch, thresholds=dict(effective))
 
