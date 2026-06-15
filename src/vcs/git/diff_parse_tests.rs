@@ -181,7 +181,37 @@ fn malformed_hunk_header_is_rejected() {
 }
 
 #[test]
+fn quoted_binary_path_from_header_only() {
+    // Issue #932: exercise the quoted arm of `diff_git_new_path`
+    // (`last_quoted_token`) as the SOLE path source. A binary stanza
+    // carries no `+++ b/<path>` line, so unlike the modify tests below it
+    // cannot self-correct via `set_new_path` → `unquote_git_path`; the
+    // decoded path comes only from the quoted `diff --git` header. `ï` =
+    // U+00EF = UTF-8 0xC3 0xAF, octal-escaped by `core.quotePath=true`.
+    let diff = concat!(
+        "diff --git \"a/na\\303\\257ve.bin\" \"b/na\\303\\257ve.bin\"\n",
+        "index 111..222 100644\n",
+        "Binary files \"a/na\\303\\257ve.bin\" and \"b/na\\303\\257ve.bin\" differ\n",
+    );
+    let files = parse_unified_diff(diff).expect("parse");
+    assert_eq!(files.len(), 1);
+    // If `last_quoted_token` regresses (returns `None` or a wrong token),
+    // there is no `+++` fallback, so `touched` cannot find this path and
+    // the test fails — the isolated coverage the modify tests lack.
+    let t = touched(&files, "naïve.bin");
+    assert_eq!((t.added, t.deleted, t.hunks), (0, 0, 0));
+}
+
+#[test]
 fn quoted_non_ascii_path_is_unquoted() {
+    // NOTE (#932): the `diff --git` header seeds the new-side path via
+    // `diff_git_new_path` (the quoted arm / `last_quoted_token`), but the
+    // `+++ "b/…"` line below then OVERWRITES it via
+    // `set_new_path` → `unquote_git_path`. So this test exercises the
+    // `+++`/`unquote_git_path` self-correction path, NOT the header
+    // tokenizer; the latter is covered in isolation by
+    // `quoted_binary_path_from_header_only`.
+    //
     // Default `core.quotePath=true` wraps a non-ASCII path in quotes and
     // octal-escapes its bytes: `naïve.txt` → `"na\303\257ve.txt"` (ï =
     // U+00EF = UTF-8 0xC3 0xAF). Both the `diff --git` header and the
@@ -223,6 +253,12 @@ fn spaced_binary_path_keeps_full_name() {
 
 #[test]
 fn quoted_spaced_non_ascii_path_is_unquoted() {
+    // NOTE (#932): like `quoted_non_ascii_path_is_unquoted`, the `+++`
+    // line below self-corrects the path, so this guards the
+    // `unquote_git_path` decoder of a spaced quoted name, not the header
+    // tokenizer. `last_quoted_token` is covered standalone by
+    // `quoted_binary_path_from_header_only`.
+    //
     // A name with BOTH a space and a non-ASCII byte is quoted (the
     // non-ASCII byte triggers quoting), so the quoted span is
     // self-delimiting and the embedded space must not split it. `é` =
@@ -263,12 +299,18 @@ fn unquote_git_path_decodes_escapes_and_passes_plain_through() {
 
 #[test]
 fn rename_to_non_ascii_quotes_only_new_side() {
+    // NOTE (#932): this stanza carries BOTH a `rename to "…"` line and a
+    // quoted `+++` line, each of which overwrites the header-seeded path
+    // (via `set_rename_to_path` and `set_new_path`). So the final asserted
+    // path does NOT come from `diff_git_new_path`/`last_quoted_token`; this
+    // test guards the `rename_to_path`/`unquote_git_path` decoders. The
+    // header tokenizer is covered standalone by
+    // `quoted_binary_path_from_header_only`.
+    //
     // A rename from an ASCII name to a non-ASCII one quotes only the new
     // (`b/`) side: `diff --git a/old.txt "b/na\303\257ve.txt"`. The old
-    // side stays unquoted, so `last_quoted_token` must pick the quoted new
-    // side rather than a quoted old side, and the `+++` line (also quoted)
-    // confirms it. Exercises the single-side-quoted path distinctly from
-    // the both-sides-quoted modify.
+    // side stays unquoted, so the quoted decoders must pick the quoted new
+    // side rather than a quoted old side.
     let diff = concat!(
         "diff --git a/old.txt \"b/na\\303\\257ve.txt\"\n",
         "similarity index 100%\n",
