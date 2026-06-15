@@ -217,7 +217,17 @@ impl<'a> Node<'a> {
         self.0.is_named()
     }
 
-    pub(crate) fn child_by_field_name(&self, name: &str) -> Option<Node<'_>> {
+    /// Returns the direct child reached through the grammar `field_name`,
+    /// if any. The child carries the underlying tree lifetime `'a` (the
+    /// `tree_sitter::Node` it wraps is [`Copy`] and valid for the whole
+    /// tree), so callers may hold it past the borrow of `&self` — matching
+    /// the sibling accessors ([`child`], [`parent`], [`children`], …) rather
+    /// than over-narrowing to the method-call borrow (see issue #786).
+    ///
+    /// [`child`]: Self::child
+    /// [`parent`]: Self::parent
+    /// [`children`]: Self::children
+    pub(crate) fn child_by_field_name(&self, name: &str) -> Option<Node<'a>> {
         self.0.child_by_field_name(name).map(Node)
     }
 
@@ -591,6 +601,52 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// `child_by_field_name` (issue #786) must return the child at the
+    /// underlying tree lifetime `'a`, not the method-call borrow of
+    /// `&self`. The proof is a helper whose return type *requires* the
+    /// child to outlive an intermediate `&Node` borrow: under the old
+    /// `Option<Node<'_>>` signature the returned node would be tied to
+    /// `parent`'s borrow and this would fail to compile. Binding the
+    /// child to a variable that outlives the `&parent` reborrow inside
+    /// the helper exercises the widened lifetime.
+    #[test]
+    fn child_by_field_name_outlives_self_borrow() {
+        // `find_named_child` takes the parent by value, reborrows it
+        // through a `&` reference to call `child_by_field_name`, and
+        // returns the child. The returned `Node<'a>` must survive past
+        // that inner `&parent` borrow — only possible because the child
+        // carries the tree lifetime, not the borrow of `&parent`.
+        fn find_named_child<'a>(parent: Node<'a>) -> Option<Node<'a>> {
+            let borrowed: &Node<'a> = &parent;
+            borrowed.child_by_field_name("declarator")
+        }
+
+        let code = b"int answer = 42;";
+        let tree = Tree::new::<crate::langs::CppCode>(code);
+        let root = tree.get_root();
+
+        // Walk to the `declaration` node, then pull its `declarator`
+        // child out and hold it after the producing borrow has ended.
+        let mut held: Option<Node> = None;
+        let mut stack = vec![root];
+        while let Some(n) = stack.pop() {
+            if n.kind() == "declaration" {
+                // `find_named_child` consumes a copy of `n`; the result
+                // must remain valid here, well past the inner borrow.
+                held = find_named_child(n);
+                break;
+            }
+            for child in n.children() {
+                stack.push(child);
+            }
+        }
+
+        let declarator = held.expect("C declaration has a `declarator` field");
+        // The held node is still usable: it kept its tree linkage rather
+        // than dangling at the end of the producing borrow.
+        assert_eq!(declarator.kind(), "init_declarator");
     }
 
     /// `Node::as_tree_sitter` (issue #556) must hand back the *same*
