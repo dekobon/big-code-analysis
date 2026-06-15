@@ -398,6 +398,19 @@ pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
     })
 }
 
+// A C# member or accessor node carries an explicit visibility-narrowing
+// modifier (`private` / `protected`). The single source of truth for the
+// C# narrowing rule, shared by the npa interface-member gate below and the
+// npm accessor gate (`csharp_member_public_method_count`).
+pub(crate) fn csharp_node_has_private_or_protected_modifier(node: &Node) -> bool {
+    node.children().any(|child| {
+        matches!(child.kind_id().into(), Csharp::Modifier)
+            && child
+                .first_child(|id| id == Csharp::Private || id == Csharp::Protected)
+                .is_some()
+    })
+}
+
 // C# 8+ interface members default to public, so a field is a public
 // attribute UNLESS it carries an explicit `private` or `protected`
 // modifier. This is the inverse of `csharp_is_explicit_public` (the
@@ -405,12 +418,7 @@ pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
 // means public here, matching `ts_member_is_public!`'s default-public
 // gate for TypeScript class members.
 pub(crate) fn csharp_interface_member_is_public(declaration: &Node) -> bool {
-    !declaration.children().any(|child| {
-        matches!(child.kind_id().into(), Csharp::Modifier)
-            && child
-                .first_child(|id| id == Csharp::Private || id == Csharp::Protected)
-                .is_some()
-    })
+    !csharp_node_has_private_or_protected_modifier(declaration)
 }
 
 impl Npa for CsharpCode {

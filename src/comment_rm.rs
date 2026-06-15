@@ -243,6 +243,9 @@ mod tests {
         // removed-comment lines (fewer, still-CR-prefixed newlines). Comment
         // removal blanks lines, never deletes them, so the newline count must
         // be preserved exactly — pinning the per-line substitution count.
+        // A small test fixture — the `bytecount` crate clippy suggests is
+        // unwarranted here.
+        #[allow(clippy::naive_bytecount)]
         let lf_count = |buf: &[u8]| buf.iter().filter(|&&b| b == b'\n').count();
         assert_eq!(
             lf_count(&no_comments),

@@ -372,14 +372,7 @@ fn csharp_member_public_method_count(member: &Node) -> usize {
         .filter(|c| matches!(c.kind_id().into(), AccessorList))
         .flat_map(|list| list.children())
         .filter(|c| matches!(c.kind_id().into(), AccessorDeclaration))
-        .filter(|accessor| {
-            accessor.children().any(|child| {
-                matches!(child.kind_id().into(), Modifier)
-                    && child
-                        .first_child(|id| id == Private as u16 || id == Protected as u16)
-                        .is_some()
-            })
-        })
+        .filter(super::npa::csharp_node_has_private_or_protected_modifier)
         .count();
     total.saturating_sub(narrowed)
 }
