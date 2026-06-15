@@ -87,6 +87,31 @@ fn corrupt_entries(root: &Path) {
     }
 }
 
+/// Rewrite every persisted `*.json` cache entry under `root`, emptying its
+/// `events` array while leaving the file valid JSON (so `cache::load`
+/// succeeds rather than treating it as corrupt). A *served* hit on such an
+/// entry replays zero events and yields an empty index — observably wrong —
+/// so a test that asserts the correct non-empty answer fails if a stale
+/// entry is wrongly reused, but passes if the fingerprint bypasses it.
+fn empty_entry_events(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            empty_entry_events(&path);
+        } else if path.extension().is_some_and(|ext| ext == "json") {
+            let bytes = std::fs::read(&path).expect("read entry");
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&bytes).expect("entry is valid JSON");
+            value["events"] = serde_json::Value::Array(Vec::new());
+            std::fs::write(&path, serde_json::to_vec(&value).expect("reserialize"))
+                .expect("rewrite entry");
+        }
+    }
+}
+
 /// A small repo with three in-window commits touching two files.
 fn build_repo() -> Repo {
     let repo = Repo::init();
@@ -333,14 +358,43 @@ fn a_changed_window_is_not_served_from_a_stale_fingerprint() {
     // Prime with the default 12-month long window.
     build_history_index_cached(repo.path(), &opts(), &cfg).expect("prime");
 
-    // A shorter long window changes the fingerprint, so the entry is
-    // ignored and the result matches a fresh short-window walk (here, the
-    // 30-day-old commit drops out of a 7-day long window).
+    // Empty the primed entry's event log in place (still valid JSON, so it
+    // loads as a hit candidate rather than being discarded as corrupt).
+    //
+    // Output equality alone cannot prove the window-driven fingerprint term
+    // does its job: the pure-hit boundary gate (`walk_long_boundary <=
+    // long_boundary`) passes in the superset direction, and replay
+    // re-windows a 12-month event superset down to the current 7-day window,
+    // so a *wrongly served* full entry would still yield the correct 7-day
+    // answer (#951). Emptying the events breaks that self-correction — a
+    // served stale hit now replays zero events and produces an empty index.
+    // The shorter window changes the fingerprint, so a correct
+    // `is_compatible` must reject this entry and recompute the right answer;
+    // dropping `long_window_secs` from `fingerprint()` makes it served, and
+    // the emptied events make that divergence observable.
+    empty_entry_events(cache_dir.path());
+
+    // Change *only* `long_window_secs`, so the `long_window_secs` term is the
+    // sole fingerprint difference between prime and this run. Leaving
+    // `recent_window_secs` at its default isolates the term under test —
+    // dropping `long_window_secs.hash(...)` from `fingerprint()` then makes
+    // the fingerprints collide and this run serve the emptied stale entry.
     let mut short = opts();
     short.long_window_secs = 7 * DAY;
-    short.recent_window_secs = 2 * DAY;
     let cached = build_history_index_cached(repo.path(), &short, &cfg).expect("short cached");
     let uncached = build_history_index(repo.path(), &short).expect("short uncached");
+
+    // The fresh short-window walk attributes the 2-day-old commit to a.rs,
+    // so its `commits_long` is non-zero — an emptied served hit would zero
+    // it, diverging here rather than coincidentally matching. (The snapshot
+    // is never empty regardless, since b.rs is always present as a seed
+    // file; the real divergence is on a.rs's in-window counts.)
+    assert!(
+        snapshot(&uncached)
+            .get("a.rs")
+            .is_some_and(|stats| stats.commits_long > 0),
+        "the 2-day commit must rank a.rs, so an emptied served hit diverges"
+    );
     assert_eq!(snapshot(&uncached), snapshot(&cached));
 }
 
