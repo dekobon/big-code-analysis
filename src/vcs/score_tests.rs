@@ -27,6 +27,9 @@ fn baseline() -> ScoreInput {
 
 #[test]
 fn version_is_two() {
+    // A single RISK_SCORE_VERSION versions BOTH the weighted formula and
+    // the percentile blend; finalize stamps it in either mode (stats.rs)
+    // and the cache keys reuse on it. A bump to either formula moves this.
     assert_eq!(RISK_SCORE_VERSION, 2);
 }
 

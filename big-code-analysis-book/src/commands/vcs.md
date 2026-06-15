@@ -180,9 +180,10 @@ likely to harbour a vulnerability; security fixes are double-weighted
 co-change-entropy terms enter additively (Hassan 2009; arXiv 2504.18511).
 The full derivation lives in `src/vcs/score.rs`.
 
-The score is **ordinal**: only relative ranks have meaning. Any change
-to the formula bumps `risk_score_version` (now `2`); the recent entropy
-pair also joins the `--risk-formula percentile` blend.
+The score is **ordinal**: only relative ranks have meaning. A single
+`risk_score_version` (now `2`) versions **both** formulas — any change
+to the weighted sum *or* the `--risk-formula percentile` blend bumps it;
+the recent entropy pair joins both.
 
 `--risk-formula percentile` is an alternative: each signal is re-ranked
 to its percentile within the analyzed set, then averaged — the

@@ -48,15 +48,28 @@
 //!   with the fix term — they are bounded per file and complement, rather
 //!   than restate, the v1 churn/commit signals.
 //!
-//! Bumping the formula in any way **must** increment
+//! Bumping *either* formula in any way **must** increment
 //! [`RISK_SCORE_VERSION`] so downstream consumers can detect the
-//! change.
+//! change. Both the weighted sum ([`weighted`]) and the percentile
+//! blend ([`apply_percentile`]) stamp and are cache-keyed on that one
+//! constant, so it versions both — see its doc for the full contract.
 
 use super::stats::Stats;
 
-/// Version of the weighted composite formula. Increment on any change
-/// to the term set, weights, or bumps below. `2` added the change- and
-/// co-change-entropy terms (issue #330).
+/// Version of the risk-score computation, covering **both** formulas.
+/// A single `risk_score_version` is stamped on every file's output
+/// regardless of the active [`super::RiskFormula`] (the weighted sum or
+/// the percentile blend), and the persistent VCS cache keys reuse on it
+/// (see [`super::cache`]). Increment on any change that can alter an
+/// emitted `risk_score`, including:
+///
+/// - the weighted formula ([`weighted`]): its term set, weights, or
+///   categorical bumps below; and
+/// - the percentile blend ([`apply_percentile`]): its extractor set,
+///   mid-rank scaling, or normalization.
+///
+/// `2` added the change- and co-change-entropy terms to both formulas
+/// (issue #330).
 pub const RISK_SCORE_VERSION: u32 = 2;
 
 /// RHEL4 high-developer-count threshold (~16× vulnerability likelihood).
@@ -182,6 +195,12 @@ pub(super) fn ln1p(x: f64) -> f64 {
 /// The `u64 → f64` signal casts are exact for every realistic churn
 /// count (well under 2^53) and the result is ordinal, so the precision
 /// lint is allowed for the whole pass.
+///
+/// The resulting `risk_score` is stamped with and cache-keyed on
+/// [`RISK_SCORE_VERSION`] (the same constant as the weighted formula),
+/// so any change to this blend — the extractor set, the mid-rank
+/// scaling, or the `/ signal_count * 100` normalization — **must**
+/// increment that constant.
 #[allow(clippy::cast_precision_loss)]
 pub fn apply_percentile(stats: &mut [Stats]) {
     if stats.len() < 2 {
