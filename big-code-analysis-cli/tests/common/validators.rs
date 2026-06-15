@@ -73,8 +73,14 @@ pub fn validate_sarif(json_text: &str) -> Result<(), Vec<String>> {
 
 /// Walk a Checkstyle 4.3 XML document via `quick-xml` and assert
 /// structural conformance to the upstream XSD. See the lib-crate
-/// helper for the full contract; this duplicate matches it byte-for-
-/// byte modulo whitespace.
+/// helper for the full contract.
+///
+/// Only the shared SARIF + Checkstyle core (`validate_sarif`, this
+/// walker, and its private helpers) is kept in lock-step with the lib
+/// copy; whole-file equality does **not** hold. Each crate also carries
+/// crate-local helpers absent from the other: this CLI copy adds the
+/// HTML well-formedness section below, while the lib copy adds
+/// `sarif_schema_metadata`.
 pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
