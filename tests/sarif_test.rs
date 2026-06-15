@@ -207,6 +207,42 @@ fn sarif_omitted_optional_fields_validates_against_schema() {
 }
 
 #[test]
+fn sarif_space_in_path_validates_against_schema() {
+    // Every other schema-validation fixture uses an already-clean
+    // `uri-reference` path, so `path_to_uri_reference` is a no-op for
+    // them and the encoding branch is never certified against the
+    // schema. A real-world path with spaces (common in temp/fixture
+    // dirs) must be percent-encoded; a raw space is not a legal
+    // `uri-reference` character and the Draft-07 `format` assertion
+    // rejects it. This proves the *encoded* uri still validates, so
+    // neutering the percent-encoding arm in `path_to_uri_reference`
+    // (emitting the raw byte) fails the schema check here while the
+    // clean-path tests stay green (#949).
+    let offenders = vec![OffenderRecord {
+        path: PathBuf::from("src/my dir/my file.rs"),
+        function: Some("f".into()),
+        start_line: 1,
+        end_line: 1,
+        start_col: Some(1),
+        metric: "cyclomatic".into(),
+        value: 17.0,
+        limit: 15.0,
+        severity: Severity::Warning,
+    }];
+    let out = render(&offenders);
+    let v = parse(&out);
+    let uri =
+        v["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            .as_str()
+            .expect("uri is a string");
+    assert_eq!(
+        uri, "src/my%20dir/my%20file.rs",
+        "spaces in the path must be percent-encoded as %20",
+    );
+    assert_valid_sarif(&out);
+}
+
+#[test]
 fn sarif_relative_path_with_colon_first_segment_is_not_scheme_ambiguous() {
     // RFC 3986 §4.2: a bare `a:b/c.rs` parses as scheme `a:`, which is
     // not a valid relative `uri-reference`. The writer must neutralize
