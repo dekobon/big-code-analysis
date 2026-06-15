@@ -393,10 +393,15 @@ class GrammarMarkerSyncTest(unittest.TestCase):
     # --- baseline-side type handling ---
 
     def test_non_string_float_version_value_warns_and_shows_drift(self) -> None:
+        # 0.99 is chosen so its coerced string form is NOT a substring
+        # of the fixture's Cargo-side `0.25.0` (issue #874): a bare
+        # `assertIn("0.25", ...)` would match the always-present
+        # Cargo token and pass even if the float branch of
+        # _coerce_baseline_value regressed to the `return None` path.
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript"\n'
-            "version = 0.25\n"
+            "version = 0.99\n"
             "[mozcpp]\n"
             'marker = "tree-sitter-cpp"\n'
             'version = "0.23.4"\n'
@@ -404,8 +409,14 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         script = _make_fixture(self.tmpdir, baseline=baseline)
         result = _run(script)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("warning", result.stderr.lower())
-        self.assertIn("0.25", result.stderr)
+        # Pin the scalar-coercion warning wording, not just "warning":
+        # the non-scalar `return None` path emits a different
+        # ("Treating as missing") warning, which the generic
+        # assertIn("warning", ...) would also match.
+        self.assertIn("Drift message will show the coerced form", result.stderr)
+        # Prove the coerced scalar reached the drift line via the
+        # baseline side, not the Cargo side.
+        self.assertIn("baseline '0.99'", result.stderr)
         # No misleading "baseline None" message.
         self.assertNotIn("baseline None", result.stderr)
 
@@ -425,10 +436,15 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertIn("2026-05-28", result.stderr)
 
     def test_toml_int_version_value_warns_and_shows_drift(self) -> None:
+        # 99 is chosen so its coerced string form is NOT a substring
+        # of the fixture's Cargo-side `0.25.0` (issue #874): a bare
+        # `assertIn("25", ...)` would match the always-present Cargo
+        # token and pass even if the int branch of
+        # _coerce_baseline_value regressed to the `return None` path.
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript"\n'
-            "version = 25\n"
+            "version = 99\n"
             "[mozcpp]\n"
             'marker = "tree-sitter-cpp"\n'
             'version = "0.23.4"\n'
@@ -436,8 +452,13 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         script = _make_fixture(self.tmpdir, baseline=baseline)
         result = _run(script)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("warning", result.stderr.lower())
-        self.assertIn("25", result.stderr)
+        # Pin the scalar-coercion warning wording, not just "warning":
+        # the non-scalar `return None` path emits a different
+        # ("Treating as missing") warning the generic check would match.
+        self.assertIn("Drift message will show the coerced form", result.stderr)
+        # Prove the coerced scalar reached the drift line via the
+        # baseline side, not the Cargo side.
+        self.assertIn("baseline '99'", result.stderr)
 
     def test_toml_bool_version_value_warns_and_shows_drift(self) -> None:
         # Defends the `isinstance(value, bool)` check that appears
