@@ -8581,6 +8581,28 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn python_number_truthy_condition_counts() {
+        // Regression for #772: Python treats every non-zero number as
+        // truthy, so `if 5:` and `x and 5` should each count their
+        // numeric literal as a Fitzpatrick unary condition. Pre-fix
+        // `python_bool_terminal_kinds!()` listed `True` / `False` but
+        // omitted `Integer` / `Float`, so the walker dropped every
+        // numeric-truthy operand (mirrors the Lua `Number` fix).
+        check_metrics::<PythonParser>(
+            "def f(a):\n    if 5:\n        pass\n    return a and 2\n",
+            "foo.py",
+            |metric| {
+                // `if 5:` → walker counts the Integer literal (+1).
+                // `a and 2` → `and` walker counts both operands:
+                //   identifier `a` (+1), Integer `2` (+1).
+                // Total: 3.
+                assert_eq!(metric.abc.conditions_sum(), 3);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn python_boolean_operators_not_counted_directly() {
         // Python's `and` / `or` are not counted as conditions on
         // their own (Fitzpatrick Rule 5; #395). Each operand is
@@ -10513,6 +10535,45 @@ function f(int $a, int $b): int {
             "foo.js",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 8);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_number_truthy_condition_counts() {
+        // Regression for #772: JS treats every non-zero number as
+        // truthy, so `while (5)` and `x && 5` should each count their
+        // numeric literal as a Fitzpatrick unary condition. Pre-fix
+        // `javascript_bool_terminal_kinds!()` listed `True` / `False`
+        // but omitted `Number`, so the walker dropped every numeric-
+        // truthy operand (mirrors the Lua `Number` fix).
+        check_metrics::<JavascriptParser>(
+            "function f(x) { while (5) {} return x && 5; }",
+            "foo.js",
+            |metric| {
+                // `while (5)` → Number literal (+1). `x && 5` → both
+                // operands count: identifier `x` (+1), Number `5` (+1).
+                // Total: 3.
+                assert_eq!(metric.abc.conditions_sum(), 3);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_number_truthy_condition_counts() {
+        // Regression for #772: TS shares the JS truthy semantics. The
+        // numeric *literal* `5` (kind `Number`) counts; the type-keyword
+        // `number` (kind `Number2`, the `predefined_type`) must not —
+        // see `typescript_bool_terminal_kinds!`.
+        check_metrics::<TypescriptParser>(
+            "function f(x: number) { while (5) {} return x && 5; }",
+            "foo.ts",
+            |metric| {
+                // `while (5)` → +1; `x && 5` → `x` (+1) + `5` (+1).
+                // Total: 3. The `: number` annotation contributes 0.
+                assert_eq!(metric.abc.conditions_sum(), 3);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
