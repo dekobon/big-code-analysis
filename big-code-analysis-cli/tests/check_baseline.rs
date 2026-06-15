@@ -291,7 +291,15 @@ fn improved_function_still_passes() {
             baseline.to_str().unwrap(),
         ])
         .assert()
-        .success();
+        .success()
+        // The improved function (cyclomatic = 5) is still a live
+        // violation against `cyclomatic=1`, but ratchets below the
+        // recorded 7, so it must classify `Covered` and be filtered.
+        // Assert the filter actually fired — a clean exit alone could
+        // mask a parse that produced no violation at all (#894).
+        .stderr(predicate::str::contains(
+            "filtered 1 violations via baseline",
+        ));
 }
 
 // -- Identity & line drift ------------------------------------------------
