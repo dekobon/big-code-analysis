@@ -156,8 +156,28 @@ fn recent_window_excludes_old_commits() {
 #[test]
 fn emit_author_details_adds_sorted_hashes() {
     let mut acc = Accumulator::new(100);
-    let pair = [author("grace@example.com"), author("ada@example.com")];
-    acc.record(&change(10, 10, &pair, Classification::default()));
+    // Eight distinct authors. Comparing the emitted list against a copy of
+    // *itself* re-sorted would pass even with the production sort removed:
+    // `author_edits_long.keys()` iteration is seed-dependent, and with only
+    // a couple of keys an unsorted result coincides with sorted order too
+    // often to reliably catch a dropped sort. Two defenses here:
+    //   1. derive the expected order independently — hash the *known input*
+    //      authors via the same `AuthorId::hashed` path the production uses,
+    //      then sort those — so the assertion is not a self-comparison; and
+    //   2. use eight authors, so an unsorted HashMap order coincides with the
+    //      sorted order only ~1/8! (≈ 1/40320) of seeds, making a dropped
+    //      sort fail essentially every run rather than ~half the time.
+    let authors = [
+        author("grace@example.com"),
+        author("ada@example.com"),
+        author("alan@example.com"),
+        author("edsger@example.com"),
+        author("linus@example.com"),
+        author("guido@example.com"),
+        author("ken@example.com"),
+        author("dennis@example.com"),
+    ];
+    acc.record(&change(10, 10, &authors, Classification::default()));
 
     let options = Options {
         emit_author_details: true,
@@ -166,10 +186,12 @@ fn emit_author_details_adds_sorted_hashes() {
     let stats = acc.finalize(NOW, &options, 0.0, 0.0);
 
     let ids = stats.author_ids.expect("author_ids present");
-    assert_eq!(ids.len(), 2);
-    let mut sorted = ids.clone();
-    sorted.sort_unstable();
-    assert_eq!(ids, sorted, "hashed ids are emitted sorted");
+
+    // Independently-derived expected ascending order, computed from the
+    // input authors rather than from the output.
+    let mut expected: Vec<String> = authors.iter().map(AuthorId::hashed).collect();
+    expected.sort_unstable();
+    assert_eq!(ids, expected, "hashed ids are emitted in sorted order");
 
     // Off by default.
     let without = acc.finalize(NOW, &Options::default(), 0.0, 0.0);
