@@ -53,11 +53,13 @@
 //! - Bash (`bash`)
 //! - C (`c`, upstream `tree-sitter-c`; owns `.c`)
 //! - C/C++ (`cpp`, upstream `tree-sitter-cpp`; the default for `.cpp` /
-//!   `.cc` / `.h` and also exposes the internal `Ccomment` / `Preproc`
+//!   `.cc` / `.h` and also exposes the internal `ccomment` / `preproc`
 //!   C-family helpers)
 //! - C++, Firefox-internal "Mozcpp" (`mozcpp`, opt-in; owns no file
 //!   extensions — select it by name)
 //! - C# (`csharp`)
+//! - Objective-C (`objc`, upstream `tree-sitter-objc`; owns `.m`; `.mm`
+//!   Objective-C++ stays on C/C++)
 //! - Elixir (`elixir`)
 //! - Go (`go`)
 //! - Groovy (`groovy`)
@@ -73,7 +75,7 @@
 //! - Ruby (`ruby`)
 //! - Rust (`rust`)
 //! - Tcl (`tcl`)
-//! - TSX (`typescript`)
+//! - TSX (`tsx`)
 //! - TypeScript (`typescript`)
 //!
 //! [feat]: https://dekobon.github.io/big-code-analysis/library/cargo-features.html
