@@ -91,6 +91,20 @@ fn subcommand_used_detects_jit_after_value_taking_flag() {
 }
 
 #[test]
+fn subcommand_used_ignores_jit_not_directly_after_vcs() {
+    // `jit` present and `vcs` present, but `jit` is a positional argument
+    // of the canonical `commit` subcommand, not in subcommand position.
+    // The adjacency guard must reject it (#835); a contains-style scan
+    // would wrongly flag it.
+    let tokens = vec![
+        String::from("vcs"),
+        String::from("commit"),
+        String::from("jit"),
+    ];
+    assert!(!subcommand_used(&tokens, "jit"));
+}
+
+#[test]
 fn subcommand_used_quiet_for_canonical_commit() {
     let tokens = vec![
         String::from("vcs"),
