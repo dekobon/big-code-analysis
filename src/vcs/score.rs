@@ -32,8 +32,14 @@
 //! - Bug-fix and security-fix commit counts feed a log-scaled additive
 //!   term, security fixes double-weighted (Sentence-Level VFC studies;
 //!   PySecDB).
-//! - File size is a deliberately tiny tie-breaker — large files are
-//!   weakly correlated with defects but the signal saturates fast.
+//! - File size enters as `ln1p(sloc)^2 / 100` with a full coefficient of
+//!   1.0, so it is a meaningful contributor rather than a tiny tie-breaker:
+//!   ~0.33 at 300 SLOC, ~0.48 at 1k, ~0.85 at 10k, and >1.0 past ~50k SLOC.
+//!   Those magnitudes are comparable to the churn terms (a recency-churn
+//!   "point" is `0.30*ln1p(50)` ≈ 1.18) and dwarf the entropy (≤0.15) and
+//!   long-churn (≈0.27 at heavy churn) terms. Large files are only weakly
+//!   correlated with defects, but the squared-log scaling keeps size a
+//!   first-class additive signal across realistic file sizes.
 //! - **v2** adds two recent-window process-entropy terms (issue #330):
 //!   *change entropy* (Hassan 2009; file-level Pearson 0.54 with defects
 //!   on Apache projects) and *co-change graph entropy* (arXiv 2504.18511,
@@ -118,8 +124,10 @@ pub fn weighted(input: &ScoreInput) -> f64 {
     let dilution = (1.0 - input.ownership_top_share).clamp(0.0, 1.0);
     let fix_factor =
         ln1p(f64::from(input.bug_fix_commits) + 2.0 * f64::from(input.security_fix_commits));
-    // Size is a tiny tie-breaker: squared log over 100 keeps even a
-    // 10k-line file contributing well under one churn-point.
+    // Squared log over 100, entering `base` with coefficient 1.0. This is a
+    // meaningful contributor, not a tie-breaker: ~0.85 at 10k SLOC and >1.0
+    // past ~50k SLOC, comparable to the recency-churn term (≈1.18 per
+    // churn-point) and well above the entropy (≤0.15) and long-churn terms.
     let size_factor = ln1p(input.sloc as f64).powi(2) / 100.0;
     // Recent-window process entropy (v2): scattered changes (Hassan) and
     // wide co-change blast radius (arXiv 2504.18511) both predict defects.

@@ -1061,10 +1061,10 @@ mod trend_wire_tests {
         assert!(from_cbor.risk_score.is_nan() && from_cbor.cochange_entropy_recent.is_nan());
     }
 
-    /// Issue #702: `VcsTrendPoint` and `VcsTrend` use `#[serde(flatten)]
-    /// Vcs`, a known CBOR footgun. CBOR is a *written* trend format but was
-    /// never *read back* in tests — pin the round-trip for both YAML and
-    /// CBOR.
+    /// Issue #702: `VcsTrendPoint` and `VcsTrend` carry the metric block
+    /// under a nested `vcs` key (not `#[serde(flatten)]`). CBOR is a
+    /// *written* trend format but was never *read back* in tests — pin the
+    /// round-trip for both YAML and CBOR.
     #[test]
     fn vcs_trend_point_round_trips_through_yaml_and_cbor() {
         let point = VcsTrendPoint {

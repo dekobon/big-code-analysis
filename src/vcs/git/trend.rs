@@ -55,8 +55,13 @@ pub(crate) fn build_trend(
     let stamps = trend::timestamps(end, span_secs, points);
 
     // One first-parent walk of the base reference yields every mainline
-    // tip and its time, so each point is an O(commits) lookup rather than
-    // its own walk.
+    // tip and its time. This shared `timeline` is now used only to resolve
+    // each point's tip oid (`tip_at_or_before` below). Each per-point
+    // `build` sets `as_of`, so its `resolve_anchor` re-anchors and re-walks
+    // the first-parent timeline itself (since #648), making the trend a
+    // known O(points × commits) cost — the earlier "O(commits) lookup
+    // rather than its own walk" optimisation no longer holds. A follow-up
+    // could hoist this walk and share it with the per-point builds.
     let OpenRepo { repo, .. } = repo::open(root)?;
     // Take the owned id so the borrowing `Commit` is dropped before the
     // repo handle is.
