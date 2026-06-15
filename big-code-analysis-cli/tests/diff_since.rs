@@ -428,17 +428,50 @@ fn unknown_metric_errors_with_did_you_mean() {
 
 /// #662: valid `--metric` spellings — a canonical bucket name, the #514
 /// bare `loc` sub-metric alias, and a dotted `check --threshold` id — all
-/// pass validation and run.
+/// pass validation, run, AND actually populate their selected bucket.
+///
+/// Asserting only exit 0 (#902) cannot tell a real metric-filtered diff
+/// from the silent-empty regression #662 was filed against: a valid
+/// spelling that matches no bucket would filter the diff to nothing and
+/// still exit 0. Each spelling here drives a known `FLAT_SOURCE` ->
+/// `BRANCHY_SOURCE` delta, so its selected bucket must carry a non-empty
+/// `changed` array. The dotted `cyclomatic.modified` id selects the
+/// `cyclomatic` bucket (see the `--format json` shape).
 #[test]
 fn valid_metric_spellings_are_accepted() {
     let repo = repo_with_flat_commit();
     fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
-    for name in ["cyclomatic", "sloc", "cyclomatic.modified"] {
-        cli()
+    for (name, bucket) in [
+        ("cyclomatic", "cyclomatic"),
+        ("sloc", "sloc"),
+        ("cyclomatic.modified", "cyclomatic"),
+    ] {
+        let output = cli()
             .current_dir(repo.path())
-            .args(["diff", "--since", "HEAD", "src", "--metric", name])
+            .args([
+                "diff", "--since", "HEAD", "src", "--metric", name, "--format", "json",
+            ])
             .assert()
-            .success();
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let doc: serde_json::Value = serde_json::from_slice(&output)
+            .unwrap_or_else(|e| panic!("diff JSON for `{name}` is invalid: {e}"));
+        let changed = doc
+            .get("buckets")
+            .and_then(|b| b.get(bucket))
+            .and_then(|b| b.get("changed"))
+            .and_then(serde_json::Value::as_array)
+            .unwrap_or_else(|| {
+                panic!(
+                    "spelling `{name}` must populate the `{bucket}` bucket's `changed` array: {doc}"
+                )
+            });
+        assert!(
+            !changed.is_empty(),
+            "spelling `{name}` filtered the `{bucket}` diff to empty (silent-empty regression, #662/#902): {doc}"
+        );
     }
 }
 
