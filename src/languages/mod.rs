@@ -99,3 +99,33 @@ pub use language_typescript::*;
 
 pub mod language_preproc;
 pub use language_preproc::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #954: Tcl is the only grammar with an `error` keyword (variant
+    // `Tcl::Error`, display "error"), so the tree-sitter ERROR sentinel
+    // is renamed to `Tcl::Error2` (display "ERROR"). The generated
+    // `From<u16>` fallback for an out-of-range id must yield that
+    // sentinel, never the keyword — otherwise an unknown/error node is
+    // silently misclassified as a valid `error` command token. This
+    // pins the runtime contract every language module upholds against a
+    // Tcl-only regression of the generator template.
+    #[test]
+    fn tcl_from_u16_out_of_range_maps_to_error_sentinel() {
+        let fallback = Tcl::from(u16::MAX);
+        assert_eq!(fallback, Tcl::Error2);
+        assert_ne!(fallback, Tcl::Error);
+        assert_eq!(<&'static str>::from(fallback), "ERROR");
+        assert_eq!(<&'static str>::from(Tcl::Error), "error");
+    }
+
+    // A grammar with no `error` keyword (Rust) keeps the plain `Error`
+    // sentinel name, so its fallback is unaffected — confirming the fix
+    // is scoped to the genuine clash and did not perturb other languages.
+    #[test]
+    fn rust_from_u16_out_of_range_maps_to_plain_error_sentinel() {
+        assert_eq!(<&'static str>::from(Rust::from(u16::MAX)), "ERROR");
+    }
+}
