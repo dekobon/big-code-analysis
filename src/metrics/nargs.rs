@@ -69,8 +69,8 @@ impl fmt::Display for Stats {
         write!(
             f,
             "function_args: {}, closure_args: {}, function_args_average: {}, closure_args_average: {}, total: {}, average: {}, function_args_min: {}, function_args_max: {}, closure_args_min: {}, closure_args_max: {}",
-            self.function_args(),
-            self.closure_args(),
+            self.function_args_sum(),
+            self.closure_args_sum(),
             self.function_args_average(),
             self.closure_args_average(),
             self.total(),
@@ -3319,6 +3319,45 @@ when HTTP_REQUEST { log local0. \"hit\" }
                   "closure_args_max": 2
                 }
                 "#);
+            },
+        );
+    }
+
+    /// Regression for #782: the textual `Display` headline must report
+    /// the cross-space *sum* (`function_args_sum`/`closure_args_sum`),
+    /// matching the JSON/YAML/TOML/CBOR serializers, not the per-space
+    /// direct accumulator. At a parent space that rolls up child
+    /// function-spaces (the file/unit space of `python_nested_functions`)
+    /// the accumulator under-counts: it reflects only the direct
+    /// function `f` (2 args) and no merged closures (0), while the sum
+    /// is 3 function args (f=2, foo=1) and 2 closure args. Before the
+    /// fix Display printed `function_args: 2, closure_args: 0`.
+    #[test]
+    fn display_headline_matches_sum_for_nested_functions() {
+        check_metrics::<PythonParser>(
+            "def f(a, b):
+                 def foo(a):
+                     if a:
+                         return 1
+                 bar = lambda a: lambda b: b or True or True
+                 return bar(foo(a))(a)",
+            "foo.py",
+            |metric| {
+                let stats = &metric.nargs;
+                // The summed accessors are the cross-format source of truth.
+                assert_eq!(stats.function_args_sum(), 3);
+                assert_eq!(stats.closure_args_sum(), 2);
+
+                // The Display headline must echo those sums verbatim.
+                let rendered = stats.to_string();
+                assert!(
+                    rendered.starts_with(&format!(
+                        "function_args: {}, closure_args: {},",
+                        stats.function_args_sum(),
+                        stats.closure_args_sum()
+                    )),
+                    "Display headline diverged from the summed accessors: {rendered}"
+                );
             },
         );
     }
