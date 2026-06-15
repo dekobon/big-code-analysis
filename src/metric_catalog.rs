@@ -64,18 +64,22 @@ pub struct MetricInfo {
     pub long_description: &'static str,
     /// Whether a higher or lower value is the unhealthy direction.
     pub direction: Direction,
-    /// Whether the metric's JSON headline at the file-level `unit` space
-    /// is an aggregate across descendant spaces (a `sum`/`*_sum` field)
-    /// that does **not** match the CLI threshold accessor's per-space
-    /// scalar.
+    /// Whether the metric's JSON headline is an aggregate across
+    /// descendant spaces (a `sum`/`*_sum` field) that does **not** match
+    /// the CLI threshold accessor's per-space scalar at any interior
+    /// space.
     ///
     /// `true` for the four metrics whose serialized JSON value diverges
-    /// from the per-space accessor at the unit level — `cognitive`,
-    /// `cyclomatic`, `cyclomatic.modified`, and `abc` (#441). Front-ends
-    /// that walk the JSON shape rather than the typed `CodeMetrics`
-    /// (the Python `to_sarif` binding) must skip the unit space for
-    /// these so they do not emit file-wide values masquerading as
-    /// per-space findings the CLI never produces.
+    /// from the per-space accessor — `cognitive`, `cyclomatic`,
+    /// `cyclomatic.modified`, and `abc` (#441). The aggregate equals the
+    /// per-space scalar only at a leaf space (no descendant
+    /// function/closure spaces); at any interior space — the file-level
+    /// `unit` or a container with descendants — it is larger. Front-ends
+    /// that walk the JSON shape rather than the typed `CodeMetrics` (the
+    /// Python `to_sarif` binding) must therefore emit these only at leaf
+    /// spaces, so they do not emit subtree-wide values masquerading as
+    /// per-space findings the CLI never produces (#855). The flag name
+    /// retains its original unit-only framing.
     ///
     /// The flag is **not** derivable from the JSON path string: `nexits`
     /// also serialises a `sum` field, but its CLI accessor (`nexits_sum()`)

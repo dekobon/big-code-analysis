@@ -41,18 +41,25 @@
 //! JSON field is compared against the limit — mirroring the CLI's
 //! `EXTRACTORS` table in `big-code-analysis-cli/src/thresholds.rs`.
 //!
-//! # Unit-level emission
+//! # Interior-space emission
 //!
-//! For most metrics the JSON's headline field at the file-level `unit`
-//! space IS the file-wide value (e.g. `loc.sloc`, `wmc.total`,
-//! `mi.original`, `halstead.volume`), so emitting unit findings matches
-//! the CLI. For four metrics — `cyclomatic`, `cyclomatic.modified`,
+//! For most metrics the JSON's headline field at any space IS that
+//! space's own value (e.g. `loc.sloc`, `wmc.total`, `mi.original`,
+//! `halstead.volume`), so emitting a finding wherever it breaches
+//! matches the CLI at every space level — unit, container, and leaf
+//! alike. For four metrics — `cyclomatic`, `cyclomatic.modified`,
 //! `cognitive`, and `abc` — the JSON exposes the aggregate value across
 //! child spaces (a `sum` field, or `abc.magnitude` built from the
 //! `*_sum` accumulators) while the CLI's per-space accessor returns
-//! just the unit's own scalar. For those four the binding skips the
-//! unit space; for everything else it does not. The per-metric
-//! `skip_at_unit` flag in [`METRIC_FIELDS`] encodes this.
+//! just that space's own scalar. The aggregate equals the per-space
+//! scalar only at a **leaf** space (no descendant function/closure
+//! spaces); at any interior space — the unit or a container with
+//! descendants — it is larger, so comparing it against the limit
+//! over-emits findings the CLI never produces (#855). For those four
+//! the binding therefore emits only at leaf spaces; for everything
+//! else it emits at every space. The per-metric `skip_at_unit` flag in
+//! [`METRIC_FIELDS`] (named for its original unit-only scope, retained
+//! as the shared-registry column name) marks the affected four.
 //!
 //! Defaults: `thresholds=None` is equivalent to `thresholds={}` — the
 //! CLI itself has no built-in defaults (every check run must supply
@@ -89,14 +96,19 @@ const FILE_SYMBOL: &str = "<file>";
 
 /// One metric entry in the threshold-name → JSON-path table.
 ///
-/// `skip_at_unit` is true for the metrics whose CLI accessor
-/// returns the per-space scalar while the JSON exposes only the
-/// aggregate across children. For these, emitting at the unit
-/// level would produce findings the CLI never emits with metric
-/// values that look per-space but are actually file-wide. For every
-/// other metric the JSON field IS the per-space value (or matches the
-/// CLI's aggregate accessor at unit), so unit-level findings are
-/// emitted faithfully.
+/// `skip_at_unit` is true for the metrics whose CLI accessor returns
+/// the per-space scalar while the JSON exposes only the aggregate
+/// across child spaces (`*.sum`, `abc.magnitude`). The JSON aggregate
+/// equals the CLI's per-space scalar *only at a leaf space* — one with
+/// no descendant function/closure spaces, whose `merge` folds in just
+/// its own value. At any interior space (the file-level `unit` or a
+/// container with descendants) the aggregate exceeds the per-space
+/// scalar, so comparing it against the limit would emit findings the
+/// CLI never produces. The flag therefore drives a skip at every
+/// interior space, not the unit alone (#855); see
+/// [`record_threshold_breaches`]. For every other metric the JSON
+/// field IS the per-space value (or matches the CLI's aggregate
+/// accessor at unit), so findings are emitted at every space.
 #[derive(Clone, Copy)]
 struct MetricField {
     name: &'static str,
@@ -261,7 +273,8 @@ struct Threshold {
     /// Sequence of dict keys to walk to reach the scalar value on a
     /// space's `metrics` sub-dict.
     path: &'static [&'static str],
-    /// True for the metrics whose unit-level emission must be skipped
+    /// True for the aggregate-shaped metrics, whose emission must be
+    /// skipped at every interior (non-leaf) space
     /// (see [`MetricField::skip_at_unit`]).
     skip_at_unit: bool,
     /// Threshold the metric value is compared against to emit a finding.
@@ -401,8 +414,13 @@ fn extract_line_number(
 /// compare-and-push.
 struct SpaceFields {
     /// Whether the space is the file-level `unit` space (drives the
-    /// `skip_at_unit` and `<file>` function-name rules).
+    /// `<file>` function-name rule and the empty child prefix).
     is_unit: bool,
+    /// Whether the space has no descendant function/closure spaces.
+    /// Only at a leaf does a `skip_at_unit` metric's JSON aggregate
+    /// (`*.sum`, `abc.magnitude`) equal the per-space scalar the CLI
+    /// compares, so leaf-ness gates emission of those metrics (#855).
+    is_leaf: bool,
     /// This space's own `::`-segment in the qualified-symbol chain (the
     /// CLI's `space_segment`): the AST-derived name for a named space, or
     /// `<anon@L{start_line}>` for anonymous / unnamed spaces. The unit
@@ -430,9 +448,10 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
     let kind: Option<String> = space
         .get_item(intern!(py, "kind"))?
         .and_then(|k| k.extract::<String>().ok())
-        // Normalise case so an upstream rename or a hand-crafted
-        // dict using "Unit" instead of "unit" still hits the
-        // skip-at-unit logic. Upstream serialises with
+        // Normalise case so an upstream rename or a hand-crafted dict
+        // using "Unit" instead of "unit" still resolves to the unit
+        // space (driving the `<file>` symbol and the empty child
+        // prefix). Upstream serialises with
         // `#[serde(rename_all = "lowercase")]` today; this is a
         // defensive lowercase guard against future drift.
         .map(|s| s.to_ascii_lowercase());
@@ -443,6 +462,7 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
         .and_then(|n| n.extract().ok());
     let start_line: u32 = extract_line_number(space, intern!(py, "start_line"))?.unwrap_or(0);
     let end_line: u32 = extract_line_number(space, intern!(py, "end_line"))?.unwrap_or(start_line);
+    let is_leaf = !has_child_spaces(space)?;
 
     // This space's own `::`-segment in the qualified-symbol chain.
     // Mirrors the CLI's `space_segment`
@@ -460,10 +480,32 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
 
     Ok(SpaceFields {
         is_unit,
+        is_leaf,
         segment,
         start_line,
         end_line,
     })
+}
+
+/// Whether `space` has at least one child space dict under `spaces`.
+///
+/// Mirrors [`push_child_spaces`]'s tolerance: only dict children count
+/// as descendants (a non-dict entry is skipped by the walk and so
+/// cannot carry a metric to aggregate), and a missing / non-iterable
+/// `spaces` value means no children. Used to decide leaf-ness, which
+/// gates emission of the `skip_at_unit` aggregate metrics (#855).
+fn has_child_spaces(space: &Bound<'_, PyDict>) -> PyResult<bool> {
+    let py = space.py();
+    if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
+        && let Ok(seq) = spaces.try_iter()
+    {
+        for child in seq {
+            if child?.cast_into::<PyDict>().is_ok() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// The qualified symbol of a space, given the `::`-joined symbol of its
@@ -495,7 +537,12 @@ fn record_threshold_breaches(
     out: &mut Vec<OffenderRecord>,
 ) {
     for threshold in thresholds {
-        if fields.is_unit && threshold.skip_at_unit {
+        // For the aggregate-shaped metrics (`skip_at_unit`), the JSON
+        // field is the subtree sum, which equals the CLI's per-space
+        // scalar only at a leaf. Skipping every interior space — the
+        // unit and any container with descendants — keeps the binding
+        // from over-emitting findings the CLI never produces (#855).
+        if !fields.is_leaf && threshold.skip_at_unit {
             continue;
         }
         let Some(value) = extract_metric(metrics, threshold.path) else {

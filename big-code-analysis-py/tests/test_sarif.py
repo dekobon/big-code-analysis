@@ -575,13 +575,12 @@ def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
     not catch (a top-level function's qualified name equals its bare
     name).
 
-    Scope note: the binding reads each metric from the serialised JSON,
-    where a sum-shaped metric (``cyclomatic.sum``) at an *interior*
-    container space is the aggregate across its children, so the binding
-    may emit an extra finding at the enclosing class that the CLI's
-    per-space accessor does not. That count divergence is a separate
-    wire-shape limitation; this test pins only the **qualified name**
-    of the method-level finding, which both sides must agree on.
+    Since #855 the binding emits the four aggregate-shaped metrics
+    (``cyclomatic`` among them) only at *leaf* spaces, where the JSON
+    ``sum`` equals the CLI's per-space scalar. It no longer over-emits a
+    spurious finding at the enclosing class ``A`` for the aggregate of
+    its methods, so the full finding *set* now matches the CLI — this
+    test asserts set equality, not just membership of the method symbol.
     """
     src = tmp_path / "nested.py"
     src.write_text(
@@ -609,8 +608,14 @@ def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
     cli_names = _qualified_names(cli_doc)
     # The method-level offender must carry the container-joined symbol
     # on both sides — the core #706 divergence.
-    assert "A::branchy" in py_names, f"binding must qualify the method; got {py_names!r}"
     assert "A::branchy" in cli_names, f"CLI reference must qualify the method; got {cli_names!r}"
+    # Since #855 the binding's finding set matches the CLI exactly: the
+    # aggregate-shaped `cyclomatic` is emitted only at the leaf method,
+    # so the enclosing class `A` is NOT over-emitted. (Pre-#855 the
+    # binding flagged `A` for the sum of its methods' complexity.)
+    assert py_names == cli_names, (
+        f"binding finding set must match the CLI; got py={py_names!r} cli={cli_names!r}"
+    )
     # No finding may carry the bare, un-qualified method name.
     assert "branchy" not in py_names, (
         f"binding must not emit the un-qualified method name; got {py_names!r}"
@@ -728,14 +733,18 @@ def test_to_sarif_treats_unit_kind_case_insensitively() -> None:
     """Upstream serialises ``SpaceKind`` via ``rename_all = \"lowercase\"``,
     but defending against a future upstream rename (or a hand-crafted
     dict using ``Unit``) is cheap: the kind comparison normalises to
-    ASCII-lowercase. A regression that re-introduced a case-sensitive
-    check would emit findings for the skip-listed metrics at the
-    unit level.
+    ASCII-lowercase. The capitalised ``Unit`` must still resolve to the
+    file-level ``<file>`` symbol on the offender it emits. Build the unit
+    as a leaf (no child spaces) so the aggregate metric is allowed to
+    emit (#855): the point under test is the kind-name normalisation, not
+    the interior-space skip.
     """
     fake = _fake_function_dict(kind="Unit", cyclomatic_sum=999)
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
-    assert parsed["runs"][0]["results"] == [], (
-        "Unit (capital) must normalise to unit and trigger skip_at_unit"
+    findings = parsed["runs"][0]["results"]
+    fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
+    assert fq_names == ["<file>"], (
+        f"Unit (capital) must normalise to unit and carry the <file> symbol, got {fq_names!r}"
     )
 
 
