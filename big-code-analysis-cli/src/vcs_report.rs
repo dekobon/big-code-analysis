@@ -533,10 +533,13 @@ fn bus_factor_rows(bf: &big_code_analysis::vcs::BusFactor) -> Vec<Vec<Cell>> {
     bf.by_directory
         .iter()
         .map(|dir| {
+            // Route through `num_cell` (the shared `thousands` path) so the
+            // per-directory counts match the ranked-files table and the repo
+            // summary line instead of rendering bare integers (issue #849).
             vec![
                 Cell::Path(dir.directory.clone()),
-                Cell::Num(dir.group.bus_factor.to_string()),
-                Cell::Num(dir.group.files.to_string()),
+                num_cell(dir.group.bus_factor.into()),
+                num_cell(dir.group.files.into()),
             ]
         })
         .collect()
@@ -920,6 +923,51 @@ mod tests {
             !out.replace("\\|", "").contains("weird|dir"),
             "unescaped directory pipe leaked into the table: {out}"
         );
+    }
+
+    /// Issue #849: the per-directory bus-factor counts must render with the
+    /// shared `thousands` separator, matching the ranked-files table and the
+    /// repo summary line, instead of the bare `15973`.
+    #[test]
+    fn bus_factor_per_directory_counts_use_thousands_separators() {
+        use big_code_analysis::vcs::{
+            BUS_FACTOR_SCHEMA_VERSION, BusFactor, DirectoryBusFactor, GroupBusFactor,
+        };
+        let bf = BusFactor {
+            bus_factor_schema_version: BUS_FACTOR_SCHEMA_VERSION,
+            coverage_threshold: 0.5,
+            doa_threshold: 0.75,
+            repo: GroupBusFactor {
+                bus_factor: 1,
+                files: 15_973,
+                authors: 1,
+                key_author_ids: None,
+            },
+            by_directory: vec![DirectoryBusFactor {
+                directory: "src".to_owned(),
+                group: GroupBusFactor {
+                    bus_factor: 1,
+                    files: 15_973,
+                    authors: 1,
+                    key_author_ids: None,
+                },
+            }],
+        };
+        let mut md = String::new();
+        write_markdown_bus_factor(&mut md, &bf, 2);
+        let mut html = String::new();
+        let mut headings = Headings::default();
+        write_html_bus_factor(&mut html, &mut headings, &bf, 2);
+        for rendered in [&md, &html] {
+            assert!(
+                rendered.contains("15,973"),
+                "per-directory Files count must carry a thousands separator: {rendered}"
+            );
+            assert!(
+                !rendered.contains("15973"),
+                "the bare unseparated form must not appear: {rendered}"
+            );
+        }
     }
 
     #[test]
