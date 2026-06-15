@@ -517,7 +517,7 @@ pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), Strin
     .map_err(|e| e.into_message(&format!("diff --since: git ls-tree {since_ref}")))?;
 
     for record in listing.split(|&b| b == 0).filter(|r| !r.is_empty()) {
-        let Some((kind, oid, path_bytes)) = parse_ls_tree_record(record) else {
+        let Some((mode, kind, oid, path_bytes)) = parse_ls_tree_record(record) else {
             return Err(format!(
                 "diff --since: malformed git ls-tree record for {since_ref}"
             ));
@@ -525,7 +525,11 @@ pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), Strin
         // `-r` recurses, so trees never appear; a `commit` entry is a
         // submodule gitlink with no blob content to extract — skip it
         // (the after-side walker does not descend into submodules either).
-        if kind != "blob" {
+        // A symlink is also a `blob`, but its content is the link target
+        // path, not source — materializing that string as a regular file
+        // would have the metrics walker parse a bogus file, diverging from
+        // the after-side working-tree walk. Skip it by mode.
+        if kind != "blob" || mode == GIT_SYMLINK_MODE {
             continue;
         }
         let rel_path = bytes_to_rel_path(path_bytes).ok_or_else(|| {
@@ -557,27 +561,31 @@ pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), Strin
     Ok(())
 }
 
-/// Split one `git ls-tree -z` record into `(type, oid, path_bytes)`.
+/// Git's octal mode for a symbolic link (`ls-tree` reports symlinks as
+/// `blob` type with this mode).
+const GIT_SYMLINK_MODE: &str = "120000";
+
+/// Split one `git ls-tree -z` record into `(mode, type, oid, path_bytes)`.
 /// The record shape is `<mode> SP <type> SP <oid> TAB <path>`; the path
 /// is returned as raw bytes (decoded later by [`bytes_to_rel_path`]) so
 /// a non-UTF-8 path is a path error, not a parse error. Returns `None`
 /// when the metadata prefix is missing the tab or its three
 /// space-separated fields.
-fn parse_ls_tree_record(record: &[u8]) -> Option<(&str, &str, &[u8])> {
+fn parse_ls_tree_record(record: &[u8]) -> Option<(&str, &str, &str, &[u8])> {
     let tab = record.iter().position(|&b| b == b'\t')?;
     let (meta, path_with_tab) = record.split_at(tab);
     // The metadata prefix (`<mode> <type> <oid>`) is always ASCII, so a
     // UTF-8 decode here is safe and lets us split on spaces.
     let meta = std::str::from_utf8(meta).ok()?;
     let mut fields = meta.split(' ');
-    let _mode = fields.next()?;
+    let mode = fields.next()?;
     let kind = fields.next()?;
     let oid = fields.next()?;
     if fields.next().is_some() {
         return None;
     }
     // Skip the leading tab on the path side.
-    Some((kind, oid, &path_with_tab[1..]))
+    Some((mode, kind, oid, &path_with_tab[1..]))
 }
 
 /// Decode a git-reported (repo-root-relative) path into a [`PathBuf`],

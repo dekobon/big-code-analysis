@@ -170,7 +170,13 @@ pub(crate) fn walk_paths(
         let Ok(is_file) = seed_kind(seed) else {
             // A nonexistent / dangling-symlink seed is a caller error, not
             // an empty directory — surface it (#858 / #596 parity).
-            missing.push(seed.clone());
+            // De-duplicate against `seen` like the file path does, so a
+            // repeated bad seed yields a single AnalysisFailure, not one
+            // per occurrence (a path is never both a valid file and a
+            // missing seed, so sharing `seen` is safe).
+            if seen.insert(seed.clone()) {
+                missing.push(seed.clone());
+            }
             continue;
         };
         if is_file {
@@ -417,6 +423,25 @@ mod tests {
             outcome.missing_seeds,
             vec![missing],
             "the nonexistent seed is surfaced even when another seed is valid"
+        );
+    }
+
+    #[test]
+    fn repeated_missing_seed_is_reported_once() {
+        // A nonexistent seed listed twice must yield a single failure, the
+        // same way `files` de-duplicates a repeated valid seed — otherwise a
+        // duplicated bad path produces duplicate AnalysisFailure records.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("typo.rs");
+        let outcome = walk_paths(
+            &[missing.clone(), missing.clone()],
+            &filters(&[], &[]),
+            true,
+        );
+        assert_eq!(
+            outcome.missing_seeds,
+            vec![missing],
+            "a repeated missing seed must be reported once, not per occurrence"
         );
     }
 

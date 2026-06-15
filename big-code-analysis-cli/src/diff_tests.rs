@@ -316,10 +316,23 @@ fn parse_ls_tree_record_splits_metadata_from_path() {
     // `ls-tree -z` record shape (#838). The tab separates the ASCII
     // metadata from the raw path bytes.
     let record = b"100644 blob af2e53dad6d308041205aceaba5337eb90585ec9\tsrc/work.rs";
-    let (kind, oid, path) = parse_ls_tree_record(record).expect("well-formed record parses");
+    let (mode, kind, oid, path) =
+        parse_ls_tree_record(record).expect("well-formed record parses");
+    assert_eq!(mode, "100644");
     assert_eq!(kind, "blob");
     assert_eq!(oid, "af2e53dad6d308041205aceaba5337eb90585ec9");
     assert_eq!(path, b"src/work.rs");
+}
+
+#[test]
+fn parse_ls_tree_record_identifies_symlink_by_mode() {
+    // A symlink is a `blob` whose content is the link target string, not
+    // source. The caller skips it by mode (`120000`), not type, so it is
+    // not materialized as a bogus regular file (#838 review follow-up).
+    let record = b"120000 blob af2e53dad6d308041205aceaba5337eb90585ec9\tsrc/link.rs";
+    let (mode, kind, ..) = parse_ls_tree_record(record).expect("symlink record parses");
+    assert_eq!(kind, "blob", "git reports a symlink as a blob");
+    assert_eq!(mode, "120000", "symlink must be distinguishable by mode");
 }
 
 #[test]
@@ -327,7 +340,7 @@ fn parse_ls_tree_record_identifies_submodule_gitlink() {
     // A submodule appears as a `commit` entry; the caller skips these
     // (no blob to `cat-file`).
     let record = b"160000 commit af2e53dad6d308041205aceaba5337eb90585ec9\tvendor/sub";
-    let (kind, ..) = parse_ls_tree_record(record).expect("gitlink record parses");
+    let (_mode, kind, ..) = parse_ls_tree_record(record).expect("gitlink record parses");
     assert_eq!(
         kind, "commit",
         "submodule entry must be recognized as a gitlink"
