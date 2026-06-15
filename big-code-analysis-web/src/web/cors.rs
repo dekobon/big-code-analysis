@@ -112,6 +112,20 @@ impl CorsPolicy {
             }
         }
     }
+
+    /// Whether a response's CORS shape depends on the request `Origin`.
+    ///
+    /// Only [`AllowList`](CorsPolicy::AllowList) is origin-dependent: it
+    /// emits `Access-Control-Allow-Origin` for listed origins and nothing
+    /// for the rest, so *every* response under the policy — matched,
+    /// unmatched, or same-origin — must carry `Vary: Origin` for a shared
+    /// cache to key on it (RFC 9110 §12.5.5). [`Wildcard`](CorsPolicy::Wildcard)
+    /// answers `*` identically regardless of origin and
+    /// [`Disabled`](CorsPolicy::Disabled) emits no CORS headers, so neither
+    /// needs `Vary`.
+    fn varies_on_origin(&self) -> bool {
+        matches!(self, CorsPolicy::AllowList(_))
+    }
 }
 
 /// Resolved `Access-Control-Allow-Origin` decision for one request.
@@ -119,9 +133,7 @@ impl CorsPolicy {
 enum AllowOrigin {
     /// Emit the literal `*` (wildcard policy).
     Wildcard,
-    /// Echo the request's own origin (allow-list match); pairs with a
-    /// `Vary: Origin` so shared caches do not serve one origin's CORS
-    /// response to another.
+    /// Echo the request's own origin (allow-list match).
     Echo(String),
 }
 
@@ -172,9 +184,6 @@ fn apply_cors_headers<B>(
         AllowOrigin::Echo(origin) => {
             if let Ok(value) = HeaderValue::from_str(&origin) {
                 headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, value);
-                // The response now depends on the request `Origin`, so a
-                // shared cache must key on it (RFC 9110 §12.5.5).
-                headers.insert(header::VARY, HeaderValue::from_static("Origin"));
             }
         }
     }
@@ -214,6 +223,15 @@ pub async fn cors_middleware<B: MessageBody>(
     let cors_req = CorsRequest::extract(&req);
     let allow_origin = policy.allow_origin(cors_req.origin.as_deref());
     let mut res = next.call(req).await?;
+    // Under an allow-list the response shape depends on `Origin` whether or
+    // not it matched, so a shared cache must key on it for *every* response —
+    // not just the matched ones `apply_cors_headers` decorates (RFC 9110
+    // §12.5.5). `append` rather than `insert` so any `Vary` an inner handler
+    // set is preserved.
+    if policy.varies_on_origin() {
+        res.headers_mut()
+            .append(header::VARY, HeaderValue::from_static("Origin"));
+    }
     if let Some(allow_origin) = allow_origin {
         apply_cors_headers(&mut res, allow_origin, cors_req.request_headers.as_deref());
     }
@@ -292,5 +310,15 @@ mod tests {
         // A request with no Origin against an allow-list is same-origin: no
         // header, and no panic from the `?` short-circuit.
         assert!(policy.allow_origin(None).is_none());
+    }
+
+    #[test]
+    fn varies_on_origin_only_for_allow_list() {
+        // Only the allow-list's CORS output depends on the request `Origin`,
+        // so only it must drive a `Vary: Origin` (#859). Wildcard answers `*`
+        // uniformly and Disabled emits nothing — both are origin-independent.
+        assert!(CorsPolicy::AllowList(vec!["https://a.example".to_owned()]).varies_on_origin());
+        assert!(!CorsPolicy::Wildcard.varies_on_origin());
+        assert!(!CorsPolicy::Disabled.varies_on_origin());
     }
 }

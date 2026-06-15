@@ -4169,7 +4169,11 @@ async fn test_cors_allow_list_echoes_listed_origin() {
     // A listed origin is echoed back verbatim (never `*`), with a
     // `Vary: Origin` so caches do not cross-pollinate origins.
     assert_eq!(resp.headers().get(ACAO).unwrap(), "https://app.example");
-    assert_eq!(resp.headers().get(http::header::VARY).unwrap(), "Origin");
+    // Exactly one `Vary: Origin` — the middleware appends it once and must not
+    // duplicate it on the matched path (#859).
+    let vary: Vec<_> = resp.headers().get_all(http::header::VARY).collect();
+    assert_eq!(vary.len(), 1, "matched origin must carry one Vary entry");
+    assert_eq!(vary[0], "Origin");
     // Credentials are never advertised (the API has no auth/cookies).
     assert!(resp.headers().get(ACAC).is_none());
 }
@@ -4190,6 +4194,15 @@ async fn test_cors_allow_list_blocks_unlisted_origin() {
     assert!(
         resp.headers().get(ACAO).is_none(),
         "an unlisted origin must receive no Access-Control-Allow-Origin"
+    );
+    // …but the response shape still depends on `Origin` under an allow-list
+    // (a listed origin would have gotten a header), so a shared cache must
+    // key on it here too — otherwise this no-CORS body could be served to a
+    // listed origin (#859, RFC 9110 §12.5.5).
+    assert_eq!(
+        resp.headers().get(http::header::VARY).unwrap(),
+        "Origin",
+        "an unmatched allow-list response must still carry Vary: Origin"
     );
 }
 
@@ -4267,4 +4280,13 @@ async fn test_cors_allow_list_same_origin_request_gets_no_headers() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert!(resp.headers().get(ACAO).is_none());
+    // A same-origin (no `Origin`) response under an allow-list still depends
+    // on `Origin` — a cross-origin listed request would have been decorated —
+    // so it must carry `Vary: Origin` to keep a shared cache from serving this
+    // bare response to a listed origin (#859).
+    assert_eq!(
+        resp.headers().get(http::header::VARY).unwrap(),
+        "Origin",
+        "a same-origin allow-list response must still carry Vary: Origin"
+    );
 }
