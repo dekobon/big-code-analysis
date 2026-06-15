@@ -644,6 +644,26 @@ mod tests {
     }
 
     #[test]
+    fn native_mixed_valid_and_unknown_metric_voids_whole_marker() {
+        // The void-on-typo contract: a marker listing one valid metric
+        // beside an unknown one must reject the ENTIRE list, not silently
+        // honor the valid part. Otherwise a misspelled metric would still
+        // suppress the correctly-spelled one beside it — the most
+        // dangerous failure mode, since it widens scope on a typo. Every
+        // other test feeds a marker whose only metric is unknown, where
+        // "void whole marker" and "skip the unknown token" are
+        // indistinguishable; only a mixed list separates them. Swapping
+        // the `?` in `parse_metric_list` for `continue` makes this parse
+        // to `Some({Cyclomatic})` and trips the assertion (#948).
+        let err = parse_marker("// bca: suppress(cyclomatic, no_such_metric)").unwrap_err();
+        assert!(
+            matches!(&err, SuppressionError::UnknownMetric(name) if name == "no_such_metric"),
+            "mixed valid+unknown marker must error on the unknown token, \
+             voiding the whole list; got {err:?}",
+        );
+    }
+
+    #[test]
     fn native_suppress_file_bare() {
         let s = parse_marker("# bca: suppress-file").unwrap().unwrap();
         assert_eq!(s.kind, SuppressionKind::File);
