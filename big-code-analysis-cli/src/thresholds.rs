@@ -173,6 +173,32 @@ fn lookup_extractor(name: &str) -> Option<&'static MetricExtractor> {
     EXTRACTORS.iter().find(|e| e.name == name)
 }
 
+/// Reject a metric-gate threshold that is not a finite, non-negative
+/// `f64`. NaN and infinities silently disable an `x >= threshold` gate
+/// (`x >= NaN`/`x >= inf` is always `false`), and a negative limit trips
+/// on every non-negative score; both are user errors, not gates.
+pub(crate) fn validate_threshold_value(value: f64, name: &str) -> Result<(), String> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(format!(
+            "limit for {name:?} must be a finite non-negative number; got {value}"
+        ));
+    }
+    Ok(())
+}
+
+/// clap `value_parser` for the `vcs commit --fail-above` CI gate. A
+/// non-finite or negative threshold would silently disable (or always
+/// trip) the gate, so reject it at parse time, mirroring the `check`
+/// threshold parser (issue #850).
+pub(crate) fn parse_fail_above(s: &str) -> Result<f64, String> {
+    let value: f64 = s
+        .trim()
+        .parse()
+        .map_err(|e| format!("invalid fail-above threshold {s:?}: {e}"))?;
+    validate_threshold_value(value, "fail-above")?;
+    Ok(value)
+}
+
 /// Parse a single `--threshold metric=limit` token. Only one `=` is
 /// allowed, both sides must be non-empty, and `limit` must parse as a
 /// finite, non-negative `f64`.
@@ -188,11 +214,7 @@ pub(crate) fn parse_cli_threshold(s: &str) -> Result<(String, f64), String> {
     let value: f64 = limit
         .parse()
         .map_err(|e| format!("invalid limit {limit:?} for {name:?}: {e}"))?;
-    if !value.is_finite() || value < 0.0 {
-        return Err(format!(
-            "limit for {name:?} must be a finite non-negative number; got {value}"
-        ));
-    }
+    validate_threshold_value(value, name)?;
     Ok((name.to_string(), value))
 }
 
@@ -721,11 +743,7 @@ impl ThresholdSet {
                     known.join(", ")
                 )
             })?;
-            if !limit.is_finite() || *limit < 0.0 {
-                return Err(format!(
-                    "limit for {name:?} must be a finite non-negative number; got {limit}"
-                ));
-            }
+            validate_threshold_value(*limit, name)?;
             entries.push(ResolvedThreshold {
                 extractor,
                 limit: *limit,

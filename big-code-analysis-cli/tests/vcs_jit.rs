@@ -114,6 +114,60 @@ fn fail_above_at_or_above_threshold_exits_two() {
         .stderr(predicate::str::contains("fail-above threshold"));
 }
 
+/// #850: a non-finite (`nan`, `inf`, `-inf`) or negative `--fail-above`
+/// threshold would silently disable the gate (`score >= NaN`/`>= inf`
+/// is always `false`) or trip it on every commit (negative). It must be
+/// rejected at parse time (exit 1, the tool-error code) with a message
+/// naming the flag, mirroring the `check` threshold parser.
+#[test]
+fn fail_above_rejects_non_finite_and_negative() {
+    // Leading-`-` values (`-1`, `-inf`) must use the `--flag=value` form
+    // so clap reads them as the flag's value rather than a new flag —
+    // the standard CLI convention for negative numeric arguments.
+    let cases = [
+        vec!["--fail-above", "nan"],
+        vec!["--fail-above", "inf"],
+        vec!["--fail-above=-1"],
+        vec!["--fail-above=-inf"],
+    ];
+    for case in cases {
+        let repo = one_commit_repo("initial import");
+        let mut args = vec!["vcs", "commit", "HEAD", "-O", "json"];
+        args.extend(case.iter().copied());
+        bca(repo.path())
+            .args(&args)
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains(
+                "must be a finite non-negative number",
+            ))
+            .stderr(predicate::str::contains("fail-above"));
+    }
+}
+
+/// #850: a valid finite non-negative threshold is still accepted — `0`
+/// trips on every commit (exit 2), a large value passes (exit 0).
+#[test]
+fn fail_above_accepts_finite_non_negative() {
+    let repo = one_commit_repo("initial import");
+    bca(repo.path())
+        .args(["vcs", "commit", "HEAD", "-O", "json", "--fail-above", "0"])
+        .assert()
+        .code(2);
+    bca(repo.path())
+        .args([
+            "vcs",
+            "commit",
+            "HEAD",
+            "-O",
+            "json",
+            "--fail-above",
+            "9999",
+        ])
+        .assert()
+        .success();
+}
+
 /// #603: the renamed subcommand (`jit` → `commit`) and flag
 /// (`--fail-over` → `--fail-above`) keep their old spellings working for
 /// one release cycle via hidden aliases; the gate still emits the new

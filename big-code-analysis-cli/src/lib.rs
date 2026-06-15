@@ -83,7 +83,7 @@ use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
 use thresholds::{
     ParsedThresholds, ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold,
-    split_thresholds_table,
+    parse_fail_above, split_thresholds_table,
 };
 
 use big_code_analysis::LANG;
@@ -970,7 +970,12 @@ struct JitArgs {
     /// the repository's own commit-score distribution. The old
     /// `--fail-over` spelling stays a hidden alias for one release cycle.
     // The `--fail-over`->`--fail-above` rename landed in issue #603.
-    #[clap(long = "fail-above", alias = "fail-over", value_name = "SCORE")]
+    #[clap(
+        long = "fail-above",
+        alias = "fail-over",
+        value_name = "SCORE",
+        value_parser = parse_fail_above
+    )]
     fail_above: Option<f64>,
 }
 
