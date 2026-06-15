@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """check-manpage-assets
 
-Guard that every ``man/bca-*.1`` page is referenced in the deb *and*
-rpm asset lists of its owning crate's ``Cargo.toml``.
+Guard that every ``man/bca*.1`` page — the top-level ``bca.1`` and every
+``bca-*.1`` subcommand page — is referenced in the deb *and* rpm asset
+lists of its owning crate's ``Cargo.toml``.
 
 The asset tables in ``big-code-analysis-cli/Cargo.toml`` and
 ``big-code-analysis-web/Cargo.toml`` are hand-maintained (see #444,
@@ -141,11 +142,19 @@ def asset_basenames(manifest: pathlib.Path) -> dict[str, set[str]]:
 
 
 def main() -> int:
-    pages = sorted(p.name for p in MAN_DIR.glob("bca-*.1"))
+    # `bca*.1` (not `bca-*.1`) so the top-level `bca.1` page — generated
+    # by xtask and shipped in both CLI manifests — is covered by the
+    # forward presence check too (#873). It was previously skipped, the
+    # exact #444 silent-drop class the gate exists to block. The reverse
+    # wrong-crate / stale guards stay scoped to `bca-*.1` via
+    # `_is_subcommand_man`: `bca.1` legitimately lives in the CLI tables,
+    # so it must not be swept into those direction checks.
+    pages = sorted(p.name for p in MAN_DIR.glob("bca*.1"))
     if not pages:
         sys.stderr.write(
-            f"error: no man/bca-*.1 pages found under {MAN_DIR}\n"
-            "       (expected at least the CLI subcommand pages)\n"
+            f"error: no man/bca*.1 pages found under {MAN_DIR}\n"
+            "       (expected at least the top-level bca.1 + CLI "
+            "subcommand pages)\n"
         )
         return 2
 
@@ -182,11 +191,12 @@ def main() -> int:
         )
         sys.stderr.write("\n".join(missing) + "\n")
         sys.stderr.write(
-            "\nEvery man/bca-*.1 page must be listed in BOTH the deb\n"
+            "\nEvery man/bca*.1 page (the top-level bca.1 and every\n"
+            "bca-*.1 subcommand page) must be listed in BOTH the deb\n"
             "([package.metadata.deb].assets) and rpm\n"
             "([package.metadata.generate-rpm].assets) tables of its\n"
             "owning crate's Cargo.toml. bca-web.1 lives in\n"
-            "big-code-analysis-web; all other pages live in\n"
+            "big-code-analysis-web; bca.1 and all other pages live in\n"
             "big-code-analysis-cli. See #444 for the bug class this guards.\n"
         )
         return 1

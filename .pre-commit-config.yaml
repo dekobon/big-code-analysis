@@ -173,14 +173,15 @@ repos:
         entry: python3 check-versions.py
         pass_filenames: false
 
-      # Man-page packaging gate — every man/bca-*.1 page must appear
-      # in both the deb and rpm asset lists of its owning crate
-      # (bca-web.1 in big-code-analysis-web, the rest in the CLI
-      # crate). Guards the #444 bug class. See #446.
+      # Man-page packaging gate — every man/bca*.1 page (the top-level
+      # bca.1 and every bca-*.1 subcommand page) must appear in both
+      # the deb and rpm asset lists of its owning crate (bca-web.1 in
+      # big-code-analysis-web, bca.1 + the rest in the CLI crate).
+      # Guards the #444 bug class. See #446, #873.
       - id: check-manpage-assets
         name: check-manpage-assets
         language: system
-        files: '^(man/bca-.*\.1|big-code-analysis-cli/Cargo\.toml|big-code-analysis-web/Cargo\.toml|check-manpage-assets\.py)$'
+        files: '^(man/bca.*\.1|big-code-analysis-cli/Cargo\.toml|big-code-analysis-web/Cargo\.toml|check-manpage-assets\.py)$'
         entry: python3 check-manpage-assets.py
         pass_filenames: false
 
