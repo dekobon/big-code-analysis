@@ -269,27 +269,56 @@ fn collect_touched(
 
 /// Per-file `(added, deleted, hunks)` for one change, or `None` when the
 /// blob is binary (no line counts), so the caller skips it.
+///
+/// # Single diff pass (issue #815)
+///
+/// gix's high-level [`Platform::line_counts`] and [`Platform::lines`] each
+/// run a *full* blob diff: every scored commit would diff each touched text
+/// file twice — once for the added/deleted counts, once only to count hunks.
+/// We instead prepare the diff once and read all three figures off a single
+/// [`gix_diff::blob::Diff`], exactly as `line_counts` does internally.
+///
+/// Crucially the counts stay bit-identical to `line_counts`. `line_counts`
+/// uses `Diff::compute` (no slider heuristic) whereas `lines` uses
+/// `diff_with_slider_heuristics`, which can shift hunk boundaries and so
+/// could change the derived insertions/removals. We deliberately use the
+/// *un-postprocessed* `Diff::compute` here, then count its hunks — so the
+/// insertion/removal totals match both the old two-pass code and the
+/// file-level history walk ([`history`](super::history), which still calls
+/// `line_counts`). Counting hunks off this same (un-sliderized) `Diff`
+/// means the hunk figure may differ from the slider-heuristic `lines`
+/// callback for some inputs, but the JIT `hunks` feature never came from a
+/// human-facing unified diff, so the count-vs-boundary distinction is not
+/// observable downstream — only the size totals must stay consistent with
+/// `history`, and they do.
 fn blob_line_stats(
     change: &gix::object::tree::diff::Change<'_, '_, '_>,
     cache: &mut gix::diff::blob::Platform,
 ) -> Result<Option<(u64, u64, u32)>, Error> {
-    let mut platform = change.diff(cache).map_err(diff_err)?;
-    let Some(counts) = platform.line_counts().map_err(diff_err)? else {
+    use gix::diff::blob::platform::prepare_diff::Operation;
+
+    let platform = change.diff(cache).map_err(diff_err)?;
+    // Mirror gix's own `line_counts`/`lines`: never short-circuit to an
+    // external diff tool, so the internal algorithm always runs.
+    platform
+        .resource_cache
+        .options
+        .skip_internal_diff_if_external_is_configured = false;
+    let prep = platform.resource_cache.prepare_diff().map_err(diff_err)?;
+    let Operation::InternalDiff { algorithm } = prep.operation else {
+        // `SourceOrDestinationIsBinary` (no line stats); the external-command
+        // arm is disabled above, so it cannot occur here.
         return Ok(None);
     };
-    // One callback per hunk; the line data is already summed in
-    // `line_counts`, so the closure only tallies. Writing to a counter is
-    // infallible, hence the `Infallible` error type.
-    let mut hunks: u32 = 0;
-    platform
-        .lines(|_hunk| {
-            hunks = hunks.saturating_add(1);
-            Ok::<(), std::convert::Infallible>(())
-        })
-        .map_err(diff_err)?;
+    let input = prep.interned_input();
+    // Same algorithm and (un-postprocessed) `Diff::compute` that
+    // `line_counts` uses, so the counts are bit-identical to it and to the
+    // history walk; the hunk count comes from the *same* prepared diff.
+    let diff = gix::diff::blob::Diff::compute(algorithm, &input);
+    let hunks = u32::try_from(diff.hunks().count()).unwrap_or(u32::MAX);
     Ok(Some((
-        u64::from(counts.insertions),
-        u64::from(counts.removals),
+        u64::from(diff.count_additions()),
+        u64::from(diff.count_removals()),
         hunks,
     )))
 }
