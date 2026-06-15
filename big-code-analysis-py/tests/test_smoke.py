@@ -49,8 +49,18 @@ def _cli_metrics(bca_path: str, path: Path, *, exclude_tests: bool = False) -> A
     ``--exclude-tests`` is scoped to the ``metrics`` subcommand (#597
     moved the former global flags onto their subcommands), so it is
     placed *after* ``metrics`` — ``bca metrics --exclude-tests …``.
+
+    ``--no-config`` is mandatory for the parity contract (#926): the CLI
+    otherwise climbs from its cwd to the first ``.git`` ancestor and
+    merges the repo-root ``bca.toml`` (``exclude_tests=true``,
+    ``cyclomatic_count_try=false``), while the bindings have no manifest
+    discovery at all. Without it the comparison is one-sided —
+    bindings-default vs CLI-with-repo-manifest — and only agrees because
+    today's fixtures happen to be inert under those keys. Passing it
+    pins both sides to identical config-free defaults regardless of the
+    test's cwd.
     """
-    argv = [bca_path, "metrics"]
+    argv = [bca_path, "metrics", "--no-config"]
     if exclude_tests:
         argv.append("--exclude-tests")
     argv.extend(["--output-format", "json", "--paths", str(path)])
@@ -188,6 +198,32 @@ def test_analyze_exclude_tests_matches_cli_for_rust_fixture(bca_binary: str) -> 
     )
 
 
+def test_cli_metrics_is_hermetic_against_repo_manifest(bca_binary: str) -> None:
+    """``_cli_metrics`` must ignore the repo-root ``bca.toml`` (#926).
+
+    The checkout's ``bca.toml`` sets ``exclude_tests=true``; the
+    ``rust_with_tests.rs`` fixture carries a ``#[cfg(test)]`` block, so a
+    manifest-influenced CLI run would prune it to ``nom.functions == 1``.
+    The bindings have no manifest discovery, so the parity contract is
+    only honest when the CLI side is config-free too. With ``--no-config``
+    the helper sees all four functions (``prod`` + ``helper`` + two
+    ``#[test]`` fns), matching the bindings' default ``exclude_tests=False``.
+
+    Test-via-revert: drop ``--no-config`` from ``_cli_metrics`` and, run
+    from inside the repo, this drops to ``1.0`` and the assertion fails —
+    pinning that the leak was real and is now closed.
+    """
+    cli = _cli_metrics(bca_binary, FIXTURES / "rust_with_tests.rs")
+    assert cli["metrics"]["nom"]["functions"] == 4.0, (
+        "CLI must ignore the repo bca.toml (exclude_tests=true); expected "
+        f"all 4 functions, got {cli['metrics']['nom']['functions']!r} — "
+        "the manifest is leaking into the parity comparison"
+    )
+    # Parity holds against the bindings' manifest-blind default.
+    py_result = bca.analyze(FIXTURES / "rust_with_tests.rs")
+    assert py_result == cli
+
+
 def test_analyze_skip_generated_default_returns_none_for_generated_file() -> None:
     """Default ``skip_generated=True`` must mirror the CLI walker.
 
@@ -248,9 +284,13 @@ def test_analyze_skip_generated_matches_cli_walker(bca_binary: str) -> None:
     output through `jq`).
     """
     path = FIXTURES / "generated.rs"
+    # `--no-config` keeps this inline invocation hermetic too (#926): it
+    # must not inherit the repo-root bca.toml the surrounding checkout
+    # carries, so the parity claim holds from any cwd.
     argv = [
         bca_binary,
         "metrics",
+        "--no-config",
         "--output-format",
         "json",
         "--paths",
