@@ -84,12 +84,28 @@ def _write(root: Path, rel: str, content: str) -> Path:
 
 
 def _names(results: list[FuncSpaceDict | bca.AnalysisFailure]) -> set[str]:
-    """Repo-relative-ish basenames of the analysed (dict) results."""
+    """Repo-relative-ish basenames of the analysed (dict) results.
+
+    Drops ``AnalysisFailure`` elements, so this set answers only "which
+    files were *analysed*". Negative assertions ("file X must not
+    appear") must additionally consult ``_failure_paths`` — a file that
+    degrades into the failure stream is invisible here (#921).
+    """
     return {
         Path(name).name
         for r in results
         if not isinstance(r, bca.AnalysisFailure) and (name := r["name"]) is not None
     }
+
+
+def _failure_paths(results: list[FuncSpaceDict | bca.AnalysisFailure]) -> set[str]:
+    """Basenames of every ``AnalysisFailure`` element.
+
+    The complement of ``_names``: lets a negative assertion catch a file
+    that regressed into the error stream instead of being cleanly
+    skipped (#921).
+    """
+    return {Path(r.path).name for r in results if isinstance(r, bca.AnalysisFailure)}
 
 
 def test_analyze_paths_walks_a_directory(tmp_path: Path) -> None:
@@ -163,7 +179,10 @@ def test_analyze_paths_file_seed_bypasses_exclude(tmp_path: Path) -> None:
     kept = bca.analyze_paths(vendored, exclude="*.rs")
     assert _names(kept) == {"drop.rs"}
     narrowed = bca.analyze_paths(vendored, include="*.py")
-    assert _names(narrowed) == set()
+    # Pin the total element count, not just the dict-name set: a bare
+    # ``_names(...) == set()`` also passes if the seed silently produced
+    # an AnalysisFailure, masking a narrowing regression (#921).
+    assert len(narrowed) == 0
 
 
 def test_analyze_paths_multiple_seeds(tmp_path: Path) -> None:
@@ -183,6 +202,11 @@ def test_analyze_paths_skips_generated_by_default(tmp_path: Path) -> None:
     _write(tmp_path, "gen.rs", "// @generated DO NOT EDIT\nfn g() {}\n")
     results = bca.analyze_paths(tmp_path)
     assert _names(results) == {"real.rs"}
+    # The generated file must be cleanly skipped (Ok(None) → no element),
+    # not error-folded into the failure stream. ``_names`` alone drops
+    # AnalysisFailure elements, so it cannot distinguish "skipped" from
+    # "errored"; assert gen.rs appears in neither result kind (#921).
+    assert "gen.rs" not in _names(results) | _failure_paths(results)
 
 
 def test_analyze_paths_failure_is_a_failure_element_not_raise(
