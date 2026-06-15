@@ -190,15 +190,29 @@ fn resolve_scope_disabled_when_no_signal() {
 /// `non_empty_env` distinguishes set-but-empty from unset; the former
 /// is GitHub Actions' state for `GITHUB_BASE_REF` on non-PR runs and
 /// must be treated as absent so the caller falls through to the next
-/// signal in the ladder.
+/// signal in the ladder. It also trims surrounding whitespace so a
+/// `BCA_DIFF_BASE=' '` typo or a CI-exported trailing newline never
+/// becomes a `origin/ ` bad-revision refspec.
 #[test]
-fn non_empty_env_treats_empty_as_absent() {
+fn non_empty_env_trims_and_treats_blank_as_absent() {
     let _env = lock_env(&[BCA_DIFF_BASE_ENV]);
     clear_one(BCA_DIFF_BASE_ENV);
     assert_eq!(non_empty_env(BCA_DIFF_BASE_ENV), None);
     set_env(BCA_DIFF_BASE_ENV, "");
     assert_eq!(non_empty_env(BCA_DIFF_BASE_ENV), None);
     set_env(BCA_DIFF_BASE_ENV, "abc");
+    assert_eq!(non_empty_env(BCA_DIFF_BASE_ENV), Some("abc".to_string()));
+
+    // A whitespace-only value trims to empty and is therefore absent —
+    // catches removal of the `.trim()` step, which would leak `" "`.
+    set_env(BCA_DIFF_BASE_ENV, "   ");
+    assert_eq!(non_empty_env(BCA_DIFF_BASE_ENV), None);
+    // Surrounding whitespace (and a CI-pipeline trailing newline) must
+    // be stripped, returning the bare value. Without the trim these
+    // would round-trip with the stray characters intact.
+    set_env(BCA_DIFF_BASE_ENV, "  abc  ");
+    assert_eq!(non_empty_env(BCA_DIFF_BASE_ENV), Some("abc".to_string()));
+    set_env(BCA_DIFF_BASE_ENV, "abc\n");
     assert_eq!(non_empty_env(BCA_DIFF_BASE_ENV), Some("abc".to_string()));
 }
 
