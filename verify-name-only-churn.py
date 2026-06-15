@@ -104,11 +104,16 @@ def verify_pair(
 
 
 def find_pairs(roots: list[Path]) -> list[Path]:
-    news: list[Path] = []
+    # Dedup by resolved absolute path so overlapping roots (the default
+    # `.` already contains the submodule root) and two spellings of the
+    # same file (`./a` vs `a`) collapse to one entry — otherwise every
+    # submodule snapshot is verified, counted, and listed twice (#877).
+    seen: dict[Path, Path] = {}
     for root in roots:
         if root.exists():
-            news.extend(sorted(root.rglob("*.snap.new")))
-    return news
+            for p in root.rglob("*.snap.new"):
+                seen.setdefault(p.resolve(), p)
+    return sorted(seen.values())
 
 
 def run(roots: list[Path]) -> int:
@@ -211,6 +216,24 @@ def _self_test() -> int:
             f"  [{'ok' if good else 'WRONG'}] {name}: verifier says {verdict} "
             f"(expected {'PASS' if expect_pass else 'FAIL'})"
         )
+
+    # #877: overlapping roots (a parent dir and one of its subdirs, the
+    # real default-root situation) must not double-count a snapshot.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        parent = Path(tmp)
+        child = parent / "sub"
+        child.mkdir()
+        (child / "x.snap.new").write_text("dummy", encoding="utf-8")
+        found = find_pairs([parent, child])
+        dedup_ok = len(found) == 1
+        ok = ok and dedup_ok
+        print(
+            f"  [{'ok' if dedup_ok else 'WRONG'}] overlapping-root dedup: "
+            f"find_pairs returned {len(found)} file(s) (expected 1)"
+        )
+
     print("\nSelf-test:", "all expectations met." if ok else "VERIFIER IS WRONG.")
     return 0 if ok else 1
 
@@ -219,10 +242,10 @@ def main(argv: list[str]) -> int:
     args = argv[1:]
     if "--self-test" in args:
         return _self_test()
-    roots = [Path(a) for a in args] or [
-        Path("."),
-        Path("tests/repositories/big-code-analysis-output"),
-    ]
+    # `.` already recurses into the output submodule, so a single root
+    # suffices; find_pairs dedupes regardless, in case a caller passes
+    # overlapping roots explicitly (#877).
+    roots = [Path(a) for a in args] or [Path(".")]
     return run(roots)
 
 
