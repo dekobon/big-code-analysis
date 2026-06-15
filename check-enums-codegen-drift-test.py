@@ -206,17 +206,70 @@ class DriftGateTest(unittest.TestCase):
         # mid-loop even when `head -40` truncates a large diff.
         self.assertIn("Codegen drift detected", result.stderr)
 
-    # --- codegen failure path ---
+    # --- script failure-propagation path (exit 2) ---
 
-    def test_invalid_output_path_exits_2(self) -> None:
-        # Provoke a real codegen io::Error by making the work
-        # path unwritable. The script's `mkdir -p $WORK_DIR/...`
-        # would still succeed (it creates under $TMPDIR), so
-        # we exercise the path via the enums binary directly:
-        # the test is then a contract check that the codegen
-        # binary exits non-zero on io errors. The drift script
-        # invokes that binary; if the binary exits non-zero the
-        # script propagates with `exit 2`.
+    def _run_with_cargo_stub(
+        self, stub_body: str
+    ) -> subprocess.CompletedProcess[str]:
+        """Run the drift script with a fake `cargo` shadowing PATH.
+
+        Mirrors `test_independent_of_fd`'s stub-on-PATH technique:
+        a `cargo` stub is prepended to PATH so the script's
+        `cargo build` / `cargo run` invocations hit it instead of
+        the real toolchain, letting us drive the two `exit 2`
+        guards deterministically. The stub still needs the real
+        `rustfmt`/`diff`/etc. on PATH, so we prepend rather than
+        replace.
+        """
+        stub_dir = self.tmpdir / "cargo-stub"
+        stub_dir.mkdir()
+        stub = stub_dir / "cargo"
+        stub.write_text(stub_body, encoding="utf-8")
+        stub.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
+        return subprocess.run(
+            ["bash", str(self.tmpdir / SCRIPT_SRC.name)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+    def test_script_exits_2_when_cargo_build_fails(self) -> None:
+        # Drive the FIRST `exit 2` guard (the `if ! cargo build`
+        # branch) through the script itself. A `cargo` stub that
+        # fails on `build` must make the script exit 2 and emit its
+        # own diagnostic — proving it propagates the build failure
+        # rather than swallowing it or mislabelling it as drift.
+        result = self._run_with_cargo_stub(
+            '#!/bin/sh\nif [ "$1" = "build" ]; then exit 2; fi\nexit 0\n'
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("enums crate failed to build", result.stderr)
+
+    def test_script_exits_2_when_codegen_fails(self) -> None:
+        # Drive the SECOND `exit 2` guard (the `if ! cargo run`
+        # codegen branch): `build` succeeds, `run` fails. The script
+        # must exit 2 and name the failing codegen mode, rather than
+        # proceeding to diff an empty output dir and reporting drift
+        # (exit 1) or success (exit 0).
+        result = self._run_with_cargo_stub(
+            '#!/bin/sh\nif [ "$1" = "run" ]; then exit 2; fi\nexit 0\n'
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("enums codegen", result.stderr)
+        self.assertIn("failed", result.stderr)
+
+    def test_enums_binary_exits_2_on_io_error(self) -> None:
+        # Contract check on the codegen binary itself (NOT the
+        # script): an io::Error during output must surface as the
+        # binary's `ExitCode::from(2)`. The script's two exit-2
+        # guards (covered above) rely on this non-zero propagation,
+        # so pin it here too. Renamed from the former
+        # `test_invalid_output_path_exits_2`, whose name implied it
+        # covered the script's failure path (it does not — it
+        # invokes the binary directly).
         result = subprocess.run(
             [
                 "cargo",
