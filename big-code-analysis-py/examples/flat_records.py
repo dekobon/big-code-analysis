@@ -26,9 +26,11 @@ def run(path: Path, db_path: Path) -> int:
         msg = f"{path} was skipped (looks generated)"
         raise SystemExit(msg)
 
-    # The flattened keys are dotted, case-distinct names
-    # (`halstead.unique_operators`, `halstead.total_operators`, …), so
-    # they map directly onto SQLite columns without any renaming.
+    # The flattened keys are dotted, lowercase names
+    # (`halstead.unique_operators`, `halstead.total_operators`, …) that
+    # are unique under SQLite's case-insensitive column comparison (the
+    # old `N1`/`n1` Halstead collision was removed in #511), so each
+    # lands on its own column without renaming.
     records = [dict(r) for r in bca.flatten_spaces(result)]
     if not records:
         return 0
