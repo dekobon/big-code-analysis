@@ -40,30 +40,87 @@ OLD_SUFFIX = "-old"
 # Suffix for the directory containing the new metrics
 NEW_SUFFIX = "-new"
 
-# Extensions parsed by each tree-sitter-grammar
+# File-extension globs each tree-sitter grammar crate owns.
+#
+# SOURCE OF TRUTH: `src/langs.rs` `mk_langs!` — the per-variant
+# extension lists routed by `get_from_ext`. Keys here are the grammar
+# *crate* names from the root `Cargo.toml` (e.g. `tree-sitter-kotlin-ng`,
+# `tree-sitter-c-sharp`), because a grammar bump names the crate. Each
+# value is the exact extension set that crate parses, so a bump's metric
+# diff covers the files it actually affects.
+#
+# Drift here means a bump tests the wrong files (or none). The
+# `check-grammar-crate-test.py` sync test re-derives this table from
+# `src/langs.rs` and fails on any divergence (#869). When `mk_langs!`
+# changes (new language, moved extension), update both together.
+#
+# Notes on the non-obvious entries:
+#   * `tree-sitter-javascript` owns the standard JS extensions since
+#     #507; the `tree-sitter-mozjs` fork owns only `.jsm`.
+#   * `tree-sitter-c` owns `.c` (#721); `tree-sitter-objc` owns `.m`
+#     (#724); the rest of the C family is `tree-sitter-cpp`.
+#   * `tree-sitter-mozcpp` is opt-in and owns NO extensions; for CI it
+#     is exercised over the C++ file set (see `_grammar_extensions`).
+#   * `tree-sitter-typescript` owns both the TypeScript and Tsx
+#     variants — they share one crate — so a bump tests `.ts`/`.tsx`/
+#     `.jsw`/`.jsmw` together.
 EXTENSIONS = {
-    "tree-sitter-tsx": ["*.tsx"],
-    "tree-sitter-typescript": ["*.ts", "*.jsw", "*.jsmw"],
+    "tree-sitter-javascript": ["*.js", "*.mjs", "*.cjs", "*.jsx"],
+    "tree-sitter-mozjs": ["*.jsm"],
     "tree-sitter-java": ["*.java"],
-    "tree-sitter-kotlin": ["*.kt", "*.kts"],
+    "tree-sitter-go": ["*.go"],
+    "tree-sitter-kotlin-ng": ["*.kt", "*.kts"],
+    "tree-sitter-lua": ["*.lua"],
     "tree-sitter-rust": ["*.rs"],
-    "tree-sitter-python": ["*.py"],
-    "tree-sitter-mozjs": ["*.js", "*.js2", "*.jsm", "*.mjs", "*.jsx"],
-    "tree-sitter-mozcpp": [
+    "tree-sitter-tcl": ["*.tcl", "*.tk", "*.tm"],
+    "tree-sitter-irules": ["*.irule", "*.irules"],
+    "tree-sitter-c": ["*.c"],
+    "tree-sitter-cpp": [
         "*.cpp",
-        "*.cx",
         "*.cxx",
         "*.cc",
         "*.hxx",
         "*.hpp",
-        "*.c",
         "*.h",
         "*.hh",
         "*.inc",
         "*.mm",
-        "*.m",
+    ],
+    "tree-sitter-mozcpp": [],
+    "tree-sitter-objc": ["*.m"],
+    "tree-sitter-c-sharp": ["*.cs", "*.csx", "*.cake"],
+    "tree-sitter-elixir": ["*.ex", "*.exs"],
+    "tree-sitter-python": ["*.py"],
+    "tree-sitter-typescript": ["*.ts", "*.tsx", "*.jsw", "*.jsmw"],
+    "tree-sitter-bash": ["*.sh", "*.bash"],
+    "tree-sitter-perl": ["*.pl", "*.pm", "*.t"],
+    "tree-sitter-php": [
+        "*.php",
+        "*.phtml",
+        "*.php3",
+        "*.php4",
+        "*.php5",
+        "*.php7",
+        "*.phps",
+    ],
+    "tree-sitter-ruby": ["*.rb", "*.rake", "*.gemspec"],
+    "dekobon-tree-sitter-groovy": [
+        "*.groovy",
+        "*.gradle",
+        "*.gvy",
+        "*.gy",
+        "*.gsh",
     ],
 }
+
+
+# Extensions to glob for a given grammar, resolving the opt-in
+# `tree-sitter-mozcpp` fork (which owns no extension of its own) to the
+# upstream C++ file set so a mozcpp bump still has files to diff over.
+def grammar_extensions(grammar: str) -> T.List[str]:
+    if grammar == "tree-sitter-mozcpp":
+        return EXTENSIONS["tree-sitter-cpp"]
+    return EXTENSIONS[grammar]
 
 # Run a subprocess, aborting the script if it exits non-zero.
 #
@@ -155,11 +212,11 @@ def compute_ci_metrics(args: argparse.Namespace) -> None:
 
     # Compute old metrics
     print("\nComputing metrics before the update and saving them in", old_dir)
-    run_rca(repo_dir, old_dir, rca_path, EXTENSIONS[grammar])
+    run_rca(repo_dir, old_dir, rca_path, grammar_extensions(grammar))
 
     # Compute new metrics
     print("\nComputing metrics after the update and saving them in", new_dir)
-    run_rca(repo_dir, new_dir, None, EXTENSIONS[grammar])
+    run_rca(repo_dir, new_dir, None, grammar_extensions(grammar))
 
 
 # Compute metrics before and after a tree-sitter-grammar update.
@@ -196,7 +253,7 @@ def compute_metrics(args: argparse.Namespace) -> None:
 
         # Compute old metrics
         print("\nComputing metrics before the update and saving them in", old_dir)
-        run_rca(repo_dir, old_dir, None, EXTENSIONS[args.grammar])
+        run_rca(repo_dir, old_dir, None, grammar_extensions(args.grammar))
 
         # Create a new branch
         print("\nCreate a new branch called", args.grammar)
@@ -204,7 +261,7 @@ def compute_metrics(args: argparse.Namespace) -> None:
 
     # Compute new metrics
     print("\nComputing metrics after the update and saving them in", new_dir)
-    run_rca(repo_dir, new_dir, None, EXTENSIONS[args.grammar])
+    run_rca(repo_dir, new_dir, None, grammar_extensions(args.grammar))
 
 
 # Compare metrics and dump the per-metric differences, if any.

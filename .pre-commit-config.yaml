@@ -108,6 +108,26 @@ repos:
         entry: python3 -m unittest -q check-grammar-marker-sync-test.py
         pass_filenames: false
 
+      # Self-tests for the lockstep-version gate. Runs on edits to the
+      # script or its test file (the unit tests import the module, so a
+      # logic change there must re-run them).
+      - id: check-versions-test
+        name: check-versions-test
+        language: system
+        files: '^check-versions(-test)?\.py$'
+        entry: python3 -m unittest -q check-versions-test.py
+        pass_filenames: false
+
+      # Sync-test for check-grammar-crate.py's EXTENSIONS table against
+      # src/langs.rs (#869). Re-runs when the script, its test, or the
+      # source-of-truth language table changes.
+      - id: check-grammar-crate-test
+        name: check-grammar-crate-test
+        language: system
+        files: '^(check-grammar-crate(-test)?\.py|src/langs\.rs)$'
+        entry: python3 -m unittest -q check-grammar-crate-test.py
+        pass_filenames: false
+
       # Block enums codegen drift (#405). Runs the codegen into a
       # tempdir and diffs against the checked-in
       # `src/c_langs_macros/*.rs` and `src/languages/language_*.rs`
