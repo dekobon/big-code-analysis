@@ -13,7 +13,7 @@ from typing import assert_type
 
 import big_code_analysis as bca
 import pytest
-from big_code_analysis import Lang, MetricName, _native
+from big_code_analysis import Lang, MetricName
 
 
 def test_lang_is_a_str_enum() -> None:
@@ -51,18 +51,17 @@ def test_lang_members_equal_their_slug() -> None:
 
 
 def test_lang_values_exactly_match_supported_languages() -> None:
-    # supported_languages() lifts each native slug into a Lang member.
-    # Pin every member's value AND its order against the *raw* native
-    # slug table (the source of truth) instead of re-deriving the list
-    # from the same enum members: `str(m) == m.value` is tautological
-    # for a StrEnum and guards nothing (#919). Comparing against
-    # `_native.supported_languages()` fails if any slug is mismapped in
-    # `_enums.py` or if the facade's declaration order drifts from the
+    # `supported_languages()` lifts each native slug into a Lang member
+    # in the native LANG-table order, so `[l.value ...]` recovers the raw
+    # native slug list (the source of truth) through the public facade.
+    # Pin the enum's *declaration* order and every value against it,
+    # instead of re-deriving the list from the same enum members:
+    # `str(m) == m.value` is tautological for a StrEnum and guards
+    # nothing (#919). This comparison fails if any slug is mismapped in
+    # `_enums.py` or if the generated declaration order drifts from the
     # native side.
-    members = bca.supported_languages()
-    assert all(isinstance(m, Lang) for m in members)
-    native_slugs = list(_native.supported_languages())
-    assert [m.value for m in members] == native_slugs
+    native_slugs = [lang.value for lang in bca.supported_languages()]
+    assert [member.value for member in Lang] == native_slugs
     # Anchor a couple of slugs to literals so a corruption of *both* the
     # enum and the native table in lockstep is still caught (the order/
     # value check above only pins the two against each other).
@@ -71,7 +70,7 @@ def test_lang_values_exactly_match_supported_languages() -> None:
     # Every member is reachable through the enum, and the public set
     # equals the enum's full membership (no public slug is missing
     # from Lang and no Lang member is unsupported at runtime).
-    assert set(members) == set(Lang)
+    assert set(bca.supported_languages()) == set(Lang)
 
 
 def test_language_for_file_returns_lang_member(tmp_path: Path) -> None:
