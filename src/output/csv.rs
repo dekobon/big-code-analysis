@@ -290,15 +290,23 @@ fn write_one_row<W: Write>(
 const FORMULA_TRIGGERS: [char; 6] = ['=', '+', '-', '@', '\t', '\r'];
 
 /// Defang a free-text CSV cell against formula injection (CWE-1236) by
-/// prefixing a single quote when the cell begins with a
-/// [`FORMULA_TRIGGERS`] character, the OWASP-recommended mitigation. The
-/// quote makes a spreadsheet treat the whole cell as a literal string;
-/// the RFC 4180 quoting the `csv` crate applies does *not* defang
-/// formulas (a quoted `"=cmd"` still evaluates on import). Cells that do
-/// not start with a trigger — the overwhelming majority — are returned
-/// unchanged with no allocation beyond the owned `String` the row
-/// requires.
-fn defang_formula(cell: &str) -> String {
+/// prefixing a single quote when the cell begins with a spreadsheet
+/// formula trigger (`=`, `+`, `-`, `@`, tab, or carriage return), the
+/// OWASP-recommended mitigation. The quote makes a spreadsheet treat the
+/// whole cell as a literal string; the RFC 4180 quoting the `csv` crate
+/// applies does *not* defang formulas (a quoted `"=cmd"` still evaluates
+/// on import). Cells that do not start with a trigger — the
+/// overwhelming majority — are returned unchanged with no allocation
+/// beyond the owned `String` the row requires.
+///
+/// Apply this to every free-text, user-controlled CSV cell whose value
+/// can be derived from repository content (file paths, identifier names).
+/// Numeric or enum-valued cells that can never begin with a trigger
+/// character need no defang. This is the shared helper behind both the
+/// [`FuncSpace`] CSV writer here and the VCS-report CSV writer in the
+/// CLI crate; do not duplicate the trigger list.
+#[must_use]
+pub fn defang_formula(cell: &str) -> String {
     if cell.starts_with(FORMULA_TRIGGERS) {
         let mut out = String::with_capacity(cell.len() + 1);
         out.push('\'');
