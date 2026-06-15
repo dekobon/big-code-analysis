@@ -678,6 +678,21 @@ fn metric_is_lower_is_worse(name: &str) -> bool {
     big_code_analysis::metric_catalog::lower_is_worse(name)
 }
 
+/// Direction-aware breach test (#698, #837): for the lower-is-worse
+/// `mi.*` family a value *below* `limit` is the breach; every other
+/// metric breaches by going *above* it. A NaN value fails both
+/// comparisons and is never flagged, matching the pre-#698
+/// higher-is-worse `value <= limit` non-breach behavior. Shared between
+/// the per-function gate and the soft-tier hard-breach escalation in
+/// `classify_check_outcome` so the two cannot drift on metric direction.
+pub(crate) fn breaches_limit(value: f64, limit: f64, lower_is_worse: bool) -> bool {
+    if lower_is_worse {
+        value < limit
+    } else {
+        value > limit
+    }
+}
+
 /// Pre-resolved set of thresholds: every name has been validated against
 /// the registry, so evaluation can skip name lookups.
 #[derive(Debug)]
@@ -815,11 +830,7 @@ impl ThresholdSet {
                 // MI on a trivial space) fails both comparisons and is
                 // never flagged, matching the prior `value <= limit`
                 // higher-is-worse behavior.
-                let breached = if *lower_is_worse {
-                    value < *limit
-                } else {
-                    value > *limit
-                };
+                let breached = breaches_limit(value, *limit, *lower_is_worse);
                 if !breached {
                     continue;
                 }

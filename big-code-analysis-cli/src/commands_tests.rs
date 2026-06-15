@@ -922,6 +922,41 @@ fn classify_soft_tier_unknown_metric_is_not_breach() {
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
+/// Build a `(Violation, Option<Coverage>)` pair for a lower-is-worse
+/// `mi.original` metric (#837): a value *below* the floor is the breach.
+fn pair_low(value: f64, coverage: Option<Coverage>) -> (Violation, Option<Coverage>) {
+    let mut v = violation("a.rs", "f", value, 50.0);
+    v.metric = "mi.original";
+    v.lower_is_worse = true;
+    (v, coverage)
+}
+
+/// Hard-tier limits for the lower-is-worse escalation tests: an
+/// `mi.original` *floor* of 10. A value below 10 is a hard breach.
+fn hard_limits_mi() -> BTreeMap<String, f64> {
+    BTreeMap::from([("mi.original".to_owned(), 10.0)])
+}
+
+#[test]
+fn classify_soft_tier_lower_is_worse_hard_breach_escalates() {
+    // mi.original is lower-is-worse with a hard floor of 10. A value of 5
+    // is below the floor — a real hard breach — even though 5 > 10 is
+    // false. Before #837 the hardcoded `value > hard` missed this and the
+    // outcome fell to RegressionOnly, under-reporting the exit code.
+    let pairs = [pair_low(5.0, Some(Coverage::Regressed { recorded: 8.0 }))];
+    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits_mi());
+    assert_eq!(outcome, CheckOutcome::HardBreach);
+}
+
+#[test]
+fn classify_soft_tier_lower_is_worse_above_floor_is_not_breach() {
+    // mi.original value 15 is above the hard floor 10, so it is not a hard
+    // breach; it falls to the new/regr split.
+    let pairs = [pair_low(15.0, Some(Coverage::New))];
+    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits_mi());
+    assert_eq!(outcome, CheckOutcome::NewOnly);
+}
+
 #[test]
 fn exit_code_default_collapses_every_violation_to_two() {
     // The stable contract: any non-clean outcome is exit 2 regardless of

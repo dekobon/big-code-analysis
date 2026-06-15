@@ -43,7 +43,8 @@ use crate::markdown_report::advisory::AdvisoryThresholds;
 use crate::markdown_report::{FunctionSummary, generate_report_with_vcs};
 use crate::metric_catalog::write_metrics;
 use crate::thresholds::{
-    ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
+    ParsedThresholds, SoftLimit, ThresholdSet, Violation, breaches_limit, render_violation_line,
+    scale_threshold,
 };
 use big_code_analysis::{FuncSpace, Ops};
 
@@ -1083,14 +1084,17 @@ fn classify_check_outcome(
     let mut has_regression = false;
     let mut has_hard_breach = false;
     for (v, coverage) in pairs {
-        // A NaN value (degenerate Halstead on a trivial function) yields
-        // `NaN > hard == false`, so it never escalates to a hard breach;
-        // it falls to the new/regr split below, mirroring how
+        // Direction-aware hard-breach escalation (#837): mirror the
+        // gate's breach test so the lower-is-worse `mi.*` family escalates
+        // on a value *below* the hard floor, not above it. A NaN value
+        // (degenerate Halstead on a trivial function) fails both
+        // comparisons in `breaches_limit`, so it never escalates to a hard
+        // breach; it falls to the new/regr split below, mirroring how
         // `Baseline::classify` treats a NaN as `Regressed` rather than a
         // magnitude. A NaN has no meaningful distance from the ceiling.
         if tier == Tier::Soft
             && let Some(&hard) = hard_limits.get(v.metric)
-            && v.value > hard
+            && breaches_limit(v.value, hard, v.lower_is_worse)
         {
             has_hard_breach = true;
         }
