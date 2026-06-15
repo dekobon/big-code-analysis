@@ -9,13 +9,13 @@ chosen repository, before and after a tree-sitter-grammar update.
 
 To compute metrics:
 
-./check-grammar-crate.py compute-metrics -u REPO_URL -p LOCAL_DIR -l TREE_SITTER_GRAMMAR
+./check-grammar-crate.py compute-metrics -u REPO_URL -p LOCAL_DIR -g TREE_SITTER_GRAMMAR
 
 NOTE: The compute-metrics subcommand MUST be run on a clean master branch!
 
 To compute metrics on a continuous integration system:
 
-./check-grammar-crate.py compute-ci-metrics -p LOCAL_DIR -l TREE_SITTER_GRAMMAR
+./check-grammar-crate.py compute-ci-metrics -p LOCAL_DIR -g TREE_SITTER_GRAMMAR
 
 To compare metrics and retrieve per-metric differences:
 
