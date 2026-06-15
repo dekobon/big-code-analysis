@@ -36,17 +36,13 @@ for x in macs:
     for i in [8, 16, 32, 64]:
         macros.add(x.format(i))
 
-old = set()
-
-if os.path.isfile(_DATA_FILE):
-    with open(_DATA_FILE, "r") as in_file:
-        for line in in_file.readlines():
-            old.add(line.strip())
-
-diff = macros - old
-if diff:
-    for d in diff:
-        old.add(d)
-    with open(_DATA_FILE, "w") as out_file:
-        for x in sorted(old):
-            out_file.write(f"{x}\n")
+# Rewrite the data file from scratch every run: its contents are a pure
+# function of the `macs` template above. An earlier append-only contract
+# (read the file, union in only `macros - old`, write the union back)
+# could grow `c_macros.txt` but never prune it, so a name removed from
+# `macs` lingered forever and the artifact drifted away from its own
+# generator (issue #892). Writing `sorted(macros)` makes removals take
+# effect on the next run.
+with open(_DATA_FILE, "w") as out_file:
+    for x in sorted(macros):
+        out_file.write(f"{x}\n")

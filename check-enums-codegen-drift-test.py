@@ -334,5 +334,81 @@ class DriftGateTest(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
 
 
+class MacroGeneratorPruneTest(unittest.TestCase):
+    """#892: the `enums/data/mac.py` generator must prune stale entries.
+
+    The generator's output is a pure function of its `macs` template:
+    re-running it rewrites `c_macros.txt` to exactly `sorted(macros)`,
+    so an entry no longer produced by the template is removed on the
+    next run. The previous append-only contract could only grow the
+    file, letting it drift away from its own generator.
+
+    Each test copies the generator script into an isolated tempdir so
+    the run never touches the live, git-tracked `enums/data/*.txt`.
+    """
+
+    GENERATOR = REPO_ROOT / "enums" / "data" / "mac.py"
+    DATA_FILE_NAME = "c_macros.txt"
+
+    def setUp(self) -> None:
+        self.tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="bca-macro-prune-"))
+        # The generator resolves its data file as a sibling of the
+        # script, so copying the script alone makes the run fully
+        # hermetic — it reads/writes only the tempdir copy.
+        self.script = self.tmpdir / self.GENERATOR.name
+        shutil.copy(self.GENERATOR, self.script)
+        self.data_file = self.tmpdir / self.DATA_FILE_NAME
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _run_generator(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(self.script)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def _emitted_names(self) -> list[str]:
+        return [
+            line.strip()
+            for line in self.data_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def test_stale_entry_is_pruned(self) -> None:
+        # Seed the data file with a bogus name the template never
+        # produces; the generator must drop it on the next run.
+        bogus = "BOGUS_MACRO_THAT_THE_TEMPLATE_NEVER_EMITS"
+        self.data_file.write_text(f"{bogus}\n", encoding="utf-8")
+        self._run_generator()
+        self.assertNotIn(bogus, self._emitted_names())
+        # A genuine template entry must still be present, proving the
+        # prune did not simply empty the file.
+        self.assertIn("INT16_C", self._emitted_names())
+
+    def test_output_is_independent_of_prior_contents(self) -> None:
+        # The same data file is produced whether the prior file was
+        # empty or polluted — the output is a pure function of the
+        # template, not a union with whatever was on disk.
+        self.data_file.write_text("", encoding="utf-8")
+        self._run_generator()
+        from_empty = self._emitted_names()
+
+        self.data_file.write_text(
+            "EXTRA_ONE\nEXTRA_TWO\n", encoding="utf-8"
+        )
+        self._run_generator()
+        from_polluted = self._emitted_names()
+
+        self.assertEqual(from_empty, from_polluted)
+        self.assertNotIn("EXTRA_ONE", from_polluted)
+        # The file is written sorted, the contract the downstream
+        # `binary_search` lookup relies on.
+        self.assertEqual(from_polluted, sorted(from_polluted))
+
+
 if __name__ == "__main__":
     unittest.main()
