@@ -183,8 +183,9 @@ fn process_commit(
     Ok(Some(CommitEvent {
         oid: oid.to_string(),
         time: raw_time,
-        // Authors are stored only as their irreversible digests — never
-        // plaintext (see the cache module's privacy note).
+        // Authors are stored only as their SHA-256 digests — never
+        // plaintext (see the cache module's privacy note; the digest is a
+        // pseudonym, not anonymization).
         authors: authors.iter().map(AuthorId::hashed).collect(),
         bug_fix: class.bug_fix,
         security_fix: class.security_fix,

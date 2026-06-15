@@ -47,15 +47,24 @@ fn has_identity_is_false_only_for_empty_key() {
 }
 
 #[test]
-fn hashed_is_stable_and_irreversible_looking() {
-    let id = AuthorId::new(b"Ada", b"ada@example.com");
+fn hashed_is_stable_and_avoids_plaintext_email() {
+    // The digest is a stable pseudonym that keeps the plaintext email out
+    // of output (it is NOT cryptographically irreversible — see #811 and
+    // `AuthorId::hashed`'s privacy note). This pins what it actually
+    // provides: stability, hex shape, and that the output is not the
+    // plaintext email.
+    let email = "ada@example.com";
+    let id = AuthorId::new(b"Ada", email.as_bytes());
     let h1 = id.hashed();
-    let h2 = AuthorId::new(b"different name", b"ada@example.com").hashed();
+    let h2 = AuthorId::new(b"different name", email.as_bytes()).hashed();
     // Hash keys off the canonical email, so the same email hashes equal
     // regardless of display name.
     assert_eq!(h1, h2);
     // SHA-256 hex is 64 chars.
     assert_eq!(h1.len(), 64);
+    // The output is the digest, never the plaintext email itself.
+    assert_ne!(h1, email);
+    assert!(!h1.contains(email));
     // The digest depends on the canonical email: a different email
     // hashes differently (so the hash is not a constant, and pins that
     // the email — not the name — is the pre-image).

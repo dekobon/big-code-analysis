@@ -29,11 +29,14 @@
 //! # Author privacy
 //!
 //! Authors are stored only as their SHA-256 [`hashed`](super::identity::AuthorId::hashed)
-//! digests, never plaintext: the cache must not be a side channel that
-//! writes raw author emails to disk. Replay reconstructs identities with
+//! digests, never plaintext: the cache must not write raw author emails to
+//! disk. Replay reconstructs identities with
 //! [`AuthorId::from_digest`](super::identity::AuthorId::from_digest),
 //! which preserves author counts, ownership, and the emitted hashes
-//! bit-for-bit (the digest is injective for practical purposes).
+//! bit-for-bit (distinct emails yield distinct digests). The digest is a
+//! stable pseudonym, **not** anonymization — it is recoverable against a
+//! candidate email set; see [`hashed`](super::identity::AuthorId::hashed)
+//! for the threat model.
 //!
 //! # Invalidation
 //!

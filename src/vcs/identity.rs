@@ -12,6 +12,15 @@
 //! differing display names. Raw identities never leave the process;
 //! `--emit-author-details` opts into a SHA-256 hash of the canonical
 //! email instead of the plaintext.
+//!
+//! The emitted hash is a *stable pseudonym*, not anonymization. It
+//! avoids putting plaintext emails in output/caches and deters casual
+//! disclosure, but it is **not** cryptographically irreversible: an
+//! email is low-entropy and enumerable, so an attacker holding a
+//! candidate set of emails (commit histories are public) can recover the
+//! mapping by hashing each candidate or via a precomputed email→hash
+//! table — the same weakness that broke Gravatar's email hashing. See
+//! [`AuthorId::hashed`] for the threat model.
 
 use sha2::{Digest, Sha256};
 
@@ -27,13 +36,14 @@ use super::error::Error;
 /// across display-name variation.
 ///
 /// The key is normally the plaintext canonical email; a [`from_digest`]
-/// identity instead holds the already-irreversible SHA-256 digest, used
-/// when an identity is reconstructed from the persistent VCS cache (issue
-/// #334), which never stores plaintext author keys on disk. Both forms
-/// share the same equality/hashing contract — distinct-author *counts*
-/// and *ownership* ratios are preserved either way because the digest is
-/// injective for practical purposes — and within any one walk every
-/// identity is of the same form, so the `is_digest` flag never makes two
+/// identity instead holds the SHA-256 digest, used when an identity is
+/// reconstructed from the persistent VCS cache (issue #334), which never
+/// stores plaintext author keys on disk. Both forms share the same
+/// equality/hashing contract — distinct-author *counts* and *ownership*
+/// ratios are preserved either way because the digest is collision-free
+/// over the author set in practice (SHA-256 of distinct emails yields
+/// distinct hashes) — and within any one walk every identity is of the
+/// same form, so the `is_digest` flag never makes two
 /// keys-for-the-same-person compare unequal.
 ///
 /// [`from_digest`]: AuthorId::from_digest
@@ -84,10 +94,11 @@ impl AuthorId {
     }
 
     /// Reconstruct an identity from a previously-emitted SHA-256 [`hashed`]
-    /// digest. The persistent VCS cache stores authors in this irreversible
-    /// form (never plaintext), and replaying it must reproduce the same
-    /// author counts, ownership, and emitted hashes as a fresh walk — so a
-    /// `from_digest` identity hashes to itself.
+    /// digest. The persistent VCS cache stores authors in this hashed form
+    /// (never plaintext — see [`hashed`] for what that does and does not
+    /// protect), and replaying it must reproduce the same author counts,
+    /// ownership, and emitted hashes as a fresh walk — so a `from_digest`
+    /// identity hashes to itself.
     ///
     /// [`hashed`]: AuthorId::hashed
     #[must_use]
@@ -99,9 +110,25 @@ impl AuthorId {
     }
 
     /// SHA-256 hex digest of the canonical key, for
-    /// `--emit-author-details`. Stable across runs and irreversible, so
-    /// it can be published without disclosing the underlying email. A
-    /// [`from_digest`](AuthorId::from_digest) identity already *is* the
+    /// `--emit-author-details`. Stable across runs, so the same author
+    /// carries the same pseudonym in every report and survives a cache
+    /// round-trip.
+    ///
+    /// # Privacy: pseudonym, not anonymization
+    ///
+    /// The digest avoids emitting the plaintext email and deters *casual*
+    /// disclosure, but it is **not** cryptographically irreversible. The
+    /// pre-image is an email — low-entropy and enumerable — and commit
+    /// histories are public, so an attacker with a candidate set of emails
+    /// can recover the mapping by hashing each candidate or with a
+    /// precomputed email→hash table (the Gravatar weakness). Treat
+    /// published digests as pseudonymization that keeps plaintext emails
+    /// out of output and caches, **not** as robust anonymization against a
+    /// determined attacker. Hardening (a keyed HMAC / slow KDF) is tracked
+    /// as a follow-up; it must be reconciled with the issue-#334
+    /// cache-replay invariant that replaying reproduces identical digests.
+    ///
+    /// A [`from_digest`](AuthorId::from_digest) identity already *is* the
     /// digest, so it is returned unchanged (re-hashing would double-hash
     /// and diverge from a fresh walk).
     #[must_use]
