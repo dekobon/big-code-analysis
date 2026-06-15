@@ -97,28 +97,46 @@ def find_macro_call_end(source: str, open_paren_idx: int) -> int:
     return n
 
 
-def block_comment_spans(source: str) -> list[tuple[int, int]]:
-    """Return ``(start, end)`` index ranges of ``/* … */`` comments.
+class IgnoreSpans:
+    """The three kinds of index ranges a bare-call scan must ignore.
 
-    Walks the source skipping string literals (regular and Rust raw
-    strings) and ``//`` line comments so a ``/*`` that appears inside
-    a string or after ``//`` is not mistaken for a block-comment
-    opener. Rust block comments nest, so the scanner tracks depth and
-    only closes the outer span when depth returns to zero. The
-    returned spans are used to drop ``insta::assert_json_snapshot!``
-    occurrences that are commented out — a commented snapshot is not a
-    live bare call and over-counting it produces a spurious gate
-    failure.
+    A single source walk classifies every ``//`` line comment, every
+    ``/* … */`` block comment (Rust block comments nest), and every
+    string literal (regular and Rust raw strings) into disjoint span
+    lists. Keeping them separate lets ``count_bare`` answer two distinct
+    questions with the same scan: *is this match inside a comment or
+    string?* (block + string spans) and *is the ``//`` before it a real
+    line comment, or just text inside a string?* (line-comment spans).
     """
-    spans: list[tuple[int, int]] = []
+
+    def __init__(self) -> None:
+        self.line_comments: list[tuple[int, int]] = []
+        self.block_comments: list[tuple[int, int]] = []
+        self.strings: list[tuple[int, int]] = []
+
+
+def scan_ignore_spans(source: str) -> IgnoreSpans:
+    """Classify comment and string-literal spans in one source walk.
+
+    The walk skips string literals before testing for comment openers,
+    so a ``//`` or ``/*`` that appears inside a string (or a ``"``
+    inside a comment) is never misread. This is the single string-aware
+    scanner the bare-call counter relies on: over-counting a commented
+    or quoted ``insta::assert_json_snapshot!`` occurrence produces a
+    spurious gate failure, and under-counting (treating a ``//`` inside
+    a string as a real comment) lets an unanchored snapshot through.
+    """
+    spans = IgnoreSpans()
     i = 0
     n = len(source)
     while i < n:
         ch = source[i]
-        # Line comment: consume to end of line.
+        # Line comment: span covers `//` to (but not including) the newline.
         if ch == "/" and i + 1 < n and source[i + 1] == "/":
             nl = source.find("\n", i)
-            i = n if nl == -1 else nl + 1
+            end = n if nl == -1 else nl
+            spans.line_comments.append((i, end))
+            i = end
             continue
         # Block comment: track nesting depth to the matching close.
         if ch == "/" and i + 1 < n and source[i + 1] == "*":
@@ -135,7 +153,7 @@ def block_comment_spans(source: str) -> list[tuple[int, int]]:
                     i += 2
                     continue
                 i += 1
-            spans.append((start, i))
+            spans.block_comments.append((start, i))
             continue
         # Raw string: r"…", r#"…"#, …
         if ch == "r" and i + 1 < n and source[i + 1] in ('"', "#"):
@@ -147,7 +165,9 @@ def block_comment_spans(source: str) -> list[tuple[int, int]]:
             if j < n and source[j] == '"':
                 close = '"' + ("#" * hashes)
                 end = source.find(close, j + 1)
-                i = n if end == -1 else end + len(close)
+                stop = n if end == -1 else end + len(close)
+                spans.strings.append((i, stop))
+                i = stop
                 continue
         # Regular string literal.
         if ch == '"':
@@ -159,7 +179,9 @@ def block_comment_spans(source: str) -> list[tuple[int, int]]:
                 if source[j] == '"':
                     break
                 j += 1
-            i = j + 1
+            stop = j + 1
+            spans.strings.append((i, stop))
+            i = stop
             continue
         i += 1
     return spans
@@ -185,20 +207,25 @@ def has_preceding_anchor(source: str, macro_start_idx: int) -> bool:
     return False
 
 
-def count_bare(path: pathlib.Path) -> int:
-    source = path.read_text(encoding="utf-8")
-    comment_spans = block_comment_spans(source)
+def count_bare_in_source(source: str) -> int:
+    spans = scan_ignore_spans(source)
     bare = 0
     for match in MACRO_RE.finditer(source):
         macro_start = match.start()
-        # Skip occurrences inside line comments.
-        line_start = source.rfind("\n", 0, macro_start) + 1
-        line_prefix = source[line_start:macro_start]
-        if "//" in line_prefix:
+        # Skip occurrences that are themselves inside a string literal
+        # (e.g. macro text embedded in an inline `@r###"…"###` body or a
+        # fixture string) or inside a `/* … */` block comment — neither
+        # is a live bare call, and counting it produces a spurious gate
+        # failure (#875).
+        if _in_any_span(macro_start, spans.strings):
             continue
-        # Skip occurrences inside `/* … */` block comments — a
-        # commented-out snapshot is not a live bare call.
-        if _in_any_span(macro_start, comment_spans):
+        if _in_any_span(macro_start, spans.block_comments):
+            continue
+        # Skip occurrences commented out with `//`. A `//` inside a
+        # string literal is not a comment, so the precomputed
+        # line-comment spans are consulted instead of a raw substring
+        # search (#875: `let url = "http://x"; …` must not be masked).
+        if _in_any_span(macro_start, spans.line_comments):
             continue
         open_paren = match.end() - 1
         call_end = find_macro_call_end(source, open_paren)
@@ -209,6 +236,10 @@ def count_bare(path: pathlib.Path) -> int:
             continue
         bare += 1
     return bare
+
+
+def count_bare(path: pathlib.Path) -> int:
+    return count_bare_in_source(path.read_text(encoding="utf-8"))
 
 
 def collect_counts(files: list[pathlib.Path]) -> "OrderedDict[str, int]":
@@ -252,21 +283,6 @@ def default_targets() -> list[pathlib.Path]:
     return sorted(p for p in METRICS_DIR.glob("*.rs") if p.is_file())
 
 
-def _bare_in_source(source: str) -> int:
-    """Run ``count_bare`` over an in-memory snippet (self-test helper)."""
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(
-        "w", suffix=".rs", encoding="utf-8", delete=False
-    ) as fh:
-        fh.write(source)
-        tmp = pathlib.Path(fh.name)
-    try:
-        return count_bare(tmp)
-    finally:
-        tmp.unlink()
-
-
 def _self_test() -> int:
     """Prove the bare-call scanner classifies the tricky cases.
 
@@ -279,10 +295,31 @@ def _self_test() -> int:
         ("raw inline anchor", 'insta::assert_json_snapshot!(m.x, @r###"1"###);', 0),
         # Bare: no anchor at all.
         ("bare call", "insta::assert_json_snapshot!(m.x);", 1),
+        # #875 false positive: macro text inside an inline anchor body
+        # (a fixture string of Rust source) must not be counted as a
+        # second, bare call.
+        (
+            "macro text inside string body",
+            'insta::assert_json_snapshot!(m.x, @r###"\n'
+            '{ "n": "insta::assert_json_snapshot!(other)" }\n'
+            '"###);\n',
+            0,
+        ),
+        # #875 false negative: a `//` inside a string earlier on the line
+        # must not suppress a genuinely bare call.
+        (
+            "// inside a string before a bare call",
+            'let url = "http://x"; insta::assert_json_snapshot!(m.x);\n',
+            1,
+        ),
+        # A real `//`-commented-out snapshot stays uncounted.
+        ("commented-out call", "// insta::assert_json_snapshot!(m.x);\n", 0),
+        # A `/* … */`-commented-out snapshot stays uncounted.
+        ("block-commented call", "/* insta::assert_json_snapshot!(m.x); */", 0),
     ]
     ok = True
     for name, source, expected in cases:
-        got = _bare_in_source(source)
+        got = count_bare_in_source(source)
         good = got == expected
         ok = ok and good
         print(
