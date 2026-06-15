@@ -49,9 +49,15 @@ pub struct Ops {
     pub kind: SpaceKind,
     /// All subspaces contained in a function space.
     pub spaces: Vec<Ops>,
-    /// All operands of a space.
+    /// The **distinct** operands of a space — the deduplicated Halstead
+    /// operand vocabulary (`n2`), one entry per unique operand, not every
+    /// occurrence. Backed by the keys of a `HashMap`, so entries are
+    /// unique and returned in arbitrary order.
     pub operands: Vec<String>,
-    /// All operators of a space.
+    /// The **distinct** operators of a space — the deduplicated Halstead
+    /// operator vocabulary (`n1`), one entry per unique operator, not
+    /// every occurrence. Backed by the keys of a `HashMap`, so entries
+    /// are unique and returned in arbitrary order.
     pub operators: Vec<String>,
 }
 
@@ -102,6 +108,29 @@ impl Ops {
 struct State<'a> {
     ops: Ops,
     halstead_maps: HalsteadMaps<'a>,
+}
+
+/// Pushes a synthetic `Unit` root onto the state stack when the grammar
+/// hands us a non-`Unit` root.
+///
+/// Mirrors [`crate::spaces::push_synthetic_unit_root`] on the metrics
+/// seam: some grammars (e.g. tree-sitter-lua / tree-sitter-mozcpp on
+/// unparseable input) return an `ERROR` root that is not classified as a
+/// function space, so without this push the walk would never open a
+/// frame and `ops_inner` would return [`MetricsError::EmptyRoot`] for an
+/// input where `metrics()` succeeds (issue #789). A `Unit` root needs no
+/// wrapper, so nothing is pushed in that case.
+fn push_synthetic_unit_root<T: ParserTrait>(
+    state_stack: &mut Vec<State>,
+    node: &Node,
+    code: &[u8],
+) {
+    if T::Getter::get_space_kind_with_code(node, code) != SpaceKind::Unit {
+        state_stack.push(State {
+            ops: Ops::new::<T::Getter>(node, code, SpaceKind::Unit),
+            halstead_maps: HalsteadMaps::new(),
+        });
+    }
 }
 
 /// Convert `&[u8]` source text to an owned `String`.
@@ -188,6 +217,13 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
 
+    // Mirror `metrics_inner`: wrap a non-`Unit` (e.g. `ERROR`) root in a
+    // synthetic `Unit` frame so the walk always has a frame to populate.
+    // Without this, an `ERROR`-root parse drains the state stack and
+    // `ops_inner` returns `EmptyRoot` for inputs where `metrics()`
+    // succeeds (issue #789).
+    push_synthetic_unit_root::<T>(&mut state_stack, &node, code);
+
     stack.push((node, 0));
 
     while let Some((node, level)) = stack.pop() {
@@ -233,11 +269,14 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     finalize::<T>(&mut state_stack, usize::MAX);
 
     // Reserved error path: `MetricsError::EmptyRoot` is unreachable
-    // today because every supported language's root node is recognised
-    // as a `func_space` and pushes a state. The `ok_or` is retained so a
-    // future walker change that legitimately drains the stack surfaces
-    // a distinct error variant rather than a bare `None`. See
-    // `MetricsError::EmptyRoot` for the matching variant doc.
+    // today because the synthetic Unit push above (and every supported
+    // language's root being recognised as a `func_space`) keeps the
+    // state stack non-empty for every input, including ERROR-root,
+    // empty, whitespace-only, and comment-only sources — matching
+    // `metrics_inner`. The `ok_or` is retained so a future walker change
+    // that legitimately drains the stack surfaces a distinct error
+    // variant rather than a bare `None`. See `MetricsError::EmptyRoot`
+    // for the matching variant doc.
     let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
     state.ops.name = name;
     Ok(state.ops)
@@ -802,6 +841,79 @@ mod tests {
         assert_eq!(
             ops.name, None,
             "Unit space must preserve name = None, not invent <anonymous>"
+        );
+    }
+
+    /// Issue #789: an `ERROR`-root parse (here Lua partial input) where
+    /// `metrics()` succeeds must make `ops()` succeed too — the two seams
+    /// should agree. Before the synthetic-Unit-root mirror in `ops_inner`,
+    /// `ops()` returned `Err(MetricsError::EmptyRoot)` because the ERROR
+    /// root is not classified as a function space, so no frame was ever
+    /// pushed. This pins their agreement: both succeed, and the resulting
+    /// top-level `Ops` is a `Unit` whose name is the caller-supplied
+    /// `Source::name` (the intrinsic Unit name stays `None` per #755 until
+    /// `ops_inner` overrides the top-level name).
+    #[cfg(feature = "lua")]
+    #[test]
+    fn lua_error_root_ops_agrees_with_metrics_789() {
+        use crate::{MetricsOptions, SpaceKind};
+
+        // tree-sitter-lua surfaces an ERROR root for this partial input.
+        let src = b"function foo(x)\n  return x +\n".to_vec();
+        let name = "partial.lua".to_owned();
+
+        let ast = Ast::parse(Source::new(LANG::Lua, &src).with_name(Some(name.clone())))
+            .expect("lua feature enabled");
+
+        // metrics() must succeed (it already wrapped a synthetic Unit root).
+        let space = ast
+            .metrics(MetricsOptions::default())
+            .expect("metrics must yield a top-level space");
+        assert_eq!(space.kind, SpaceKind::Unit);
+
+        // ops() must now succeed in the same case rather than returning
+        // Err(EmptyRoot).
+        let ops = ast
+            .ops()
+            .expect("ops must agree with metrics and yield a top-level Ops");
+        assert_eq!(ops.kind, SpaceKind::Unit);
+        assert_eq!(
+            ops.name.as_deref(),
+            Some(name.as_str()),
+            "top-level Ops name is the caller-supplied Source::name"
+        );
+    }
+
+    /// Issue #790: `Ops::operands` / `Ops::operators` are the *distinct*
+    /// (deduplicated) Halstead operand/operator vocabularies (`n2` / `n1`),
+    /// not every occurrence. Pin the documented dedup semantics: each
+    /// vector's length equals its unique-element count. The fixture
+    /// repeats `+`, `;`, and `=` operators and the `a` operand so a
+    /// regression to non-deduplicated collection would make `len` exceed
+    /// the unique count.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn ops_vocabularies_are_distinct_790() {
+        use std::collections::HashSet;
+
+        let src = b"fn main() { let a = 1 + 1; let b = a + a; }\n".to_vec();
+        let ops = Ast::parse(Source::new(LANG::Rust, &src).with_name(Some("foo.rs".to_owned())))
+            .expect("rust feature enabled")
+            .ops()
+            .expect("ops walk must yield a top-level Ops");
+
+        let unique_operators: HashSet<&String> = ops.operators.iter().collect();
+        assert_eq!(
+            ops.operators.len(),
+            unique_operators.len(),
+            "Ops::operators must be the distinct operator vocabulary (n1)"
+        );
+
+        let unique_operands: HashSet<&String> = ops.operands.iter().collect();
+        assert_eq!(
+            ops.operands.len(),
+            unique_operands.len(),
+            "Ops::operands must be the distinct operand vocabulary (n2)"
         );
     }
 }
