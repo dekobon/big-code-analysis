@@ -60,6 +60,28 @@ DOC_VERSION_FILES = (
     "tree-sitter-tcl/bindings/rust/README.md",
 )
 
+# CI-recipe docs that pin a *published* big-code-analysis-cli release in
+# install snippets. These use install-action / binstall / env-var forms
+# rather than the `<crate> = "X.Y.Z"` Cargo-snippet shape DOC_PIN_RE
+# matches, so they need their own file list + pattern (#879). The
+# line-665 comment ("pin a published big-code-analysis-cli release")
+# confirms these are meant to track the current release, not lag it.
+#
+# Deliberately *not* gated here: the `key: bca-…-X.Y.Z` GitHub Actions
+# cache key (ci.md:205). It embeds the version too, but a stale cache
+# key only causes a cache miss, never a wrong install — so it is left
+# out rather than forcing a churn-only bump on every release.
+CI_RECIPE_FILES = ("big-code-analysis-book/src/recipes/ci.md",)
+# The three install-pin forms used in the CI recipe:
+#   * `cargo (b)install … --version X.Y.Z`
+#   * `tool: big-code-analysis-cli@X.Y.Z` (taiki-e/install-action)
+#   * `BCA_VERSION: "X.Y.Z"` (workflow env var)
+CI_PIN_RE = re.compile(
+    r"--version\s+(\d+\.\d+(?:\.\d+)?)"
+    r"|big-code-analysis-cli@(\d+\.\d+(?:\.\d+)?)"
+    r'|BCA_VERSION:\s*"(\d+\.\d+(?:\.\d+)?)"'
+)
+
 WORKSPACE_VERSION_RE = re.compile(
     r"^\[workspace\.package\][^\[]*?^version\s*=\s*\"([^\"]+)\"",
     re.MULTILINE | re.DOTALL,
@@ -210,6 +232,17 @@ def main() -> int:
                 line = read(doc)[: m.start()].count("\n") + 1
                 failures.append(
                     f"{doc_path}:{line}: snippet cites version "
+                    f"{cited!r}, expected {canonical!r} (or a prefix)"
+                )
+
+    for ci_path in CI_RECIPE_FILES:
+        text = read(root / ci_path)
+        for m in CI_PIN_RE.finditer(text):
+            cited = next(g for g in m.groups() if g is not None)
+            if normalize(cited, canonical) != canonical:
+                line = text[: m.start()].count("\n") + 1
+                failures.append(
+                    f"{ci_path}:{line}: install snippet pins release "
                     f"{cited!r}, expected {canonical!r} (or a prefix)"
                 )
 
