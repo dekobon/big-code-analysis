@@ -243,8 +243,22 @@ impl Exit for CsharpCode {
 }
 
 impl Exit for GoCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    // Go has no dedicated `panic` node: `panic(...)` is the built-in
+    // abrupt-exit call (it unwinds the stack like `throw`/`raise` in the
+    // exception languages), parsed as a `call_expression` whose `function`
+    // field is a bare `identifier` spelling `panic`. Count it as an exit
+    // alongside `return`. Matching the bare identifier (not a
+    // `selector_expression`) means a package-qualified call like
+    // `foo.panic()` — a user function, not the built-in — is not counted,
+    // mirroring how Bash matches the bare builtin command name.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Go::ReturnStatement) {
+            stats.exit += 1;
+        } else if node.kind_id() == Go::CallExpression
+            && let Some(function) = node.child_by_field_name("function")
+            && function.kind_id() == Go::Identifier
+            && function.utf8_text(code) == Some("panic")
+        {
             stats.exit += 1;
         }
     }
@@ -270,8 +284,21 @@ impl Exit for KotlinCode {
 }
 
 impl Exit for LuaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    // Lua has no `throw`/`raise` keyword: the abrupt-exit primitives are the
+    // built-in `error(...)` (raises a Lua error that unwinds to the nearest
+    // `pcall`) and `os.exit(...)` (terminates the process). Both parse as a
+    // `function_call` whose `name` field is the callee. `error(...)` is a
+    // bare `identifier`; `os.exit(...)` is a `dot_index_expression` with text
+    // `os.exit`. Count them as exits alongside `return`. Matching the exact
+    // callee text means a user call such as `foo()` or `myError()` is not
+    // counted, mirroring how Bash/Elixir match the bare builtin name.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         if node.kind_id() == Lua::ReturnStatement {
+            stats.exit += 1;
+        } else if node.kind_id() == Lua::FunctionCall
+            && let Some(name) = node.child_by_field_name("name")
+            && matches!(name.utf8_text(code), Some("error" | "os.exit"))
+        {
             stats.exit += 1;
         }
     }
@@ -1085,6 +1112,87 @@ mod tests {
     }
 
     #[test]
+    fn go_panic_counts_as_exit() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+                panic(\"boom\")
+            }",
+            "foo.go",
+            |metric| {
+                // panic(...) is the built-in abrupt-exit call, counted like
+                // throw/raise — one exit even though there is no `return`.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_panic_and_return_both_count() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) int {
+                if x < 0 {
+                    panic(\"negative\")
+                }
+                return x
+            }",
+            "foo.go",
+            |metric| {
+                // panic(...) + return are both abrupt exits → 2.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_package_qualified_panic_is_not_exit() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+                foo.panic()
+            }",
+            "foo.go",
+            |metric| {
+                // `foo.panic()` is a user method on package `foo`, not the
+                // built-in `panic` — its callee is a selector_expression, not
+                // a bare identifier, so it must not be counted.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
     fn java_split_function() {
         check_metrics::<JavaParser>(
             "class A {
@@ -1458,6 +1566,109 @@ end",
                   "average": 2.0,
                   "min": 0,
                   "max": 2
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_error_counts_as_exit() {
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  error(\"bad\")
+end",
+            "foo.lua",
+            |metric| {
+                // error(...) raises a Lua error that unwinds the stack — a
+                // built-in abrupt exit, counted like throw/raise.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_os_exit_counts_as_exit() {
+        check_metrics::<LuaParser>(
+            "local function f()
+  os.exit(1)
+end",
+            "foo.lua",
+            |metric| {
+                // os.exit(...) terminates the process — its callee is a
+                // dot_index_expression spelling `os.exit`, counted as an exit.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 1,
+                  "average": 1.0,
+                  "min": 0,
+                  "max": 1
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_error_and_return_both_count() {
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  if x < 0 then
+    error(\"negative\")
+  end
+  return x
+end",
+            "foo.lua",
+            |metric| {
+                // error(...) + return are both abrupt exits → 2.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 2,
+                  "average": 2.0,
+                  "min": 0,
+                  "max": 2
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_user_call_is_not_exit() {
+        check_metrics::<LuaParser>(
+            "local function f()
+  foo()
+  myError(\"x\")
+end",
+            "foo.lua",
+            |metric| {
+                // Neither `foo()` nor a user `myError(...)` is the built-in
+                // `error`/`os.exit`, so neither is counted.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 0,
+                  "average": 0.0,
+                  "min": 0,
+                  "max": 0
                 }
                 "#
                 );
