@@ -39,6 +39,23 @@ fn security_avoids_substring_false_positives() {
 }
 
 #[test]
+fn security_injection_overflow_require_qualifier() {
+    // Issue #808: bare `injection` / `overflow` matched routine
+    // non-security commits. The terms are now qualifier-gated.
+    assert!(!c("add dependency injection container").security_fix);
+    assert!(!c("fix text overflow in sidebar").security_fix);
+    // "integer overflow" / "stack overflow" are deliberately excluded
+    // as ambiguous (arithmetic bug / website name): precision wins.
+    assert!(!c("handle integer overflow in the counter").security_fix);
+    assert!(!c("link to the stack overflow answer").security_fix);
+    // Qualified attack-vector forms still classify.
+    assert!(c("fix SQL injection").security_fix);
+    assert!(c("buffer overflow fix").security_fix);
+    assert!(c("patch heap overflow in decoder").security_fix);
+    assert!(c("command injection in shell wrapper").security_fix);
+}
+
+#[test]
 fn revert_detected_from_subject_or_rollback() {
     assert!(c("Revert \"add the broken feature\"").revert);
     assert!(c("revert the bad merge").revert);
@@ -48,6 +65,17 @@ fn revert_detected_from_subject_or_rollback() {
     // this pins the `^` in REVERT_SUBJECT).
     assert!(!c("we should not revert this change").revert);
     assert!(!c("this does not undo anything").revert);
+}
+
+#[test]
+fn rollback_only_classifies_from_subject() {
+    // Issue #806: rollback now gets revert's subject-line discipline.
+    // A leading "Rollback ..." subject still classifies.
+    assert!(c("Rollback the migration").revert);
+    // A body-prose "rollback" mention must NOT flip the whole commit,
+    // exactly as a body-prose "revert" mention does not.
+    assert!(!c("feat: add retry logic\n\nThis avoids a rollback later").revert);
+    assert!(!c("document the rollback procedure in the runbook").revert);
 }
 
 #[test]
