@@ -881,9 +881,15 @@ impl Loc for MozjsCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
-            ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
-            | IfStatement | SwitchStatement | ForStatement | ForInStatement | WhileStatement
-            | DoStatement | TryStatement | WithStatement | BreakStatement | ContinueStatement
+            // `StatementBlock` is a syntactic `{ … }` brace grouping, not a
+            // logical statement, so it is deliberately absent here (#777). It
+            // falls through to the `_` PLOC catch-all, matching every other
+            // language: Rust's `Block`, C/C++'s `CompoundStatement`, and
+            // Java/Groovy/C#'s `Block` all contribute 0 lloc. Counting it
+            // inflated JS/TS lloc by one per brace block.
+            ExpressionStatement | ExportStatement | ImportStatement | IfStatement
+            | SwitchStatement | ForStatement | ForInStatement | WhileStatement | DoStatement
+            | TryStatement | WithStatement | BreakStatement | ContinueStatement
             | DebuggerStatement | ReturnStatement | ThrowStatement | EmptyStatement
             | StatementIdentifier => {
                 stats.lloc.logical_lines += 1;
@@ -908,9 +914,11 @@ impl Loc for JavascriptCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
-            ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
-            | IfStatement | SwitchStatement | ForStatement | ForInStatement | WhileStatement
-            | DoStatement | TryStatement | WithStatement | BreakStatement | ContinueStatement
+            // `StatementBlock` is deliberately absent — see MozjsCode::compute
+            // (#777). It is a brace grouping, not a logical statement.
+            ExpressionStatement | ExportStatement | ImportStatement | IfStatement
+            | SwitchStatement | ForStatement | ForInStatement | WhileStatement | DoStatement
+            | TryStatement | WithStatement | BreakStatement | ContinueStatement
             | DebuggerStatement | ReturnStatement | ThrowStatement | EmptyStatement
             | StatementIdentifier => {
                 stats.lloc.logical_lines += 1;
@@ -935,9 +943,11 @@ impl Loc for TypescriptCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
-            ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
-            | IfStatement | SwitchStatement | ForStatement | ForInStatement | WhileStatement
-            | DoStatement | TryStatement | WithStatement | BreakStatement | ContinueStatement
+            // `StatementBlock` is deliberately absent — see MozjsCode::compute
+            // (#777). It is a brace grouping, not a logical statement.
+            ExpressionStatement | ExportStatement | ImportStatement | IfStatement
+            | SwitchStatement | ForStatement | ForInStatement | WhileStatement | DoStatement
+            | TryStatement | WithStatement | BreakStatement | ContinueStatement
             | DebuggerStatement | ReturnStatement | ThrowStatement | EmptyStatement
             | StatementIdentifier => {
                 stats.lloc.logical_lines += 1;
@@ -962,9 +972,11 @@ impl Loc for TsxCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
-            ExpressionStatement | ExportStatement | ImportStatement | StatementBlock
-            | IfStatement | SwitchStatement | ForStatement | ForInStatement | WhileStatement
-            | DoStatement | TryStatement | WithStatement | BreakStatement | ContinueStatement
+            // `StatementBlock` is deliberately absent — see MozjsCode::compute
+            // (#777). It is a brace grouping, not a logical statement.
+            ExpressionStatement | ExportStatement | ImportStatement | IfStatement
+            | SwitchStatement | ForStatement | ForInStatement | WhileStatement | DoStatement
+            | TryStatement | WithStatement | BreakStatement | ContinueStatement
             | DebuggerStatement | ReturnStatement | ThrowStatement | EmptyStatement
             | StatementIdentifier => {
                 stats.lloc.logical_lines += 1;
@@ -2409,12 +2421,12 @@ mod tests {
                 {
                   "sloc": 11,
                   "ploc": 8,
-                  "lloc": 1,
+                  "lloc": 0,
                   "cloc": 4,
                   "blank": 1,
                   "sloc_average": 5.5,
                   "ploc_average": 4.0,
-                  "lloc_average": 0.5,
+                  "lloc_average": 0.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.5,
                   "sloc_min": 11,
@@ -2423,8 +2435,8 @@ mod tests {
                   "cloc_max": 4,
                   "ploc_min": 8,
                   "ploc_max": 8,
-                  "lloc_min": 1,
-                  "lloc_max": 1,
+                  "lloc_min": 0,
+                  "lloc_max": 0,
                   "blank_min": 1,
                   "blank_max": 1
                 }
@@ -3821,12 +3833,12 @@ line two
                 {
                   "sloc": 5,
                   "ploc": 5,
-                  "lloc": 6,
+                  "lloc": 4,
                   "cloc": 0,
                   "blank": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
-                  "lloc_average": 3.0,
+                  "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
                   "sloc_min": 5,
@@ -3835,8 +3847,8 @@ line two
                   "cloc_max": 0,
                   "ploc_min": 5,
                   "ploc_max": 5,
-                  "lloc_min": 5,
-                  "lloc_max": 6,
+                  "lloc_min": 3,
+                  "lloc_max": 4,
                   "blank_min": 0,
                   "blank_max": 0
                 }
@@ -3863,12 +3875,12 @@ line two
                 {
                   "sloc": 5,
                   "ploc": 5,
-                  "lloc": 6,
+                  "lloc": 4,
                   "cloc": 0,
                   "blank": 0,
                   "sloc_average": 2.5,
                   "ploc_average": 2.5,
-                  "lloc_average": 3.0,
+                  "lloc_average": 2.0,
                   "cloc_average": 0.0,
                   "blank_average": 0.0,
                   "sloc_min": 5,
@@ -3877,8 +3889,8 @@ line two
                   "cloc_max": 0,
                   "ploc_min": 5,
                   "ploc_max": 5,
-                  "lloc_min": 5,
-                  "lloc_max": 6,
+                  "lloc_min": 3,
+                  "lloc_max": 4,
                   "blank_min": 0,
                   "blank_max": 0
                 }
@@ -3905,12 +3917,12 @@ line two
                 {
                   "sloc": 6,
                   "ploc": 3,
-                  "lloc": 1,
+                  "lloc": 0,
                   "cloc": 1,
                   "blank": 2,
                   "sloc_average": 3.0,
                   "ploc_average": 1.5,
-                  "lloc_average": 0.5,
+                  "lloc_average": 0.0,
                   "cloc_average": 0.5,
                   "blank_average": 1.0,
                   "sloc_min": 5,
@@ -3919,8 +3931,8 @@ line two
                   "cloc_max": 1,
                   "ploc_min": 3,
                   "ploc_max": 3,
-                  "lloc_min": 1,
-                  "lloc_max": 1,
+                  "lloc_min": 0,
+                  "lloc_max": 0,
                   "blank_min": 2,
                   "blank_max": 2
                 }
@@ -6171,12 +6183,12 @@ y, z = 2, 3",
                 {
                   "sloc": 10,
                   "ploc": 6,
-                  "lloc": 4,
+                  "lloc": 2,
                   "cloc": 3,
                   "blank": 1,
                   "sloc_average": 3.3333333333333335,
                   "ploc_average": 2.0,
-                  "lloc_average": 1.3333333333333333,
+                  "lloc_average": 0.6666666666666666,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
                   "sloc_min": 3,
@@ -6185,8 +6197,8 @@ y, z = 2, 3",
                   "cloc_max": 3,
                   "ploc_min": 3,
                   "ploc_max": 6,
-                  "lloc_min": 2,
-                  "lloc_max": 4,
+                  "lloc_min": 1,
+                  "lloc_max": 2,
                   "blank_min": 0,
                   "blank_max": 1
                 }
@@ -6215,12 +6227,12 @@ y, z = 2, 3",
                 {
                   "sloc": 8,
                   "ploc": 4,
-                  "lloc": 2,
+                  "lloc": 1,
                   "cloc": 3,
                   "blank": 1,
                   "sloc_average": 2.6666666666666665,
                   "ploc_average": 1.3333333333333333,
-                  "lloc_average": 0.6666666666666666,
+                  "lloc_average": 0.3333333333333333,
                   "cloc_average": 1.0,
                   "blank_average": 0.3333333333333333,
                   "sloc_min": 1,
@@ -6230,7 +6242,7 @@ y, z = 2, 3",
                   "ploc_min": 1,
                   "ploc_max": 4,
                   "lloc_min": 0,
-                  "lloc_max": 2,
+                  "lloc_max": 1,
                   "blank_min": 0,
                   "blank_max": 1
                 }
@@ -7185,7 +7197,7 @@ try {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 0);
                 assert_eq!(metric.loc.cloc(), 1);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7206,7 +7218,7 @@ try {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 4);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7228,7 +7240,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 1);
                 assert_eq!(metric.loc.blank(), 0);
             },
@@ -7247,7 +7259,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 0);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7267,7 +7279,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 2);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7308,7 +7320,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7329,7 +7341,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7350,7 +7362,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7372,12 +7384,72 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 6);
+                // lloc = 3: the `if` statement plus the two `return`
+                // statements. The three `{ … }` brace blocks (function
+                // body, `if` consequent, `else` alternative) are syntactic
+                // groupings, not logical statements, and contribute 0 —
+                // matching C/Rust/Java for the equivalent code (#777).
+                // Pre-#777 this asserted 6 (every StatementBlock counted).
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
+    }
+
+    // Cross-language parity (#777): the same if/else function body yields
+    // identical lloc across the JS family and the C-family / Rust baselines.
+    // Removing `StatementBlock` from the JS-family lloc arms restored this
+    // invariant — every brace block now contributes 0 lloc, as it always
+    // had elsewhere. Pre-#777 the JS variants reported lloc 6 (three brace
+    // blocks over-counted) against C's and Rust's 3.
+    #[test]
+    fn js_family_if_lloc_matches_c_and_rust() {
+        const JS_SRC: &str = "function f(x) {
+            if (x > 0) {
+                return 1;
+            } else {
+                return -1;
+            }
+        }";
+        const C_SRC: &str = "int f(int x) {
+            if (x > 0) {
+                return 1;
+            } else {
+                return -1;
+            }
+        }";
+        const RUST_SRC: &str = "fn f(x: i32) -> i32 {
+            if x > 0 {
+                return 1;
+            } else {
+                return -1;
+            }
+        }";
+
+        // The logical-statement count is grammar-independent: one `if`
+        // plus two `return`s, regardless of brace style or language.
+        const EXPECTED_LLOC: usize = 3;
+
+        check_metrics::<CppParser>(C_SRC, "f.c", |m| {
+            assert_eq!(m.loc.lloc() as usize, EXPECTED_LLOC);
+        });
+        check_metrics::<RustParser>(RUST_SRC, "f.rs", |m| {
+            assert_eq!(m.loc.lloc() as usize, EXPECTED_LLOC);
+        });
+        check_metrics::<MozjsParser>(JS_SRC, "f.js", |m| {
+            assert_eq!(m.loc.lloc() as usize, EXPECTED_LLOC);
+        });
+        check_metrics::<JavascriptParser>(JS_SRC, "f.js", |m| {
+            assert_eq!(m.loc.lloc() as usize, EXPECTED_LLOC);
+        });
+        check_metrics::<TypescriptParser>(JS_SRC, "f.ts", |m| {
+            assert_eq!(m.loc.lloc() as usize, EXPECTED_LLOC);
+        });
+        check_metrics::<TsxParser>(JS_SRC, "f.tsx", |m| {
+            assert_eq!(m.loc.lloc() as usize, EXPECTED_LLOC);
+        });
     }
 
     #[test]
@@ -7394,7 +7466,7 @@ function f() {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7952,7 +8024,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 0);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -7973,7 +8045,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 4);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8017,7 +8089,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8039,7 +8111,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8061,7 +8133,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8083,7 +8155,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8103,7 +8175,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 5);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8122,7 +8194,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8144,7 +8216,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8168,7 +8240,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 9);
                 assert_eq!(metric.loc.ploc(), 9);
-                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8190,7 +8262,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8211,7 +8283,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8232,7 +8304,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8252,7 +8324,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 1);
+                assert_eq!(metric.loc.lloc(), 0);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 2);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8273,7 +8345,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 3);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 4);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8317,7 +8389,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8339,7 +8411,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8361,7 +8433,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8383,7 +8455,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 5);
+                assert_eq!(metric.loc.lloc(), 4);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8403,7 +8475,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 5);
                 assert_eq!(metric.loc.ploc(), 5);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8422,7 +8494,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8446,7 +8518,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 9);
                 assert_eq!(metric.loc.ploc(), 9);
-                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8468,7 +8540,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 6);
+                assert_eq!(metric.loc.lloc(), 3);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8489,7 +8561,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8511,7 +8583,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
                 assert_eq!(metric.loc.ploc(), 7);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -8532,7 +8604,7 @@ EOF
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -10114,7 +10186,7 @@ class A {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 6);
                 assert_eq!(metric.loc.ploc(), 6);
-                assert_eq!(metric.loc.lloc(), 4);
+                assert_eq!(metric.loc.lloc(), 2);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
@@ -10132,7 +10204,7 @@ class A {
             |metric| {
                 assert_eq!(metric.loc.sloc(), 4);
                 assert_eq!(metric.loc.ploc(), 4);
-                assert_eq!(metric.loc.lloc(), 2);
+                assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
                 assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
