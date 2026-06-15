@@ -231,17 +231,18 @@ impl fmt::Display for SuppressionError {
                 "unknown bca directive verb '{v}'; expected `suppress` or `suppress-file`"
             ),
             Self::UnknownMetric(m) => {
-                // The hint lists the suppressible metrics (every `Metric`
-                // except `tokens`), alphabetised so the order is stable
-                // across releases. `Metric::NAMES` is already alphabetical
-                // and excludes the `exit` alias, so filtering out `tokens`
-                // yields the right list directly.
-                let known = Metric::NAMES
-                    .iter()
-                    .filter(|name| **name != "tokens")
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                // The hint lists the suppressible metrics, derived from
+                // `Metric::suppressible()` (the single source of truth for
+                // the suppressible vocabulary — it already excludes the
+                // non-suppressible `tokens`) rather than re-deriving from
+                // `Metric::NAMES` with a hardcoded filter. `suppressible()`
+                // iterates declaration order; we sort so the hint stays
+                // alphabetised and thus stable across releases.
+                let mut names: Vec<String> = Metric::suppressible()
+                    .map(|metric| metric.to_string())
+                    .collect();
+                names.sort_unstable();
+                let known = names.join(", ");
                 write!(
                     f,
                     "unknown metric '{m}' in bca suppression marker; known metrics: {known}"
@@ -680,6 +681,18 @@ mod tests {
         assert!(
             !rendered.contains("tokens"),
             "hint must omit the non-suppressible `tokens`; got: {rendered}",
+        );
+        // The hint must be derived from `Metric::suppressible()` (the
+        // documented single source of truth), not a re-derived list.
+        // Guards #805: every suppressible metric appears, alphabetised.
+        let mut expected: Vec<String> = Metric::suppressible()
+            .map(|metric| metric.to_string())
+            .collect();
+        expected.sort_unstable();
+        assert!(
+            rendered.ends_with(&format!("known metrics: {}", expected.join(", "))),
+            "hint must list exactly the suppressible metrics from \
+             `Metric::suppressible()`, alphabetised; got: {rendered}",
         );
     }
 
