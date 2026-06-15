@@ -129,7 +129,8 @@ pub struct PreprocResults {
 }
 
 impl PreprocFile {
-    /// Adds new macros to the set of macro of a file.
+    /// Builds a new `PreprocFile` whose macro set contains the given
+    /// macro names (and no includes).
     #[must_use]
     pub fn new_macros(macros: &[&str]) -> Self {
         let mut pf = Self::default();
