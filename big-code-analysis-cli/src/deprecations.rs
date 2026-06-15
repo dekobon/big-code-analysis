@@ -149,17 +149,50 @@ fn top_subcommand(tokens: &[String]) -> Option<&str> {
         .find(|t| !t.starts_with('-'))
 }
 
-/// Whether the positional subcommand `name` appears in subcommand
-/// position. A subcommand alias has no leading dashes, so a value token
-/// equal to the alias would be a false positive; guard by requiring the
-/// token to sit immediately after `vcs`, the only parent that carries an
-/// aliased subcommand today.
+/// Separated value-taking `global = true` flags on `vcs` (`lib.rs`):
+/// each consumes the *following* token as its value, so that value token
+/// must be skipped when scanning for the subcommand position. Without
+/// this, `vcs --long-window 6mo jit` would read `6mo` as the subcommand
+/// and miss the deprecated `jit` (#834). The `--flag=value` form is
+/// self-contained and needs no skip. Boolean globals (`-w`,
+/// `--full-history`, …) take no value and are simply skipped as flags.
+const VCS_VALUE_TAKING_GLOBALS: &[&str] = &[
+    "--long-window",
+    "--recent-window",
+    "--ref",
+    "--bot-pattern",
+    "--as-of",
+    "--risk-formula",
+];
+
+/// Whether the positional subcommand `name` is the one invoked under
+/// `vcs`. A subcommand alias has no leading dashes, so a value token
+/// equal to the alias would be a false positive; the subcommand is the
+/// first non-flag token after `vcs`, found by scanning forward and
+/// skipping flags and the separated values of value-taking globals. This
+/// tolerates any `global = true` flag preceding the subcommand (#834)
+/// while still rejecting `jit` in a non-subcommand position — e.g. a path
+/// argument after the canonical `commit` (#835).
 fn subcommand_used(tokens: &[String], name: &str) -> bool {
-    tokens
-        .iter()
-        .position(|t| t == "vcs")
-        .and_then(|i| tokens.get(i + 1))
-        .is_some_and(|next| next == name)
+    let Some(vcs_index) = tokens.iter().position(|t| t == "vcs") else {
+        return false;
+    };
+
+    let mut rest = tokens[vcs_index + 1..].iter();
+    while let Some(token) = rest.next() {
+        if token.starts_with('-') {
+            // A separated value-taking global consumes the next token as
+            // its value; skip it so the value is not mistaken for the
+            // subcommand. The `--flag=value` form is one token already.
+            if VCS_VALUE_TAKING_GLOBALS.contains(&token.as_str()) {
+                rest.next();
+            }
+            continue;
+        }
+        // First non-flag token is the subcommand position.
+        return token == name;
+    }
+    false
 }
 
 #[cfg(test)]

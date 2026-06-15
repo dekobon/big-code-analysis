@@ -48,6 +48,33 @@ fn subcommand_used_ignores_jit_as_value() {
 }
 
 #[test]
+fn subcommand_used_detects_jit_after_global_flag() {
+    // A boolean `global = true` flag (`-w`) before the subcommand must not
+    // suppress detection of the deprecated `jit` spelling (#834).
+    let tokens = vec![
+        String::from("vcs"),
+        String::from("-w"),
+        String::from("jit"),
+        String::from("HEAD"),
+    ];
+    assert!(subcommand_used(&tokens, "jit"));
+}
+
+#[test]
+fn subcommand_used_detects_jit_after_value_taking_flag() {
+    // A value-taking global (`--long-window 6mo`) before the subcommand
+    // must skip its value (`6mo`) and still find `jit` (#834).
+    let tokens = vec![
+        String::from("vcs"),
+        String::from("--long-window"),
+        String::from("6mo"),
+        String::from("jit"),
+        String::from("HEAD"),
+    ];
+    assert!(subcommand_used(&tokens, "jit"));
+}
+
+#[test]
 fn subcommand_used_quiet_for_canonical_commit() {
     let tokens = vec![
         String::from("vcs"),

@@ -183,6 +183,38 @@ fn jit_and_fail_over_aliases_still_work() {
         .stderr(predicate::str::contains("fail-above threshold"));
 }
 
+/// #834: the `jit` -> `commit` deprecation warning must still fire when a
+/// `global = true` flag (here `-w`) precedes the `jit` subcommand token —
+/// the warning's whole reason to exist (#646) was being dropped whenever
+/// any global flag shifted `jit` off the `vcs + 1` position.
+#[test]
+fn jit_warns_with_global_flag_before_subcommand() {
+    let repo = one_commit_repo("initial import");
+    bca(repo.path())
+        .args(["vcs", "-w", "jit", "HEAD", "-O", "json"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`jit` is deprecated; use `commit`",
+        ));
+}
+
+/// #834: the value-taking either-position window flag
+/// (`--long-window 6mo`) before `jit` must skip its value and still draw
+/// the deprecation warning — the documented `bca vcs --long-window 6mo
+/// jit` ordering.
+#[test]
+fn jit_warns_with_value_taking_flag_before_subcommand() {
+    let repo = one_commit_repo("initial import");
+    bca(repo.path())
+        .args(["vcs", "--long-window", "6mo", "jit", "HEAD", "-O", "json"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`jit` is deprecated; use `commit`",
+        ));
+}
+
 /// #603: the deprecated `jit` alias is hidden from `bca vcs --help` while
 /// the canonical `commit` is listed.
 #[test]

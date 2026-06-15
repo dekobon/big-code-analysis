@@ -23,14 +23,14 @@ path = "big-code-analysis-cli/src/deprecations.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 78666.89607722466
+value = 110647.96133609534
 
 [[entry]]
 path = "big-code-analysis-cli/src/deprecations.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 15.0
+value = 13.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
