@@ -536,10 +536,17 @@ impl Baseline {
     /// NaN current values are classified as `Regressed` rather than
     /// `Covered`: a NaN metric is degenerate (typically a Halstead
     /// edge case on trivial functions) and falling through to the
-    /// `<=` arm would silently mark it covered because `NaN <= x` is
-    /// false. The explicit guard makes the intent obvious at the
-    /// call site, and the renderer keys off `value.is_nan()` to emit
-    /// `[regr NaN]` instead of dividing by `recorded`.
+    /// ratchet arm would silently mark it covered because every
+    /// comparison against NaN is false. The explicit guard makes the
+    /// intent obvious at the call site, and the renderer keys off
+    /// `value.is_nan()` to emit `[regr NaN]` instead of dividing by
+    /// `recorded`.
+    ///
+    /// The ratchet is direction-aware (#827): for higher-is-worse
+    /// metrics a current value at or below the recorded one is
+    /// `Covered`; for the lower-is-worse `mi.*` family a *drop* below
+    /// the recorded value is the regression, so the covered condition
+    /// inverts to `value >= recorded`, mirroring the gate's breach test.
     pub(crate) fn classify(&self, v: &Violation) -> Coverage {
         let path = normalize_path(&self.anchor, &v.path);
         let qualified = if self.legacy_symbol_match {
@@ -555,10 +562,20 @@ impl Baseline {
         let recorded = self
             .match_in_group(&key, v)
             .or_else(|| self.match_by_hash(&key, v));
+        // Covered = the metric has not worsened relative to the baseline.
+        // For lower-is-worse metrics that means a value at or *above* the
+        // recorded one; for every other metric, at or below it.
+        let covered = |value: f64, recorded: f64| {
+            if v.lower_is_worse {
+                value >= recorded
+            } else {
+                value <= recorded
+            }
+        };
         match recorded {
             None => Coverage::New,
             Some(recorded) if v.value.is_nan() => Coverage::Regressed { recorded },
-            Some(recorded) if v.value <= recorded => Coverage::Covered { recorded },
+            Some(recorded) if covered(v.value, recorded) => Coverage::Covered { recorded },
             Some(recorded) => Coverage::Regressed { recorded },
         }
     }

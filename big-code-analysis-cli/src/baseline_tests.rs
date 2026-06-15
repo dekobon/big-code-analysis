@@ -23,6 +23,22 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
     }
 }
 
+/// Like [`v`] but flagged lower-is-worse (the `mi.*` family), so the
+/// direction-aware `classify` ratchet (#827) treats a value *below* the
+/// recorded baseline as the regression rather than as coverage.
+fn v_low(
+    path: &str,
+    function: &str,
+    start_line: usize,
+    metric: &'static str,
+    value: f64,
+) -> Violation {
+    Violation {
+        lower_is_worse: true,
+        ..v(path, function, start_line, metric, value)
+    }
+}
+
 /// Like [`v`] but with an explicit body hash, for the fuzzy-match tests.
 fn v_hashed(
     path: &str,
@@ -362,6 +378,35 @@ fn classify_worsened_is_regressed() {
     assert!(matches!(
         b.classify(&v("a", "f", 1, "cyclomatic", 6.0)),
         Coverage::Regressed { recorded } if recorded == 5.0
+    ));
+}
+
+#[test]
+fn classify_lower_is_worse_drop_is_regressed() {
+    // For an mi.* (lower-is-worse) metric a value *below* the recorded
+    // baseline is a genuine regression. Before #827 `classify` ratcheted
+    // unconditionally on `value <= recorded`, so this returned `Covered`
+    // and the gate silently dropped the regression.
+    let b = baseline_with(vec![entry("a", "f", 1, "mi.original", 60.0)]);
+    assert!(matches!(
+        b.classify(&v_low("a", "f", 1, "mi.original", 45.0)),
+        Coverage::Regressed { recorded } if recorded == 60.0
+    ));
+}
+
+#[test]
+fn classify_lower_is_worse_rise_is_covered() {
+    // For an mi.* metric a value at or *above* the recorded baseline has
+    // not worsened, so it is covered (the improvement direction).
+    let b = baseline_with(vec![entry("a", "f", 1, "mi.original", 60.0)]);
+    assert!(matches!(
+        b.classify(&v_low("a", "f", 1, "mi.original", 75.0)),
+        Coverage::Covered { recorded } if recorded == 60.0
+    ));
+    // Equality is still covered for the lower-is-worse direction too.
+    assert!(matches!(
+        b.classify(&v_low("a", "f", 1, "mi.original", 60.0)),
+        Coverage::Covered { recorded } if recorded == 60.0
     ));
 }
 
