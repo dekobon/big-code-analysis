@@ -45,7 +45,7 @@
 //! force a fresh walk, as the issue specifies. A shallow clone that is
 //! later deepened (`git fetch --unshallow`) leaves `HEAD` unmoved, so the
 //! entry key is unchanged; the shallow-state match in
-//! [`HistoryCache::is_compatible`] is what forces a re-walk to replace the
+//! `HistoryCache::is_compatible` is what forces a re-walk to replace the
 //! truncated counts (issue #810). A corrupt or unreadable entry is
 //! silently ignored, never fatal.
 
