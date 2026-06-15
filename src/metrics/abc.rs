@@ -1126,6 +1126,30 @@ fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
+// Count the bare-predicate condition of a Kotlin `if`/`while`/`do-while`
+// as one condition — Fitzpatrick's "unary conditional expression",
+// mirroring `ruby_count_condition` / `rust_count_condition`.
+// tree-sitter-kotlin-ng exposes the predicate via the `condition` field on
+// `if_expression`, `while_statement`, and `do_while_statement`, so the
+// field lookup is position-independent across all three forms. A bare
+// terminal (`if (flag)`) counts directly; a comparison or boolean chain
+// (`if (a == b)`, `if (a && b)`) is a nested `binary_expression` already
+// counted by the comparison-token and `&&`/`||` walker arms, so it adds
+// nothing here. A parenthesised or negated predicate (`if ((flag))`,
+// `if (!flag)`) is unwrapped by `kotlin_inspect_container`. Without this
+// arm, idiomatic Kotlin bare predicates reported 0 ABC conditions while
+// Kotlin's own cyclomatic counted the decision, breaking the
+// conditions >= decisions invariant (#469/#473/#456/#696); issue #773.
+fn kotlin_count_condition(condition: &Node, conditions: &mut f64) {
+    use Kotlin::*;
+    let kind = condition.kind_id().into();
+    if matches!(kind, kotlin_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
+        kotlin_inspect_container(condition, conditions);
+    }
+}
+
 impl Abc for KotlinCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
@@ -1178,6 +1202,19 @@ impl Abc for KotlinCode {
             LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | Try | CatchBlock | QMARKCOLON
             | AsQMARK => {
                 stats.conditions += 1.;
+            }
+            // Phase-2B condition slot: the bare predicate of an
+            // `if`/`while`/`do-while` is one unary condition. The
+            // `condition` field locates the predicate position-
+            // independently across all three forms. `kotlin_count_condition`
+            // counts a bare terminal directly and routes paren/negation
+            // wrappers through `kotlin_inspect_container`, while a comparison
+            // or `&&`/`||` predicate is a `binary_expression` already counted
+            // by the token arms above — so no double-count (#773).
+            IfExpression | WhileStatement | DoWhileStatement => {
+                if let Some(condition) = node.child_by_field_name("condition") {
+                    kotlin_count_condition(&condition, &mut stats.conditions);
+                }
             }
             // A `when` entry is a decision point except for the `else ->`
             // fallback arm, which is the analogue of C-family `default:`
@@ -7687,6 +7724,92 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_bare_if_predicate_is_one_condition() {
+        // Issue #773: a bare-boolean `if` predicate (`if (flag)`) is one
+        // Fitzpatrick unary condition. Before the Phase-2B arm it counted
+        // 0, so `if (flag) 1 else -1` scored 1 (only the `else`) instead of
+        // 2, dropping below Kotlin's own cyclomatic decision count.
+        // expected: predicate (1) + else (1) = 2.
+        check_metrics::<KotlinParser>(
+            "fun m(flag: Boolean): Int { return if (flag) 1 else -1 }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_bare_while_predicate_is_one_condition() {
+        // Issue #773: the bare predicate of a `while` loop counts one
+        // condition via the `condition` field. expected: 1.
+        check_metrics::<KotlinParser>(
+            "fun m(running: Boolean) { while (running) { println(\"x\") } }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_bare_do_while_predicate_is_one_condition() {
+        // Issue #773: the bare predicate of a `do`/`while` loop counts one
+        // condition. expected: 1.
+        check_metrics::<KotlinParser>(
+            "fun m(ok: Boolean) { do { println(\"x\") } while (ok) }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_comparison_predicate_not_double_counted() {
+        // Double-count guard (#773): a comparison predicate (`if (a == b)`)
+        // is a nested `binary_expression` already counted by the `==` token
+        // arm, so the Phase-2B condition-slot arm must add nothing here.
+        // expected: `==` (1) + else (1) = 2 — unchanged by the new arm.
+        check_metrics::<KotlinParser>(
+            "fun m(a: Int, b: Int): Int { return if (a == b) 1 else -1 }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_short_circuit_predicate_not_double_counted() {
+        // Double-count guard (#773): an `&&`/`||` predicate is counted by
+        // the Rule 9 chain walker (each operand once); the Phase-2B arm
+        // must add nothing for it. expected: `x` (1) + `y` (1) + else (1)
+        // = 3 — unchanged by the new arm.
+        check_metrics::<KotlinParser>(
+            "fun m(x: Boolean, y: Boolean): Int { return if (x && y) 1 else -1 }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_parenthesised_bare_predicate_is_one_condition() {
+        // A parenthesised bare predicate (`if ((flag))`) is unwrapped by
+        // `kotlin_inspect_container` and still counts one condition (#773).
+        // expected: 1.
+        check_metrics::<KotlinParser>(
+            "fun m(flag: Boolean) { if ((flag)) { println(\"x\") } }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
             },
         );
     }
