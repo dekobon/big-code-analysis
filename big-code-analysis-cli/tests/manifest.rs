@@ -415,7 +415,7 @@ fn manifest_soft_threshold_subtable_applies_only_at_soft_tier() {
     );
 
     // Hard tier (default): the soft override is ignored; limit 100 is
-    // clean for `classify` (cyclomatic 5).
+    // clean for `classify` (cyclomatic 4).
     cli()
         .current_dir(dir.path())
         .arg("check")
