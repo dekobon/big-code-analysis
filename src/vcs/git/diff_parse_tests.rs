@@ -288,6 +288,66 @@ fn rename_to_non_ascii_quotes_only_new_side() {
 }
 
 #[test]
+fn rename_only_spaced_path_keeps_full_new_name() {
+    // Regression (#813): a pure rename (similarity 100%, no body) emits no
+    // `+++ b/<new>` line, so the new-side path would otherwise be taken from
+    // the ambiguous `diff --git a/old name.rs b/new name.rs` header. The old
+    // `rsplit(' ')` fallback walked from the right and yielded the first
+    // `b/`-prefixed token `b/new`, TRUNCATING the name to `new`. The
+    // authoritative source is the `rename to new name.rs` line.
+    let diff = "\
+diff --git a/old name.rs b/new name.rs
+similarity index 100%
+rename from old name.rs
+rename to new name.rs
+";
+    let files = parse_unified_diff(diff).expect("parse");
+    assert_eq!(files.len(), 1);
+    // The full `new name.rs`, not the first-space-truncated `new`.
+    let t = touched(&files, "new name.rs");
+    assert_eq!((t.added, t.deleted, t.hunks), (0, 0, 0));
+}
+
+#[test]
+fn rename_only_quoted_special_char_path_is_unquoted() {
+    // A rename-only stanza whose new name has a non-ASCII byte is quoted on
+    // the `rename to` line (`core.quotePath`), so the authoritative path must
+    // be C-unquoted: `na\303\257ve.txt` → `naïve.txt` (ï = UTF-8 0xC3 0xAF).
+    let diff = "\
+diff --git a/old.txt \"b/na\\303\\257ve.txt\"
+similarity index 100%
+rename from old.txt
+rename to \"na\\303\\257ve.txt\"
+";
+    let files = parse_unified_diff(diff).expect("parse");
+    assert_eq!(files.len(), 1);
+    let t = touched(&files, "naïve.txt");
+    assert_eq!((t.added, t.deleted, t.hunks), (0, 0, 0));
+}
+
+#[test]
+fn content_change_rename_spaced_path_unaffected() {
+    // Regression guard: a rename WITH a content change carries a `+++ b/<new>`
+    // line that already self-corrected the path. The new `rename to` handling
+    // must agree, not regress, the spaced-name content-change case.
+    let diff = "\
+diff --git a/old name.rs b/new name.rs
+similarity index 80%
+rename from old name.rs
+rename to new name.rs
+--- a/old name.rs
++++ b/new name.rs
+@@ -1,1 +1,1 @@
+-a
++b
+";
+    let files = parse_unified_diff(diff).expect("parse");
+    assert_eq!(files.len(), 1);
+    let t = touched(&files, "new name.rs");
+    assert_eq!((t.added, t.deleted, t.hunks), (1, 1, 1));
+}
+
+#[test]
 fn deleted_line_starting_with_dash_dash_is_counted() {
     // Regression (#580): a deleted line whose CONTENT begins with `-- `
     // (a SQL/Lua/Haskell/Ada comment) renders, under git's single-char
