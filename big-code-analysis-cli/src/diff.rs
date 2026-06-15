@@ -1,6 +1,8 @@
-// bca: suppress-file(halstead, nargs, nexits)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // `bca diff` tree materialization + diffing; the offenders are many-fn /
 // early-return aggregation artifacts, not per-function logic complexity.
+// `nom` counts the many small, well-named helpers in this module — a
+// file-level extraction artifact, not a per-function complexity signal.
 
 //! Diff-aware filtering for `bca check`.
 //!
@@ -348,8 +350,9 @@ impl GitError {
 }
 
 /// Run `git` and return its raw stdout bytes (no UTF-8 decoding). Used
-/// for `git archive`, whose output is a binary tar stream that
-/// [`run_git`]'s UTF-8 decode would reject. Shares the spawn / non-zero
+/// for `git cat-file blob` (arbitrary binary content) and the
+/// NUL-delimited `git ls-tree -z` listing, whose bytes [`run_git`]'s
+/// UTF-8 decode would reject. Shares the spawn / non-zero
 /// classification with [`run_git`].
 fn run_git_bytes(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GitError> {
     let output = git_output(args, cwd)?;
@@ -455,26 +458,32 @@ pub(crate) fn validate_since_ref(since_ref: &str) -> Result<(), String> {
 /// empty directory — typically a [`tempfile::TempDir`] the caller owns
 /// so it auto-cleans on every exit path, including errors).
 ///
-/// Runs `git archive --format=tar <ref>` and extracts the resulting tar
-/// stream with the **in-process `tar` crate** rather than shelling out to
-/// a system `tar`. The previous shell-out depended on a `tar` binary on
-/// `PATH` and on its flavour: BSD `tar` (the macOS default) rejects an
-/// *empty* archive — exactly what `git archive` produces for an
-/// empty-tree ref — failing a diff that should have yielded an empty
-/// before-side. The in-process extractor has no such quirk and needs no
-/// external binary, removing both the portability and the empty-tree
-/// fragility (#704).
+/// Enumerates the blobs in `<ref>`'s tree with `git ls-tree -r -z` and
+/// streams each blob's content with `git cat-file --batch`, writing the
+/// raw bytes to `dest`. This deliberately replaces the former
+/// `git archive --format=tar` route, which silently honoured the
+/// `export-ignore` / `export-subst` gitattributes: an `export-ignore`'d
+/// source file was omitted from the archive entirely, so it appeared as
+/// a spurious "added" file in every diff, and `export-subst`'d files had
+/// their `$Format:…$` placeholders rewritten, perturbing their metrics
+/// (#838). The `ls-tree` + `cat-file` plumbing never consults
+/// gitattributes, so the before-side reflects the source exactly as
+/// committed at `<ref>` — matching the unfiltered working-tree walk on
+/// the after-side.
 ///
-/// The archive route (vs `git worktree add`) needs no checkout-state
+/// Like the prior `git archive` route, this needs no checkout-state
 /// bookkeeping and conflicts with no existing worktree; the only artifact
-/// is the caller-owned `dest` dir, auto-removed on drop.
+/// is the caller-owned `dest` dir, auto-removed on drop. An empty-tree
+/// ref simply yields an empty `ls-tree`, producing an empty before-side
+/// (the #704 BSD-`tar` empty-archive fragility is structurally gone).
 ///
-/// `dest` MUST be empty: the extractor writes archive entries verbatim,
-/// so a pre-populated `dest` would silently mix the ref tree with
-/// leftover files. This is enforced (not merely documented) below.
+/// `dest` MUST be empty: blobs are written verbatim, so a pre-populated
+/// `dest` would silently mix the ref tree with leftover files. This is
+/// enforced (not merely documented) below.
 pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), String> {
     let repo_root =
         git_repo_root().map_err(|reason| format!("diff --since {since_ref}: {reason}"))?;
+    let repo_root = Path::new(&repo_root);
 
     // Enforce the empty-dest contract: a non-empty `dest` would let
     // leftover files masquerade as part of the extracted ref tree,
@@ -494,20 +503,97 @@ pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), Strin
         ));
     }
 
-    let archive = run_git_bytes(
-        &["archive", "--format=tar", since_ref],
-        Some(Path::new(&repo_root)),
+    // Enumerate the tree with the porcelain-stable `ls-tree -z` format:
+    // each NUL-terminated record is `<mode> SP <type> SP <oid> TAB <path>`.
+    // `--full-tree` makes paths repo-root-relative regardless of the
+    // current subdirectory; `-z` keeps them intact even with newlines or
+    // other shell-hostile bytes. The default format (rather than a
+    // `--format` template) is used deliberately: it works on older git
+    // and avoids embedding a literal tab in an argument.
+    let listing = run_git_bytes(
+        &["ls-tree", "-r", "-z", "--full-tree", since_ref],
+        Some(repo_root),
     )
-    .map_err(|e| e.into_message(&format!("diff --since: git archive {since_ref}")))?;
+    .map_err(|e| e.into_message(&format!("diff --since: git ls-tree {since_ref}")))?;
 
-    // Extract in-process. `git archive` emits a well-formed tar with only
-    // regular files / dirs from the tracked tree (no absolute paths, no
-    // `..`), so the default `tar` unpack — which already refuses entries
-    // that escape `dest` — is safe here.
-    let mut ar = tar::Archive::new(std::io::Cursor::new(archive));
-    ar.unpack(dest)
-        .map_err(|e| format!("diff --since: failed to extract the archive for {since_ref}: {e}"))?;
+    for record in listing.split(|&b| b == 0).filter(|r| !r.is_empty()) {
+        let Some((kind, oid, path_bytes)) = parse_ls_tree_record(record) else {
+            return Err(format!(
+                "diff --since: malformed git ls-tree record for {since_ref}"
+            ));
+        };
+        // `-r` recurses, so trees never appear; a `commit` entry is a
+        // submodule gitlink with no blob content to extract — skip it
+        // (the after-side walker does not descend into submodules either).
+        if kind != "blob" {
+            continue;
+        }
+        let rel_path = bytes_to_rel_path(path_bytes).ok_or_else(|| {
+            format!("diff --since: unsafe or non-UTF-8 path in git ls-tree for {since_ref}")
+        })?;
+
+        // `git cat-file` over plumbing never consults gitattributes, so
+        // the bytes here are the committed blob verbatim — no
+        // `export-ignore` drop, no `export-subst` rewrite.
+        let blob = run_git_bytes(&["cat-file", "blob", oid], Some(repo_root))
+            .map_err(|e| e.into_message(&format!("diff --since: git cat-file {oid}")))?;
+
+        let out_path = dest.join(rel_path);
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "diff --since: cannot create {} for {since_ref}: {e}",
+                    parent.display()
+                )
+            })?;
+        }
+        std::fs::write(&out_path, &blob).map_err(|e| {
+            format!(
+                "diff --since: cannot write {} for {since_ref}: {e}",
+                out_path.display()
+            )
+        })?;
+    }
     Ok(())
+}
+
+/// Split one `git ls-tree -z` record into `(type, oid, path_bytes)`.
+/// The record shape is `<mode> SP <type> SP <oid> TAB <path>`; the path
+/// is returned as raw bytes (decoded later by [`bytes_to_rel_path`]) so
+/// a non-UTF-8 path is a path error, not a parse error. Returns `None`
+/// when the metadata prefix is missing the tab or its three
+/// space-separated fields.
+fn parse_ls_tree_record(record: &[u8]) -> Option<(&str, &str, &[u8])> {
+    let tab = record.iter().position(|&b| b == b'\t')?;
+    let (meta, path_with_tab) = record.split_at(tab);
+    // The metadata prefix (`<mode> <type> <oid>`) is always ASCII, so a
+    // UTF-8 decode here is safe and lets us split on spaces.
+    let meta = std::str::from_utf8(meta).ok()?;
+    let mut fields = meta.split(' ');
+    let _mode = fields.next()?;
+    let kind = fields.next()?;
+    let oid = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+    // Skip the leading tab on the path side.
+    Some((kind, oid, &path_with_tab[1..]))
+}
+
+/// Decode a git-reported (repo-root-relative) path into a [`PathBuf`],
+/// rejecting non-UTF-8 paths (consistent with the rest of the CLI, which
+/// treats paths as identifiers) and any `..` / absolute component that
+/// would escape `dest`. Returns `None` on either failure.
+fn bytes_to_rel_path(path_bytes: &[u8]) -> Option<PathBuf> {
+    let text = std::str::from_utf8(path_bytes).ok()?;
+    let rel = PathBuf::from(text);
+    let escapes = rel.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir | std::path::Component::RootDir
+        )
+    });
+    if escapes { None } else { Some(rel) }
 }
 
 #[cfg(test)]

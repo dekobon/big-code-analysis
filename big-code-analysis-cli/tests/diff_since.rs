@@ -442,6 +442,49 @@ fn valid_metric_spellings_are_accepted() {
     }
 }
 
+/// #838: an `export-ignore`'d source file present unchanged on both
+/// sides must NOT be reported as added. The former before-side
+/// materialization shelled out to `git archive`, which silently honours
+/// the `export-ignore` gitattribute and drops the file from the before
+/// tree — so it paired as a full positive "added" delta on every run,
+/// even though it had not changed. The `ls-tree` + `cat-file` route
+/// never consults gitattributes, so the file is present on both sides
+/// and the diff is empty.
+#[test]
+fn since_keeps_export_ignored_files_on_before_side() {
+    let repo = repo_with_flat_commit();
+    // Mark the committed source file `export-ignore` and commit the
+    // attribute so it lives in the tree at HEAD (where `git archive`
+    // would read it). The working-tree (after) copy is left unchanged.
+    fs::write(
+        repo.path().join(".gitattributes"),
+        "src/work.rs export-ignore\n",
+    )
+    .expect("write .gitattributes");
+    git(repo.path(), &["add", ".gitattributes"]);
+    git(repo.path(), &["commit", "-q", "-m", "mark export-ignore"]);
+
+    let assert = cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "src", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+
+    let added = doc["added_files"].as_array().expect("added_files array");
+    assert!(
+        added.is_empty(),
+        "export-ignore'd file must not appear as added: {added:?}"
+    );
+    // And it must be present on the before side: with the working tree
+    // unchanged, there is no delta at all.
+    assert!(
+        cyclomatic_sum_delta(&doc).is_none(),
+        "unchanged export-ignore'd file should yield no metric delta"
+    );
+}
+
 /// Pull `(old, new)` for the `cyclomatic.sum` field out of the
 /// `--format json` diff document, searching the `cyclomatic` bucket's
 /// changed entries.
