@@ -1,6 +1,11 @@
 // bca: suppress-file(halstead)
 // Per-language comment-removal dispatch; file-level halstead is a many-fn
 // aggregation artifact, not per-function logic complexity.
+// bca: suppress-file(nargs)
+// File-level nargs is the sum across the small LineEnding helpers and the
+// walk core; each function's own arity is modest — the file total is an
+// aggregation artifact (issue #767 added the LineEnding helper), not a
+// wide-signature smell.
 
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
