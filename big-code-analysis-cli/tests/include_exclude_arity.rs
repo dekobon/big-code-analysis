@@ -44,43 +44,64 @@ fn fixture() -> (TempDir, String) {
     (dir, path)
 }
 
-/// A `find` positional (`<NODES>...`) after `-X` must be parsed as the
-/// node kind, not swallowed as a second exclude glob. This is the exact
-/// failure reported in #601 (`bca find -p src -X '*.tmp' function_item`
-/// errored with "required arguments were not provided: <NODES>...").
-#[test]
-fn exclude_does_not_swallow_find_positional() {
-    let (dir, path) = fixture();
-    cli(dir.path())
-        .args([
-            "find",
-            "--paths",
-            &path,
-            "--exclude",
-            "*.tmp",
-            "-t",
-            "function_item",
-        ])
-        .assert()
-        .success();
+/// Returns `true` if `metrics <glob-flag-and-glob...> <abs-file>`, run from
+/// an *empty* cwd, actually walked the trailing absolute file (its `unit:`
+/// line appears in stdout).
+///
+/// The empty cwd is load-bearing: if a greedy `num_args(0..)` arity
+/// swallows the trailing absolute path as a second glob, no seed path
+/// remains and the walk falls back to the (empty) cwd — matching nothing.
+/// Under the fixed `num_args(1)` arity the path is the seed and is walked.
+/// So whether the file's `unit:` line is emitted discriminates the two
+/// arities, which the previous `-t function_item` form (a flag, swallowed
+/// by neither arity) could not. The file lives in its own tempdir outside
+/// the empty cwd so the swallow-fallback walk cannot rediscover it.
+fn walks_trailing_path(glob_args: &[&str], file: &Path) -> bool {
+    let empty_cwd = TempDir::new().unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_bca"))
+        .current_dir(empty_cwd.path())
+        .arg("metrics")
+        .args(glob_args)
+        .arg(file)
+        .output()
+        .expect("run bca");
+    let stdout = String::from_utf8(out.stdout).expect("utf8");
+    stdout
+        .lines()
+        .any(|l| l.contains("unit:") && l.contains("a.rs"))
 }
 
-/// Same contract for `-I/--include`.
+/// A `[PATHS]...` positional after `-X` must be parsed as a path to walk,
+/// not swallowed as a second exclude glob. This is the surviving form of
+/// the #601 regression after #651 moved `find`/`count` node kinds onto the
+/// `-t`/`--type` flag: the walking `[PATHS]` positional is now the only
+/// token that follows `-X`/`-I`, so it is what a greedy `num_args(0..)`
+/// arity would consume. The exclude glob (`*.tmp`) does not match the
+/// positional, so under the fixed arity the file is walked; under the
+/// greedy arity it is swallowed and the (empty-cwd) fallback walk finds
+/// nothing.
 #[test]
-fn include_does_not_swallow_find_positional() {
-    let (dir, path) = fixture();
-    cli(dir.path())
-        .args([
-            "find",
-            "--paths",
-            &path,
-            "--include",
-            "*.rs",
-            "-t",
-            "function_item",
-        ])
-        .assert()
-        .success();
+fn exclude_does_not_swallow_following_positional_path() {
+    let (_dir, file) = fixture();
+    assert!(
+        walks_trailing_path(&["--exclude", "*.tmp"], Path::new(&file)),
+        "the absolute positional after `-X` must be walked as a path, not \
+         swallowed as a second exclude glob"
+    );
+}
+
+/// Same contract for `-I/--include`: the trailing `[PATHS]` positional is a
+/// path, not another include glob. The include glob (`**/*.rs`) matches the
+/// positional so the fixed arity walks it; under the greedy arity the path
+/// is swallowed as a glob and the empty-cwd fallback walk matches nothing.
+#[test]
+fn include_does_not_swallow_following_positional_path() {
+    let (_dir, file) = fixture();
+    assert!(
+        walks_trailing_path(&["--include", "**/*.rs"], Path::new(&file)),
+        "the absolute positional after `-I` must be walked as a path, not \
+         swallowed as a second include glob"
+    );
 }
 
 /// Repeating `-X` accumulates: `-X a -X b` yields the two-element list
