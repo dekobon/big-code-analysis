@@ -15,8 +15,13 @@ macro_rules! mk_enum {
     };
 }
 
+// Unlike its `mk_enum!` / `mk_get_language_name!` siblings, this macro
+// takes no variant list: the grammar-crate binding cannot be derived
+// mechanically from a variant name (`Csharp` -> `tree_sitter_c_sharp`,
+// `Tsx` -> `LANGUAGE_TSX`, the vendored `bca-*` forks), so the `match`
+// is hand-written and exhaustiveness-checked by the compiler. See #867.
 macro_rules! mk_get_language {
-    ( $( $camel:ident ),* ) => {
+    () => {
         pub fn get_language(lang: &Lang) -> Language {
             match lang {
                 Lang::Kotlin => tree_sitter_kotlin_ng::LANGUAGE.into(),
@@ -64,7 +69,7 @@ macro_rules! mk_get_language_name {
 macro_rules! mk_langs {
     ( $( $camel:ident ),* ) => {
         mk_enum!($( $camel ),*);
-        mk_get_language!($( $camel ),*);
+        mk_get_language!();
         mk_get_language_name!($( $camel ),*);
     };
 }
