@@ -239,3 +239,26 @@ fn resolve_alias_follows_an_acyclic_chain_to_its_end() {
         "an acyclic rename chain resolves to its terminal path"
     );
 }
+
+#[test]
+fn replay_extreme_negative_now_saturates_window_boundaries() {
+    // #814: an extreme `now == i64::MIN` makes the window cutoffs
+    // `now - *_window_secs` underflow i64, panicking in a debug build
+    // (overflow checks on). `saturating_sub` floors both boundaries at
+    // i64::MIN — "no lower bound" — so every event falls inside the long
+    // window. This exercises the replay.rs boundary arithmetic directly;
+    // the mirror sites in history.rs and jit.rs use the identical fix.
+    let now = i64::MIN;
+    let options = windowed_options(100_000, 10_000);
+    let seed = HashMap::from([(PathBuf::from("a.rs"), 50)]);
+    // Event time strictly greater than i64::MIN so it is >= the floored
+    // boundary (and clamped to `now` for skew, so it counts as long but
+    // not recent).
+    let events = vec![event("c1", now + 1, &[("a.rs", 7)], &[])];
+
+    let out = replay(seed, &events, &options, now);
+    let stats = out.files.get(Path::new("a.rs")).expect("a.rs present");
+    // Did not panic; the floored long boundary admits the event.
+    assert_eq!(stats.commits_long, 1);
+    assert_eq!(stats.churn_long, 7);
+}

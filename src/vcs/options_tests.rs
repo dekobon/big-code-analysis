@@ -146,6 +146,11 @@ fn secs_to_days_saturates_huge_and_floors_negative() {
     // rather than wrapping, and a negative second-count floors to 0.
     let huge = (i64::from(u32::MAX) + 10) * SECONDS_PER_DAY;
     assert_eq!(secs_to_days(huge), u32::MAX);
+    // i64::MAX exercises the rounding-term overflow: a bare
+    // `secs + SECONDS_PER_DAY / 2` panics in debug / wraps negative in
+    // release (then max(0) → 0). The saturating_add fix keeps it at
+    // i64::MAX → huge positive day count → u32::MAX.
+    assert_eq!(secs_to_days(i64::MAX), u32::MAX);
     assert_eq!(secs_to_days(-10 * SECONDS_PER_DAY), 0);
 }
 

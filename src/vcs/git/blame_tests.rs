@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 
-use super::{LineSpan, MAX_BLAME_ATTEMPTS, retry_transient};
+use super::{LineRun, LineSpan, MAX_BLAME_ATTEMPTS, ObjectId, retry_transient};
 
 /// Drive `retry_transient` with a synthetic closure whose i-th call
 /// returns `outcomes[i]` (and counts calls), treating every `Err` as
@@ -136,4 +136,39 @@ fn overlap_is_inclusive_at_both_boundaries() {
     // One line past each boundary shares nothing.
     assert_eq!(span.overlap(9, 9), 0);
     assert_eq!(span.overlap(21, 21), 0);
+}
+
+#[test]
+fn line_run_from_blame_hunk_converts_zero_based_to_one_based_inclusive() {
+    // Normal values: 0-based start 0, length 3 → 1-based inclusive 1..=3.
+    let run = LineRun::from_blame_hunk(0, 3, ObjectId::null(gix::hash::Kind::Sha1));
+    assert_eq!(run.lo, 1);
+    assert_eq!(run.hi, 3);
+
+    // A mid-file hunk: start 9 (line 10), length 1 → 10..=10.
+    let single = LineRun::from_blame_hunk(9, 1, ObjectId::null(gix::hash::Kind::Sha1));
+    assert_eq!(single.lo, 10);
+    assert_eq!(single.hi, 10);
+}
+
+#[test]
+fn line_run_from_blame_hunk_saturates_at_u32_ceiling() {
+    // #809: bare `start + 1` / `lo + len - 1` overflow at the u32 ceiling,
+    // panicking in a debug build (overflow checks on). The saturating
+    // conversion must clamp instead of panicking.
+    let oid = ObjectId::null(gix::hash::Kind::Sha1);
+
+    // start at u32::MAX: `lo = start + 1` saturates to u32::MAX (would panic
+    // on the bare `+ 1`). `hi = lo + len - 1` saturates the add to u32::MAX,
+    // then the `- 1` yields u32::MAX - 1 — a degenerate inverted run at the
+    // impossible ceiling, but defined and panic-free rather than wrapping.
+    let run = LineRun::from_blame_hunk(u32::MAX, 5, oid);
+    assert_eq!(run.lo, u32::MAX);
+    assert_eq!(run.hi, u32::MAX - 1);
+
+    // A huge length from a near-ceiling start saturates the `lo + len` add
+    // (would wrap on bare `+`); the `- 1` then leaves hi at u32::MAX - 1.
+    let wide = LineRun::from_blame_hunk(u32::MAX - 1, u32::MAX, oid);
+    assert_eq!(wide.lo, u32::MAX);
+    assert_eq!(wide.hi, u32::MAX - 1);
 }
