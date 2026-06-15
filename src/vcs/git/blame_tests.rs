@@ -83,8 +83,10 @@ fn retry_stops_on_non_retryable_error() {
 #[test]
 fn retry_with_single_attempt_calls_once() {
     // attempts == 1 means no retry budget at all, even for a retryable
-    // error; attempts == 0 must likewise call once, never zero (the
-    // saturating_sub guard against an unbounded loop).
+    // error; attempts == 0 must likewise call once, never zero. The guard
+    // is the empty `1..attempts` range in `retry_transient`: for attempts
+    // 0 or 1 the loop body never runs, so the closure fires exactly once
+    // with no counter to underflow.
     let (result, calls) = run_retry(1, &[Err("miss")]);
     assert_eq!(result, Err("miss"));
     assert_eq!(calls, 1);
