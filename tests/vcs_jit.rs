@@ -132,6 +132,42 @@ fn diffusion_counts_distinct_subsystems_and_directories() {
     assert!(report.contributions.diffusion > 0.0);
 }
 
+/// Issue #953: `diffusion.subsystems` (first path component) and
+/// `diffusion.directories` (full parent path) only diverge when a file is
+/// nested more than one level deep. The depth-1 test above always has
+/// `subsystems == directories`, so a bug computing `directories` from
+/// `top_level` (collapsing nested dirs into the subsystem count) would
+/// pass it. Touch two files under one subsystem but in two distinct
+/// subdirectories so the two fields take *different* values, and assert
+/// each independently.
+#[test]
+fn diffusion_nested_dirs_separate_subsystems_from_directories() {
+    let repo = Repo::init();
+    // `src/parser` and `src/output` share the `src` subsystem but are two
+    // directories; `docs/api` is a third directory under a second
+    // subsystem `docs`.
+    repo.write("src/parser/a.rs", "alpha\nbeta\n");
+    repo.write("src/output/b.rs", "gamma\ndelta\n");
+    repo.write("docs/api/c.md", "# title\nbody\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 7 * DAY, "nested");
+
+    let report = score(&repo, "HEAD");
+
+    assert_eq!(report.features.size.files_touched, 3);
+    // Two top-level subsystems: `src` (twice) and `docs`.
+    assert_eq!(
+        report.features.diffusion.subsystems, 2,
+        "top-level components: src, docs"
+    );
+    // Three distinct parent directories: src/parser, src/output, docs/api.
+    // This is strictly greater than `subsystems`, so a field conflation
+    // (computing directories from top_level) would yield 2 and fail.
+    assert_eq!(
+        report.features.diffusion.directories, 3,
+        "parent paths: src/parser, src/output, docs/api"
+    );
+}
+
 #[test]
 fn file_priors_accumulate_from_history_before_the_commit() {
     let repo = Repo::init();
