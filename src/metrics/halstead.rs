@@ -2507,6 +2507,114 @@ end",
         );
     }
 
+    /// Guard for #768. Several `get_op_type` impls (Cpp/C/Objc/Mozcpp/
+    /// Tcl/iRules/Php/Elixir/Ruby) classify a grammar's *second-alias*
+    /// opener — `LPAREN2`, and for Elixir/Ruby `LBRACK2`/`LBRACK3` — as a
+    /// Halstead operator alongside the base `LPAREN`/`LBRACK`. #768 worried
+    /// that an alias opener would reach `compute_halstead` with a kind_id
+    /// distinct from the base, inflating n1 (a second `()` entry) and
+    /// rendering a bare `"("` instead of the folded `"()"`.
+    ///
+    /// That cannot happen: tree-sitter's runtime collapses each alias to
+    /// its base via the grammar's `public_symbol_map` *before*
+    /// `Node::kind_id()` (`ts_node_symbol`) ever returns. So the alias
+    /// kind_id is unobservable to the metric layer and the alias match arms
+    /// are defensive — they only fire if a future grammar bump drops that
+    /// collapse. This test pins the invariant: parsing the exact
+    /// constructs each grammar produces the alias for internally
+    /// (pp-conditional `defined(...)` for Cpp; call arg-list / subscript /
+    /// constant-array-pattern for Ruby) must yield **no** node carrying the
+    /// alias kind_id, and the balanced opener must count once and render as
+    /// the pair glyph. If a grammar bump makes an alias id observable, this
+    /// goes red and signals that the alias arms must additionally fold to
+    /// the base in `get_operator_id_as_str` (the fix #768 proposed).
+    #[test]
+    fn second_alias_opener_collapses_to_base_kind_id() {
+        fn assert_no_alias<T: crate::ParserTrait>(
+            source: &str,
+            file: &str,
+            alias_id: u16,
+            alias_name: &str,
+        ) {
+            let path = PathBuf::from(file);
+            let parser = T::new(source.as_bytes().to_vec(), &path, None);
+            let mut stack = vec![parser.root()];
+            while let Some(node) = stack.pop() {
+                assert_ne!(
+                    node.kind_id(),
+                    alias_id,
+                    "{alias_name} (kind_id {alias_id}) must never reach kind_id() \
+                     for `{source}`; the runtime public_symbol_map should have \
+                     collapsed it to the base opener. If this fires after a \
+                     grammar bump, fold {alias_name} to its pair glyph in \
+                     get_operator_id_as_str (issue #768)."
+                );
+                for child in node.children() {
+                    stack.push(child);
+                }
+            }
+        }
+
+        // Balanced openers must count once and render folded (no bare
+        // `(`/`[`, no n1 inflation) — the property #768 feared was broken.
+        fn assert_folded_openers<T: crate::ParserTrait>(source: &str, file: &str) {
+            let path = PathBuf::from(file);
+            let parser = T::new(source.as_bytes().to_vec(), &path, None);
+            let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
+            assert!(
+                !ops.operators.iter().any(|o| o.as_str() == "("),
+                "no bare `(` operator (must fold to `()`); operators were {:?}",
+                ops.operators
+            );
+            assert!(
+                !ops.operators.iter().any(|o| o.as_str() == "["),
+                "no bare `[` operator (must fold to `[]`); operators were {:?}",
+                ops.operators
+            );
+            // Each pair glyph appears at most once — the alias does not add
+            // a second `()`/`[]` entry to n1.
+            assert!(
+                ops.operators.iter().filter(|o| o.as_str() == "()").count() <= 1,
+                "`()` must be a single n1 entry; operators were {:?}",
+                ops.operators
+            );
+            assert!(
+                ops.operators.iter().filter(|o| o.as_str() == "[]").count() <= 1,
+                "`[]` must be a single n1 entry; operators were {:?}",
+                ops.operators
+            );
+        }
+
+        // Cpp/C/Mozcpp: LPAREN2 = 20. The grammar emits it internally only
+        // inside preprocessor-conditional expressions (`#if defined(FOO)`).
+        assert_no_alias::<crate::CppParser>(
+            "#if defined(FOO)\n#endif\n",
+            "a.cpp",
+            20,
+            "Cpp::LPAREN2",
+        );
+        assert_no_alias::<crate::CParser>("#if defined(FOO)\n#endif\n", "a.c", 20, "C::LPAREN2");
+
+        // Ruby: LPAREN2 = 47 (call arg-list), LBRACK3 = 155 (element-
+        // reference subscript), LBRACK2 = 46 (constant array pattern).
+        assert_no_alias::<crate::RubyParser>("f(1)\n", "a.rb", 47, "Ruby::LPAREN2");
+        assert_no_alias::<crate::RubyParser>("a[0]\n", "a.rb", 155, "Ruby::LBRACK3");
+        assert_no_alias::<crate::RubyParser>(
+            "case p\nin Point[1, 2] then 1\nend\n",
+            "a.rb",
+            46,
+            "Ruby::LBRACK2",
+        );
+
+        // Elixir: LPAREN2 = 95 (immediate call paren), LBRACK2 = 96
+        // (access / subscript).
+        assert_no_alias::<crate::ElixirParser>("f(1)\n", "a.ex", 95, "Elixir::LPAREN2");
+        assert_no_alias::<crate::ElixirParser>("x[0]\n", "a.ex", 96, "Elixir::LBRACK2");
+
+        assert_folded_openers::<crate::CppParser>("int main(){ int a[3]; return a[0]; }", "b.cpp");
+        assert_folded_openers::<crate::RubyParser>("f(1)\nb = [1]\nb[0]\n", "b.rb");
+    }
+
     #[test]
     fn kotlin_halstead_basic() {
         check_metrics::<KotlinParser>(
