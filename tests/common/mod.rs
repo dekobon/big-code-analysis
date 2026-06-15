@@ -146,7 +146,22 @@ pub fn compare_rca_output_with_files_under(
     // then hand the runner the resolved list.
     let include = gsbi.build().unwrap();
     let exclude = gsbe.build().unwrap();
-    let paths = resolve_corpus_files(&source_root.join(repo_name), &include, &exclude);
+    let corpus_root = source_root.join(repo_name);
+    let paths = resolve_corpus_files(&corpus_root, &include, &exclude);
+
+    // A corpus that resolves to zero files makes the runner return
+    // `Ok(())` without ever invoking `act_on_file`, so every snapshot
+    // assertion is silently skipped and the test passes having verified
+    // nothing (#938). The corpus lives in git submodules; an
+    // uninitialized submodule leaves the directory empty. Fail loudly
+    // with the likely cause rather than reporting false success.
+    assert!(
+        !paths.is_empty(),
+        "no files matched under {}; the integration corpus is empty or \
+         missing. Initialize the submodules with `git submodule update \
+         --init --recursive` before running corpus comparison tests.",
+        corpus_root.display(),
+    );
 
     let files_data = FilesData { paths };
 
