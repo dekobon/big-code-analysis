@@ -214,8 +214,10 @@ vcs.rank("path/to/repo", cache_dir="/tmp/bca")     # override the directory
 ```
 
 By default the cache lives under the platform cache directory. Author
-identities are stored only as their irreversible SHA-256 digests, never
-plaintext.
+identities are stored only as their SHA-256 digests, never plaintext.
+Note that hashing is pseudonymization, not anonymization: the digests are
+recoverable against a candidate email set — see
+[Author-detail privacy](../commands/vcs.md#author-detail-privacy).
 
 ## Releasing the GIL
 

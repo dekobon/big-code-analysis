@@ -236,9 +236,11 @@ they reuse the same cached walk.)
 By default the cache lives under
 `$XDG_CACHE_HOME/big-code-analysis/vcs` (`%LOCALAPPDATA%` on Windows,
 `~/.cache` otherwise). Author identities are stored only as their
-irreversible SHA-256 digests — never plaintext — so the cache is not a
-side channel for raw author emails. The same cache transparently
-accelerates `bca metrics --vcs` and `bca report --vcs`.
+SHA-256 digests — never plaintext — so the cache holds no raw author
+emails. Note this is pseudonymization, not anonymization: the digests
+are recoverable against a candidate email set (see
+[`--emit-author-details`](#author-detail-privacy)). The same cache
+transparently accelerates `bca metrics --vcs` and `bca report --vcs`.
 
 ```bash
 # First run primes the cache; the second replays it.
@@ -585,6 +587,22 @@ SHA-256-hashed identities of the removed key developers, in removal order
 only for the dedicated `bca vcs` / `bca report --vcs` reports and the REST
 / Python endpoints; the per-file `bca metrics --vcs` injection path does
 not pay for it.
+
+### Author-detail privacy
+
+The `key_author_ids` digests are a **stable pseudonym, not
+anonymization**. Hashing keeps plaintext emails out of the report and the
+cache and deters casual disclosure, but the hash is *not* cryptographically
+irreversible. The pre-image is an email — low-entropy and enumerable — and
+commit histories are public, so anyone with a candidate set of emails can
+recover which digest belongs to whom by hashing each candidate or with a
+precomputed email→hash table. This is the same weakness that broke
+Gravatar's email hashing.
+
+Treat published `key_author_ids` as pseudonymization that avoids emitting
+plaintext emails, **not** as a guarantee that authors cannot be
+re-identified by a determined attacker. If you need that guarantee, do not
+publish the digests.
 
 ## Dogfooding in this repo
 
