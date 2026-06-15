@@ -215,6 +215,21 @@ fn jit_warns_with_value_taking_flag_before_subcommand() {
         ));
 }
 
+/// #832: `--fail-over` (the deprecated spelling of `--fail-above`) must
+/// emit the one-cycle deprecation warning, not merely be honored. Pinned
+/// here because the flag lives on `vcs commit`, which needs a real repo.
+#[test]
+fn fail_over_alias_warns() {
+    let repo = one_commit_repo("initial import");
+    bca(repo.path())
+        .args(["vcs", "commit", "HEAD", "-O", "json", "--fail-over", "9999"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--fail-over` is deprecated; use `--fail-above`",
+        ));
+}
+
 /// #603: the deprecated `jit` alias is hidden from `bca vcs --help` while
 /// the canonical `commit` is listed.
 #[test]

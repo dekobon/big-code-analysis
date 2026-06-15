@@ -139,6 +139,77 @@ fn format_canonical_on_metrics_is_silent() {
         .stderr(predicate::str::contains("is deprecated").not());
 }
 
+/// #832: `--ls` / `--le` are the deprecated spellings of `--line-start` /
+/// `--line-end` on the `dump` (and `find`) range bounds. Each must draw
+/// its own deprecation warning.
+#[test]
+fn ls_alias_warns() {
+    let dir = TempDir::new().expect("tempdir");
+    let fixture = write_rust_fixture(&dir);
+    cli(&dir)
+        .args(["dump", "--paths", &fixture, "--ls", "1"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--ls` is deprecated; use `--line-start`",
+        ));
+}
+
+#[test]
+fn le_alias_warns() {
+    let dir = TempDir::new().expect("tempdir");
+    let fixture = write_rust_fixture(&dir);
+    cli(&dir)
+        .args(["dump", "--paths", &fixture, "--le", "1"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--le` is deprecated; use `--line-end`",
+        ));
+}
+
+/// #832: `--only-markers` / `--only-excludes` / `--only-baseline` are the
+/// deprecated spellings of the `--*-only` exemptions filters. They are
+/// mutually exclusive, so each is exercised in its own invocation.
+#[test]
+fn only_markers_alias_warns() {
+    let dir = TempDir::new().expect("tempdir");
+    let fixture = write_rust_fixture(&dir);
+    cli(&dir)
+        .args(["exemptions", "--paths", &fixture, "--only-markers"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--only-markers` is deprecated; use `--markers-only`",
+        ));
+}
+
+#[test]
+fn only_excludes_alias_warns() {
+    let dir = TempDir::new().expect("tempdir");
+    let fixture = write_rust_fixture(&dir);
+    cli(&dir)
+        .args(["exemptions", "--paths", &fixture, "--only-excludes"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--only-excludes` is deprecated; use `--excludes-only`",
+        ));
+}
+
+#[test]
+fn only_baseline_alias_warns() {
+    let dir = TempDir::new().expect("tempdir");
+    let fixture = write_rust_fixture(&dir);
+    cli(&dir)
+        .args(["exemptions", "--paths", &fixture, "--only-baseline"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "`--only-baseline` is deprecated; use `--baseline-only`",
+        ));
+}
+
 /// #836: paths named `vcs` and `jit` after a `--` end-of-options marker
 /// are positional values, never a subcommand pair. The subcommand scan
 /// must stop at `--` (like the flag scan), so no spurious `jit` is
