@@ -115,6 +115,13 @@ fn step_normal<S: ::std::hash::BuildHasher>(
     macros: &HashSet<String, S>,
     state: &mut LexState,
 ) -> usize {
+    // bca: suppress(cyclomatic)
+    // Hand-rolled byte-level lexer dispatch: a flat sequence of guards over
+    // the current byte (numeric run, line/block comment open, string/char
+    // open, identifier accumulation). Each branch is a distinct lexical
+    // transition; splitting them would scatter one state machine across
+    // helpers and obscure the scan order the digit-separator fix (#765)
+    // depends on. Clearest left whole.
     let c = code[i];
 
     // Advance the numeric-literal sub-state first. A `'` that is a
