@@ -111,14 +111,18 @@ fn dev_count_thresholds_bump_the_score() {
 
 #[test]
 fn recent_churn_outweighs_long_churn() {
-    // Same churn magnitude, but recent churn is weighted 0.30 and long
-    // churn only 0.05, so concentrating it in the recent window must
-    // score strictly higher. Pins the weight *ordering* (not merely
-    // "churn matters"), so a formula that swapped the two coefficients
-    // fails.
+    // Route the *same* churn magnitude exclusively through the recent vs
+    // the long window (mirroring `change_entropy_outweighs_cochange_entropy`),
+    // so the comparison turns purely on the relative coefficients: recent is
+    // weighted 0.30, long only 0.05. Holding `churn_long` constant across
+    // both inputs (the prior construction) cancelled the long term and made
+    // the test pass for any positive recent coefficient — it did not pin the
+    // ordering. With exclusive routing, the difference is
+    // (0.30 − 0.05)·ln1p(1000)·multiplier > 0 as written, but a formula that
+    // swapped the two coefficients flips it to (0.05 − 0.30)·… < 0 and fails.
     let recent_heavy = weighted(&ScoreInput {
         churn_recent: 1_000,
-        churn_long: 1_000,
+        churn_long: 0,
         ..baseline()
     });
     let long_heavy = weighted(&ScoreInput {
