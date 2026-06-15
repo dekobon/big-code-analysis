@@ -32,6 +32,21 @@ fn empty_email_falls_back_to_name() {
 }
 
 #[test]
+fn has_identity_is_false_only_for_empty_key() {
+    // Issue #817: an author with neither name nor email trims to the empty
+    // key and must be reported as keyless so callers can drop it instead
+    // of collapsing every such author into one phantom identity.
+    assert!(!AuthorId::new(b"", b"").has_identity());
+    assert!(!AuthorId::new(b"   ", b"  ").has_identity());
+    // A name-only author (imported histories) still carries a key.
+    assert!(AuthorId::new(b"Ada Lovelace", b"").has_identity());
+    // An email-only author carries a key.
+    assert!(AuthorId::new(b"", b"ada@example.com").has_identity());
+    // A digest identity is never keyless.
+    assert!(AuthorId::from_digest("deadbeef".to_string()).has_identity());
+}
+
+#[test]
 fn hashed_is_stable_and_irreversible_looking() {
     let id = AuthorId::new(b"Ada", b"ada@example.com");
     let h1 = id.hashed();

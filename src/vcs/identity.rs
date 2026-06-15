@@ -69,6 +69,20 @@ impl AuthorId {
         }
     }
 
+    /// Whether this identity carries a usable key.
+    ///
+    /// An author with neither a name nor an email trims to the empty key,
+    /// which would otherwise collapse every keyless author into one
+    /// phantom identity (the same `Eq`/`Hash`). Callers building a
+    /// participant set drop keyless identities so they never anchor
+    /// ownership or inflate edit counts (issue #817). A
+    /// [`from_digest`](AuthorId::from_digest) identity is never keyless
+    /// (a SHA-256 hex is non-empty).
+    #[must_use]
+    pub fn has_identity(&self) -> bool {
+        !self.key.is_empty()
+    }
+
     /// Reconstruct an identity from a previously-emitted SHA-256 [`hashed`]
     /// digest. The persistent VCS cache stores authors in this irreversible
     /// form (never plaintext), and replaying it must reproduce the same

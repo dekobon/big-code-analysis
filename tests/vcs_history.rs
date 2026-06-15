@@ -218,6 +218,38 @@ fn coauthored_by_trailer_counts_extra_author() {
 }
 
 #[test]
+fn coauthor_quoted_in_body_is_not_counted() {
+    // Issue #812: a `Co-authored-by:` line quoted inside an indented body
+    // block (here, a reverted commit pasted into the message), with a real
+    // `Signed-off-by:` trailer at the end, must NOT add the quoted author.
+    // Only the author counts; the final trailer block holds no co-author.
+    let repo = Repo::init();
+    repo.write("f.rs", "1\n");
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 10 * DAY,
+        "Revert a bad merge\n\
+         \n\
+         This reverts the merge. The original commit read:\n\
+         \n\
+         \u{20}\u{20}\u{20}\u{20}Add pairing helper\n\
+         \n\
+         \u{20}\u{20}\u{20}\u{20}Co-authored-by: Eve Quoted <eve@example.com>\n\
+         \n\
+         Signed-off-by: Ada Lovelace <ada@example.com>\n",
+    );
+
+    let index = build_history_index(repo.path(), &opts()).expect("walk");
+    let stats = stats_for(&index, "f.rs");
+    assert_eq!(stats.commits_long, 1);
+    assert_eq!(
+        stats.authors_long, 1,
+        "a body-quoted co-author must not be attributed"
+    );
+}
+
+#[test]
 fn untracked_file_has_no_stats() {
     let repo = Repo::init();
     repo.write("tracked.rs", "1\n");
