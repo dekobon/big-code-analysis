@@ -38,12 +38,16 @@
 //! # Invalidation
 //!
 //! A cached entry is honoured only when its [`CACHE_SCHEMA_VERSION`],
-//! [`VCS_SCHEMA_VERSION`], [`RISK_SCORE_VERSION`], and the
-//! `fingerprint` of the walk-affecting options all match the current
-//! run; otherwise it is ignored and the history recomputed. Window
-//! changes alter the fingerprint, so they force a fresh walk, as the
-//! issue specifies. A corrupt or unreadable entry is silently ignored,
-//! never fatal.
+//! [`VCS_SCHEMA_VERSION`], [`RISK_SCORE_VERSION`], the `fingerprint` of
+//! the walk-affecting options, and the shallow state under which it was
+//! walked all match the current run; otherwise it is ignored and the
+//! history recomputed. Window changes alter the fingerprint, so they
+//! force a fresh walk, as the issue specifies. A shallow clone that is
+//! later deepened (`git fetch --unshallow`) leaves `HEAD` unmoved, so the
+//! entry key is unchanged; the shallow-state match in
+//! [`HistoryCache::is_compatible`] is what forces a re-walk to replace the
+//! truncated counts (issue #810). A corrupt or unreadable entry is
+//! silently ignored, never fatal.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -189,14 +193,24 @@ pub(crate) struct HistoryCache {
 
 impl HistoryCache {
     /// Whether this entry may be reused by a run with the given option
-    /// fingerprint: the format, schema, score, and option versions must
-    /// all match the current build.
+    /// fingerprint and current shallow state: the format, schema, score,
+    /// and option versions must all match the current build, and the
+    /// shallow state under which the entry was walked must match the
+    /// repository's current shallow state.
+    ///
+    /// The shallow guard prevents replaying a truncated event log after a
+    /// shallow clone is deepened (`git fetch --unshallow` leaves `HEAD`
+    /// unmoved, so the head SHA — and thus the entry key — is unchanged),
+    /// and prevents reporting a complete walk's counts under a now-shallow
+    /// clone as un-truncated (issue #810). A shallow-state mismatch forces
+    /// a fresh walk that produces the correct counts and truncation flag.
     #[must_use]
-    pub(crate) fn is_compatible(&self, options_fingerprint: u64) -> bool {
+    pub(crate) fn is_compatible(&self, options_fingerprint: u64, current_shallow: bool) -> bool {
         self.cache_schema_version == CACHE_SCHEMA_VERSION
             && self.vcs_schema_version == VCS_SCHEMA_VERSION
             && self.risk_score_version == RISK_SCORE_VERSION
             && self.options_fingerprint == options_fingerprint
+            && self.truncated_shallow_clone == current_shallow
     }
 }
 
@@ -286,14 +300,15 @@ pub(crate) fn load(path: &Path) -> Option<HistoryCache> {
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Load every entry in `repo_dir` whose versions and option fingerprint
-/// match the current run, paired with its file path. Used to find a prior
-/// entry whose `HEAD` is an ancestor of the current one for an incremental
-/// walk. A non-existent directory yields an empty list.
+/// Load every entry in `repo_dir` whose versions, option fingerprint, and
+/// shallow state match the current run, paired with its file path. Used to
+/// find a prior entry whose `HEAD` is an ancestor of the current one for an
+/// incremental walk. A non-existent directory yields an empty list.
 #[must_use]
 pub(crate) fn load_compatible(
     repo_dir: &Path,
     options_fingerprint: u64,
+    current_shallow: bool,
 ) -> Vec<(PathBuf, HistoryCache)> {
     let Ok(entries) = std::fs::read_dir(repo_dir) else {
         return Vec::new();
@@ -303,7 +318,7 @@ pub(crate) fn load_compatible(
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json")
             && let Some(cache) = load(&path)
-            && cache.is_compatible(options_fingerprint)
+            && cache.is_compatible(options_fingerprint, current_shallow)
         {
             out.push((path, cache));
         }

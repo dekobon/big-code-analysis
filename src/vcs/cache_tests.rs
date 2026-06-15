@@ -111,21 +111,65 @@ fn fingerprint_changes_with_walk_affecting_knobs() {
 
 #[test]
 fn is_compatible_requires_matching_versions_and_fingerprint() {
+    // `sample_cache` is a non-shallow entry, so the current shallow state
+    // must be `false` for it to be reusable.
     let cache = sample_cache(7);
-    assert!(cache.is_compatible(7));
-    assert!(!cache.is_compatible(8), "fingerprint mismatch invalidates");
+    assert!(cache.is_compatible(7, false));
+    assert!(
+        !cache.is_compatible(8, false),
+        "fingerprint mismatch invalidates"
+    );
 
     let stale_format = HistoryCache {
         cache_schema_version: CACHE_SCHEMA_VERSION + 1,
         ..sample_cache(7)
     };
-    assert!(!stale_format.is_compatible(7), "format bump invalidates");
+    assert!(
+        !stale_format.is_compatible(7, false),
+        "format bump invalidates"
+    );
 
     let stale_score = HistoryCache {
         risk_score_version: RISK_SCORE_VERSION + 1,
         ..sample_cache(7)
     };
-    assert!(!stale_score.is_compatible(7), "score bump invalidates");
+    assert!(
+        !stale_score.is_compatible(7, false),
+        "score bump invalidates"
+    );
+}
+
+#[test]
+fn is_compatible_requires_matching_shallow_state() {
+    // A cache entry written from a shallow clone (truncated_shallow_clone =
+    // true) must NOT be reused once the repo is deepened (current shallow =
+    // false): the truncated event counts would otherwise be replayed while
+    // the index reports `shallow = false`. The reverse — a full-walk entry
+    // reused under a now-shallow clone — would report a false truncation
+    // flag over complete counts. A plain equality guard handles both
+    // directions (issue #810).
+    let shallow_entry = HistoryCache {
+        truncated_shallow_clone: true,
+        ..sample_cache(7)
+    };
+    assert!(
+        shallow_entry.is_compatible(7, true),
+        "shallow entry reusable while the repo is still shallow"
+    );
+    assert!(
+        !shallow_entry.is_compatible(7, false),
+        "shallow-walked entry must not be reused after unshallow"
+    );
+
+    let full_entry = sample_cache(7);
+    assert!(
+        full_entry.is_compatible(7, false),
+        "full entry reusable while the repo is full"
+    );
+    assert!(
+        !full_entry.is_compatible(7, true),
+        "full-walk entry must not be reused under a now-shallow clone"
+    );
 }
 
 #[test]
@@ -154,11 +198,15 @@ fn write_load_roundtrip_then_clear() {
     assert_eq!(loaded.head_sha, cache.head_sha);
     assert_eq!(loaded.events.len(), 1);
 
-    // A compatible entry is discoverable for an incremental splice.
-    let found = load_compatible(&repo, 99);
+    // A compatible entry is discoverable for an incremental splice (the
+    // sample entry is non-shallow, so the current run must be non-shallow).
+    let found = load_compatible(&repo, 99, false);
     assert_eq!(found.len(), 1);
     // An incompatible fingerprint yields no candidates.
-    assert!(load_compatible(&repo, 100).is_empty());
+    assert!(load_compatible(&repo, 100, false).is_empty());
+    // A shallow-state mismatch also yields no candidates: the non-shallow
+    // entry is not an incremental-splice base for a now-shallow walk (#810).
+    assert!(load_compatible(&repo, 99, true).is_empty());
 
     // Clearing removes the directory; a second clear on the now-missing
     // directory is a no-op, not an error.
