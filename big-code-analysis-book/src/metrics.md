@@ -618,7 +618,7 @@ The three values nest under the `mi` object as the keys `original`,
 
 ```text
 mi.original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(SLOC)
-mi.sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(SLOC) + 50·sin(√(2.4·comment_ratio))
+mi.sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(SLOC) + 50·sin(√(2.4·comment_percentage))
 mi.visual_studio = max(0, mi.original · 100 / 171)
 ```
 
@@ -627,6 +627,10 @@ mi.visual_studio = max(0, mi.original · 100 / 171)
 - `mi.sei` is the Software Engineering Institute's refinement, which
   adds a comment-density term — the `sin(√(...))` shape was chosen so
   that *some* comments help, but adding more after a point does not.
+  `comment_percentage` is the comment-line share expressed as a
+  percentage in `[0, 100]` (not a ratio in `[0, 1]`); the code feeds
+  this percentage straight into the SEI term (see `src/metrics/mi.rs`
+  and issue #241).
 - `mi.visual_studio` is the linear rescaling Microsoft chose for
   Visual Studio, where the score is clamped to `[0, 100]` and shown
   to developers traffic-light style: green ≥ 20, yellow ≥ 10, red

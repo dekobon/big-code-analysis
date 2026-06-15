@@ -163,8 +163,15 @@ fn consumer_continues_past_processing_errors_then_terminates() {
     // A `func` that returns `Err` must not abort the consumer loop: the
     // error is reported via `per_file_error_message` (BrokenPipe swallowed,
     // every other error `eprintln!`-ed) and the loop proceeds to the next
-    // job, terminating only on the poison-pill. Driving both error kinds
-    // exercises both sides of the call-site `&& let Some(message)` guard.
+    // job, terminating only on the poison-pill. This test only verifies the
+    // loop-continuation invariant — a returned `Err` of *either* kind keeps
+    // the consumer running (`invocations == 2`); both error kinds produce
+    // identical observable behavior here, so this assertion cannot
+    // distinguish the swallow-vs-emit branches of the call-site
+    // `&& let Some(message)` guard. That distinction is covered by the
+    // separate `per_file_error_swallows_broken_pipe` and
+    // `per_file_error_display_formats_other_errors` unit tests below.
+    // Driving both error kinds remains as defense-in-depth.
     let (sender, receiver): (JobSender<()>, JobReceiver<()>) = unbounded();
 
     let invocations = Arc::new(AtomicUsize::new(0));
