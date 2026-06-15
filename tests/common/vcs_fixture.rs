@@ -30,6 +30,18 @@ impl Repo {
         run_git(dir.path(), &["init", "-q", "-b", "main"], &[]);
         // Keep commits hermetic regardless of the host's global config.
         run_git(dir.path(), &["config", "commit.gpgsign", "false"], &[]);
+        // Disable hooks for *every* commit-producing command, not just
+        // the ones that remember `--no-verify`. `git_at` forwards a
+        // verbatim arg array (`merge --no-ff`, `commit --amend`), so it
+        // cannot inject `--no-verify` per call the way `commit_inner`
+        // does; pointing `core.hooksPath` at an empty dir inside the
+        // temp repo neutralises any hook a contributor's global
+        // `core.hooksPath` would otherwise fire (#941). The per-call
+        // `--no-verify` flags then become belt-and-suspenders.
+        let no_hooks = dir.path().join(".bca-empty-hooks");
+        std::fs::create_dir_all(&no_hooks).expect("mkdir empty hooks dir");
+        let no_hooks = no_hooks.to_str().expect("hooks path is valid UTF-8");
+        run_git(dir.path(), &["config", "core.hooksPath", no_hooks], &[]);
         run_git(dir.path(), &["config", "gc.auto", "0"], &[]);
         // Pin line endings so churn line-counts are identical on a
         // contributor with `core.autocrlf=true` (the Git-for-Windows
