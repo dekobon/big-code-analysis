@@ -140,10 +140,16 @@ fn helper_scrubs_artifact_link_env_to_local_fallback() {
 
 /// RAII guard that sets `GITHUB_REPOSITORY` / `GITHUB_RUN_ID` on the
 /// parent process and restores their prior values on drop. `set_var` /
-/// `remove_var` are `unsafe` in Rust 2024 (concurrent-mutation footgun);
-/// a process-wide mutex serializes this guard against itself so parallel
-/// integration tests cannot observe a half-applied env. No other test in
-/// this binary touches these two vars, so this lock is sufficient.
+/// `remove_var` are `unsafe` in Rust 2024 (concurrent-mutation footgun).
+///
+/// The lock is the binary-wide [`common::process_env_lock`], not a
+/// guard-private one: child-spawn snapshots the *whole* environment, so
+/// this guard must serialize against every other env-mutating-and-
+/// spawning test in the binary — notably
+/// `cli_helper_does_not_leak_to_github_step_summary`, which mutates a
+/// *different* variable. A private lock let the two run concurrently and
+/// the step-summary child captured a torn env carrying this guard's CI
+/// artifact vars, failing that test intermittently.
 struct ArtifactEnvGuard {
     repo: Option<String>,
     run_id: Option<String>,
@@ -152,10 +158,7 @@ struct ArtifactEnvGuard {
 
 impl ArtifactEnvGuard {
     fn set(repo: &str, run_id: &str) -> Self {
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let lock = ENV_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let lock = common::process_env_lock();
         let prior = Self {
             repo: std::env::var("GITHUB_REPOSITORY").ok(),
             run_id: std::env::var("GITHUB_RUN_ID").ok(),
@@ -931,14 +934,17 @@ fn cli_helper_does_not_leak_to_github_step_summary() {
     //
     // SAFETY (test-only): Rust 2024 marks `env::set_var` /
     // `env::remove_var` as `unsafe` because of concurrent-thread
-    // hazards. Within this integration test binary, no other test
-    // reads `GITHUB_STEP_SUMMARY`, every test goes through `cli()`
-    // (which removes the var before spawn), and the variable is
-    // restored before this test returns. The remaining concurrent
-    // reader is the child `bca` process — which we explicitly want
-    // to either see the var (control) or not (regression check).
-    // Mirrors `src/diff_tests.rs::EnvGuard`, which uses the same
-    // pattern for the same reason.
+    // hazards. The binary-wide `common::process_env_lock` held for the
+    // whole set/spawn/restore window serializes this test against every
+    // other env-mutating-and-spawning test in the binary (e.g.
+    // `helper_scrubs_artifact_link_env_to_local_fallback`, which mutates
+    // `GITHUB_REPOSITORY`/`GITHUB_RUN_ID`). Without it, that test's
+    // concurrent `set_var` tore the environment this test's child
+    // snapshots at spawn, leaking the CI artifact vars into the step
+    // summary and failing the assertion intermittently. The remaining
+    // concurrent reader is the child `bca` process — which we explicitly
+    // want to either see the var (control) or not (regression check).
+    let _env_lock = common::process_env_lock();
     let prior = std::env::var_os(ENV_KEY);
     unsafe { std::env::set_var(ENV_KEY, &summary) };
 
