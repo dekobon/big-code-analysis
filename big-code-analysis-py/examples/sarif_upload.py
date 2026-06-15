@@ -110,12 +110,22 @@ def run(
     """Analyse ``paths``, render SARIF, write to ``output``.
 
     Returns a summary dict (``output``, ``results``, ``rules``,
-    ``analyzed``, ``errors``) so callers / tests can assert on the
-    document without re-reading the file. The summary deliberately
-    surfaces both ``results`` (findings) and ``rules`` (distinct
-    metric IDs that produced findings) since either may be zero
-    independently — a regression that silently drops every finding
-    would otherwise look identical to a healthy run.
+    ``analyzed``, ``errors``, ``skipped``) so callers / tests can
+    assert on the document without re-reading the file. The summary
+    deliberately surfaces both ``results`` (findings) and ``rules``
+    (distinct metric IDs that produced findings) since either may be
+    zero independently — a regression that silently drops every
+    finding would otherwise look identical to a healthy run.
+
+    ``bca.analyze_batch`` omits generated/skipped files from its
+    returned list entirely (with the #542 default ``skip_generated=
+    True``), so ``len(batch)`` is the analysed-or-failed count, not
+    the input count. We surface the gap as ``skipped`` (=
+    ``len(materialised) - len(batch)``) so the totals reconcile:
+    ``analyzed + errors + skipped == len(materialised)``. In a
+    SARIF-upload pipeline a silently-skipped file is exactly the
+    masking failure the module docstring warns against, so the count
+    is reported rather than dropped.
     """
     materialised = [str(p) for p in paths]
     if not materialised:
@@ -125,6 +135,7 @@ def run(
     batch = bca.analyze_batch(materialised)
     analyzed = sum(1 for r in batch if not isinstance(r, bca.AnalysisFailure))
     errors = len(batch) - analyzed
+    skipped = len(materialised) - len(batch)
 
     # `thresholds is None` (not truthiness) means "use the default
     # policy" — an explicitly-empty `{}` is a deliberate opt-out and
@@ -164,6 +175,7 @@ def run(
 
     print(
         f"wrote {output} ({analyzed} analysed, {errors} errors, "
+        f"{skipped} generated skipped, "
         f"{len(results)} findings across {len(rules)} rules)"
     )
     print(
@@ -177,6 +189,7 @@ def run(
         "rules": len(rules),
         "analyzed": analyzed,
         "errors": errors,
+        "skipped": skipped,
     }
 
 

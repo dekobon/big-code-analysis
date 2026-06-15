@@ -555,6 +555,7 @@ def test_sarif_upload(tmp_path: Path) -> None:
     assert output.exists()
     assert summary["analyzed"] == 2
     assert summary["errors"] == 0
+    assert summary["skipped"] == 0
     assert summary["results"] >= 1, (
         "aggressive thresholds on two non-trivial fixtures must produce at least one finding"
     )
@@ -570,6 +571,32 @@ def test_sarif_upload(tmp_path: Path) -> None:
         f"automationDetails.id should equal '{{category}}/', got "
         f"{document['runs'][0]['automationDetails']['id']!r}"
     )
+
+
+def test_sarif_upload_skipped_reconciles_input_count(tmp_path: Path) -> None:
+    """Regression for #889: generated files dropped by ``analyze_batch``
+    are tallied as ``skipped`` so the totals reconcile with the inputs.
+
+    ``bca.analyze_batch`` omits generated files from its returned list
+    entirely (2.0 default ``skip_generated=True``), so a pre-fix summary
+    reported only ``analyzed``/``errors`` with ``analyzed + errors <
+    len(paths)`` and no signal that anything was skipped. The fix adds a
+    ``skipped`` bucket; here ``generated.rs`` must land in it and the
+    three counts must sum exactly to the input count.
+    """
+    mod = _load("sarif_upload")
+    inputs = [
+        FIXTURES_DIR / "hello.rs",
+        FIXTURES_DIR / "hello.py",
+        FIXTURES_DIR / "generated.rs",
+    ]
+    summary = mod.run(
+        inputs,
+        tmp_path / "results.sarif",
+        thresholds={"cyclomatic": 1, "loc.lloc": 1},
+    )
+    assert summary["skipped"] >= 1, "generated.rs must be counted as skipped, not silently dropped"
+    assert summary["analyzed"] + summary["errors"] + summary["skipped"] == len(inputs)
 
 
 def test_sarif_upload_threshold_fallback_semantics(
