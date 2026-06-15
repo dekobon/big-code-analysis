@@ -61,8 +61,8 @@ const METRICS_KEY: &str = "metrics";
 const NAME_KEY: &str = "name";
 
 /// Error surfaced while loading or diffing the two metric-output sets.
-/// Rendered by the caller as a tool error (exit 1); the diff itself
-/// always exits 0 on success.
+/// Rendered by the caller as a tool error (exit 1); a successful diff
+/// exits 0 by default, or 2 under `--exit-code` when it is non-empty.
 #[derive(Debug)]
 pub(crate) enum DiffError {
     /// A path could not be read (missing, permission denied, …).

@@ -2489,7 +2489,10 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
 /// defaults are passed: the diff keys on `(path, qualified, metric)`
 /// regardless.
 ///
-/// Always exits 0 on success; the diff is informational, not a gate.
+/// Exits 0 on success by default — the diff is informational, not a
+/// gate. With `--exit-code`, exits 2 ([`crate::EXIT_GATE_BREACH`]) when
+/// the filtered diff is non-empty (git-diff-style opt-in); a tool error
+/// exits 1 regardless.
 fn run_command_diff_baseline(args: DiffBaselineArgs) {
     // Validate `--output` before the (cheaper, but still avoidable) load
     // so a bad path fails fast, mirroring `report` / `exemptions`.

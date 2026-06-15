@@ -646,8 +646,9 @@ enum Command {
     /// Diff two `.bca-baseline.toml` files and report what was added,
     /// removed, worsened, or improved. Replaces the in-the-head TOML
     /// diff parsing the book's PR-review recipe used to walk through.
-    /// Always exits 0 on success — the diff is informational, not a
-    /// gate.
+    /// Exits 0 on success by default — the diff is informational, not a
+    /// gate. With `--exit-code`, exits 2 when the filtered diff is
+    /// non-empty.
     DiffBaseline(DiffBaselineArgs),
     /// Compare two metric-output runs and report, per metric, which
     /// files changed (old to new), plus files added/removed between the
@@ -655,8 +656,9 @@ enum Command {
     /// them (the form `bca metrics -O json --output-dir DIR` writes).
     /// Replaces the grammar-bump glue chain — the external
     /// `json-minimal-tests` binary plus `split-minimal-tests.py` — with
-    /// one native command. Always exits 0 on success; the diff is
-    /// informational, not a gate.
+    /// one native command. Exits 0 on success by default; the diff is
+    /// informational, not a gate. With `--exit-code`, exits 2 when the
+    /// filtered diff is non-empty.
     Diff(DiffArgs),
     /// Audit everything the `bca check` gate skips in one view:
     /// in-source suppression markers (`bca: suppress`,
@@ -1917,8 +1919,9 @@ struct DiffBaselineArgs {
 ///   the current working tree.
 ///
 /// `--format json` always emits every bucket; `--min-change` and
-/// `--metric` shape which deltas are reported. Always exits 0 on
-/// success; the diff is informational, not a gate.
+/// `--metric` shape which deltas are reported. Exits 0 on success by
+/// default; the diff is informational, not a gate. With `--exit-code`,
+/// exits 2 when the filtered diff is non-empty.
 #[derive(Args, Debug)]
 struct DiffArgs {
     // `diff --since` walks both trees, so it consumes the walk-selection
