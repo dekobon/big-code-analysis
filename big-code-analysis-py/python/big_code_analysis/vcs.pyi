@@ -169,7 +169,7 @@ def commit(
 def score_diff(diff: str, /) -> JitDiffReportDict:
     """Score an arbitrary unified diff for partial just-in-time risk.
 
-    The programmatic analogue of ``bca vcs jit --diff`` (issue #580). A
+    The programmatic analogue of ``bca vcs commit --diff`` (issue #580). A
     bare diff carries no author / parent / history, so the returned dict
     has ``source == "diff"``, a ``partial_risk_score`` **not comparable**
     to a commit ``risk_score``, and no history / experience / purpose
