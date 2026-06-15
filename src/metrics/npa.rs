@@ -641,59 +641,55 @@ impl Npa for PhpCode {
             stats.is_class_space = true;
         }
 
-        match node.kind_id().into() {
-            // Class / trait / anonymous-class / interface bodies all share
-            // the `DeclarationList` kind; the parent kind disambiguates.
-            DeclarationList => {
-                let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
-                    return;
-                };
-                match parent_kind {
-                    ClassDeclaration | TraitDeclaration | AnonymousClass => {
-                        for declaration in node
-                            .children()
-                            .filter(|c| matches!(c.kind_id().into(), PropertyDeclaration))
-                        {
-                            let attributes = declaration
-                                .children()
-                                .filter(|c| matches!(c.kind_id().into(), PropertyElement))
-                                .count();
-                            stats.class_na += attributes;
-                            if php_is_explicit_public(&declaration) {
-                                stats.class_npa += attributes;
-                            }
-                        }
+        // Class / trait / anonymous-class / interface bodies all share
+        // the `DeclarationList` kind; the parent kind disambiguates.
+        //
+        // Enum bodies (`EnumDeclarationList`) are deliberately NOT handled
+        // and contribute no npa attributes. Enum *cases* are sum-type
+        // tags, not data fields, so they are excluded — matching the Java,
+        // Kotlin, Rust, and C# convention (see the Rust impl's comment and
+        // #781). The only other declarable members are `const`s and
+        // methods: PHP enums cannot declare instance properties, and
+        // class-level `const`s are not counted as attributes outside an
+        // enum either (the `ClassDeclaration` arm below counts only
+        // `PropertyDeclaration`), so counting enum `const`s here would be
+        // inconsistent with PHP's own class-body rule.
+        if !matches!(node.kind_id().into(), DeclarationList) {
+            return;
+        }
+        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+            return;
+        };
+        match parent_kind {
+            ClassDeclaration | TraitDeclaration | AnonymousClass => {
+                for declaration in node
+                    .children()
+                    .filter(|c| matches!(c.kind_id().into(), PropertyDeclaration))
+                {
+                    let attributes = declaration
+                        .children()
+                        .filter(|c| matches!(c.kind_id().into(), PropertyElement))
+                        .count();
+                    stats.class_na += attributes;
+                    if php_is_explicit_public(&declaration) {
+                        stats.class_npa += attributes;
                     }
-                    // Interfaces cannot declare properties but can declare
-                    // class constants, which are implicitly public.
-                    InterfaceDeclaration => {
-                        let count: usize = node
-                            .children()
-                            .filter(|c| {
-                                matches!(c.kind_id().into(), ConstDeclaration | ConstDeclaration2)
-                            })
-                            .map(|decl| {
-                                decl.children()
-                                    .filter(|n| {
-                                        matches!(n.kind_id().into(), ConstElement | ConstElement2)
-                                    })
-                                    .count()
-                            })
-                            .sum();
-                        stats.interface_na += count;
-                        stats.interface_npa = stats.interface_na;
-                    }
-                    _ => {}
                 }
             }
-            // Enum cases are public read-only constants of the enum.
-            EnumDeclarationList => {
-                let count = node
+            // Interfaces cannot declare properties but can declare
+            // class constants, which are implicitly public.
+            InterfaceDeclaration => {
+                let count: usize = node
                     .children()
-                    .filter(|c| matches!(c.kind_id().into(), EnumCase))
-                    .count();
-                stats.class_na += count;
-                stats.class_npa += count;
+                    .filter(|c| matches!(c.kind_id().into(), ConstDeclaration | ConstDeclaration2))
+                    .map(|decl| {
+                        decl.children()
+                            .filter(|n| matches!(n.kind_id().into(), ConstElement | ConstElement2))
+                            .count()
+                    })
+                    .sum();
+                stats.interface_na += count;
+                stats.interface_npa = stats.interface_na;
             }
             _ => {}
         }
@@ -3353,8 +3349,11 @@ mod tests {
     }
 
     #[test]
-    fn php_enum_cases() {
-        // Enum cases are public read-only constants.
+    fn php_enum_cases_not_counted() {
+        // #781: enum cases are sum-type tags, not data fields, so they
+        // contribute zero npa attributes — matching the Java, Kotlin,
+        // Rust, and C# convention. Before #781 this enum reported
+        // class_na = class_npa = 3 (one per case); it must now be 0.
         check_metrics::<PhpParser>(
             "<?php
             enum Color {
@@ -3363,7 +3362,66 @@ mod tests {
                 case Blue;
             }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.npa),
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+                assert_eq!(metric.npa.interface_na_sum(), 0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn php_enum_const_not_counted() {
+        // #781: a PHP enum body may declare `const`s alongside its
+        // cases, but class-level `const`s are not counted as attributes
+        // outside an enum either (only `PropertyDeclaration` counts), so
+        // the enum const is consistently excluded. This enum reports 0.
+        check_metrics::<PhpParser>(
+            "<?php
+            enum Suit: string {
+                case Hearts = 'H';
+                case Diamonds = 'D';
+                const Wild = 'W';
+                public function label(): string { return $this->name; }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+            },
+        );
+    }
+
+    #[test]
+    fn php_enum_npa_matches_java_enum_npa() {
+        // #781 cross-language parity: an enum whose only members are
+        // cases reports the same npa (0) in PHP and Java. The cases are
+        // sum-type tags, excluded by both languages. `check_metrics`
+        // takes a non-capturing `fn`, so each side asserts the shared
+        // target (0, 0) independently; parity follows by transitivity.
+        check_metrics::<PhpParser>(
+            "<?php
+            enum Color {
+                case Red;
+                case Green;
+                case Blue;
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+            },
+        );
+        check_metrics::<JavaParser>(
+            "enum Color {
+                RED, GREEN, BLUE;
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                assert_eq!(metric.npa.class_npa_sum(), 0);
+            },
         );
     }
 
