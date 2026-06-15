@@ -1,8 +1,8 @@
 //! Shared fixture builders for integration tests.
 //!
 //! These helpers eliminate the per-test struct-literal repetition
-//! that grew up around `OffenderRecord` and `FuncSpace` while the
-//! output-format tests were being written. Used by:
+//! that grew up around `OffenderRecord` while the output-format tests
+//! were being written. Used by:
 //!
 //! - `tests/checkstyle_test.rs` (`rec`)
 //!
@@ -13,9 +13,7 @@
 
 use std::path::PathBuf;
 
-use big_code_analysis::{
-    CodeMetrics, FuncSpace, OffenderRecord, Severity, SpaceKind, SuppressionScope,
-};
+use big_code_analysis::{OffenderRecord, Severity};
 
 /// Build a default offender record. The numeric fields use
 /// values chosen to be obvious in test output (`line=42`, `col=5`,
@@ -34,20 +32,5 @@ pub fn rec(path: &str, metric: &str, value: f64, limit: f64) -> OffenderRecord {
         value,
         limit,
         severity: Severity::Warning,
-    }
-}
-
-/// Build a `FuncSpace` with no children and default-initialized
-/// metrics. Useful for tests that exercise writer behavior on a
-/// known shape without needing a real parse tree.
-pub fn empty_space(name: &str, kind: SpaceKind, start: usize, end: usize) -> FuncSpace {
-    FuncSpace {
-        name: Some(name.into()),
-        start_line: start,
-        end_line: end,
-        kind,
-        spaces: Vec::new(),
-        metrics: CodeMetrics::default(),
-        suppressed: SuppressionScope::default(),
     }
 }

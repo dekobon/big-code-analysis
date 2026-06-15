@@ -16,7 +16,7 @@ tests/
 ├── README.md                              (this file)
 ├── common/                                shared harness used by every integration test
 │   ├── mod.rs                             snapshot driver + per-corpus comparators
-│   ├── fixtures.rs                        small constructors for OffenderRecord / FuncSpace
+│   ├── fixtures.rs                        small constructors for OffenderRecord
 │   └── validators.rs                      SARIF + Checkstyle structural validators
 ├── fixtures/                              vendored external schemas (SARIF, Checkstyle)
 │   └── README.md                          refresh procedure + provenance
