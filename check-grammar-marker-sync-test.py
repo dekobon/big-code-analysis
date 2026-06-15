@@ -233,6 +233,55 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("OK", result.stdout)
 
+    def test_metadata_key_does_not_shadow_real_marker(self) -> None:
+        # #872: a same-named key in a non-dependency table that sorts
+        # BEFORE [build-dependencies] (Cargo puts [package] /
+        # [package.metadata.*] first) must NOT shadow the real marker.
+        # The old scan matched the key in ANY table and took the first
+        # in document order, so it would have resolved the stale
+        # metadata value (0.23.1) and reported OK against a baseline at
+        # 0.23.1 — silently disarming the gate while the real marker had
+        # been bumped to 0.26.0 without a regen. The fix must resolve
+        # 0.26.0 from [build-dependencies] and FAIL the drift check.
+        mozjs_manifest = (
+            "[package.metadata.notes]\n"
+            'tree-sitter-javascript = "0.23.1"\n'
+            "\n"
+            "[build-dependencies]\n"
+            'tree-sitter-javascript = "0.26.0"\n'
+        )
+        baseline = _BASELINE_MATCHING.replace(
+            'version = "0.25.0"', 'version = "0.23.1"'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=baseline,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        # Drift message must name the real marker version, not the
+        # shadowing metadata value.
+        self.assertIn("0.26.0", result.stderr)
+
+    def test_marker_only_in_non_dep_table_is_not_found(self) -> None:
+        # #872: with the marker present ONLY in a non-dependency table,
+        # the scan must treat it as absent (exit 2, "not found"), never
+        # accept the metadata value as the marker version.
+        mozjs_manifest = (
+            "[package.metadata.notes]\n"
+            'tree-sitter-javascript = "0.99.0"\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not found in any dependency table", result.stderr)
+        self.assertNotIn("0.99.0", result.stderr)
+
     def test_inline_table_without_version_reports_no_version_pin(self) -> None:
         # `{ workspace = true }` and similar forms have the marker
         # name but no explicit version pin. The error must report
@@ -626,9 +675,11 @@ class GrammarMarkerSyncTest(unittest.TestCase):
 
     def test_marker_at_recursion_depth_limit_resolved(self) -> None:
         # 6 segments → recursion lands at depth=6, which is at the
-        # inclusive boundary of _DEP_SCAN_MAX_DEPTH = 6.
+        # inclusive boundary of _DEP_SCAN_MAX_DEPTH = 6. The leaf must
+        # be a real dependency table (#872): a same-named key in a
+        # non-dependency table at this depth would NOT resolve.
         mozjs_manifest = (
-            "[a.b.c.d.e.f]\n"
+            "[a.b.c.d.e.dependencies]\n"
             'tree-sitter-javascript = "0.25.0"\n'
         )
         script = _make_fixture(
@@ -645,7 +696,7 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         # limit. The scan returns None and the gate reports the
         # marker as not found.
         mozjs_manifest = (
-            "[a.b.c.d.e.f.g]\n"
+            "[a.b.c.d.e.f.dependencies]\n"
             'tree-sitter-javascript = "0.25.0"\n'
         )
         script = _make_fixture(

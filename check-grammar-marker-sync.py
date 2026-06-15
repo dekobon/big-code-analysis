@@ -101,6 +101,18 @@ VENDORED_CRATES: tuple[tuple[str, str, str], ...] = (
 # nesting without admitting pathological recursion.
 _DEP_SCAN_MAX_DEPTH = 6
 
+# Cargo dependency-table names. A `key == marker` hit is only honoured
+# inside one of these tables (#872) — a same-named key in `[package]`,
+# `[package.metadata.*]`, or any other non-dependency table must not
+# shadow the real marker. `dependencies` / `build-dependencies` /
+# `dev-dependencies` are the leaf tables; they may sit at the manifest
+# root, under `[workspace]`, or under `[target.'cfg(...)']`, all of
+# which the walk descends into with `in_dep_table` still False until a
+# leaf dependency table is reached.
+_DEP_TABLE_NAMES = frozenset(
+    {"dependencies", "build-dependencies", "dev-dependencies"}
+)
+
 
 class _MarkerStatus(enum.Enum):
     """States distinct from a found version string.
@@ -118,30 +130,35 @@ class _MarkerStatus(enum.Enum):
 
 
 def _scan_for_marker(
-    data: Any, marker: str, depth: int = 0
+    data: Any, marker: str, depth: int = 0, in_dep_table: bool = False
 ) -> str | _MarkerStatus | None:
-    """Recursively walk a TOML tree for `marker` as a dep entry.
+    """Recursively resolve `marker` from a Cargo *dependency* table.
 
     Accepts both the bare-string form (`marker = "X.Y.Z"`) and the
     inline-table form (`marker = { version = "...", features = [...] }`).
-    Walks every nested table so `[build-dependencies]`,
-    `[dev-dependencies]`, `[workspace.dependencies]`,
-    `[target.'cfg(unix)'.build-dependencies]`, and any other
-    legitimate Cargo dep-bearing section all resolve.
+    A `key == marker` hit is honoured **only** inside a recognised
+    dependency table (`dependencies` / `build-dependencies` /
+    `dev-dependencies`), so the walk resolves `[build-dependencies]`,
+    `[dev-dependencies]`, `[workspace.dependencies]`, and
+    `[target.'cfg(unix)'.build-dependencies]`, but a same-named key in
+    `[package]`, `[package.metadata.*]`, or any other non-dependency
+    table cannot shadow the real marker (#872). The walk descends into
+    `[workspace]` / `[target]` / `[target.'cfg(...)']` wrappers with
+    `in_dep_table` still False until it reaches a dependency table.
 
     Returns:
         * `str` — marker resolved with a version pin.
         * `_MarkerStatus.NO_VERSION_PIN` — marker is present in
-          some dep table but without an explicit `version` field
-          (e.g. `{ workspace = true }`).
-        * `None` — marker is absent everywhere within the
-          recursion depth limit.
+          some dependency table but without an explicit `version`
+          field (e.g. `{ workspace = true }`).
+        * `None` — marker is absent from every dependency table
+          within the recursion depth limit.
     """
     if depth > _DEP_SCAN_MAX_DEPTH or not isinstance(data, dict):
         return None
     found_without_version = False
     for key, value in data.items():
-        if key == marker:
+        if in_dep_table and key == marker:
             if isinstance(value, str):
                 return value
             if isinstance(value, dict):
@@ -150,7 +167,13 @@ def _scan_for_marker(
                     return version
                 found_without_version = True
         elif isinstance(value, dict):
-            result = _scan_for_marker(value, marker, depth + 1)
+            # Descend into nested tables. A dependency-table name flips
+            # `in_dep_table` on so its entries' keys are eligible marker
+            # hits; every other wrapper (`workspace`, `target`,
+            # `cfg(...)`) keeps the flag as-is so we keep walking toward
+            # a dependency table without treating its own keys as deps.
+            child_in_dep = in_dep_table or key in _DEP_TABLE_NAMES
+            result = _scan_for_marker(value, marker, depth + 1, child_in_dep)
             if isinstance(result, str):
                 return result
             if result is _MarkerStatus.NO_VERSION_PIN:
