@@ -48,9 +48,13 @@ pub mod validators;
 /// which is why it stayed latent until the first PR. A test that
 /// *wants* a diff scope sets the var explicitly after construction.
 ///
-/// Call sites name their builder `cli()` (or `bin()` in
-/// `big-code-analysis-web`); each delegates to this helper so a
-/// future new env-leak only needs to be patched once.
+/// CLI-crate call sites name their builder `cli()`; each routes
+/// through [`bca_command`] / [`cli_in`], which delegate here so a
+/// future new env-leak only needs to be patched once. The
+/// `big-code-analysis-web` smoke tests have their own `bin()` builder
+/// that does *not* delegate here — Cargo does not share test modules
+/// across workspace members, and `bca-web` reads no `GITHUB_*` vars
+/// (only `BCA_MAX_ORPHANED_TASKS`), so it has nothing to scrub.
 #[allow(dead_code)]
 pub fn scrub_ci_env(cmd: &mut Command) -> &mut Command {
     cmd.env_remove("GITHUB_STEP_SUMMARY")
