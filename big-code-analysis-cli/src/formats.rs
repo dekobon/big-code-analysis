@@ -37,9 +37,11 @@ pub(crate) enum MetricsFormat {
     /// request the default in a script or to override a `bca.toml` that
     /// set a structured format. It only ever streams to stdout, so unlike
     /// the structured serializers it has no file destination: pairing it
-    /// with `--output`/`--output-dir` is a hard error (since #661), not a
+    /// with `--output`/`--output-dir` is a hard error, not a
     /// silent no-op — pass a structured `--format` to write files.
-    // The named `text` default was introduced in issue #604.
+    // The named `text` default was introduced in issue #604; the
+    // hard-error pairing rule with `--output`/`--output-dir` is #661.
+    // (Issue refs stay in `//` maintainer comments, never `///` help.)
     Text,
     Cbor,
     Csv,
