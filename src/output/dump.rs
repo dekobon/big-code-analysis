@@ -39,7 +39,13 @@ use crate::tools::{color, intense_color};
 /// dump_node(ast.source(), &root, -1, None, None).unwrap();
 /// ```
 ///
-/// [`Result`]: #variant.Result
+/// # Panics
+///
+/// Panics if `code` is not the exact source `node` was parsed from.
+/// `node`'s byte range is used to slice `code`, so a `node` taken from a
+/// different (or smaller) tree indexes out of bounds. Always pair a node
+/// with the source it came from — e.g. `ast.source()` and a node obtained
+/// from the *same* [`crate::Ast`] (`ast.root_node()` or a descendant).
 pub fn dump_node(
     code: &[u8],
     node: &Node,
@@ -61,6 +67,14 @@ pub fn dump_node(
 ///
 /// Propagates any [`std::io::Error`] produced by the color-aware
 /// writer that backs `stdout` (broken pipe, write failure, …).
+///
+/// # Panics
+///
+/// Panics if `code` is not the exact source `node` was parsed from.
+/// `node`'s byte range is used to slice `code`, so a `node` taken from a
+/// different (or smaller) tree indexes out of bounds. Always pair a node
+/// with the source it came from — e.g. `ast.source()` and a node obtained
+/// from the *same* [`crate::Ast`] (`ast.root_node()` or a descendant).
 pub fn dump_node_with_color(
     code: &[u8],
     node: &Node,
@@ -459,7 +473,8 @@ mod tests {
         // matched node, not its subtree. depth=1 renders the node and stops
         // before its children; depth=0 renders nothing. This is the only
         // positive-depth path in production, and it is what the `depth - 1`
-        // decrement in `dump_children` guards — pin it explicitly.
+        // decrement in `dump_tree_helper`'s iterative walk guards — pin it
+        // explicitly.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
         let root = parser.root();

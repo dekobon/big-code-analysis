@@ -20,7 +20,15 @@ bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
   all files when given a directory). Paths are given positionally or via
   `--paths`; both are unioned. Flags follow the subcommand.
 - `-t, --type`: the node type to match. Repeat the flag for several
-  types (`-t function_item -t struct_item`); at least one is required.
+  types (`-t function_item -t struct_item`); at least one is required. A
+  *string* value matches the node-type name exactly (for example
+  `function_item`). A purely *numeric* value is instead interpreted as a
+  raw tree-sitter `kind_id` and matches nodes whose internal symbol id
+  equals that number (so `-t 0` matches the end/`ERROR` sentinel). The
+  numeric form is an escape hatch for grammar inspection and is unstable:
+  a `kind_id` is an index into the grammar's symbol table, so the same
+  number names a different node after a grammar-version bump. Prefer the
+  string form unless you specifically need a kind that has no stable name.
 - `-I, --include`: glob filter for selecting files by extension (e.g.
   `*.js`, `*.rs`). Each `-I` takes exactly one value, so a following
   positional path is never swallowed.

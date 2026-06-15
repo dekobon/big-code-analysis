@@ -37,8 +37,6 @@ use crate::tools::{color, intense_color};
 /// // Dump all operands and operators
 /// dump_ops(&ops).unwrap();
 /// ```
-///
-/// [`Result`]: #variant.Result
 pub fn dump_ops(ops: &Ops) -> std::io::Result<()> {
     dump_ops_with_color(ops, ColorMode::Always)
 }
