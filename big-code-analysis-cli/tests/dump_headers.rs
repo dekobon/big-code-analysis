@@ -21,39 +21,97 @@ fn fixture() -> (TempDir, String, String) {
     )
 }
 
-/// #690: each file's tree is prefixed with a `== <path> ==` banner so a
-/// multi-file dump is attributable despite the parallel walk interleaving
-/// output.
+/// Return the contiguous output block that follows the `== <banner> ==`
+/// line for `path` — every line up to the next `== ` banner or EOF. The
+/// banner line itself is excluded so the block holds only the tree (or
+/// match list) attributed to that file. Returns `None` if the banner is
+/// absent. This is the discriminator the bare `text.contains("== a ==")`
+/// presence checks lacked: it lets a test assert *which* tree sits under
+/// each banner, so a banner-to-tree detachment regression (the exact #690
+/// failure mode) fails instead of passing on mere string presence.
+fn block_under_banner<'a>(text: &'a str, path: &str) -> Option<&'a str> {
+    let banner = format!("== {path} ==");
+    let after = text.split_once(&banner)?.1;
+    // The next banner opens with "== "; truncate there so the block holds
+    // only this file's output, not the following file's.
+    Some(match after.find("\n== ") {
+        Some(end) => &after[..end],
+        None => after,
+    })
+}
+
+/// #690: each file's tree is prefixed with a `== <path> ==` banner *and*
+/// the tree that follows the banner is that file's own — not merely that
+/// both banner strings appear somewhere in stdout. `--jobs 1` serializes
+/// the walk so the per-file (banner, tree) pairs are emitted in a stable
+/// order; the assertion then pins each banner to its own function node so a
+/// regression that detached a banner from its tree would fail here.
 #[test]
 fn dump_emits_per_file_headers() {
     let (_dir, a, b) = fixture();
     let out = common::bca_command()
-        .args(["dump", "--paths", &a, "--paths", &b])
+        .args(["dump", "--jobs", "1", "--paths", &a, "--paths", &b])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
     let text = String::from_utf8(out).expect("utf8");
+
+    let a_block =
+        block_under_banner(&text, &a).unwrap_or_else(|| panic!("missing header for a.rs:\n{text}"));
     assert!(
-        text.contains(&format!("== {a} ==")),
-        "missing header for a.rs: {text}"
+        a_block.contains("alpha") && !a_block.contains("beta"),
+        "a.rs banner must bracket alpha's tree, not beta's; block was:\n{a_block}"
     );
+
+    let b_block =
+        block_under_banner(&text, &b).unwrap_or_else(|| panic!("missing header for b.rs:\n{text}"));
     assert!(
-        text.contains(&format!("== {b} ==")),
-        "missing header for b.rs: {text}"
+        b_block.contains("beta") && !b_block.contains("alpha"),
+        "b.rs banner must bracket beta's tree, not alpha's; block was:\n{b_block}"
     );
 }
 
-/// #690: `find` text output carries the same `== <path> ==` banner.
+/// #690: `find` text output carries the same `== <path> ==` banner, and
+/// each banner brackets its own file's matches. Two distinct fixtures plus
+/// `--jobs 1` make a cross-file mis-attribution observable, which the
+/// single-file presence check could not exercise.
 #[test]
 fn find_emits_per_file_headers() {
-    let (_dir, a, _b) = fixture();
-    common::bca_command()
-        .args(["find", "--paths", &a, "-t", "function_item"])
+    let (_dir, a, b) = fixture();
+    let out = common::bca_command()
+        .args([
+            "find",
+            "--jobs",
+            "1",
+            "--paths",
+            &a,
+            "--paths",
+            &b,
+            "-t",
+            "identifier",
+        ])
         .assert()
         .success()
-        .stdout(predicate::str::contains(format!("== {a} ==")));
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).expect("utf8");
+
+    let a_block =
+        block_under_banner(&text, &a).unwrap_or_else(|| panic!("missing header for a.rs:\n{text}"));
+    assert!(
+        a_block.contains("alpha") && !a_block.contains("beta"),
+        "a.rs banner must bracket alpha's match, not beta's; block was:\n{a_block}"
+    );
+
+    let b_block =
+        block_under_banner(&text, &b).unwrap_or_else(|| panic!("missing header for b.rs:\n{text}"));
+    assert!(
+        b_block.contains("beta") && !b_block.contains("alpha"),
+        "b.rs banner must bracket beta's match, not alpha's; block was:\n{b_block}"
+    );
 }
 
 /// #690: bare `bca dump` (no explicit path) errors instead of defaulting
