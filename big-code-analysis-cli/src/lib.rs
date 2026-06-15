@@ -582,12 +582,22 @@ impl ColorWhen {
                 // variable as a disable signal regardless of its content,
                 // matching cargo / ripgrep.
                 let no_color = std::env::var_os("NO_COLOR").is_some();
-                if stdout_is_terminal && !no_color {
-                    ColorMode::Auto
-                } else {
-                    ColorMode::Never
-                }
+                Self::resolve_auto(stdout_is_terminal, no_color)
             }
+        }
+    }
+
+    /// The pure `auto`-mode precedence: colorize only when stdout is a
+    /// terminal *and* `NO_COLOR` is unset. Both signals are injected so
+    /// each can be exercised independently in unit tests — `resolve_with`
+    /// reads the env, but the suppression rule lives here where neither
+    /// a real tty nor (`unsafe`) env mutation is needed to test it (#895).
+    fn resolve_auto(stdout_is_terminal: bool, no_color: bool) -> big_code_analysis::ColorMode {
+        use big_code_analysis::ColorMode;
+        if stdout_is_terminal && !no_color {
+            ColorMode::Auto
+        } else {
+            ColorMode::Never
         }
     }
 

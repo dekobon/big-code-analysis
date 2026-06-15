@@ -1392,8 +1392,9 @@ fn valid_languages_lists_known_names_sorted() {
 // unconditional (they short-circuit before any tty or env inspection),
 // so these axes are deterministic regardless of the test runner's
 // terminal or `NO_COLOR` state. The `NO_COLOR` interaction with `Auto`
-// is exercised end-to-end in `tests/color_output.rs`, where the env can
-// be set hermetically.
+// is exercised below via the pure `resolve_auto(stdout_is_terminal,
+// no_color)` helper (#895): it takes both signals as arguments, so each
+// can be the deciding factor without a real tty or `unsafe` env mutation.
 #[test]
 fn color_always_resolves_to_always_regardless_of_terminal() {
     assert_eq!(
@@ -1421,11 +1422,38 @@ fn color_never_resolves_to_never_regardless_of_terminal() {
 #[test]
 fn color_auto_resolves_to_never_when_stdout_is_not_a_terminal() {
     // A non-terminal stdout (a pipe / redirect) is the core fix: `auto`
-    // must yield `Never` so escapes never reach a file. Independent of
-    // `NO_COLOR` because a piped stream is suppressed either way.
+    // must yield `Never` so escapes never reach a file. The pipe
+    // suppresses regardless of `NO_COLOR`, so assert both env states.
     assert_eq!(
-        ColorWhen::Auto.resolve_with(false),
+        ColorWhen::resolve_auto(false, false),
         big_code_analysis::ColorMode::Never
+    );
+    assert_eq!(
+        ColorWhen::resolve_auto(false, true),
+        big_code_analysis::ColorMode::Never
+    );
+}
+
+#[test]
+fn color_auto_no_color_set_resolves_to_never_even_on_terminal() {
+    // The case the integration test could never reach (#895): stdout
+    // *is* a terminal, so only `NO_COLOR` can force suppression. If
+    // `resolve_auto` stopped honoring `NO_COLOR`, this would regress to
+    // `Auto` and the assertion would fail.
+    assert_eq!(
+        ColorWhen::resolve_auto(true, true),
+        big_code_analysis::ColorMode::Never
+    );
+}
+
+#[test]
+fn color_auto_no_color_unset_resolves_to_auto_on_terminal() {
+    // The inverse guard: a real terminal with `NO_COLOR` unset must
+    // colorize, so over-suppression (always returning `Never`) is
+    // caught too.
+    assert_eq!(
+        ColorWhen::resolve_auto(true, false),
+        big_code_analysis::ColorMode::Auto
     );
 }
 

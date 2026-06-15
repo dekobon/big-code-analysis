@@ -92,10 +92,14 @@ fn metrics_color_never_strips_ansi_escapes() {
 
 #[test]
 fn metrics_no_color_env_strips_escapes_in_auto_mode() {
-    // `NO_COLOR` set (to any value) disables color under the default
-    // `auto` mode. Even with a forced-terminal we would suppress; here
-    // stdout is piped too, so this is doubly off — the point is that
-    // `NO_COLOR` alone is sufficient.
+    // `NO_COLOR` set (to any value) must not produce escapes under the
+    // default `auto` mode. Note this end-to-end check cannot isolate the
+    // `NO_COLOR` signal: `assert_cmd` always pipes stdout, so suppression
+    // is over-determined (the pipe alone would suppress). The
+    // `NO_COLOR`-deciding-on-a-terminal case is pinned by the
+    // `color_auto_no_color_set_resolves_to_never_even_on_terminal` unit
+    // test (#895); this test only guards that `NO_COLOR` does not somehow
+    // *force* color on.
     let (_dir, path) = fixture();
     let out = stdout_of(
         cli()
