@@ -457,8 +457,11 @@ fn experience_features(
     options: &Options,
     reference_time: i64,
 ) -> Result<JitExperience, Error> {
-    let long_boundary = reference_time - options.long_window_secs;
-    let recent_boundary = reference_time - options.recent_window_secs;
+    // Saturating window cutoffs: an extreme `reference_time` must not
+    // overflow the subtraction; saturating to i64::MIN yields an
+    // unbounded-past boundary (include all history). See history.rs.
+    let long_boundary = reference_time.saturating_sub(options.long_window_secs);
+    let recent_boundary = reference_time.saturating_sub(options.recent_window_secs);
 
     // Same participant identity as the file-level priors: author + co-authors,
     // bot-filtered when `--exclude-bots`.

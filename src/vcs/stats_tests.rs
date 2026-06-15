@@ -278,3 +278,22 @@ fn first_authorship_tracks_the_minimum_timestamp_not_walk_order() {
     );
     assert!(!grace_first.first_authorship);
 }
+
+#[test]
+fn total_edits_sum_saturates_across_authors() {
+    // Two authors whose per-author edit counts sum past u32::MAX must not
+    // panic the cross-author fold (#821): std `Sum<u32>` overflow-panics in
+    // debug. Seed the map directly — driving record() billions of times is
+    // infeasible — to exercise finalize()'s `total_edits` summation.
+    let mut acc = Accumulator::new(100);
+    acc.author_edits_long
+        .insert(author("ada@example.com"), u32::MAX);
+    acc.author_edits_long
+        .insert(author("grace@example.com"), 10);
+    acc.commits_long = u32::MAX;
+    let stats = acc.finalize(NOW, &Options::default(), 0.0, 0.0);
+    // Saturated sum keeps ownership_top_share finite and total-edits-derived
+    // ratios well-defined rather than wrapping to a tiny denominator.
+    assert!(stats.ownership_top_share.is_finite());
+    assert_eq!(stats.authors_long, 2);
+}

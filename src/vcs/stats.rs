@@ -251,7 +251,14 @@ impl Accumulator {
         let authors_long = u32::try_from(self.author_edits_long.len()).unwrap_or(u32::MAX);
         let authors_recent = u32::try_from(self.authors_recent.len()).unwrap_or(u32::MAX);
 
-        let total_edits: u32 = self.author_edits_long.values().copied().sum();
+        // The per-author counts are already saturating_add-clamped; the
+        // cross-author sum must be too — std `Sum<u32>` panics on overflow
+        // in debug, and the vcs crate forbids panics in non-test code.
+        let total_edits: u32 = self
+            .author_edits_long
+            .values()
+            .copied()
+            .fold(0u32, u32::saturating_add);
         let top_edits = self.author_edits_long.values().copied().max().unwrap_or(0);
         let ownership_top_share = if total_edits > 0 {
             f64::from(top_edits) / f64::from(total_edits)

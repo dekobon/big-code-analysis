@@ -58,7 +58,11 @@ pub(crate) fn collect_events(
     now: i64,
     stop_oids: &HashSet<gix::ObjectId>,
 ) -> Result<(Vec<CommitEvent>, Option<gix::ObjectId>), Error> {
-    let long_boundary = now - options.long_window_secs;
+    // Saturating: a garbage extreme `--as-of` (e.g. i64::MIN) must not
+    // overflow the cutoff subtraction. Saturating to i64::MIN yields an
+    // unbounded-past boundary — every commit timestamp is included, the
+    // safe total behavior for a degenerate clock.
+    let long_boundary = now.saturating_sub(options.long_window_secs);
 
     let mailmap = repo.open_mailmap();
     let bots = if options.exclude_bots {

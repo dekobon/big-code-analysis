@@ -294,7 +294,11 @@ impl Options {
 /// `u32`. Window lengths never approach `u32::MAX` days in practice,
 /// but the saturation keeps the conversion total and lint-clean.
 fn secs_to_days(secs: i64) -> u32 {
-    let days = (secs + SECONDS_PER_DAY / 2) / SECONDS_PER_DAY;
+    // Saturating: `secs` in the top half-day of i64 would overflow the bare
+    // `+ SECONDS_PER_DAY / 2` rounding term. Saturating keeps i64::MAX at
+    // i64::MAX, so it divides to a huge positive day count and `try_from`
+    // saturates to u32::MAX — rather than wrapping negative and flooring to 0.
+    let days = secs.saturating_add(SECONDS_PER_DAY / 2) / SECONDS_PER_DAY;
     u32::try_from(days.max(0)).unwrap_or(u32::MAX)
 }
 

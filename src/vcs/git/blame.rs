@@ -371,14 +371,11 @@ impl PerFunctionBlame {
             .entries
             .iter()
             .map(|entry| {
-                // `start_in_blamed_file` is 0-based; convert to the 1-based
-                // inclusive range the spans use.
-                let lo = entry.start_in_blamed_file + 1;
-                LineRun {
-                    lo,
-                    hi: lo + entry.len.get() - 1,
-                    commit_id: entry.commit_id,
-                }
+                LineRun::from_blame_hunk(
+                    entry.start_in_blamed_file,
+                    entry.len.get(),
+                    entry.commit_id,
+                )
             })
             .collect();
         runs.sort_unstable_by_key(|run| run.lo);
@@ -536,6 +533,25 @@ struct LineRun {
     lo: u32,
     hi: u32,
     commit_id: ObjectId,
+}
+
+impl LineRun {
+    /// Convert a `gix` blame hunk (0-based `start_in_blamed_file`, hunk
+    /// `len`) into a 1-based inclusive [`LineRun`].
+    ///
+    /// Saturating arithmetic keeps the conversion total at the u32 ceiling:
+    /// a real blamed file never approaches it, but the vcs crate forbids
+    /// panics in non-test code (a debug build's overflow check would panic
+    /// on `+ 1` at `u32::MAX`). For normal values the `start + 1` /
+    /// `lo + len - 1` math is unchanged.
+    fn from_blame_hunk(start_in_blamed_file: u32, len: u32, commit_id: ObjectId) -> Self {
+        let lo = start_in_blamed_file.saturating_add(1);
+        Self {
+            lo,
+            hi: lo.saturating_add(len).saturating_sub(1),
+            commit_id,
+        }
+    }
 }
 
 #[cfg(test)]
