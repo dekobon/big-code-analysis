@@ -1178,8 +1178,10 @@ fn write_language_summary(
 
 /// Emit one hotspot section: an `<h3>` heading followed by the column-driven
 /// table, from a shared [`HotspotSpec`] and its already-selected `rows`. The
-/// logical title is `escape_html`-ed here (e.g. the `>` in the many-parameters
-/// heading → `&gt;`); it is a no-op for the metachar-free titles.
+/// logical title is `escape_html`-ed here defensively (a `>` in a `concept`
+/// would become `&gt;`); since no current concept carries one (see
+/// [`hotspot::HotspotTitle::render`]), it is a no-op for today's
+/// metachar-free titles.
 fn emit_html_section(
     out: &mut String,
     headings: &mut Headings,

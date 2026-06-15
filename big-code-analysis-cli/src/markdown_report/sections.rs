@@ -65,8 +65,10 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
 
 /// Render one hotspot section: a `### {title}` heading + GFM table from a
 /// shared [`HotspotSpec`] and its already-selected `rows`. The title is
-/// written raw (the `>` in the many-parameters heading stays literal in
-/// Markdown, unlike HTML which escapes it).
+/// written raw: it is a `### ` heading, not a table cell, so GFM-special
+/// characters need no cell-escaping. No current concept carries a `>`
+/// anyway (see [`super::hotspot::HotspotTitle::render`]), unlike HTML,
+/// which escapes it defensively.
 pub(super) fn emit_section_md(
     out: &mut String,
     spec: &HotspotSpec,
