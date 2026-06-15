@@ -6,7 +6,7 @@ functions of 1.x were namespaced here as ``rank`` / ``trend`` / ``commit``
 / ``score_diff`` plus a shared :class:`Options` object — the entry-point
 names mirror the ``bca vcs`` CLI subcommands (``bca vcs`` → ``vcs.rank``,
 ``vcs trend`` → ``vcs.trend``, ``vcs commit`` → ``vcs.commit``,
-``vcs jit --diff`` → ``vcs.score_diff``).
+``vcs commit --diff`` → ``vcs.score_diff``).
 
 Usage::
 
