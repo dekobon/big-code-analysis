@@ -131,6 +131,35 @@ fn markdown_uses_tables_and_marker_syntax() {
     );
 }
 
+/// The `(Lizard, File)` `marker_label` arm renders the real, parseable
+/// `#lizard forgive global` marker (`src/suppression.rs:374`). The shared
+/// `sample_report` only builds `Lizard + Function`, so without this test
+/// that arm — one of the four reachable arms — has zero coverage and a
+/// copy-paste swap with `(Lizard, Function)` would ship green (#840).
+#[test]
+fn lizard_file_marker_reads_forgive_global() {
+    let report = ExemptionsReport {
+        markers: Some(vec![MarkerRow {
+            path: "src/wide.rs".to_owned(),
+            marker: marker(
+                1,
+                SuppressionTarget::File,
+                SuppressionDialect::Lizard,
+                SuppressionScope::All,
+                None,
+            ),
+        }]),
+        excludes: None,
+        baseline: None,
+    };
+    let out = report.render(OutputFormat::Text, "").expect("tty render");
+    // A copy-paste swap to the `(Lizard, Function)` arm would render
+    // `#lizard forgives` instead, failing this exact-label check.
+    assert!(out.contains("#lizard forgive global"), "got: {out}");
+    // File-scoped, so it reads "(whole file)" and elides the function.
+    assert!(out.contains("(whole file)"), "got: {out}");
+}
+
 #[test]
 fn markdown_escapes_pipe_in_path_symbol_and_function_cells() {
     // A path (legal on Unix), function name, or symbol containing `|`
