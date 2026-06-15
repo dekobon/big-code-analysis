@@ -910,6 +910,32 @@ impl Cyclomatic for RubyCode {
     }
 }
 
+/// Returns `true` when `node` is the first `stab_clause` child of an
+/// `anonymous_function` parent — i.e. the closure's head clause rather
+/// than a pattern-dispatch branch.
+///
+/// The grammar shape is `anonymous_function → fn stab_clause+ end`, so
+/// the parent's children include the `fn`/`end` keyword tokens and one
+/// or more `stab_clause`s. We locate the first child whose kind is
+/// `stab_clause` (skipping the `fn` token and any other non-clause
+/// sibling) and report whether it is `node`. Multi-clause `fn`s thus
+/// skip only their first clause; `case`/`cond`/`with` arms have a
+/// `do_block` parent and never match here (issue #776).
+fn elixir_is_anonymous_fn_head_clause(node: &Node) -> bool {
+    use Elixir as E;
+
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if parent.kind_id() != E::AnonymousFunction as u16 {
+        return false;
+    }
+    parent
+        .children()
+        .find(|child| child.kind_id() == E::StabClause as u16)
+        .is_some_and(|first| first.id() == node.id())
+}
+
 impl Cyclomatic for ElixirCode {
     // Elixir's control-flow constructs are not distinct grammar
     // productions: `if`/`unless`/`for`/`while`/`with`/`case`/`cond`/`try`
@@ -932,6 +958,19 @@ impl Cyclomatic for ElixirCode {
             // `case`/`cond`/`with`/anonymous-fn body or a `rescue`/
             // `catch` handler. Standard-only — modified counts the
             // container Call once.
+            //
+            // The exception is the *first* `stab_clause` of an
+            // `anonymous_function` (`fn … -> … end`): it is the
+            // closure's head/definition, not a pattern-dispatch
+            // decision. The closure already opens its own function
+            // space seeded with base cyclomatic 1 (see
+            // `getter::elixir` → `SpaceKind::Function`), so counting the
+            // head clause too over-reports a trivial `fn x -> x end` as
+            // 2 (issue #776). Only the 2nd+ clauses of a multi-clause
+            // `fn` are real branches. `case`/`cond`/`with` arms have a
+            // `do_block` parent — not `anonymous_function` — so they are
+            // unaffected and keep counting.
+            E::StabClause if elixir_is_anonymous_fn_head_clause(node) => {}
             E::StabClause => {
                 stats.cyclomatic += 1.;
             }
@@ -5555,17 +5594,39 @@ f() {
     // `fn ... end` is its own function space (`get_space_kind` →
     // `Function`), so its cyclomatic gets its own `+1` entry path
     // alongside the Unit / defmodule Class / def Function entries.
-    // Each `stab_clause` arm contributes to standard CCN; the anon-fn
-    // itself is not a `Call`, so it does not add a modified-CCN
-    // container decision. Standard = 4 entries (Unit, defmodule, def,
-    // anon-fn) + 2 stab clauses = 6; modified = 4 entries = 4.
+    // The FIRST `stab_clause` is the closure's head/definition and does
+    // NOT count (issue #776); only the 2nd+ clauses are pattern-dispatch
+    // branches. The anon-fn itself is not a `Call`, so it adds no
+    // modified-CCN container decision. Standard = 4 entries (Unit,
+    // defmodule, def, anon-fn) + 1 branch (2nd clause) = 5; modified =
+    // 4 entries = 4.
     #[test]
     fn elixir_anonymous_fn_arms_count() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; _ -> :other end\n    multi.(0)\n  end\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
+            },
+        );
+    }
+
+    // Regression for issue #776: a single-clause anonymous function
+    // (`fn x -> x end`) has zero decision points — its lone
+    // `stab_clause` is the closure head, not a branch. The closure's
+    // own function space must therefore report cyclomatic 1 (base
+    // entry only), matching cognitive's treatment (`cognitive.rs`
+    // `elixir_enum_reduce_is_zero`). Before the fix the head clause
+    // added a spurious +1, reporting 2. Standard = 4 entries (Unit,
+    // defmodule, def, anon-fn) + 0 branches = 4; modified = 4.
+    #[test]
+    fn elixir_single_clause_anonymous_fn_is_not_a_branch() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    id = fn x -> x end\n    id.(1)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4);
             },
         );
