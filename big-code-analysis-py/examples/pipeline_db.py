@@ -17,9 +17,10 @@ look like.
 
 The sqlite schema is built dynamically from the keys present in the
 flattened rows so it survives the addition of new metrics without an
-editing pass. The flattened keys are dotted, case-distinct names, so
-they map directly onto sqlite columns (quoted to carry the dot) with
-no renaming.
+editing pass. The flattened keys are dotted names that are unique
+under case-insensitive comparison (sqlite folds identifier case; the
+historical ``N1``/``n1`` collision was removed in #511), so each maps
+onto its own sqlite column (quoted to carry the dot) with no renaming.
 """
 
 from __future__ import annotations
