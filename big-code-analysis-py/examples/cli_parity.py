@@ -29,7 +29,8 @@ The script accepts an optional ``--bca-binary`` flag (or
 ``$BCA_BINARY`` env var) so it can be run against a prebuilt
 binary in CI without re-shelling ``cargo build`` from inside the
 example. The fallback resolves the workspace ``target/{debug,release}/bca``
-the same way ``tests/test_smoke.py`` does.
+the same way ``tests/conftest.py`` (the ``bca_binary`` fixture /
+``_locate_workspace_binary``) does.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ from typing import Any
 
 import big_code_analysis as bca
 
-# Match `tests/test_smoke.py::_locate_workspace_binary`. The script
+# Match `tests/conftest.py::_locate_workspace_binary`. The script
 # is two directories below the repo root (`examples/` under the
 # bindings crate), so `.parents[2]` lands on the workspace root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
