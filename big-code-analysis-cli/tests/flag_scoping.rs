@@ -53,7 +53,13 @@ fn list_metrics_rejects_paths_flag() {
         .args(["list-metrics", "--paths", "src"])
         .assert()
         .failure()
-        .code(1);
+        .code(1)
+        // Exit 1 is overloaded (clap usage errors and runtime `die`
+        // failures share `EXIT_TOOL_ERROR`), so pin the clap "unexpected
+        // argument" diagnostic that names the flag: a regression that
+        // accepted `--paths` and then failed at runtime would not print
+        // this phrasing.
+        .stderr(predicate::str::contains("unexpected argument '--paths'"));
 }
 
 /// `vcs commit` scores a single commit, not a walked tree, so it gets
@@ -88,7 +94,15 @@ fn vcs_jit_rejects_exclude_tests() {
         .args(["vcs", "jit", "--exclude-tests"])
         .assert()
         .failure()
-        .code(1);
+        .code(1)
+        // `vcs jit` scores the cwd git repo; without this stderr check a
+        // regression that re-accepted `--exclude-tests` could still exit 1
+        // by failing the real git walk and the test would stay green. The
+        // clap "unexpected argument" phrasing only appears when the flag is
+        // rejected at parse time.
+        .stderr(predicate::str::contains(
+            "unexpected argument '--exclude-tests'",
+        ));
 }
 
 /// `vcs trend` samples a time series; it takes no walk flags either.
@@ -98,7 +112,12 @@ fn vcs_trend_rejects_paths_flag() {
         .args(["vcs", "trend", "--paths", "src"])
         .assert()
         .failure()
-        .code(1);
+        .code(1)
+        // As with `vcs jit`, `vcs trend` samples the cwd git repo and could
+        // exit 1 on its own if `--paths` regressed to accepted; the clap
+        // "unexpected argument" diagnostic distinguishes parse-time
+        // rejection from a runtime failure.
+        .stderr(predicate::str::contains("unexpected argument '--paths'"));
 }
 
 /// A scoped flag passed *before* the subcommand (the pre-2.0 global
@@ -109,7 +128,12 @@ fn paths_before_subcommand_is_rejected() {
         .args(["--paths", "src", "metrics"])
         .assert()
         .failure()
-        .code(1);
+        .code(1)
+        // Pin the clap rejection: a regression that re-globaled `--paths`
+        // would accept the pre-subcommand form and then walk `src` (or fail
+        // walking it) at exit 1, masking the scoping break behind the
+        // overloaded tool-error code.
+        .stderr(predicate::str::contains("unexpected argument '--paths'"));
 }
 
 /// `--exclude-tests` still works where it is consumed: on `metrics`,
