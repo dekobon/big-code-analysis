@@ -24,6 +24,10 @@ bca-web --host 127.0.0.1 --port 9090
 - `-j` specifies the number of parallel jobs (optional).
 - `--cors` enables [CORS](#cors) for browser-based tooling (off by default).
 
+For the full flag set, environment variables, resource limits, and the
+trust boundaries to respect before exposing the daemon, see
+[Operating bca-web](web-server.md).
+
 ## CORS
 
 By default **bca-web emits no CORS headers**: a browser script served from

@@ -12,6 +12,7 @@
   - [Suppression markers](commands/suppression.md)
   - [Nodes](commands/nodes.md)
   - [Rest API](commands/rest.md)
+  - [Operating bca-web](commands/web-server.md)
 - [Recipes](recipes/README.md)
   - [Quality reports](recipes/quality-reports.md)
   - [CI integration](recipes/ci.md)

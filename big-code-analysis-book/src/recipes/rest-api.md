@@ -26,6 +26,10 @@ curl -sf http://127.0.0.1:8080/v1/ping && echo "ok"
 `/ping` returns `200 OK` with an empty body — `curl -sf` exits 0 on
 success and non-zero on any HTTP error, which is what scripts want.
 
+For building, flag and environment-variable tuning, resource limits,
+and the security posture of the daemon itself, see
+[Operating bca-web](../commands/web-server.md).
+
 ## Compute metrics for an inline snippet
 
 ```bash

@@ -61,12 +61,21 @@ bca-web [OPTIONS]
   effective CPU count — cgroup-quota- and cpuset-aware on Linux — matching
   the `bca` CLI's `--jobs`.
 - `--host <HOST>`: IP address where the server should run (default is 127.0.0.1).
-- `--port <PORT>`: Port to be used by the server (default is 8080).
+- `-p, --port <PORT>`: Port to be used by the server (default is 8080).
 - `--parse-timeout-secs <SECS>`: Per-parse timeout in seconds (default
   is 30). `0` disables the timeout. A request whose parse exceeds this
   deadline returns `504 Gateway Timeout`.
+- `--cors <ORIGINS>`: Enable CORS for a comma-separated origin allow-list
+  (off by default).
 - `-h, --help`: Show help information.
-- `-v, --version`: Show version information.
+- `-V, --version`: Show version information.
+
+For the full operations story, including environment variables
+(`BCA_MAX_ORPHANED_TASKS`, `RUST_LOG`), the request-body and
+orphaned-task limits, and the trust boundaries to respect before
+exposing the daemon, see [Operating bca-web][operating].
+
+[operating]: https://dekobon.github.io/big-code-analysis/commands/web-server.html
 
 ## Examples
 
