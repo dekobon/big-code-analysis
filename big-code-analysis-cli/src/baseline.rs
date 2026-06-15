@@ -31,7 +31,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::thresholds::{breaches_limit, Violation};
+use crate::thresholds::{Violation, breaches_limit};
 
 /// Schema version. Bump on breaking format changes.
 ///

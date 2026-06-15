@@ -316,8 +316,7 @@ fn parse_ls_tree_record_splits_metadata_from_path() {
     // `ls-tree -z` record shape (#838). The tab separates the ASCII
     // metadata from the raw path bytes.
     let record = b"100644 blob af2e53dad6d308041205aceaba5337eb90585ec9\tsrc/work.rs";
-    let (mode, kind, oid, path) =
-        parse_ls_tree_record(record).expect("well-formed record parses");
+    let (mode, kind, oid, path) = parse_ls_tree_record(record).expect("well-formed record parses");
     assert_eq!(mode, "100644");
     assert_eq!(kind, "blob");
     assert_eq!(oid, "af2e53dad6d308041205aceaba5337eb90585ec9");
