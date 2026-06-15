@@ -1,0 +1,15 @@
+---
+source: src/metrics/npa.rs
+expression: metric.npa
+---
+{
+  "class_npa_sum": 0,
+  "interface_npa_sum": 2,
+  "class_attributes": 0,
+  "interface_attributes": 4,
+  "class_cda": 0.0,
+  "interface_cda": 0.5,
+  "total": 2,
+  "total_attributes": 4,
+  "cda": 0.5
+}
