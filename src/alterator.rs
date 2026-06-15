@@ -518,12 +518,19 @@ impl Alterator for PerlCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Perl::from(node.kind_id()) {
+            // `HeredocBodyStatement` (`<<TAG … TAG`) is the kind
+            // `Checker::is_string` matches for heredoc bodies; flatten it
+            // so its `Interpolation` children collapse into the flat text
+            // payload rather than diverging from `is_string` (#761, the
+            // gap #699 missed — same convention as Ruby `heredoc_body` /
+            // PHP `heredoc`/`nowdoc`).
             Perl::StringSingleQuoted
             | Perl::StringDoubleQuoted
             | Perl::StringQQuoted
             | Perl::StringQqQuoted
             | Perl::BacktickQuoted
-            | Perl::CommandQxQuoted => {
+            | Perl::CommandQxQuoted
+            | Perl::HeredocBodyStatement => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -541,7 +548,17 @@ impl Alterator for BashCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Bash::from(node.kind_id()) {
-            Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString => {
+            // `HeredocBody2` (`<<EOF … EOF`, kind `heredoc_body`) is the
+            // kind `Checker::is_string` matches for heredoc bodies; flatten
+            // it so its interpolation / fragment children collapse into the
+            // flat text payload rather than diverging from `is_string`
+            // (#761, the gap #699 missed — same convention as Ruby
+            // `heredoc_body` / PHP `heredoc`/`nowdoc`).
+            Bash::String
+            | Bash::RawString
+            | Bash::AnsiCString
+            | Bash::TranslatedString
+            | Bash::HeredocBody2 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -1159,5 +1176,46 @@ mod tests {
         let code = b"package main\nfunc main() { r := 'x'; _ = r }\n";
         let root = build_ast::<crate::GoParser>(code, "test.go");
         assert_kind_flattened(&root, "rune_literal");
+    }
+
+    #[test]
+    fn bash_heredoc_body_flattened() {
+        // #761: `Checker::is_string` matches Bash `heredoc_body`
+        // (`Bash::HeredocBody2`) but the alterator omitted it, so a
+        // heredoc body with `${…}` interpolation kept its structured
+        // `expansion` children in the AST dump while `is_string` treated
+        // the whole node as one string. The arm now flattens it — same
+        // convention as Ruby `heredoc_body` / PHP `heredoc`.
+        let code = b"x=1\ncat <<EOF\npre ${x} post\nEOF\n";
+        let root = build_ast::<crate::BashParser>(code, "test.sh");
+        assert_kind_flattened(&root, "heredoc_body");
+        // The flattened body must carry the verbatim interpolated text,
+        // not just the literal fragments.
+        let mut bodies = Vec::new();
+        collect_nodes_by_kind(&root, "heredoc_body", &mut bodies);
+        assert!(
+            bodies.iter().any(|n| n.value.contains("${x}")),
+            "expected the flattened heredoc_body to keep its interpolation text; got {:?}",
+            bodies.iter().map(|n| &n.value).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn perl_heredoc_body_statement_flattened() {
+        // #761: `Checker::is_string` matches Perl `heredoc_body_statement`
+        // (`Perl::HeredocBodyStatement`) but the alterator omitted it, so a
+        // heredoc body with interpolation kept its structured
+        // `interpolation` children in the AST dump while `is_string`
+        // treated the whole node as one string. The arm now flattens it.
+        let code = b"my $x = 1;\nmy $s = <<\"EOF\";\npre $x post\nEOF\n";
+        let root = build_ast::<crate::PerlParser>(code, "test.pl");
+        assert_kind_flattened(&root, "heredoc_body_statement");
+        let mut bodies = Vec::new();
+        collect_nodes_by_kind(&root, "heredoc_body_statement", &mut bodies);
+        assert!(
+            bodies.iter().any(|n| n.value.contains("$x")),
+            "expected the flattened heredoc_body_statement to keep its interpolation text; got {:?}",
+            bodies.iter().map(|n| &n.value).collect::<Vec<_>>()
+        );
     }
 }
