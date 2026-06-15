@@ -31,7 +31,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::thresholds::Violation;
+use crate::thresholds::{breaches_limit, Violation};
 
 /// Schema version. Bump on breaking format changes.
 ///
@@ -562,20 +562,18 @@ impl Baseline {
         let recorded = self
             .match_in_group(&key, v)
             .or_else(|| self.match_by_hash(&key, v));
-        // Covered = the metric has not worsened relative to the baseline.
-        // For lower-is-worse metrics that means a value at or *above* the
-        // recorded one; for every other metric, at or below it.
-        let covered = |value: f64, recorded: f64| {
-            if v.lower_is_worse {
-                value >= recorded
-            } else {
-                value <= recorded
-            }
-        };
+        // Covered = the metric has not worsened relative to the baseline,
+        // i.e. it does not breach the recorded value as a limit. Reuse the
+        // gate's direction-aware `breaches_limit` so the ratchet and the
+        // gate provably agree on metric direction. The NaN arm below runs
+        // first, so the negation never sees NaN (for which `breaches_limit`
+        // returns `false`, which would otherwise read as covered).
         match recorded {
             None => Coverage::New,
             Some(recorded) if v.value.is_nan() => Coverage::Regressed { recorded },
-            Some(recorded) if covered(v.value, recorded) => Coverage::Covered { recorded },
+            Some(recorded) if !breaches_limit(v.value, recorded, v.lower_is_worse) => {
+                Coverage::Covered { recorded }
+            }
             Some(recorded) => Coverage::Regressed { recorded },
         }
     }

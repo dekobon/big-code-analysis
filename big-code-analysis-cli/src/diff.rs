@@ -459,8 +459,8 @@ pub(crate) fn validate_since_ref(since_ref: &str) -> Result<(), String> {
 /// so it auto-cleans on every exit path, including errors).
 ///
 /// Enumerates the blobs in `<ref>`'s tree with `git ls-tree -r -z` and
-/// streams each blob's content with `git cat-file --batch`, writing the
-/// raw bytes to `dest`. This deliberately replaces the former
+/// writes each blob's content (read with `git cat-file blob <oid>`) to
+/// `dest`. This deliberately replaces the former
 /// `git archive --format=tar` route, which silently honoured the
 /// `export-ignore` / `export-subst` gitattributes: an `export-ignore`'d
 /// source file was omitted from the archive entirely, so it appeared as
