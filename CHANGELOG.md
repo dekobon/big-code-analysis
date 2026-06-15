@@ -23,6 +23,15 @@ for historical reference.
 
 ### Added
 
+- `MetricSet::resolved()` returns the set closed under
+  `Metric::dependencies` (idempotent), the set-in/set-out counterpart of
+  `from_slice_with_deps` (#743).
+- `defang_formula` is now public (re-exported from the crate root) so the
+  CLI's VCS-report CSV writer can share the lib's CWE-1236 spreadsheet
+  formula-injection mitigation rather than duplicating it (#794).
+- `AuthorId::has_identity()` reports whether a VCS author carries any
+  usable name or email key (#817).
+
 - `LANG::Objc` (slug `objc`) and the `objc` Cargo feature: dedicated
   Objective-C support backed by upstream `tree-sitter-objc` `=3.0.2`,
   owning the `.m` extension and the `objc` / `objective-c` emacs modes
@@ -1040,6 +1049,10 @@ for historical reference.
   namespaced names (#649).
 
 ### Changed
+
+- VCS JIT scoring diffs each touched blob once (computing added/deleted
+  counts and hunk count from a single `Diff::compute`) instead of twice,
+  with bit-identical results (#815).
 
 - The HTML and Markdown report's headline **Average MI** is now the
   **SLOC-weighted mean of the *unclamped* Visual Studio MI** and is
@@ -2363,6 +2376,97 @@ for historical reference.
 
 ### Fixed
 
+- Cross-language metric consistency: several per-language metrics were
+  brought into line with their siblings. ABC now counts numeric-truthy
+  operands in Python/JS/TS boolean slots (`if 5:`, `while (5)`, `x && 5`)
+  (#772) and counts a Kotlin bare `if`/`while`/`do-while` predicate as
+  one condition (#773); cognitive complexity resets nesting and applies
+  the function-depth surcharge at nested PHP function/method boundaries
+  (#775); cyclomatic no longer counts the head clause of a single-clause
+  Elixir anonymous function (#776); JS-family LLOC no longer counts
+  `statement_block` brace groupings as logical lines (#777); multi-line
+  string interior rows now count as PLOC (not blank) across all languages
+  with multi-line strings, matching Python (#778); `nexits` now counts Go
+  `panic` and Lua `error`/`os.exit` as abrupt exits (#779); `npa` no
+  longer counts C# interface fields with explicit `private`/`protected`
+  as public (#780) nor PHP enum cases as attributes (#781); and `npm` no
+  longer counts a C# property's narrowed (`private`/`protected`) accessor
+  as a public method (#783). These shift the affected languages' metric
+  values; integration snapshots are re-baselined.
+- `loc.sloc` under `--exclude-tests` now drops the lines of `#[test]`
+  functions nested in retained `impl`/`trait`/closure spaces, not only
+  top-level `#[cfg(test)] mod`, matching `loc.ploc` and the MI SLOC term
+  (#741).
+- `MetricsOptions::with_metric_set` now resolves the supplied
+  `MetricSet`'s dependency closure before storing it, so a derived metric
+  (`Mi`/`Wmc`) selected via a hand-built set no longer computes from
+  zero-valued prerequisites (#743).
+- The `nargs` text (`Display`) output now reports `function_args` /
+  `closure_args` as the cross-space sum, matching the JSON/YAML/TOML/CBOR
+  serializers (#782).
+- Markdown VCS bus-factor directory cells are now GFM-escaped, so a `|`
+  in a directory path no longer corrupts the table (#739). `bca preproc`
+  recovers its worker accumulator without panicking on a poisoned mutex
+  or un-joined `Arc` (#740).
+- Output edge cases: Checkstyle clamps a `Some(0)` column to `column="1"`
+  (#784); SARIF neutralizes a scheme-ambiguous colon in a relative path's
+  first segment with a `./` prefix (#798); and the human-readable number
+  formatter renders a tiny negative that rounds to zero as `0`, not `-0`
+  (#800).
+- `read_file_with_eol` now skips UTF-16 BE/LE BOM files (`Ok(None)`)
+  instead of stripping the BOM and parsing the interleaved-NUL body as
+  garbage, and propagates a genuine probe-read I/O error as `Err` instead
+  of swallowing it as `Ok(None)` (#803, #804).
+- Comment removal preserves the source file's existing line-ending
+  convention: stripping comments from a CRLF file no longer emits LF in
+  the removed-comment region (#767).
+- `Ast::ops` no longer invents a synthetic `<anonymous>` name for unnamed
+  `Unit` spaces (their `Ops::name` is `None`), and now wraps an
+  ERROR-root parse in a synthetic `Unit` space instead of returning
+  `Err(EmptyRoot)`, matching `metrics()` (#755, #789).
+- `CountCollector::into_count` trips a `debug_assert!` when called while
+  the collector is still shared (a worker failed to join) instead of
+  silently returning a non-final snapshot (#757).
+- A `cfg(not(X), …)`-led top-level comma list ending in `)` no longer
+  swallows a trailing `test` operand, so such items are correctly
+  classified test-only under `--exclude-tests` (#763).
+- The C/C++ macro-masking prepass treats a C++14/C23 digit-separator `'`
+  (`1'000`, `0xDEAD'BEEF`) as numeric rather than a char-literal opener,
+  so macros after such a literal are still masked (#765).
+- The predefined-macro and special-token tables no longer list the
+  nonexistent `UINT*_MIN` macros (#760) or the non-type `char64_t` /
+  `charptr_t` specials (#762).
+- Bash `heredoc_body` and Perl `heredoc_body_statement` now flatten in
+  the AST dump, matching `Checker::is_string` (#761).
+- VCS correctness: rollback revert-detection is now subject-anchored so a
+  body-prose "rollback" no longer flags a commit as a revert (#806); the
+  security-fix classifier requires a qualifier for `injection`/`overflow`
+  and drops the bare ambiguous terms (#808); a persistent history-cache
+  entry written from a shallow clone is no longer reused after the repo
+  is deepened (and vice versa) (#810); `Co-authored-by:` is only honoured
+  in a commit's final trailer block, so a body-quoted co-author is no
+  longer counted (#812); authors with no name and no email are dropped
+  from the participant set instead of collapsing into one phantom
+  identity (#817); and a rename-only file with a space in its new path is
+  no longer truncated, taking the path from the authoritative `rename to`
+  line (#813).
+- VCS arithmetic is now saturating/checked at the blame line-number,
+  window-cutoff, days-rounding, and cross-author edit-sum sites,
+  restoring the subsystem's no-panic invariant on extreme/degenerate
+  inputs (#742, #809, #814, #820, #821).
+- `Node::child_by_field_name` returns `Node<'a>` (the tree lifetime)
+  instead of a borrow-scoped `Node<'_>`, so callers can hold a child past
+  the parent borrow (#786).
+- Documentation/comment accuracy: the crate-level Supported Languages
+  rustdoc now lists Objective-C and three corrected slugs, guarded by a
+  drift test (#769); and numerous stale or misleading comments/docs were
+  corrected across the CSV/dump/parser/output modules, the suppression
+  hint (now derived from `Metric::suppressible()`), the VCS jit/score/
+  trend/wire/error/identity modules, and the book (#764, #766, #771,
+  #774, #788, #790, #791, #792, #793, #795, #796, #797, #799, #801, #802,
+  #805, #807, #816, #818, #819, #822, #823). The `tokens` metric gained
+  smoke tests for C/Objc/Elixir/Ruby/iRules and a strengthened C++
+  attribution test (#785, #787).
 - `read_file_with_eol` now validates its 64-byte UTF-8 probe at the
   byte level with `std::str::from_utf8` instead of the previous
   `from_utf8_lossy` + unconditional `pop` + `U+FFFD` scan (#746, #758).
@@ -3629,6 +3733,17 @@ for historical reference.
   to the script (#708).
 
 ### Security
+
+- The VCS-report CSV writer (`bca vcs --format csv`) now defangs the
+  free-text `path` column against spreadsheet formula injection
+  (CWE-1236), closing the second emission path that bypassed the #703 fix
+  in the standard CSV output (#794).
+- The `--emit-author-details` author hash is now documented honestly as a
+  stable pseudonym (it avoids emitting plaintext emails and deters casual
+  disclosure) rather than "irreversible": an unsalted SHA-256 of a
+  low-entropy, enumerable email is recoverable against a candidate email
+  set (the Gravatar weakness). Opt-in keyed/salted hardening is tracked
+  as a follow-up (#811).
 
 - CSV output now defangs spreadsheet formula injection (CWE-1236): a
   `path` or `space_name` cell beginning with `=` `+` `-` `@` tab or CR is
