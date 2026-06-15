@@ -188,19 +188,31 @@ auto-fix, mirroring CI behaviour.
 **`_native.pyi` is stubtest-gated (#673).** The hand-written PyO3 stub
 `big-code-analysis-py/python/big_code_analysis/_native.pyi` is no
 longer "kept in lockstep by hand" on trust alone: `make py-stubtest`
-runs `python -m mypy.stubtest big_code_analysis._native` against the
-freshly `maturin develop`-built extension, diffing names, signatures,
-and **defaults** — catching the `#[pyo3(signature = …)]`-vs-stub drift
-that the usage-only `make py-typecheck` (mypy/pyright over call sites)
-cannot see (#583 shipped one such drift). It is wired into `make
+runs `python -m mypy.stubtest big_code_analysis._native
+big_code_analysis.vcs` against the freshly `maturin develop`-built
+extension, diffing names, signatures, and **defaults** — catching the
+`#[pyo3(signature = …)]`-vs-stub drift that the usage-only `make
+py-typecheck` (mypy/pyright over call sites) cannot see (#583 shipped
+one such drift). The second module argument extends the same gate to
+the `vcs` submodule (`rank` / `trend` / `commit` / `score_diff` / the
+`Options` constructor) via its `big_code_analysis.vcs` facade and
+`vcs.pyi` stub (#854 — the submodule was previously allowlisted out
+wholesale, reopening the #583 gap). It is wired into `make
 pre-commit` and `make ci` (chained after `py-test`, sharing its
 `maturin develop` build) and skips cleanly when the venv / maturin /
 stubtest are absent. When you change a PyO3 signature or default
 (`src/lib.rs`, `src/batch.rs`, `src/analysis.rs`, the `vcs` module),
-update `_native.pyi` to match and re-run `make py-stubtest`; the
-deliberate facade differences (the `vcs` submodule, runtime `__all__`)
-live in `big-code-analysis-py/stubtest-allowlist.txt` — keep that list
-minimal so it never masks real drift.
+update `_native.pyi` **or** `vcs.pyi` to match and re-run `make
+py-stubtest`; the only remaining allowlisted entries are genuinely-
+deliberate facade differences (the `_native.vcs` submodule *attribute*
+— its signatures are checked via the facade run — and runtime
+`__all__`), which live in
+`big-code-analysis-py/stubtest-allowlist.txt` — keep that list
+minimal so it never masks real drift. Note PyO3 exposes a
+`#[new]` constructor as `__new__` (not `__init__`) and renders a
+computed default like `commit = "HEAD".to_owned()` as `...`
+(Ellipsis) in `__text_signature__`, so the stub must mirror those
+runtime shapes for the gate to pass.
 
 **Baseline-refresh discipline.** Any change that moves a *baselined*
 metric past its recorded `.bca-baseline.toml` value must refresh the

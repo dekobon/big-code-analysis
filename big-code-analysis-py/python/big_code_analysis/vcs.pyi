@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 from datetime import datetime
+from typing import final
 
 from ._types import (
     JitCommitReportDict,
@@ -20,6 +21,7 @@ from ._types import (
     VcsTrendDict,
 )
 
+@final
 class Options:
     """Shared change-history options for :func:`rank`, :func:`trend`, and
     :func:`commit`.
@@ -57,8 +59,14 @@ class Options:
         ``0.5``).
     """
 
-    def __init__(
-        self,
+    # PyO3 exposes the `#[new]` constructor as `__new__` (not `__init__`),
+    # so `make py-stubtest` (#673/#854) compares this against the Rust
+    # `PyVcsOptions::py_new` `#[pyo3(signature = …)]` — parameter names and
+    # defaults must stay in lockstep. The runtime introspects the defaults
+    # directly (`Options.__text_signature__`), so a drift in any default
+    # below fails the gate.
+    def __new__(
+        cls,
         *,
         long_window: str | None = None,
         recent_window: str | None = None,
@@ -74,7 +82,7 @@ class Options:
         emit_author_details: bool = False,
         include_deleted: bool = False,
         bus_factor_threshold: float | None = None,
-    ) -> None: ...
+    ) -> Options: ...
 
 def rank(
     repo_path: str | os.PathLike[str],
@@ -142,7 +150,12 @@ def commit(
     repo_path: str | os.PathLike[str],
     /,
     *,
-    commit: str = "HEAD",
+    # The Rust default is `"HEAD".to_owned()`, a *computed* default PyO3
+    # cannot render in `__text_signature__`, so the runtime reports `...`
+    # (Ellipsis). stubtest (#854) compares against that runtime value, so
+    # the stub must spell the default `...` too; the documented default is
+    # `"HEAD"` (see the docstring and the Rust `#[pyo3(signature = …)]`).
+    commit: str = ...,
     options: Options | None = None,
 ) -> JitCommitReportDict:
     """Score a single commit for just-in-time (commit-level) risk.

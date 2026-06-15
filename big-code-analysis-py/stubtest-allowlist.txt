@@ -13,9 +13,14 @@
 
 # The `vcs` submodule is exposed to Python under its own `vcs.pyi` stub (and
 # the `big_code_analysis.vcs` pure-Python facade), not inlined into
-# `_native.pyi`. stubtest only diffs the module it is pointed at, so it sees
-# the nested `vcs` attribute as "missing from the stub". The submodule's
-# surface is covered separately by mypy/pyright against `vcs.pyi`.
+# `_native.pyi`. stubtest reports the nested `vcs` *attribute* on `_native`
+# as "missing from the stub" — this single line suppresses ONLY that
+# attribute-existence check. The submodule's actual signatures and defaults
+# are NOT exempted: `make py-stubtest` runs a second stubtest pass over
+# `big_code_analysis.vcs` (the facade re-exporting the native submodule)
+# against `vcs.pyi`, so `rank` / `trend` / `commit` / `score_diff` / the
+# `Options` constructor are diffed for signature/default drift the same way
+# `_native` is (#854 closed the gap #583 first surfaced).
 big_code_analysis._native.vcs
 
 # PyO3 emits a runtime `__all__` listing every exported symbol. The stub

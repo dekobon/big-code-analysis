@@ -666,14 +666,14 @@ py-stubtest:
 	  if "$(BCA_PY_DIR)/.venv/bin/python" -c "import mypy.stubtest" >/dev/null 2>&1; then \
 	    echo "Building extension + running mypy stubtest (venv)..."; \
 	    (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet && \
-	      .venv/bin/python -m mypy.stubtest big_code_analysis._native \
+	      .venv/bin/python -m mypy.stubtest big_code_analysis._native big_code_analysis.vcs \
 	        --allowlist stubtest-allowlist.txt) || \
 	      { echo "stubtest found stub/runtime drift"; exit 1; }; \
 	  else echo "mypy stubtest not found in venv; skipping py-stubtest"; fi; \
 	elif command -v maturin >/dev/null 2>&1 && python -c "import mypy.stubtest" >/dev/null 2>&1; then \
 	  echo "Building extension + running mypy stubtest..."; \
 	  (cd "$(BCA_PY_DIR)" && maturin develop --quiet && \
-	    python -m mypy.stubtest big_code_analysis._native \
+	    python -m mypy.stubtest big_code_analysis._native big_code_analysis.vcs \
 	      --allowlist stubtest-allowlist.txt) || \
 	    { echo "stubtest found stub/runtime drift"; exit 1; }; \
 	else echo "maturin or mypy stubtest not found; skipping py-stubtest"; fi
