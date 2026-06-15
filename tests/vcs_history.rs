@@ -417,23 +417,29 @@ fn entropy_windows_split_recent_from_long() {
 
 #[test]
 fn cochange_counts_deleted_partners_independent_of_include_deleted() {
-    // A surviving file that historically co-changed with a since-deleted
-    // file should carry that coupling regardless of `--include-deleted`:
+    // A surviving file that historically co-changed with since-deleted
+    // files should carry that coupling regardless of `--include-deleted`:
     // the co-change graph is built from the full commit, while the flag
     // only governs which files get a Stats record. This pins the
-    // documented "graph spans all touched files" design.
+    // documented "graph spans all touched files" design (#328).
+    //
+    // #950: with a SINGLE deleted partner, `kept`'s co-change-degree
+    // distribution is {1}, whose entropy is 0.0 — but so is the entropy of
+    // an *empty* distribution, so the old `kept(false) == kept(true)`
+    // assertion held even if the deleted edge were dropped (0.0 == 0.0).
+    // Give `kept` TWO distinct deleted partners co-changed once each, so
+    // the degree distribution is {1, 1} → entropy exactly 1.0 bit when the
+    // edges survive, collapsing to 0.0 if either flag drops them.
     let repo = Repo::init();
     repo.write("kept.rs", "fn k() {}\n");
-    repo.write("gone.rs", "fn g() {}\n");
-    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "feat: pair");
-    repo.git(&["rm", "-q", "gone.rs"]);
+    repo.write("gone_a.rs", "fn ga() {}\n");
+    repo.write("gone_b.rs", "fn gb() {}\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "feat: trio");
+    repo.git(&["rm", "-q", "gone_a.rs"]);
+    repo.git(&["rm", "-q", "gone_b.rs"]);
     repo.write("kept.rs", "fn k() {}\nfn k2() {}\n");
     repo.commit("Ada", "ada@example.com", FIXED_NOW - 10 * DAY, "drop gone");
 
-    // `kept` co-changed with `gone` once (the pair commit) → a single
-    // neighbour → co-change entropy 0 either way, but the edge exists.
-    // To make the neighbour count load-bearing, the value we assert is
-    // the same under both flag settings.
     let kept = |include_deleted| {
         let mut options = opts();
         options.include_deleted = include_deleted;
@@ -443,9 +449,21 @@ fn cochange_counts_deleted_partners_independent_of_include_deleted() {
             .expect("kept.rs present at HEAD")
             .cochange_entropy_long
     };
+
+    // Two equal-weight deleted neighbours {1, 1} → 1.0 bit. This drops to
+    // 0.0 if the deleted-partner edges are pruned (the exact regression the
+    // test names), so the magnitude — not just the equality — is what makes
+    // it discriminating.
+    let with_deleted = kept(true);
+    assert!(
+        (with_deleted - 1.0).abs() < 1e-9,
+        "two surviving deleted-partner edges → 1 bit of co-change entropy, got {with_deleted}"
+    );
+    // …and the value must not depend on --include-deleted: the graph spans
+    // all touched files regardless of which get a Stats record.
     assert_eq!(
         kept(false),
-        kept(true),
+        with_deleted,
         "co-change entropy must not depend on --include-deleted"
     );
 }
