@@ -2384,6 +2384,10 @@ for historical reference.
   paths in a backtick code span so Markdown-active characters (`_`, `*`,
   `` ` ``) no longer leak into the italic footnote's emphasis, matching the
   HTML footer's escaping (#848).
+- Report (CLI): advisory cutoff labels and the populations they count now
+  describe the same boundary — fractional manifest `cyclomatic` / `cognitive`
+  / `halstead.bugs` thresholds are rounded at resolution to the precision the
+  label prints, mirroring the existing `loc.sloc` / `nargs` rounding (#845).
 - Cross-language metric consistency: several per-language metrics were
   brought into line with their siblings. ABC now counts numeric-truthy
   operands in Python/JS/TS boolean slots (`if 5:`, `while (5)`, `x && 5`)

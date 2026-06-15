@@ -92,12 +92,18 @@ impl AdvisoryThresholds {
     pub(crate) fn from_manifest_hard(hard: &BTreeMap<String, f64>) -> Self {
         let mut resolved = Self::DEFAULT;
         let mut any = false;
+        // Cyclomatic and cognitive are integer-valued in this codebase
+        // (`m.cyclomatic.cyclomatic() as f64`), and the report labels render
+        // them with `{:.0}`. Round (not truncate) at resolution so the
+        // displayed `CC > N` band and the `count_over` comparison describe the
+        // same boundary; a fractional manifest cutoff like `10.5` would
+        // otherwise print `> 10` while counting `> 10.5` (issue #845).
         if let Some(&v) = hard.get(KEY_CYCLOMATIC) {
-            resolved.cc = v;
+            resolved.cc = v.max(0.0).round();
             any = true;
         }
         if let Some(&v) = hard.get(KEY_COGNITIVE) {
-            resolved.cognitive = v;
+            resolved.cognitive = v.max(0.0).round();
             any = true;
         }
         // `loc.sloc` / `nargs` are integer-shaped metrics; a manifest carries
@@ -113,8 +119,12 @@ impl AdvisoryThresholds {
             resolved.nargs = v.max(0.0).round() as u64;
             any = true;
         }
+        // Halstead bugs is genuinely fractional and its label renders with
+        // `{:.1}`. Round to one decimal at resolution so the printed cutoff
+        // and the `count_over` comparison agree at that precision (issue #845).
         if let Some(&v) = hard.get(KEY_BUGS) {
-            resolved.bugs = v;
+            const BUGS_LABEL_SCALE: f64 = 10.0; // one decimal place, matching `{:.1}`
+            resolved.bugs = (v.max(0.0) * BUGS_LABEL_SCALE).round() / BUGS_LABEL_SCALE;
             any = true;
         }
         resolved.source = if any {
@@ -209,6 +219,26 @@ mod tests {
         // Unspecified keys keep their defaults.
         assert_eq!(resolved.cognitive, DEFAULT_COGNITIVE);
         assert_eq!(resolved.sloc, DEFAULT_SLOC);
+    }
+
+    #[test]
+    fn fractional_cutoffs_round_to_the_displayed_boundary() {
+        // A fractional manifest cutoff must resolve to the same boundary the
+        // label prints, so the band the report names equals the population
+        // `count_over` tallies (issue #845). cc/cognitive render `{:.0}`, so
+        // they round to whole; bugs renders `{:.1}`, so it rounds to one
+        // decimal.
+        let mut hard = BTreeMap::new();
+        hard.insert(KEY_CYCLOMATIC.to_string(), 10.5);
+        hard.insert(KEY_COGNITIVE.to_string(), 14.4);
+        hard.insert(KEY_BUGS.to_string(), 1.05);
+        let resolved = AdvisoryThresholds::from_manifest_hard(&hard);
+        // 10.5 rounds to 11 (banker's-rounding-free `f64::round` rounds half
+        // away from zero), so the label `CC > 11` matches `count_over`'s `> 11`.
+        assert_eq!(resolved.cc, 11.0);
+        assert_eq!(resolved.cc_severe(), 22.0);
+        assert_eq!(resolved.cognitive, 14.0);
+        assert_eq!(resolved.bugs, 1.1);
     }
 
     #[test]
