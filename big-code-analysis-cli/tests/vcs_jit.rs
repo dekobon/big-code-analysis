@@ -243,7 +243,17 @@ fn commit_listed_in_help_jit_hidden() {
         .stdout
         .clone();
     let help = String::from_utf8(out).expect("utf8");
-    assert!(help.contains("commit"), "vcs --help should list `commit`");
+    // Pin to the subcommand *listing* line (`commit  <description>`), not
+    // the word "commit" in description prose — which appears regardless of
+    // whether the canonical subcommand is listed (#913). Mirrors the
+    // line-anchored structure of the negative `jit` assertion below.
+    assert!(
+        help.lines().any(|l| {
+            let t = l.trim_start();
+            t.starts_with("commit ") || t == "commit"
+        }),
+        "vcs --help should list `commit` as a subcommand: {help}"
+    );
     // The hidden alias must not appear as its own listed subcommand line.
     assert!(
         !help
