@@ -344,7 +344,14 @@ fn dispatch_find(
     filters: &Arc<[String]>,
 ) -> std::io::Result<()> {
     let ast = parse_ast(language, source, &path, pr).expect(FEATURES_PINNED);
-    let found = ast.find(&filters[..]).expect("find is infallible today");
+    // A walker error degrades to no output, matching `dispatch_metrics`
+    // / `dispatch_ops`. `Ast::find` is infallible today, but its `Result`
+    // is contracted to become fallible under a future strict-parsing mode
+    // (see `src/spaces.rs`); skipping the file keeps that future `Err`
+    // from panicking a `ConcurrentRunner` worker thread (#839).
+    let Ok(found) = ast.find(&filters[..]) else {
+        return Ok(());
+    };
     if !found.is_empty() {
         // Per-file banner, consistent with `dump` (#690), so interleaved
         // multi-file `find` output stays attributable.
