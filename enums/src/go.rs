@@ -37,3 +37,33 @@ pub fn generate_go(output: &Path, file_template: &str) -> std::io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Issue #863: the generated `FromString` signature must reference Go's
+    // built-in `string` type, not the undefined identifier `String`, or the
+    // emitted package fails to compile with `undefined: String`.
+    #[test]
+    fn from_string_uses_lowercase_go_string_type() {
+        let template = GoTemplate {
+            c_name: "Rust".to_string(),
+            names: vec![(
+                "Identifier".to_string(),
+                false,
+                "identifier".to_string(),
+                "Identifier".to_string(),
+            )],
+        };
+        let rendered = template.render().expect("GoTemplate renders");
+        assert!(
+            rendered.contains("func FromString(str string)"),
+            "FromString must use Go's built-in `string` type, got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("str String"),
+            "FromString must not reference the undefined `String` type, got:\n{rendered}"
+        );
+    }
+}

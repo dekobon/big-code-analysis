@@ -22,7 +22,7 @@ func (st SyntaxType{{ c_name }}) String() string {
 }
 
 // FromString a SyntaxType{{ c_name }} from the string, panic if not found
-func FromString(str String) SyntaxType{{ c_name }} {
+func FromString(str string) SyntaxType{{ c_name }} {
 	switch str {
 		{% for (name, dup, ts_name, _) in names -%}
 		{% if !dup %}
