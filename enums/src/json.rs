@@ -12,6 +12,13 @@ struct JsonTemplate {
     names: Vec<(String, bool, String)>,
 }
 
+// The token text is interpolated into a JSON string literal that is parsed
+// exactly once, so use the single-backslash escape form (escape=false),
+// matching the Rust and Go generators. The double-backslash form
+// (escape=true) is only correct for values that survive a second
+// source-string interpretation layer (issue #862).
+const JSON_TOKEN_ESCAPE: bool = false;
+
 pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> {
     for lang in Lang::into_enum_iter() {
         let language = get_language(&lang);
@@ -25,7 +32,7 @@ pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> 
         let path = output.join(file_name);
         let mut file = File::create(path)?;
 
-        let names = get_token_names(&language, true);
+        let names = get_token_names(&language, JSON_TOKEN_ESCAPE);
 
         let args = JsonTemplate { names };
 
@@ -33,4 +40,97 @@ pub fn generate_json(output: &Path, file_template: &str) -> std::io::Result<()> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Minimal JSON string-literal unescaper, sufficient for the escape
+    // sequences `sanitize_string` can emit (`\"`, `\\`, `\t`, `\n`, `\r`).
+    // A round-trip through this parser proves the generated JSON decodes
+    // back to the original token text; the over-escaping bug (issue #862)
+    // makes it decode to a value carrying a spurious extra backslash.
+    fn json_unescape(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some('"') => out.push('"'),
+                    Some('\\') => out.push('\\'),
+                    Some('t') => out.push('\t'),
+                    Some('n') => out.push('\n'),
+                    Some('r') => out.push('\r'),
+                    Some(other) => {
+                        out.push('\\');
+                        out.push(other);
+                    }
+                    None => out.push('\\'),
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    // Render a single ["name", "ts_name"] row exactly as `generate_json`
+    // would, then extract the quoted ts_name back out of the rendered JSON.
+    fn rendered_ts_name(token: &str) -> String {
+        let ts_name = sanitize_string(token, JSON_TOKEN_ESCAPE);
+        let args = JsonTemplate {
+            names: vec![("Tok".to_string(), false, ts_name)],
+        };
+        let rendered = args.render().expect("template renders");
+        // The row is `["Tok", "<escaped>"]`; capture the second literal.
+        let start = rendered.find("\"Tok\"").expect("name literal present");
+        let after = &rendered[start + "\"Tok\"".len()..];
+        let open = after.find('"').expect("ts_name opening quote");
+        let body = &after[open + 1..];
+        let close = body.find("\"]").expect("ts_name closing quote");
+        body[..close].to_string()
+    }
+
+    // A token that is a single double-quote must serialize to the
+    // single-backslash form `\"`, which JSON decodes back to `"`. Under the
+    // double-backslash bug it serialized to `\\\"`, decoding to `\"`.
+    #[test]
+    fn json_quote_token_round_trips() {
+        let escaped = rendered_ts_name("\"");
+        assert_eq!(
+            escaped, "\\\"",
+            "quote token must use single-backslash form"
+        );
+        assert_eq!(
+            json_unescape(&escaped),
+            "\"",
+            "must decode to the original quote"
+        );
+    }
+
+    // A backslash token decodes back to a single backslash.
+    #[test]
+    fn json_backslash_token_round_trips() {
+        let escaped = rendered_ts_name("\\");
+        assert_eq!(escaped, "\\\\");
+        assert_eq!(json_unescape(&escaped), "\\");
+    }
+
+    // A tab token must serialize to the two-char `\t` escape (decoding to a
+    // real tab), not the literal-backslash `\\t` the bug produced.
+    #[test]
+    fn json_tab_token_round_trips() {
+        let escaped = rendered_ts_name("\t");
+        assert_eq!(escaped, "\\t");
+        assert_eq!(json_unescape(&escaped), "\t");
+    }
+
+    // Mixed special characters all decode back to the original token text.
+    #[test]
+    fn json_mixed_specials_round_trip() {
+        let token = "a\"b\\c\td\ne\rf";
+        let escaped = rendered_ts_name(token);
+        assert_eq!(json_unescape(&escaped), token);
+    }
 }
