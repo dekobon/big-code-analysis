@@ -68,6 +68,51 @@ fn append_only_change_counts_added_not_deleted() {
 }
 
 #[test]
+fn single_pass_blob_stats_count_added_deleted_and_hunks() {
+    // Regression for issue #815: `blob_line_stats` now prepares each blob
+    // diff once and reads insertions, removals, and hunk count off a single
+    // `Diff::compute` pass (the same, un-slider-postprocessed algorithm
+    // `line_counts` uses) instead of diffing twice. These cases pin that the
+    // size totals and the hunk count are unchanged for multi-hunk,
+    // modification, and deletion-only edits.
+
+    // Two separated edits to one file → two added lines, two deleted lines,
+    // and two distinct hunks (the unchanged middle keeps them apart).
+    let repo = Repo::init();
+    repo.write("a.rs", "one\ntwo\nthree\nfour\nfive\nsix\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "init");
+    repo.write("a.rs", "ONE\ntwo\nthree\nfour\nfive\nSIX\n");
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 5 * DAY, "two edits");
+    let report = score(&repo, "HEAD");
+    assert_eq!(report.features.size.lines_added, 2);
+    assert_eq!(report.features.size.lines_deleted, 2);
+    assert_eq!(report.features.size.hunks, 2);
+
+    // In-place modification of a contiguous block → one hunk, equal
+    // add/delete for the replaced lines.
+    let modified = Repo::init();
+    modified.write("b.rs", "alpha\nbeta\ngamma\n");
+    modified.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "init");
+    modified.write("b.rs", "alpha\nBETA\ngamma\n");
+    modified.commit("Ada", "ada@example.com", FIXED_NOW - 5 * DAY, "modify");
+    let report = score(&modified, "HEAD");
+    assert_eq!(report.features.size.lines_added, 1);
+    assert_eq!(report.features.size.lines_deleted, 1);
+    assert_eq!(report.features.size.hunks, 1);
+
+    // Deletion-only edit → lines removed, none added, one hunk.
+    let deleted = Repo::init();
+    deleted.write("c.rs", "keep\ndrop1\ndrop2\nkeep2\n");
+    deleted.commit("Ada", "ada@example.com", FIXED_NOW - 30 * DAY, "init");
+    deleted.write("c.rs", "keep\nkeep2\n");
+    deleted.commit("Ada", "ada@example.com", FIXED_NOW - 5 * DAY, "trim");
+    let report = score(&deleted, "HEAD");
+    assert_eq!(report.features.size.lines_added, 0);
+    assert_eq!(report.features.size.lines_deleted, 2);
+    assert_eq!(report.features.size.hunks, 1);
+}
+
+#[test]
 fn diffusion_counts_distinct_subsystems_and_directories() {
     let repo = Repo::init();
     // A single root commit touching two top-level subsystems.
