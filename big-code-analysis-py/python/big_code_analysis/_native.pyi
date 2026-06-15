@@ -529,6 +529,13 @@ def analyze_paths(
     file (under ``skip_generated=True``) yields no element. The result
     order follows the walk, not any caller-supplied ordering.
 
+    A seed that does not exist (or whose symlink dangles) is surfaced as
+    an :class:`AnalysisFailure` element (``error_kind="IoError"``,
+    ``error="path does not exist"``) rather than silently dropped (#858),
+    keeping parity with the CLI's hard error on a missing ``--paths`` seed
+    (#596). These seed-error elements lead the result list, before the
+    discovered files' results.
+
     Raises
     ------
     ValueError

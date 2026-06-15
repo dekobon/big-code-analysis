@@ -578,7 +578,11 @@ impl VcsRepoCache {
 /// The walk is the discovery step `analyze_batch` lacks; per-file analysis,
 /// the never-raise contract (failures become `AnalysisFailure` elements),
 /// the generated-file filter, and language inference are identical to
-/// `analyze_batch`. The kwarg surface mirrors `analyze` / `analyze_batch`
+/// `analyze_batch`. A seed that does not exist (or whose symlink dangles)
+/// is surfaced as an `AnalysisFailure` element (`error_kind="IoError"`,
+/// `error="path does not exist"`) rather than silently dropped (#858) —
+/// keeping parity with the CLI's hard error on a missing `--paths` seed
+/// (#596) while preserving the never-raise posture of the result vector. The kwarg surface mirrors `analyze` / `analyze_batch`
 /// (`exclude_tests` / `allow_lossy_path` / `skip_generated` / `metrics` /
 /// `vcs` / `vcs_per_function`), so a directory walk threads VCS attachment
 /// through the same shared-per-repo index (#670).
@@ -615,7 +619,7 @@ pub(crate) fn analyze_paths<'py>(
     )?;
     // Discover the corpus off-GIL — the walk is pure filesystem traversal
     // touching no Python objects.
-    let discovered = py.detach(|| walk_paths(&seeds, &filters, respect_gitignore));
+    let walked = py.detach(|| walk_paths(&seeds, &filters, respect_gitignore));
 
     let opts = AnalyzeOptions {
         exclude_tests,
@@ -624,8 +628,25 @@ pub(crate) fn analyze_paths<'py>(
         metrics: metric_set,
     };
     let mut vcs_repos = VcsRepoCache::new(vcs, vcs_per_function);
-    let mut results: Vec<Py<PyAny>> = Vec::with_capacity(discovered.len());
-    for path in &discovered {
+    let mut results: Vec<Py<PyAny>> = Vec::with_capacity(walked.files.len());
+    // A nonexistent / dangling-symlink seed is surfaced as an
+    // `AnalysisFailure` rather than silently dropped (#858). The CLI hard-
+    // errors on a missing `--paths` seed (#596); the binding keeps that
+    // typo *visible* while preserving the never-raise posture of the batch
+    // result vector — a caller looping over results sees the bad seed
+    // instead of mistaking it for an empty directory. `IoError` is the kind
+    // (the seed could not be stat'd), matching how `analyze` maps a missing
+    // single file. Emitted before the discovered files so a caller scanning
+    // the head of the list spots the seed error first.
+    for seed in &walked.missing_seeds {
+        let py_err = PyAnalysisError::synthetic_internal(
+            seed,
+            "path does not exist".to_owned(),
+            ErrorKind::IoError,
+        );
+        results.push(Py::new(py, py_err)?.into_any());
+    }
+    for path in &walked.files {
         push_one_result(py, path, opts, &mut vcs_repos, &mut results)?;
     }
     Ok(results)

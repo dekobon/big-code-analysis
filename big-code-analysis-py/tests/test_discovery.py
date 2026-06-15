@@ -199,6 +199,45 @@ def test_analyze_paths_failure_is_a_failure_element_not_raise(
     assert results[0].error_kind == "UnsupportedLanguage"
 
 
+def test_analyze_paths_nonexistent_seed_is_surfaced_not_dropped(
+    tmp_path: Path,
+) -> None:
+    """#858 / #596 parity: a nonexistent seed surfaces as an
+    ``AnalysisFailure`` rather than being silently dropped.
+
+    The pre-fix walker classified seeds with ``Path::is_file()``, so a
+    nonexistent seed returned ``False`` and was routed into the directory
+    walk, where the single ``Err`` entry was skipped — the bad seed
+    produced no element and no error, indistinguishable from an empty
+    directory. The CLI hard-errors on a missing ``--paths`` seed (#596);
+    the binding keeps that typo visible while preserving the never-raise
+    posture by folding it into a per-seed ``AnalysisFailure``.
+    """
+    missing = tmp_path / "does-not-exist.rs"
+    results = bca.analyze_paths(missing)
+    assert len(results) == 1, "the bad seed must produce exactly one element"
+    failure = results[0]
+    assert isinstance(failure, bca.AnalysisFailure)
+    assert failure.error_kind == "IoError"
+    assert failure.error == "path does not exist"
+    assert failure.path == str(missing)
+
+
+def test_analyze_paths_mixes_valid_dir_and_missing_seed(tmp_path: Path) -> None:
+    """#858: a valid directory seed's files are still discovered alongside
+    a surfaced nonexistent seed — the bad seed does not swallow the good one
+    and is not silently dropped."""
+    good = tmp_path / "good"
+    _write(good, "a.rs", "fn a() {}\n")
+    missing = tmp_path / "typo"
+    results = bca.analyze_paths(good, missing)
+    assert _names(results) == {"a.rs"}, "the valid seed's files must still appear"
+    failures = [r for r in results if isinstance(r, bca.AnalysisFailure)]
+    assert len(failures) == 1
+    assert failures[0].path == str(missing)
+    assert failures[0].error_kind == "IoError"
+
+
 def test_analyze_paths_bad_metric_raises_before_walk(tmp_path: Path) -> None:
     """#658: ``metrics=`` validation runs before the walk (mirrors
     analyze_batch's #268 ordering)."""

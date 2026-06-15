@@ -105,24 +105,75 @@ fn build_globset(patterns: Vec<String>, flag: &str) -> PyResult<GlobSet> {
         .map_err(|e| PyValueError::new_err(format!("building {flag} glob set: {e}")))
 }
 
+/// Classify `seed` without letting a *missing* path masquerade as a real
+/// one. `symlink_metadata` first establishes the seed exists at all (it
+/// stats the link itself, so a dangling symlink correctly errors here —
+/// symmetric with the walk's `follow_links(false)`); a live symlink is then
+/// resolved through `metadata` exactly once to classify its target. Returns
+/// `Ok(true)` for a file, `Ok(false)` for a directory, and `Err` only when
+/// the seed (or a live symlink's target) does not exist — which the caller
+/// surfaces as a nonexistent-seed failure (#858).
+///
+/// This mirrors the CLI's `seed_kind` (`big-code-analysis-cli/src/lib.rs`),
+/// which is binary-private; the duplication keeps the two walk surfaces in
+/// parity on the #596 "a typo in a path seed fails loudly, not silently"
+/// contract.
+fn seed_kind(seed: &Path) -> std::io::Result<bool> {
+    let link_meta = seed.symlink_metadata()?;
+    let meta = if link_meta.file_type().is_symlink() {
+        // Explicitly-named symlink seed: resolve its target once. A
+        // dangling target propagates the `Err` (treated as nonexistent).
+        seed.metadata()?
+    } else {
+        link_meta
+    };
+    Ok(meta.is_file())
+}
+
+/// Outcome of [`walk_paths`]: every discovered file plus the seeds that did
+/// not exist (or whose symlink dangled).
+///
+/// A nonexistent seed is surfaced rather than silently dropped (#858): the
+/// CLI hard-errors on a missing `--paths` seed (#596), and the Python
+/// re-expression keeps parity by handing the bad seeds back to
+/// [`crate::batch::analyze_paths`], which folds each into an
+/// `AnalysisFailure` element — making a caller's typo visible without
+/// breaking the never-raise posture of the batch result vector.
+pub(crate) struct WalkOutcome {
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) missing_seeds: Vec<PathBuf>,
+}
+
 /// Walk every seed in `paths`, returning the discovered files in a stable
-/// order.
+/// order plus any seeds that did not exist.
 ///
 /// Each seed may be a file (emitted directly; the include allow-list is
 /// matched on its basename, the exclude deny-set does not apply — an
 /// explicitly named file is a direct request, #726) or a directory
 /// (walked with gitignore awareness when `respect_gitignore` is true).
 /// Files are de-duplicated across seeds while preserving first-seen
-/// order, so overlapping seeds do not double-analyse a file.
+/// order, so overlapping seeds do not double-analyse a file. A seed that
+/// does not exist (or whose symlink dangles) is collected into
+/// [`WalkOutcome::missing_seeds`] rather than silently skipped (#858);
+/// existence/kind is classified via [`seed_kind`] (`symlink_metadata`), not
+/// `Path::is_file`, so a dangling symlink is detected instead of being
+/// misrouted into the directory walk where it yields nothing.
 pub(crate) fn walk_paths(
     paths: &[PathBuf],
     filters: &WalkFilters,
     respect_gitignore: bool,
-) -> Vec<PathBuf> {
+) -> WalkOutcome {
     let mut out: Vec<PathBuf> = Vec::new();
+    let mut missing: Vec<PathBuf> = Vec::new();
     let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for seed in paths {
-        if seed.is_file() {
+        let Ok(is_file) = seed_kind(seed) else {
+            // A nonexistent / dangling-symlink seed is a caller error, not
+            // an empty directory — surface it (#858 / #596 parity).
+            missing.push(seed.clone());
+            continue;
+        };
+        if is_file {
             let name = seed.file_name().map_or(seed.as_path(), Path::new);
             if filters.includes(name) && seen.insert(seed.clone()) {
                 out.push(seed.clone());
@@ -131,7 +182,10 @@ pub(crate) fn walk_paths(
         }
         walk_seed(seed, filters, respect_gitignore, &mut out, &mut seen);
     }
-    out
+    WalkOutcome {
+        files: out,
+        missing_seeds: missing,
+    }
 }
 
 /// Walk a single seed, appending its discovered files to `out`.
@@ -142,9 +196,11 @@ fn walk_seed(
     out: &mut Vec<PathBuf>,
     seen: &mut std::collections::HashSet<PathBuf>,
 ) {
-    // `WalkBuilder` rooted at the seed: a directory seed yields its tree
-    // (file seeds are emitted directly by `walk_paths` and never reach
-    // here; a nonexistent seed yields one Err entry, skipped below).
+    // `WalkBuilder` rooted at the seed: only existing directory seeds reach
+    // here. File seeds are emitted directly by `walk_paths`, and a
+    // nonexistent / dangling-symlink seed is classified by `seed_kind`
+    // up-front and routed to `WalkOutcome::missing_seeds` (#858), so it
+    // never enters this directory walk.
     // Gitignore handling mirrors the CLI walker's default-on posture;
     // `respect_gitignore=false` is the
     // `analyze_paths(..., respect_gitignore=False)` opt-out.
@@ -222,7 +278,12 @@ mod tests {
     }
 
     fn walked(root: &Path, f: &WalkFilters) -> Vec<PathBuf> {
-        let mut found = walk_paths(&[root.to_path_buf()], f, true);
+        let outcome = walk_paths(&[root.to_path_buf()], f, true);
+        assert!(
+            outcome.missing_seeds.is_empty(),
+            "an existing directory seed must not be reported missing",
+        );
+        let mut found = outcome.files;
         found.sort();
         found
     }
@@ -282,7 +343,7 @@ mod tests {
             true,
         );
         assert_eq!(
-            kept,
+            kept.files,
             vec![vendored.clone()],
             "an explicitly named file must bypass the exclude deny-set (#726)"
         );
@@ -293,7 +354,7 @@ mod tests {
             true,
         );
         assert!(
-            narrowed.is_empty(),
+            narrowed.files.is_empty(),
             "the include allow-list must still narrow an explicit file seed"
         );
         let included = walk_paths(
@@ -302,9 +363,83 @@ mod tests {
             true,
         );
         assert_eq!(
-            included,
+            included.files,
             vec![vendored],
             "a basename include must accept a matching explicit file seed"
+        );
+    }
+
+    #[test]
+    fn nonexistent_seed_is_reported_missing_not_silently_dropped() {
+        // #858 / #596 parity: a nonexistent seed must not vanish — the
+        // pre-fix `is_file()` classification routed it into the directory
+        // walk, where `WalkBuilder` yielded one skipped `Err` and the seed
+        // produced no file *and* no missing-seed entry, indistinguishable
+        // from an empty directory.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("does-not-exist.rs");
+        let outcome = walk_paths(std::slice::from_ref(&missing), &filters(&[], &[]), true);
+        assert!(
+            outcome.files.is_empty(),
+            "a nonexistent seed discovers no files"
+        );
+        assert_eq!(
+            outcome.missing_seeds,
+            vec![missing],
+            "a nonexistent seed must be reported, not silently dropped (#858)"
+        );
+    }
+
+    #[test]
+    fn valid_and_missing_seeds_are_partitioned() {
+        // A mix of one valid directory seed and one nonexistent seed: the
+        // valid seed's files are still discovered, and the bad seed is
+        // surfaced (not silently dropped).
+        let dir = tempfile::tempdir().expect("tempdir");
+        make_tree(dir.path());
+        let missing = dir.path().join("typo");
+        let outcome = walk_paths(
+            &[dir.path().to_path_buf(), missing.clone()],
+            &filters(&[], &[]),
+            true,
+        );
+        let mut files = outcome.files;
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                dir.path().join("src/keep.rs"),
+                dir.path().join("vendor/drop.rs"),
+            ],
+            "the valid seed's files are still discovered alongside a bad seed"
+        );
+        assert_eq!(
+            outcome.missing_seeds,
+            vec![missing],
+            "the nonexistent seed is surfaced even when another seed is valid"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dangling_symlink_seed_is_reported_missing() {
+        // A dangling symlink seed must be detected via `symlink_metadata`,
+        // not `is_file()` (which follows the link and returns false,
+        // misrouting it into the directory walk that yields nothing). This
+        // is the asymmetry #596/#704 fixed on the CLI side.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let link = dir.path().join("dangling.rs");
+        std::os::unix::fs::symlink(dir.path().join("nowhere.rs"), &link)
+            .expect("create dangling symlink");
+        let outcome = walk_paths(std::slice::from_ref(&link), &filters(&[], &[]), true);
+        assert!(
+            outcome.files.is_empty(),
+            "a dangling symlink yields no file"
+        );
+        assert_eq!(
+            outcome.missing_seeds,
+            vec![link],
+            "a dangling-symlink seed must be reported missing, not dropped"
         );
     }
 }
