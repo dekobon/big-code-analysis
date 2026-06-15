@@ -300,7 +300,13 @@ fn section_only_flags_are_mutually_exclusive() {
         ])
         .assert()
         .failure()
-        .code(1);
+        .code(1)
+        // Fail for the *right* reason: the `conflicts_with_all` rejection,
+        // not some other exit-1 path (bad args, panic). A bare `.code(1)`
+        // would pass on any of those (exit 1 is the shared tool-error code).
+        .stderr(predicate::str::contains("cannot be used with"))
+        .stderr(predicate::str::contains("--markers-only"))
+        .stderr(predicate::str::contains("--baseline-only"));
 }
 
 /// The new canonical and old alias spellings collide too: mixing
@@ -319,7 +325,13 @@ fn canonical_and_alias_section_flags_conflict() {
         ])
         .assert()
         .failure()
-        .code(1);
+        .code(1)
+        // Anchor on the conflict error, not a bare exit 1. clap normalizes
+        // the `--only-baseline` alias to its canonical `--baseline-only`
+        // spelling before rendering the error, so assert the canonical name.
+        .stderr(predicate::str::contains("cannot be used with"))
+        .stderr(predicate::str::contains("--markers-only"))
+        .stderr(predicate::str::contains("--baseline-only"));
 }
 
 /// The old `--only-*` spellings must be hidden aliases: they parse, but
