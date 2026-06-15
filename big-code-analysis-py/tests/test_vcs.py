@@ -174,6 +174,38 @@ def test_vcs_metrics_bad_window_raises(tmp_path: Path) -> None:
     assert not isinstance(exc.value, bca.NotARepositoryError)
 
 
+@pytest.mark.parametrize("bad", [0.0, 1.0, 1.5, -0.1, float("nan")])
+def test_vcs_metrics_bad_bus_factor_threshold_raises(tmp_path: Path, bad: float) -> None:
+    """An out-of-range ``bus_factor_threshold`` is rejected (#923).
+
+    The binding wires every ``rank`` call through
+    ``validate_bus_factor_threshold`` (``src/vcs/options.rs``), whose
+    contract is the *open* interval ``(0, 1)`` — so the boundaries
+    ``0.0``/``1.0``, anything outside, and ``NaN`` are all errors. The
+    validator's failure (``InvalidBusFactorThreshold``) is client input
+    but not one of the named subclasses, so — exactly like the bad-window
+    case above — it surfaces as the ``VcsError`` base, stays a
+    ``ValueError``, and is NOT a ``NotARepositoryError``. This guards the
+    binding's wiring of the validator: dropping the validate call,
+    swallowing its error, or mis-classifying it would all turn this red.
+    """
+    repo = _build_repo(tmp_path)
+    with pytest.raises(bca.VcsError, match=r"open interval \(0, 1\)") as exc:
+        bca_vcs.rank(repo, options=bca_vcs.Options(bus_factor_threshold=bad))
+    assert isinstance(exc.value, ValueError)
+    assert not isinstance(exc.value, bca.NotARepositoryError)
+
+
+def test_vcs_metrics_bus_factor_threshold_accepted(tmp_path: Path) -> None:
+    """A valid in-``(0, 1)`` ``bus_factor_threshold`` yields a normal report
+    (#923) — the happy half of the validation contract."""
+    repo = _build_repo(tmp_path)
+    report = bca_vcs.rank(repo, options=bca_vcs.Options(bus_factor_threshold=0.5))
+    assert report["long_window_days"] == 365
+    files = {f["path"]: f for f in report["files"]}
+    assert "work.rs" in files
+
+
 def _build_multifn_repo(root: Path) -> Path:
     """Init a repo whose ``work.rs`` holds two distinct functions.
 
