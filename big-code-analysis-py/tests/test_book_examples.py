@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
 
@@ -580,6 +582,64 @@ def test_pipeline_db_top_n_reports_real_source_path(tmp_path: Path) -> None:
         assert any(row["path"].endswith(s) for s in (".rs", ".py", ".cpp", ".java", "install")), (
             f"path should end in a known fixture suffix, got {row['path']!r}"
         )
+
+
+def test_pipeline_db_reuse_widens_schema(tmp_path: Path) -> None:
+    """Regression (#890): reusing a db when the metric column set grows
+    must not raise.
+
+    ``_persist`` derives its column set per-call but creates the table
+    with ``CREATE TABLE IF NOT EXISTS``. On a reused db the table keeps
+    its original schema; the pre-fix code then ``INSERT``ed with the new
+    (wider) column list and raised
+    ``sqlite3.OperationalError: table metrics has no column named <X>``
+    — directly contradicting the docstring's "survives the addition of
+    new metrics" promise. The fix ``ALTER TABLE ... ADD COLUMN``s every
+    missing column before the insert.
+
+    Exercises ``_persist`` directly rather than ``run()`` so the
+    divergent-schema path is hit deterministically with hand-built rows
+    (a full ``run()`` always derives the same columns, never widening).
+    """
+    mod = _load("pipeline_db")
+    db_path = tmp_path / "metrics.db"
+
+    # First run: a narrow row carrying only the base columns plus one
+    # extra metric.
+    narrow_row = {
+        "path": "a.rs",
+        "name": "f",
+        "kind": "function",
+        "start_line": 1,
+        "end_line": 3,
+        "cyclomatic.sum": 2,
+        "cognitive.sum": 1,
+    }
+    assert mod._persist(db_path, [narrow_row]) == 1
+
+    # Second run on the *same* db with a row carrying a column the first
+    # table lacks (`halstead.volume`). Pre-fix this raised
+    # OperationalError; the fix must ADD COLUMN and insert cleanly.
+    wide_row = {
+        **narrow_row,
+        "name": "g",
+        "halstead.volume": 42,
+    }
+    inserted = mod._persist(db_path, [wide_row])
+    assert inserted == 1, "the widened-schema insert must not be dropped"
+
+    # The new column must be queryable and carry the value just written,
+    # and the old row must still be present with a NULL in the new column.
+    with closing(sqlite3.connect(db_path)) as db:
+        db.row_factory = sqlite3.Row
+        rows = {
+            r["name"]: r["halstead.volume"]
+            for r in db.execute('SELECT name, "halstead.volume" FROM metrics')
+        }
+    assert rows == {"f": None, "g": 42}, (
+        "the pre-existing narrow row must survive (NULL in the new column) "
+        "and the widened row must persist its new-column value"
+    )
 
 
 def test_sarif_upload(tmp_path: Path) -> None:

@@ -218,6 +218,24 @@ def _persist(db_path: Path, rows: list[dict[str, object]]) -> int:
     # write lock on the .db until GC fires.
     with closing(sqlite3.connect(db_path)) as db, db:
         db.execute(f"CREATE TABLE IF NOT EXISTS metrics ({cols_sql})")
+        # Reconcile the live schema with the derived column set on db
+        # reuse (#890). `CREATE TABLE IF NOT EXISTS` keeps the *old*
+        # schema when the table already exists, so a later run carrying a
+        # new metric column (a library upgrade adding a metric, or a prior
+        # run using a narrower `metrics=[...]` selection) would otherwise
+        # fail the INSERT with `OperationalError: table metrics has no
+        # column named <X>`. `ALTER TABLE ... ADD COLUMN` for each missing
+        # column honours the docstring's "survives the addition of new
+        # metrics" promise literally and preserves existing rows (the new
+        # column is NULL on old rows). The reverse case (the new batch is
+        # narrower than the table) already works: the INSERT names only the
+        # current columns and leaves the absent ones NULL. PRAGMA
+        # table_info's row layout is (cid, name, type, ...), so column 1 is
+        # the live column name.
+        existing = {row[1] for row in db.execute("PRAGMA table_info(metrics)")}
+        for column in columns:
+            if column not in existing:
+                db.execute(f'ALTER TABLE metrics ADD COLUMN "{column}"')
         if payload:
             db.executemany(
                 f"INSERT INTO metrics ({cols_sql}) VALUES ({placeholders})",
