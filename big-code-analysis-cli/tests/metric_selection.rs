@@ -61,14 +61,30 @@ fn single_metric_restricts_output() {
 
 /// #691: the comma-separated form and the repeated form union the same
 /// way; `cognitive` pulls in its `nom` dependency, proving deps resolve.
+///
+/// The exact-set assertion is load-bearing (#908): membership-only
+/// checks (`contains("cyclomatic")`, `contains("cognitive")`) stay green
+/// even if `--metrics` were ignored and every metric emitted — the full
+/// set still contains them, and full == full keeps the spelling-equality
+/// check green too. Pinning the set to exactly picks + auto-resolved
+/// deps makes a selection-ignored regression turn it red (the set grows
+/// strictly larger) and proves the `nom` dependency-pull-in the
+/// docstring advertises (`Cognitive => [Nom]`, `src/metric_set.rs`).
 #[test]
 fn comma_and_repeated_forms_union() {
     let (_dir, path) = fixture();
     let comma = metric_keys(&path, &["cyclomatic,cognitive"]);
     let repeated = metric_keys(&path, &["cyclomatic", "cognitive"]);
     assert_eq!(comma, repeated, "comma and repeated forms must agree");
-    assert!(comma.contains("cyclomatic"));
-    assert!(comma.contains("cognitive"));
+    let expected = BTreeSet::from([
+        "cyclomatic".to_string(),
+        "cognitive".to_string(),
+        "nom".to_string(), // auto-resolved: Cognitive => [Nom] (#428)
+    ]);
+    assert_eq!(
+        comma, expected,
+        "selection must restrict to the picks plus their resolved deps"
+    );
 }
 
 /// #691: absent `--metrics` computes every metric — parity with the
