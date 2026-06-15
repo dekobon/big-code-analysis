@@ -428,6 +428,42 @@ fn with_primitive_does_not_resolve_dependencies() {
     );
 }
 
+// The `with_metric_set` builder is the public seam where an unresolved
+// `MetricSet` becomes the closed set the walker computes. Per #743 it
+// MUST close the caller's set under `Metric::dependencies` (unlike the
+// raw `with` primitive pinned above): `empty().with(Mi)` reaching the
+// builder has to gain Loc/Cyclomatic/Halstead, or the MI formula runs
+// against zero-valued inputs. The neighbouring
+// `with_primitive_does_not_resolve_dependencies` only exercises
+// `MetricSet::with`, so it never touches the builder; this test closes
+// that gap by actually calling `with_metric_set`, so dropping
+// `.resolved()` from the builder flips an assertion here (#927).
+#[test]
+fn with_metric_set_resolves_dependencies() {
+    let unresolved = MetricSet::empty().with(Metric::Mi);
+    assert!(
+        !unresolved.contains(Metric::Loc),
+        "test premise: the verbatim set must omit Mi's deps",
+    );
+
+    let opts = crate::MetricsOptions::default().with_metric_set(unresolved);
+    // `MetricsOptions::metrics` is the crate-internal selection the
+    // walker reads; assert the builder closed the dependency set.
+    assert!(opts.metrics.contains(Metric::Mi));
+    assert!(
+        opts.metrics.contains(Metric::Loc),
+        "with_metric_set must pull Loc (Mi dependency)",
+    );
+    assert!(
+        opts.metrics.contains(Metric::Cyclomatic),
+        "with_metric_set must pull Cyclomatic (Mi dependency)",
+    );
+    assert!(
+        opts.metrics.contains(Metric::Halstead),
+        "with_metric_set must pull Halstead (Mi dependency)",
+    );
+}
+
 #[test]
 fn from_str_rejects_unknown_name() {
     let err = "bogus".parse::<Metric>().unwrap_err();
