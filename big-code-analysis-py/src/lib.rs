@@ -275,9 +275,9 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 #[allow(
     clippy::needless_pass_by_value,
     clippy::fn_params_excessive_bools,
-    // Eight keyword-only PyO3 args: each maps to a distinct documented
-    // `analyze()` keyword, so a params struct would only obscure the FFI
-    // signature CPython binds against.
+    // Six keyword-only PyO3 args (plus the positional-only `path`): each
+    // maps to a distinct documented `analyze()` keyword, so a params
+    // struct would only obscure the FFI signature CPython binds against.
     clippy::too_many_arguments
 )]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
