@@ -250,10 +250,19 @@ macro_rules! python_bool_terminal_kinds {
     // `Await` (`await ready()`) evaluates to a boolean in idiomatic
     // async Python — mirrors the C# fix in #372 (lesson 19) which
     // closed the same gap for `AwaitExpression`.
+    //
+    // `Integer` / `Float` are numeric-truthy operands: Python treats
+    // every non-zero number as truthy, so `if 5:` / `x and 5` each
+    // count their numeric literal as a Fitzpatrick unary condition.
+    // Mirrors the Lua `Number` fix (#772). Statically-typed languages
+    // omit numerics (a bare int in a bool slot is a type error); a
+    // dynamically-typed language must count them.
     () => {
         $crate::Python::Identifier
             | $crate::Python::True
             | $crate::Python::False
+            | $crate::Python::Integer
+            | $crate::Python::Float
             | $crate::Python::Call
             | $crate::Python::Attribute
             | $crate::Python::Subscript
@@ -339,12 +348,16 @@ macro_rules! irules_bool_terminal_kinds {
 
 macro_rules! javascript_bool_terminal_kinds {
     // `AwaitExpression` (`await ready()`) is in the terminal set
-    // mirroring the C# reference (lesson 19).
+    // mirroring the C# reference (lesson 19). `Number` is a
+    // numeric-truthy operand: JS treats every non-zero number as
+    // truthy, so `while (5)` / `x && 5` count their numeric literal
+    // as a Fitzpatrick unary condition (#772, mirrors the Lua fix).
     () => {
         $crate::Javascript::Identifier
             | $crate::Javascript::Identifier2
             | $crate::Javascript::True
             | $crate::Javascript::False
+            | $crate::Javascript::Number
             | $crate::Javascript::CallExpression
             | $crate::Javascript::CallExpression2
             | $crate::Javascript::NewExpression
@@ -358,12 +371,15 @@ macro_rules! javascript_bool_terminal_kinds {
 
 macro_rules! mozjs_bool_terminal_kinds {
     // `AwaitExpression` (`await ready()`) is in the terminal set
-    // mirroring the C# reference (lesson 19).
+    // mirroring the C# reference (lesson 19). `Number` is a
+    // numeric-truthy operand (#772, mirrors the Lua fix) — see
+    // `javascript_bool_terminal_kinds!`.
     () => {
         $crate::Mozjs::Identifier
             | $crate::Mozjs::Identifier2
             | $crate::Mozjs::True
             | $crate::Mozjs::False
+            | $crate::Mozjs::Number
             | $crate::Mozjs::CallExpression
             | $crate::Mozjs::CallExpression2
             | $crate::Mozjs::NewExpression
@@ -377,11 +393,16 @@ macro_rules! mozjs_bool_terminal_kinds {
 
 macro_rules! typescript_bool_terminal_kinds {
     // `AwaitExpression` (`await ready()`) is in the terminal set
-    // mirroring the C# reference (lesson 19).
+    // mirroring the C# reference (lesson 19). `Number` (the numeric
+    // *literal*, id 110) is a numeric-truthy operand (#772). The
+    // grammar's other `number` alias, `Number2` (id 133), is the
+    // `predefined_type` keyword `number` in a type annotation — NOT a
+    // value — so it is deliberately omitted from the terminal-bool set.
     () => {
         $crate::Typescript::Identifier
             | $crate::Typescript::True
             | $crate::Typescript::False
+            | $crate::Typescript::Number
             | $crate::Typescript::CallExpression
             | $crate::Typescript::CallExpression2
             | $crate::Typescript::CallExpression3
@@ -399,12 +420,17 @@ macro_rules! typescript_bool_terminal_kinds {
 
 macro_rules! tsx_bool_terminal_kinds {
     // `AwaitExpression` (`await ready()`) is in the terminal set
-    // mirroring the C# reference (lesson 19).
+    // mirroring the C# reference (lesson 19). `Number` (the numeric
+    // *literal*, id 116) is a numeric-truthy operand (#772). The
+    // grammar's other `number` alias, `Number2` (id 139), is the
+    // `predefined_type` keyword `number` in a type annotation — NOT a
+    // value — so it is deliberately omitted from the terminal-bool set.
     () => {
         $crate::Tsx::Identifier
             | $crate::Tsx::Identifier2
             | $crate::Tsx::True
             | $crate::Tsx::False
+            | $crate::Tsx::Number
             | $crate::Tsx::CallExpression
             | $crate::Tsx::CallExpression2
             | $crate::Tsx::CallExpression3
