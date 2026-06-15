@@ -238,5 +238,16 @@ mod tests {
                 );
             }
         }
+
+        // CR-prefix consistency alone would still pass an impl that *dropped*
+        // removed-comment lines (fewer, still-CR-prefixed newlines). Comment
+        // removal blanks lines, never deletes them, so the newline count must
+        // be preserved exactly — pinning the per-line substitution count.
+        let lf_count = |buf: &[u8]| buf.iter().filter(|&&b| b == b'\n').count();
+        assert_eq!(
+            lf_count(&no_comments),
+            lf_count(crlf_source),
+            "comment removal must preserve the CRLF line count, not drop lines"
+        );
     }
 }

@@ -64,22 +64,23 @@ Signed-off-by: Ada Lovelace <ada@example.com>";
 }
 
 #[test]
-fn coauthor_in_prose_last_paragraph_is_not_counted() {
-    // The last paragraph is prose (no trailer-shaped lines beyond the
-    // accidental `Co-authored-by:`), so it is not a trailer block at all.
-    // One trailer-like line out of three is below the 25%-style ratio when
-    // the surrounding prose dominates; even so, the guard is the key
-    // behaviour — a prose paragraph that merely contains the phrase is not
-    // honoured as a trailer block on its own.
+fn coauthor_outside_final_trailer_block_is_not_counted() {
+    // A line-anchored `Co-authored-by:` in an EARLIER paragraph must not be
+    // counted: only the final paragraph (here a real `Signed-off-by:`
+    // trailer block) is honoured. The phantom line starts at column 0, so
+    // the `^`-anchored regex *would* match it under a whole-message scan —
+    // this fixture goes red if trailer-block scoping is dropped, unlike a
+    // merely mid-line prose mention.
     let msg = "\
 Document the convention
 
-We agreed that the footer should read like this:
-the line Co-authored-by: Someone <someone@example.com>
-is what GitHub turns into a co-author, but only in the final block.";
+Co-authored-by: Ghost <ghost@example.com>
+This paragraph explains the footer format we standardized on.
+
+Signed-off-by: Real Dev <real@example.com>";
     assert!(
         coauthor_emails(msg).is_empty(),
-        "an indented/prose co-author mention is not a trailer"
+        "a column-0 co-author outside the final trailer block is not counted"
     );
 }
 
