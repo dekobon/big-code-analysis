@@ -835,28 +835,31 @@ where
     Some(filtered)
 }
 
-/// One section's membership predicate: the spec's own `keep` plus the
+/// Whether `s` is on a section's floor: the spec's static `keep`, except the
+/// Many-Parameters (Nargs) section uses the manifest-resolved advisory cutoff
+/// (issue #630/#844) — `keep` is `nargs > 3`, but a manifest `nargs = N`
+/// overrides that floor so the report tracks the configured gate. Every other
+/// section's floor is independent of `advisory`. The single source of truth
+/// for section membership, shared by `section_keep`, `fully_suppressed_count`,
+/// and `suppressed_metric_breakdown` so they cannot drift on what each table
+/// includes.
+fn on_section_floor(spec: &HotspotSpec, advisory: AdvisoryThresholds, s: &FunctionSummary) -> bool {
+    match spec.metric_kind {
+        Metric::Nargs => s.nargs as u64 > advisory.nargs,
+        _ => (spec.keep)(s),
+    }
+}
+
+/// One section's membership predicate: [`on_section_floor`] plus the
 /// suppression filter for its metric. The single definition shared by
 /// [`select`] and [`select_cc`] so the two cannot diverge on what a section
 /// includes.
-///
-/// `advisory` lets the Many-Parameters section honor a manifest-sourced nargs
-/// cutoff (issue #630): the spec's static `keep` is `nargs > 3`, but when the
-/// manifest sets `nargs = N` the advisory cutoff overrides that floor so the
-/// report's filter matches the configured gate. Every other section's `keep`
-/// is independent of `advisory`.
 fn section_keep(
     spec: &HotspotSpec,
     policy: SuppressionPolicy,
     advisory: AdvisoryThresholds,
 ) -> impl Fn(&FunctionSummary) -> bool + '_ {
-    move |s| {
-        let passes_floor = match spec.metric_kind {
-            Metric::Nargs => s.nargs as u64 > advisory.nargs,
-            _ => (spec.keep)(s),
-        };
-        passes_floor && !s.is_hidden_for(spec.metric_kind, policy)
-    }
+    move |s| on_section_floor(spec, advisory, s) && !s.is_hidden_for(spec.metric_kind, policy)
 }
 
 /// Suppression-filter + sort + top-N for one section. The single entry point
@@ -909,13 +912,9 @@ pub(crate) fn fully_suppressed_count(
     // Membership mirrors the table's own floor — advisory-aware for the
     // Many-Parameters section (issue #630) — so the "fully suppressed" tally
     // never counts rows the advisory cutoff already excluded.
-    let on_floor = |s: &FunctionSummary| match spec.metric_kind {
-        Metric::Nargs => s.nargs as u64 > advisory.nargs,
-        _ => (spec.keep)(s),
-    };
     let mut matched = 0usize;
     let mut hidden = 0usize;
-    for s in base.iter().filter(|s| on_floor(s)) {
+    for s in base.iter().filter(|s| on_section_floor(spec, advisory, s)) {
         matched += 1;
         if s.is_hidden_for(spec.metric_kind, policy) {
             hidden += 1;
@@ -950,6 +949,7 @@ pub(crate) fn fully_suppressed_count(
 pub(crate) fn suppressed_metric_breakdown(
     funcs: &[&FunctionSummary],
     policy: SuppressionPolicy,
+    advisory: AdvisoryThresholds,
 ) -> Vec<(Metric, usize)> {
     if matches!(policy, SuppressionPolicy::Ignore) {
         return Vec::new();
@@ -958,9 +958,15 @@ pub(crate) fn suppressed_metric_breakdown(
         .iter()
         .filter(|spec| matches!(spec.source, Source::Funcs))
         .filter_map(|spec| {
+            // Count the rows on the table's advisory-aware floor that
+            // suppression *hides* (issue #844). `section_keep` yields *kept*
+            // rows (it negates `is_hidden_for`), so reuse the shared floor
+            // predicate and require the row to be hidden instead.
             let hidden = funcs
                 .iter()
-                .filter(|s| (spec.keep)(s) && s.is_hidden_for(spec.metric_kind, policy))
+                .filter(|s| {
+                    on_section_floor(spec, advisory, s) && s.is_hidden_for(spec.metric_kind, policy)
+                })
                 .count();
             (hidden > 0).then_some((spec.metric_kind, hidden))
         })
@@ -1158,7 +1164,11 @@ mod tests {
         }
         let refs: Vec<&FunctionSummary> = funcs.iter().collect();
 
-        let breakdown = suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor);
+        let breakdown = suppressed_metric_breakdown(
+            &refs,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert_eq!(
             breakdown,
             vec![(Metric::Halstead, 3)],
@@ -1191,7 +1201,11 @@ mod tests {
         f.suppressed = SuppressionScope::All;
         let refs = vec![&f];
 
-        let breakdown = suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor);
+        let breakdown = suppressed_metric_breakdown(
+            &refs,
+            SuppressionPolicy::Honor,
+            AdvisoryThresholds::DEFAULT,
+        );
         // `summary` builds a `Function` with every function-table metric > its
         // keep threshold (nargs 5 > 3, etc.) except WMC (class-like only) and
         // MI (unit-level, skipped). `All` covers them all, so each surviving
@@ -1216,6 +1230,47 @@ mod tests {
         assert!(caption.contains("cyclomatic: 1, cognitive: 1, halstead: 1"));
     }
 
+    /// The Nargs entry in the breakdown must honor the manifest advisory
+    /// cutoff, matching the Many-Parameters table's floor, instead of the
+    /// static `nargs > 3` keep (issue #844). A suppressed function with
+    /// `nargs = 4` is hidden by the table only when the cutoff is below 4.
+    #[test]
+    fn breakdown_nargs_honors_advisory_cutoff() {
+        use big_code_analysis::{SuppressionPolicy, SuppressionScope};
+        use std::collections::BTreeSet;
+
+        // Suppress only Nargs so other tables never count this row, isolating
+        // the advisory-aware floor.
+        let mut f = summary("wide", "a.rs", 1, 4.0);
+        f.suppressed = SuppressionScope::Some(BTreeSet::from([Metric::Nargs]));
+        let refs = vec![&f];
+
+        let nargs_count = |advisory| {
+            suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor, advisory)
+                .into_iter()
+                .find(|(m, _)| *m == Metric::Nargs)
+                .map_or(0, |(_, n)| n)
+        };
+
+        // Manifest `nargs = 5`: the Many-Parameters table never hides a
+        // 4-parameter function (4 <= 5), so the breakdown must not count it.
+        let mut high = AdvisoryThresholds::DEFAULT;
+        high.nargs = 5;
+        assert_eq!(
+            nargs_count(high),
+            0,
+            "nargs=4 row is below a nargs=5 cutoff and must not be counted"
+        );
+
+        // Default `nargs = 3`: the table hides the 4-parameter function, so
+        // the breakdown counts it.
+        assert_eq!(
+            nargs_count(AdvisoryThresholds::DEFAULT),
+            1,
+            "nargs=4 row is above the default nargs=3 cutoff and must be counted"
+        );
+    }
+
     /// With no markers (or under `--no-suppress`) the caption drops the
     /// breakdown entirely and states it ignores suppression (issue #672).
     #[test]
@@ -1224,7 +1279,12 @@ mod tests {
         let refs: Vec<&FunctionSummary> = funcs.iter().collect();
 
         assert!(
-            suppressed_metric_breakdown(&refs, SuppressionPolicy::Honor).is_empty(),
+            suppressed_metric_breakdown(
+                &refs,
+                SuppressionPolicy::Honor,
+                AdvisoryThresholds::DEFAULT
+            )
+            .is_empty(),
             "no markers means no breakdown"
         );
 
@@ -1232,7 +1292,11 @@ mod tests {
         let mut suppressed = summary("hidden", "c.rs", 2, 5.0);
         suppressed.suppressed = big_code_analysis::SuppressionScope::All;
         let with_marker = vec![&funcs[0], &suppressed];
-        let breakdown = suppressed_metric_breakdown(&with_marker, SuppressionPolicy::Ignore);
+        let breakdown = suppressed_metric_breakdown(
+            &with_marker,
+            SuppressionPolicy::Ignore,
+            AdvisoryThresholds::DEFAULT,
+        );
         assert!(breakdown.is_empty(), "--no-suppress honors no markers");
 
         let caption = actionable_summary_caption(&breakdown);

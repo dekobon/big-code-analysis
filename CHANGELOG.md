@@ -2388,6 +2388,11 @@ for historical reference.
   describe the same boundary — fractional manifest `cyclomatic` / `cognitive`
   / `halstead.bugs` thresholds are rounded at resolution to the precision the
   label prints, mirroring the existing `loc.sloc` / `nargs` rounding (#845).
+- Report (CLI): the Actionable Summary's suppressed-row breakdown now honors
+  the resolved advisory `nargs` cutoff for the Many-parameters metric, so its
+  count matches what the Many-parameters hotspot table actually hides under a
+  non-default manifest `nargs` threshold; both the Markdown and HTML renderers
+  are affected (#844).
 - Cross-language metric consistency: several per-language metrics were
   brought into line with their siblings. ABC now counts numeric-truthy
   operands in Python/JS/TS boolean slots (`if 5:`, `while (5)`, `x && 5`)

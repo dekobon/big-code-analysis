@@ -165,7 +165,7 @@ pub(super) fn write_actionable_summary(
     let _ = writeln!(out, "\n### Actionable Summary\n");
     // Provenance so the cutoffs are always attributable (issue #630).
     let _ = writeln!(out, "_{}_\n", advisory.provenance_line());
-    let breakdown = super::hotspot::suppressed_metric_breakdown(funcs, policy);
+    let breakdown = super::hotspot::suppressed_metric_breakdown(funcs, policy, advisory);
     let _ = writeln!(
         out,
         "{}\n",

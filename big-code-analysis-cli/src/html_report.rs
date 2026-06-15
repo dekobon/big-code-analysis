@@ -1300,7 +1300,7 @@ fn write_actionable_summary(
         "<p class=\"note\">{}</p>",
         escape_html(advisory.provenance_line())
     );
-    let breakdown = hotspot::suppressed_metric_breakdown(funcs, policy);
+    let breakdown = hotspot::suppressed_metric_breakdown(funcs, policy, advisory);
     let _ = writeln!(
         out,
         "<p class=\"note\">{}</p>",
