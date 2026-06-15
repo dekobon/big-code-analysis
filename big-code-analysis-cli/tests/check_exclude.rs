@@ -190,22 +190,33 @@ fn write_baseline_omits_excluded_files() {
 /// Acceptance: `bca report` continues to show `[check.exclude]` files —
 /// visibility is preserved, only the gate skips them. The report is a
 /// separate command that never consults the check-exclude set, so the
-/// excluded function appears in the markdown hotspot tables.
+/// excluded function appears in the markdown hotspot tables *even when a
+/// deny-set that would hide it under `check` is configured*.
+///
+/// The fixture mirrors `manifest_check_exclude_table_drops_offenders`: a
+/// `.git` marker plus a `bca.toml` whose `[check] exclude = ["**/excluded.rs"]`
+/// demonstrably drops `excluded_offender` from the gate. The load-bearing
+/// assertion is that `excluded_offender` *still appears in the report*
+/// despite being in that deny-set — proving `report` ignores it. (`kept.rs`
+/// is asserted too so a fixture that silently stopped emitting either
+/// offender cannot pass vacuously.) Were `report` to start honoring the
+/// deny-set, `excluded_offender` would vanish from stdout and this fails.
 #[test]
 fn report_markdown_still_shows_excluded_files() {
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("excluded.rs"), branchy("excluded_offender")).unwrap();
+    let dir = two_file_fixture();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 1\n\n[check]\nexclude = [\"**/excluded.rs\"]\n",
+    )
+    .unwrap();
 
     cli(dir.path())
-        .args([
-            "report",
-            "--paths",
-            dir.path().to_str().unwrap(),
-            "markdown",
-        ])
+        .args(["report", "markdown"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("excluded_offender"));
+        .stdout(predicate::str::contains("excluded_offender"))
+        .stdout(predicate::str::contains("kept_offender"));
 }
 
 /// The `bca.toml` `[check] exclude` table drives the gate exactly like
