@@ -19,25 +19,30 @@
 
 use std::fmt::Write as _;
 
-use big_code_analysis::{LANG, Metric};
+use big_code_analysis::Metric;
 
 /// Path of the generated module relative to the crate root.
 pub(crate) const ENUMS_MODULE_PATH: &str = "python/big_code_analysis/_enums.py";
 
 /// Language slugs exposed to Python, in `LANG` declaration order.
 ///
-/// Mirrors [`crate::language::supported_languages`]: only variants
-/// with at least one registered file extension are public (the
-/// `Ccomment` / `Preproc` helpers are filtered out), so every member
-/// round-trips through `analyze_source` and `language_extensions`.
+/// Mirrors [`crate::language::public_languages`] (the
+/// `is_public_language` predicate): the internal `Ccomment` / `Preproc`
+/// helpers are filtered out, while the extension-less opt-in `Mozcpp`
+/// dialect (#720) is included since it is selectable by name. Every
+/// member round-trips through `analyze_source` and `language_extensions`.
+///
+/// This deliberately does **not** mirror
+/// [`crate::language::supported_languages`], which additionally applies
+/// the `is_enabled` Cargo-feature filter: `_enums.py` is a checked-in,
+/// build-feature-independent artifact and must list every public
+/// language regardless of which language features a given build enables.
 fn language_slugs() -> Vec<&'static str> {
-    // Single-source the public-language predicate with the runtime
-    // `supported_languages()` set (`language::is_public_language`) so the
-    // generated `Lang` enum cannot drift from it. Extension-less but
-    // public languages — the opt-in `Mozcpp` dialect since #720 — are
-    // included; only the internal `Ccomment` / `Preproc` helpers are not.
-    LANG::into_enum_iter()
-        .filter(|&lang| crate::language::is_public_language(lang))
+    // Single-source the public-language set with `language::public_languages`
+    // so the generated `Lang` enum cannot drift from it. This is the
+    // feature-independent set; it excludes only the internal `Ccomment`
+    // / `Preproc` helpers and never applies `is_enabled`.
+    crate::language::public_languages()
         .map(|lang| lang.name())
         .collect()
 }
@@ -141,13 +146,23 @@ mod tests {
         );
     }
 
-    /// The `Lang` values must be exactly the public language slugs
-    /// `supported_languages()` exposes — the whole point of #540 is
-    /// that the Python enum, the CLI, and the JSON `language` field
-    /// agree on one slug per language.
+    /// The `Lang` values must be exactly the *feature-independent*
+    /// public language slugs — `is_public_language` applied to every
+    /// `LANG` variant — because `_enums.py` is a checked-in artifact
+    /// that must list every public language regardless of which
+    /// language Cargo features a build enables.
+    ///
+    /// This deliberately compares against `public_languages()`, not
+    /// `supported_languages()`: the latter additionally applies the
+    /// `is_enabled` feature filter, which would silently shrink the
+    /// generated enum under a `--no-default-features --features rust`
+    /// build of the bindings (issue #852).
     #[test]
-    fn lang_slugs_match_supported_languages() {
-        assert_eq!(language_slugs(), crate::language::supported_languages());
+    fn lang_slugs_match_public_languages() {
+        let expected: Vec<&'static str> = crate::language::public_languages()
+            .map(|lang| lang.name())
+            .collect();
+        assert_eq!(language_slugs(), expected);
     }
 
     /// Guard the identifier mapping: every value in scope must yield a

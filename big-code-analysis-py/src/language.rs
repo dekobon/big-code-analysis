@@ -89,16 +89,26 @@ pub(crate) fn language_for_file(path: &Path) -> Result<Option<&'static str>, Ana
 /// registered extension" — since #720 the opt-in `Mozcpp` dialect owns
 /// zero extensions (it is selected explicitly by name) yet is fully
 /// public, so it must remain listed. Single-sourced here and reused by
-/// the `_enums.py` codegen (`codegen::language_slugs`) so the runtime
-/// `supported_languages()` set and the generated `Lang` enum cannot
-/// drift.
+/// the `_enums.py` codegen (`codegen::language_slugs`, via
+/// [`public_languages`]) so the public-language set and the generated
+/// `Lang` enum cannot drift. This is the *feature-independent*
+/// predicate — it does not consider `is_enabled`, which
+/// [`supported_languages`] layers on separately.
 pub(crate) fn is_public_language(lang: LANG) -> bool {
     !matches!(lang, LANG::Ccomment | LANG::Preproc)
 }
 
 /// Iterator over the `LANG` variants exposed to Python — every variant
 /// for which [`is_public_language`] holds.
-fn public_languages() -> impl Iterator<Item = LANG> {
+///
+/// This is the **feature-independent** public-language set: it does
+/// *not* apply the `is_enabled` Cargo-feature filter that
+/// [`supported_languages`] layers on top. The `_enums.py` codegen
+/// (`codegen::language_slugs`) mirrors this set, *not*
+/// `supported_languages`, because the generated artifact is checked in
+/// and must list every public language regardless of which language
+/// features a given build enables.
+pub(crate) fn public_languages() -> impl Iterator<Item = LANG> {
     LANG::into_enum_iter().filter(|&lang| is_public_language(lang))
 }
 
