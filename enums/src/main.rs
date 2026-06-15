@@ -1,36 +1,20 @@
 use std::path::PathBuf;
 
-use clap::Parser;
-use clap::builder::{PossibleValuesParser, TypedValueParser};
+use clap::{Parser, ValueEnum};
 
 use enums::*;
 
-#[derive(Debug, Clone)]
+// `ValueEnum` is the single source of truth for the `--language` values:
+// clap both restricts input to these variants and constructs the enum
+// directly, so there is no separate string table to keep in sync and no
+// fallible parse step that could panic on a drifted value (issue #866).
+#[derive(Debug, Clone, ValueEnum)]
 enum OutputLanguage {
     Rust,
     Go,
     Json,
+    #[value(name = "c_macros")]
     CMacros,
-}
-
-impl std::str::FromStr for OutputLanguage {
-    type Err = &'static str;
-
-    fn from_str(env: &str) -> std::result::Result<Self, Self::Err> {
-        match env {
-            "rust" => Ok(Self::Rust),
-            "go" => Ok(Self::Go),
-            "json" => Ok(Self::Json),
-            "c_macros" => Ok(Self::CMacros),
-            _ => Err("Not a valid value, run `--help` to know valid values"),
-        }
-    }
-}
-
-impl OutputLanguage {
-    const fn variants() -> [&'static str; 4] {
-        ["rust", "go", "json", "c_macros"]
-    }
 }
 
 #[derive(Parser, Debug)]
@@ -45,8 +29,7 @@ struct Opts {
     #[clap(long, short, default_value = ".", value_parser)]
     output: PathBuf,
     /// Target language.
-    #[clap(long, short, default_value = "rust", value_parser = PossibleValuesParser::new(OutputLanguage::variants())
-        .map(|s| s.parse::<OutputLanguage>().unwrap()))]
+    #[clap(long, short, value_enum, default_value_t = OutputLanguage::Rust)]
     language: OutputLanguage,
     /// File name template.
     #[clap(long, short, default_value = "language_$")]
@@ -72,4 +55,38 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::from(2);
     }
     std::process::ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    // Issue #866: an out-of-sync `--language` value must surface as a clap
+    // usage error, never a panic. `ValueEnum` makes the possible-values set
+    // and the constructed enum a single source of truth, so this cannot
+    // regress into the old `.unwrap()` panic on a drifted variant.
+    #[test]
+    fn bogus_language_is_a_usage_error_not_a_panic() {
+        let err = Opts::try_parse_from(["enums", "--language", "nope"])
+            .expect_err("an unknown --language value must be rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
+    }
+
+    // Every renamed / non-default variant must remain reachable from the
+    // CLI; `c_macros` carries the `#[value(name = ...)]` rename.
+    #[test]
+    fn c_macros_value_selects_the_macro_generator() {
+        let opts = Opts::try_parse_from(["enums", "--language", "c_macros"])
+            .expect("c_macros is a valid --language value");
+        assert!(matches!(opts.language, OutputLanguage::CMacros));
+    }
+
+    // clap's own assertion that the derived command is internally
+    // consistent (every variant has a value name, no duplicates), the
+    // compile-time replacement for the hand-maintained variants() table.
+    #[test]
+    fn command_definition_is_well_formed() {
+        Opts::command().debug_assert();
+    }
 }
