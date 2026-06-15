@@ -206,6 +206,43 @@ fn sarif_omitted_optional_fields_validates_against_schema() {
     assert_valid_sarif(&render(&offenders));
 }
 
+#[test]
+fn sarif_relative_path_with_colon_first_segment_is_not_scheme_ambiguous() {
+    // RFC 3986 §4.2: a bare `a:b/c.rs` parses as scheme `a:`, which is
+    // not a valid relative `uri-reference`. The writer must neutralize
+    // it (`./a:b/c.rs`) so `artifactLocation.uri` stays a relative-ref
+    // (#798). Exercised end-to-end through the public `write_sarif`.
+    let offenders = vec![OffenderRecord {
+        path: PathBuf::from("a:b/c.rs"),
+        function: Some("f".into()),
+        start_line: 1,
+        end_line: 1,
+        start_col: Some(1),
+        metric: "cyclomatic".into(),
+        value: 17.0,
+        limit: 15.0,
+        severity: Severity::Warning,
+    }];
+    let out = render(&offenders);
+    let v = parse(&out);
+    let uri = v["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+        ["artifactLocation"]["uri"]
+        .as_str()
+        .expect("uri is a string");
+    assert_eq!(
+        uri, "./a:b/c.rs",
+        "colon in first segment must be neutralized via a ./ prefix"
+    );
+    // The colon must no longer sit before the first `/` (the marker of
+    // a scheme-ambiguous relative-ref under RFC 3986 §4.2).
+    let first_segment = uri.split('/').next().expect("at least one segment");
+    assert!(
+        !first_segment.contains(':'),
+        "first path segment must not contain a colon, got: {uri}"
+    );
+    assert_valid_sarif(&out);
+}
+
 /// Schema-canary self-check: ensures the vendored
 /// `tests/fixtures/sarif-2.1.0.json` parses, declares the Draft-07
 /// dialect, and carries the OASIS canonical `$id`. If a contributor
