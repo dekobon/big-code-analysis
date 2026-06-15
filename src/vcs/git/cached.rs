@@ -102,7 +102,7 @@ pub(crate) fn build_cached(
     // Pure hit: an exact, compatible entry that reaches back far enough.
     let exact_path = cache::entry_path(&repo_dir, &head_sha);
     if let Some(entry) = cache::load(&exact_path).filter(|entry| {
-        entry.is_compatible(fingerprint) && entry.walk_long_boundary <= long_boundary
+        entry.is_compatible(fingerprint, shallow) && entry.walk_long_boundary <= long_boundary
     }) {
         return Ok(assemble(
             seed,
@@ -124,6 +124,7 @@ pub(crate) fn build_cached(
         long_boundary,
         options,
         now,
+        shallow,
     )?;
 
     let index = assemble(seed, &events, options, now, workdir, shallow);
@@ -162,8 +163,15 @@ fn incremental_events(
     long_boundary: i64,
     options: &Options,
     now: i64,
+    shallow: bool,
 ) -> Result<(Vec<CommitEvent>, Option<PathBuf>), Error> {
-    let candidates = load_candidates(repo_dir, fingerprint, long_boundary, options.full_history);
+    let candidates = load_candidates(
+        repo_dir,
+        fingerprint,
+        long_boundary,
+        options.full_history,
+        shallow,
+    );
     let stop_oids: HashSet<gix::ObjectId> = candidates.keys().copied().collect();
 
     let (new_events, stopped) = history::collect_events(repo, head_oid, options, now, &stop_oids)?;
@@ -206,11 +214,12 @@ fn load_candidates(
     fingerprint: u64,
     long_boundary: i64,
     full_history: bool,
+    shallow: bool,
 ) -> HashMap<gix::ObjectId, Candidate> {
     if full_history {
         return HashMap::new();
     }
-    cache::load_compatible(repo_dir, fingerprint)
+    cache::load_compatible(repo_dir, fingerprint, shallow)
         .into_iter()
         // Keep only entries that reach back at least as far as this run's
         // window (a shorter cached reach cannot fill the bottom of it).
