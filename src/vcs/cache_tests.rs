@@ -129,6 +129,17 @@ fn is_compatible_requires_matching_versions_and_fingerprint() {
         "format bump invalidates"
     );
 
+    // `vcs_schema_version` bumps when the emitted output shape changes; an
+    // entry walked under an old shape must not be replayed (#930).
+    let stale_schema = HistoryCache {
+        vcs_schema_version: VCS_SCHEMA_VERSION + 1,
+        ..sample_cache(7)
+    };
+    assert!(
+        !stale_schema.is_compatible(7, false),
+        "vcs schema bump invalidates"
+    );
+
     let stale_score = HistoryCache {
         risk_score_version: RISK_SCORE_VERSION + 1,
         ..sample_cache(7)
