@@ -48,6 +48,26 @@ fn display_covers_every_variant() {
             "unknown risk formula",
         ),
         (
+            Error::InvalidFileTypeScope("empty".to_owned()),
+            "invalid file-type scope: empty",
+        ),
+        (
+            Error::InvalidBusFactorThreshold("1.5".to_owned()),
+            "invalid bus-factor threshold: 1.5",
+        ),
+        (
+            Error::InvalidTrend("one point".to_owned()),
+            "invalid trend parameters: one point",
+        ),
+        (
+            Error::Blame("no such file".to_owned()),
+            "failed to blame file: no such file",
+        ),
+        (
+            Error::InvalidDiff("bad hunk".to_owned()),
+            "invalid unified diff: bad hunk",
+        ),
+        (
             Error::Cache("disk full".to_owned()),
             "history cache error: disk full",
         ),

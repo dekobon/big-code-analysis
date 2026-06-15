@@ -365,10 +365,18 @@ pub fn rank_by_risk<T>(entries: &mut Vec<T>, top: usize, key: impl Fn(&T) -> (&s
 ///
 /// ```no_run
 /// use std::path::Path;
-/// // Two files in the same checkout share one work-tree root.
-/// let a = big_code_analysis::vcs::workdir_root(Path::new("repo/src/a.rs"));
-/// let b = big_code_analysis::vcs::workdir_root(Path::new("repo/tests/b.rs"));
-/// assert_eq!(a, b);
+/// // Two files in different subdirectories of the *same* checkout both
+/// // resolve to that checkout's work-tree root: `workdir_root` walks
+/// // upward from each file and lands on the same `Some(root)`. (Shown
+/// // with absolute paths under a real checkout; `no_run` because no such
+/// // repository exists at doctest time.)
+/// let a = big_code_analysis::vcs::workdir_root(Path::new("/checkout/src/a.rs"));
+/// let b = big_code_analysis::vcs::workdir_root(Path::new("/checkout/tests/b.rs"));
+/// // When `/checkout` is a git work tree, both are `Some("/checkout")`, so a
+/// // per-repo index can be built once and shared across the batch.
+/// if let (Some(root_a), Some(root_b)) = (a, b) {
+///     assert_eq!(root_a, root_b);
+/// }
 /// ```
 #[cfg(feature = "vcs-git")]
 #[must_use]

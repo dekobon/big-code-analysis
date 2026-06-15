@@ -329,10 +329,14 @@ pub fn score(features: &JitFeatures, purpose: JitPurpose) -> (f64, JitContributi
 /// # Not comparable to a commit score
 ///
 /// [`partial_risk_score`](JitDiffReport::partial_risk_score) sums only the
-/// size and diffusion contributions, so it is **always lower** than the full
-/// [`JitReport::risk_score`] for the same change would be (which also folds in
-/// history, experience, and purpose). The two scores live on different
-/// scales: rank diffs against other *diffs*, never against commit scores.
+/// size and diffusion contributions (both ≥ 0) and **omits** history,
+/// experience, and purpose. The full [`JitReport::risk_score`] folds those
+/// in, but the experience group is *negatively* signed (an experienced
+/// author subtracts from the total), so the full commit score is **not**
+/// strictly greater than the partial diff score — an experienced author can
+/// push it below the partial value. The two scores are therefore **not
+/// ordered or comparable**: they live on different scales. Rank diffs
+/// against other *diffs*, never against commit scores.
 /// The `source` field is a permanent `"diff"` marker so a serialized
 /// report is self-identifying.
 ///
