@@ -2,14 +2,6 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::{Entry, HashMap};
 use tree_sitter::Language;
 
-pub fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
-}
-
 pub fn sanitize_identifier(name: &str) -> String {
     // Match both the canonical U+FEFF (a UTF-8-decoded BOM token, the
     // shape tree-sitter actually produces from `node_kind_for_id`) and
@@ -225,30 +217,6 @@ mod tests {
         assert_eq!(sanitize_identifier("_"), "UNDERSCORE");
         assert_eq!(sanitize_identifier("self"), "Zelf");
         assert_eq!(sanitize_identifier("Self"), "SELF");
-    }
-
-    #[test]
-    fn capitalize_empty_is_empty() {
-        assert_eq!(capitalize(""), "");
-    }
-
-    #[test]
-    fn capitalize_single_char() {
-        assert_eq!(capitalize("a"), "A");
-    }
-
-    #[test]
-    fn capitalize_already_capitalized_is_unchanged() {
-        assert_eq!(capitalize("Foo"), "Foo");
-    }
-
-    // Only the first char is upper-cased; the remainder is appended
-    // verbatim. A multi-byte first char must be upper-cased correctly
-    // (ß expands to two ASCII chars; the rest of the input is untouched).
-    #[test]
-    fn capitalize_multibyte_first_char() {
-        assert_eq!(capitalize("ßbc"), "SSbc");
-        assert_eq!(capitalize("élan"), "Élan");
     }
 
     // escape=false emits the single-backslash (Rust source) form.
