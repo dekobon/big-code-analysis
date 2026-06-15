@@ -1,8 +1,9 @@
 """Unit tests for the binary-resolution helpers in ``conftest.py``.
 
 These helpers locate the ``bca`` CLI that gates the parity suite, so a
-regression in them silently undermines every parity test. The case
-pinned here is the bug fixed by #920 (stale-release shadowing).
+regression in them silently undermines every parity test. The two cases
+pinned here are the bugs fixed by #920 (stale-release shadowing) and
+#922 (relative ``$CARGO_TARGET_DIR`` anchored to the wrong base).
 
 Run via::
 
@@ -69,3 +70,39 @@ def test_locator_returns_none_when_no_binary(
 ) -> None:
     monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path))
     assert conftest._locate_workspace_binary() is None
+
+
+# ── #922: relative CARGO_TARGET_DIR anchors to cargo's CWD ──────────
+
+
+def test_relative_target_dir_anchored_to_repo_root_not_pytest_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A relative ``$CARGO_TARGET_DIR`` resolves against ``REPO_ROOT``
+    (cargo's CWD), not pytest's CWD (#922).
+
+    Cargo writes a relative target dir under its own CWD, which the
+    fixture pins to ``REPO_ROOT``. Changing pytest's CWD must not move
+    the resolved path — the old ``Path(env_dir).resolve()`` anchored to
+    ``os.getcwd()`` and broke exactly this.
+    """
+    monkeypatch.setenv("CARGO_TARGET_DIR", "relsub")
+    monkeypatch.chdir(tmp_path)  # a dir other than REPO_ROOT
+    assert conftest._workspace_target_dir() == (conftest.REPO_ROOT / "relsub").resolve()
+
+
+def test_absolute_target_dir_is_returned_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absolute ``$CARGO_TARGET_DIR`` is unaffected by the REPO_ROOT
+    join (``Path("/a") / "/b"`` yields ``/b``)."""
+    abs_dir = tmp_path / "abscache"
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(abs_dir))
+    assert conftest._workspace_target_dir() == abs_dir.resolve()
+
+
+def test_unset_target_dir_defaults_to_repo_root_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+    assert conftest._workspace_target_dir() == conftest.REPO_ROOT / "target"

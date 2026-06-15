@@ -24,16 +24,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def _workspace_target_dir() -> Path:
     """Resolve the cargo target directory, honouring ``$CARGO_TARGET_DIR``.
 
-    ``Path(env_dir).resolve()`` is critical when ``$CARGO_TARGET_DIR``
-    is relative (e.g. ``./cache`` from a script that ``cd``-ed into
-    the workspace before invoking cargo). A bare ``Path(env_dir)``
-    would be relative to pytest's CWD, not cargo's — pytest invoked
-    from outside the bindings dir would miss the binary even though
-    cargo wrote it correctly.
+    A relative ``$CARGO_TARGET_DIR`` (e.g. ``./cache``) must be anchored
+    to the directory cargo actually runs in, which the build fixture
+    pins to ``REPO_ROOT`` via ``cwd=REPO_ROOT``. ``Path(env_dir).resolve()``
+    alone would anchor a relative value to ``os.getcwd()`` — pytest's CWD,
+    not cargo's — so the locator would look in the wrong place when pytest
+    runs from outside the workspace root (#922). Joining ``REPO_ROOT / env_dir``
+    first matches cargo's base; an absolute ``env_dir`` is unaffected by the
+    join (``Path("/a") / "/b"`` yields ``/b``), so this is correct for both
+    relative and absolute values.
     """
     env_dir = os.environ.get("CARGO_TARGET_DIR")
     if env_dir:
-        return Path(env_dir).resolve()
+        return (REPO_ROOT / env_dir).resolve()
     return REPO_ROOT / "target"
 
 
