@@ -337,33 +337,25 @@ mod tests {
         });
     }
 
-    /// Inner functions attribute their tokens to their innermost scope.
-    /// For `void outer() { void inner_stub(); int x = 1; }` with the
-    /// inner forward-declaration, leaves split across the outer space
-    /// and the unit, mirroring the Python nested-attribution test.
+    /// A C++ struct method and a free function each open their own
+    /// `FuncSpace`, so the leaves of
+    /// `struct S { int method(int a) { return a + 1; } }; int outer() { return 2; }`
+    /// split across scopes: `method` owns 13 and `outer` owns 9, with the
+    /// `struct`/unit framing owning the rest of the 27-token total.
+    /// Asserting the exact `tokens_max` (13 — the largest single scope,
+    /// strictly below the sum of 27) is what catches an attribution
+    /// regression: a broken implementation that credited every leaf to one
+    /// scope would raise `tokens_max` to 27 while still passing
+    /// `max <= sum`, mirroring the Python sibling's exact-max guard.
     #[test]
     fn cpp_tokens_nested_attribution() {
         check_metrics::<CppParser>(
-            "int outer() {\n    auto inner = []() { return 1; };\n    return inner();\n}\n",
+            "struct S {\n    int method(int a) { return a + 1; }\n};\nint outer() { return 2; }\n",
             "foo.cpp",
             |m| {
-                // Outer function owns its statements; the inner lambda owns its body.
-                // The unit-level sum must equal the total of all scopes.
-                // tokens_max must equal one of the scope sums and be at least the
-                // tokens count of the lambda body (`return 1 ;` plus surrounding
-                // brackets — minimum 7).
-                assert!(m.tokens.tokens_sum() > 0, "expected non-zero tokens_sum");
-                assert!(
-                    m.tokens.tokens_max() >= 7,
-                    "expected tokens_max >= 7 (outer scope dominates), got {}",
-                    m.tokens.tokens_max(),
-                );
-                assert!(
-                    m.tokens.tokens_max() <= m.tokens.tokens_sum(),
-                    "tokens_max ({}) cannot exceed tokens_sum ({})",
-                    m.tokens.tokens_max(),
-                    m.tokens.tokens_sum(),
-                );
+                assert_eq!(m.tokens.tokens_sum(), 27);
+                assert_eq!(m.tokens.tokens_max(), 13);
+                assert_eq!(m.tokens.tokens_min(), 1);
             },
         );
     }
@@ -581,6 +573,41 @@ mod tests {
         // Ccomment's grammar parses bare C source; non-comment text
         // produces non-comment leaves.
         check_metrics::<CcommentParser>("int x = 1;", "foo.c", |m| {
+            assert!(m.tokens.tokens_sum() > 0);
+        });
+    }
+
+    #[test]
+    fn smoke_c() {
+        check_metrics::<CParser>("int x = 1;\n", "foo.c", |m| {
+            assert!(m.tokens.tokens_sum() > 0);
+        });
+    }
+
+    #[test]
+    fn smoke_objc() {
+        check_metrics::<ObjcParser>("int x = 1;\n", "foo.m", |m| {
+            assert!(m.tokens.tokens_sum() > 0);
+        });
+    }
+
+    #[test]
+    fn smoke_elixir() {
+        check_metrics::<ElixirParser>("defmodule Foo do\n  :ok\nend\n", "foo.ex", |m| {
+            assert!(m.tokens.tokens_sum() > 0);
+        });
+    }
+
+    #[test]
+    fn smoke_ruby() {
+        check_metrics::<RubyParser>("def foo\n  a = 1\nend\n", "foo.rb", |m| {
+            assert!(m.tokens.tokens_sum() > 0);
+        });
+    }
+
+    #[test]
+    fn smoke_irules() {
+        check_metrics::<IrulesParser>("when X {\n    set x 1\n}\n", "foo.irule", |m| {
             assert!(m.tokens.tokens_sum() > 0);
         });
     }
