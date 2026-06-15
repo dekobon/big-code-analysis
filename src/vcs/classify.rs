@@ -39,9 +39,18 @@ static BUG_FIX: LazyLock<Regex> = LazyLock::new(|| {
     .expect("BUG_FIX pattern is valid")
 });
 
+// `injection` and `overflow` are bare-term false-positive magnets:
+// "dependency injection", "text overflow", and arithmetic "integer
+// overflow" are routine non-security commits (issue #808). The
+// precision-over-recall contract requires a security-specific
+// qualifier, so each is gated behind a `\s+`-joined attack-vector
+// token. "integer overflow" and "stack overflow" are deliberately
+// excluded: the former is an ordinary arithmetic bug far more often
+// than a security finding, and the latter doubles as the website
+// name — both are ambiguous, and precision wins over recall.
 static SECURITY_FIX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(?:security|vulnerabilit(?:y|ies)|vuln|exploit|sanitiz(?:e|ation)|insecure|xss|csrf|injection|overflow|rce|disclosure|malicious|hijack|spoof)\b|CVE-\d{4}-\d+|CWE-\d+",
+        r"(?i)\b(?:security|vulnerabilit(?:y|ies)|vuln|exploit|sanitiz(?:e|ation)|insecure|xss|csrf|rce|disclosure|malicious|hijack|spoof|(?:sql|command|code|html|ldap|os|xml)\s+injection|(?:buffer|heap)\s+overflow)\b|CVE-\d{4}-\d+|CWE-\d+",
     )
     .expect("SECURITY_FIX pattern is valid")
 });
@@ -49,8 +58,12 @@ static SECURITY_FIX: LazyLock<Regex> = LazyLock::new(|| {
 static REVERT_SUBJECT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^revert\b").expect("REVERT_SUBJECT pattern is valid"));
 
+// Rollback gets the same subject-line precision discipline as revert
+// (issue #806): a body-prose "rollback" mention must not flip the
+// whole commit. `^`-anchored to mirror REVERT_SUBJECT — a leading
+// "Rollback the migration" still classifies, a buried one does not.
 static ROLLBACK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\brollback\b").expect("ROLLBACK pattern is valid"));
+    LazyLock::new(|| Regex::new(r"(?i)^rollback\b").expect("ROLLBACK pattern is valid"));
 
 /// Classify a raw commit message.
 ///
@@ -66,7 +79,7 @@ pub fn classify(message: &[u8]) -> Classification {
     Classification {
         bug_fix: BUG_FIX.is_match(&text),
         security_fix: SECURITY_FIX.is_match(&text),
-        revert: REVERT_SUBJECT.is_match(subject) || ROLLBACK.is_match(&text),
+        revert: REVERT_SUBJECT.is_match(subject) || ROLLBACK.is_match(subject),
     }
 }
 
