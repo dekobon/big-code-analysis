@@ -498,11 +498,16 @@ fn manifest_soft_threshold_subtable_applies_only_at_soft_tier() {
 fn init_ignores_existing_manifest() {
     let dir = TempDir::new().unwrap();
     fs::create_dir(dir.path().join(".git")).unwrap();
-    // The `[check]` table is an unrecognized key today; discovery would
-    // warn about it, so its absence proves init skipped discovery.
+    // The tell must be a GENUINELY unrecognized top-level key (#909): the
+    // earlier `[check]` table is on `KNOWN_KEYS`, so discovery would never
+    // warn about it and the `.not()` assertion was vacuous. `[exit_codes]`
+    // is absent from the allowlist (the same key
+    // `unknown_top_level_key_warns_but_runs` uses), so if `init` wrongly
+    // discovered this manifest the unknown-key warning would fire and fail
+    // the assertion below.
     fs::write(
         dir.path().join("bca.toml"),
-        "paths = [\".\"]\n\n[check]\nexclude = [\"x\"]\n",
+        "paths = [\".\"]\n\n[exit_codes]\nviolations = 3\n",
     )
     .unwrap();
     let target = dir.path().join("proj");
