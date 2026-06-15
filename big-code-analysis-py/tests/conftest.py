@@ -37,27 +37,29 @@ def _workspace_target_dir() -> Path:
     return REPO_ROOT / "target"
 
 
-def _locate_workspace_binary() -> str | None:
-    """Look for a freshly-built ``bca`` under the workspace target dir.
+def _locate_workspace_binary(preferred_profile: str = "debug") -> str | None:
+    """Look for a built ``bca`` under the workspace target dir.
 
-    Prefers the binary with the newer mtime so a stale build from a
-    previous branch checkout does not silently shadow a freshly-
-    built one. The cargo-build path in the fixture below already
-    refreshes whichever binary cargo writes, but on a fresh check-
-    out with both debug and release already populated from prior
-    branches, mtime preference is the safer default.
+    Returns ``preferred_profile``'s binary whenever it exists, falling
+    back to the other profile only when the preferred one is absent.
+
+    The caller below always builds the **debug** profile, so after a
+    successful build the debug binary is authoritative — it is the one
+    whose freshness cargo just guaranteed. An mtime-newest heuristic is
+    *wrong* here: a successful ``cargo build`` is a no-op that does not
+    touch the debug binary's mtime when the source is already up to
+    date, so a stale ``release/bca`` left over from a prior branch (with
+    a newer mtime) would shadow the binary the fixture just validated
+    (#920). Pin to the profile actually built instead.
     """
     target = _workspace_target_dir()
     exe = ".exe" if os.name == "nt" else ""
-    candidates = [
-        target / "debug" / f"bca{exe}",
-        target / "release" / f"bca{exe}",
-    ]
-    existing = [c for c in candidates if c.is_file()]
-    if not existing:
-        return None
-    existing.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return str(existing[0])
+    fallback_profile = "release" if preferred_profile == "debug" else "debug"
+    for profile in (preferred_profile, fallback_profile):
+        candidate = target / profile / f"bca{exe}"
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 @pytest.fixture(scope="session")
