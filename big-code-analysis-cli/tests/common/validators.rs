@@ -72,8 +72,10 @@ pub fn validate_sarif(json_text: &str) -> Result<(), Vec<String>> {
 // --------------------------------------------------------------------
 
 /// Walk a Checkstyle 4.3 XML document via `quick-xml` and assert
-/// structural conformance to the upstream XSD. See the lib-crate
-/// helper for the full contract.
+/// structural conformance to the upstream XSD, including element
+/// nesting (`checkstyle` > `file` > `error`/`exception`; leaves are
+/// `error`/`exception`; `<checkstyle>` only at the document root). See
+/// the lib-crate helper for the full contract.
 ///
 /// Only the shared SARIF + Checkstyle core (`validate_sarif`, this
 /// walker, and its private helpers) is kept in lock-step with the lib
@@ -89,8 +91,9 @@ pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
     reader.config_mut().trim_text(true);
 
     let mut buf = Vec::new();
-    let mut saw_root = false;
-    let mut depth = 0usize;
+    // Stack of open ancestor element names; the top is the current
+    // element's parent. An empty stack means the document root.
+    let mut stack: Vec<&'static str> = Vec::new();
 
     loop {
         let pos = reader.buffer_position();
@@ -108,22 +111,26 @@ pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
             | Event::Text(_) => {}
 
             Event::Start(start) => {
-                check_element(&start, &mut saw_root, pos);
-                depth += 1;
+                let name = check_element(&start, pos);
+                assert_nesting(stack.last().copied(), name, pos);
+                stack.push(name);
             }
             Event::Empty(start) => {
-                check_element(&start, &mut saw_root, pos);
+                let name = check_element(&start, pos);
+                assert_nesting(stack.last().copied(), name, pos);
             }
             Event::End(end) => {
                 let name_bytes = end.name();
                 let name = std::str::from_utf8(name_bytes.as_ref()).unwrap_or_else(|_| {
                     panic!("checkstyle end-element name is not UTF-8 at byte {pos}")
                 });
+                let open = stack.pop().unwrap_or_else(|| {
+                    panic!("checkstyle: end-element </{name}> with no open element at byte {pos}")
+                });
                 assert!(
-                    matches!(name, "checkstyle" | "file" | "error" | "exception"),
-                    "checkstyle: unexpected end-element </{name}> at byte {pos}"
+                    open == name,
+                    "checkstyle: end-element </{name}> does not match open <{open}> at byte {pos}"
                 );
-                depth = depth.saturating_sub(1);
             }
             Event::Eof => break,
             other => panic!("checkstyle: unexpected event {other:?} at byte {pos}"),
@@ -132,30 +139,51 @@ pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
     }
 
     assert!(
-        saw_root,
-        "checkstyle: document did not contain a <checkstyle> root element"
-    );
-    assert!(
-        depth == 0,
-        "checkstyle: unbalanced element depth {depth} at EOF"
+        stack.is_empty(),
+        "checkstyle: unbalanced elements still open at EOF: {stack:?}"
     );
 }
 
-fn check_element(start: &quick_xml::events::BytesStart<'_>, saw_root: &mut bool, pos: u64) {
+/// Enforce the XSD containment hierarchy: reject any `child` that the
+/// XSD does not permit directly under `parent` (or at the document
+/// root, when `parent` is `None`). Panics with parent + child + byte
+/// position on a violation.
+fn assert_nesting(parent: Option<&str>, child: &str, pos: u64) {
+    let allowed = match parent {
+        // Document root: only the `<checkstyle>` element may appear.
+        None => child == "checkstyle",
+        // checkstyleType: a choice of file / exception / error.
+        Some("checkstyle") => matches!(child, "file" | "exception" | "error"),
+        // fileType: error / exception only.
+        Some("file") => matches!(child, "error" | "exception"),
+        // errorType / exception (xs:string) are leaves with no children;
+        // any other parent name was already rejected by check_element.
+        Some(_) => false,
+    };
+    assert!(
+        allowed,
+        "checkstyle: <{child}> is not a valid child of {} at byte {pos}",
+        parent.map_or("the document root", |p| p)
+    );
+}
+
+/// Validate the element's own name and attributes and return its name
+/// for nesting checks. Panics on an unknown element or a missing/invalid
+/// required attribute.
+fn check_element(start: &quick_xml::events::BytesStart<'_>, pos: u64) -> &'static str {
     let name_bytes = start.name();
     let name = std::str::from_utf8(name_bytes.as_ref())
         .unwrap_or_else(|_| panic!("checkstyle element name is not UTF-8 at byte {pos}"));
 
     match name {
         "checkstyle" => {
-            assert!(
-                !*saw_root,
-                "checkstyle: unexpected second <checkstyle> at byte {pos}"
-            );
-            *saw_root = true;
             require_attr(start, "version", "checkstyle", pos);
+            "checkstyle"
         }
-        "file" => require_attr(start, "name", "file", pos),
+        "file" => {
+            require_attr(start, "name", "file", pos);
+            "file"
+        }
         "error" => {
             require_attr(start, "line", "error", pos);
             require_attr(start, "severity", "error", pos);
@@ -173,8 +201,9 @@ fn check_element(start: &quick_xml::events::BytesStart<'_>, saw_root: &mut bool,
             if let Some(col) = attr_value(start, "column") {
                 assert_positive_integer(&col, "column", pos);
             }
+            "error"
         }
-        "exception" => { /* allowed by XSD; we don't emit them but accept them */ }
+        "exception" => "exception", // allowed by XSD; we don't emit them but accept them
         other => panic!("checkstyle: unexpected element <{other}> at byte {pos}"),
     }
 }
