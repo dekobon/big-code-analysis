@@ -304,3 +304,81 @@ fn compute_ignores_empty_contribution_files() {
     assert_eq!(with_empty.repo, without.repo);
     assert_eq!(with_empty.repo.files, 1, "the empty file is excluded");
 }
+
+/// Issue #929 / #701: the *degenerate* `max_doa <= 0.0` fallback in
+/// [`authors_of_file`] is the only order-sensitive path (its `min_by`
+/// hashed-id tie-break is what #701 added). The pre-existing
+/// order-independence test feeds positive-DoA inputs, so it only ever
+/// exercises the order-stable normal path and never this branch.
+///
+/// To reach `max_doa <= 0.0` every contributor's DoA must be non-positive.
+/// Each author's `accepted_changes` is `total_deliveries - own_deliveries`,
+/// and `doa = 3.293 + 0.164·own − 0.321·ln(1 + accepted)`. A high-delivery
+/// author always stays positive (the `0.164·own` term dominates), so the
+/// only way to drive *every* DoA non-positive is many low-delivery authors:
+/// with `K` authors each delivering `1`, every `accepted` is `K − 1` while
+/// every `own` is `1`, giving `doa = 3.457 − 0.321·ln(K)`, which turns
+/// non-positive once `K ≥ ~47_600`. All authors are then bit-identical, so
+/// the DoA tie is exact and the resolved author is decided solely by the
+/// hashed-id tie-break — the logic #701 added.
+#[test]
+fn authors_of_file_degenerate_tie_break_is_order_independent() {
+    // Comfortably past the ~47_600 threshold where every DoA goes
+    // non-positive (derived above).
+    const DEGENERATE_AUTHOR_COUNT: usize = 50_000;
+
+    let names: Vec<String> = (0..DEGENERATE_AUTHOR_COUNT)
+        .map(|i| format!("dev{i:05}"))
+        .collect();
+    let contrib_refs: Vec<(&str, u32, bool)> = names
+        .iter()
+        .map(|name| (name.as_str(), 1u32, false))
+        .collect();
+
+    let forward = file("huge.rs", &contrib_refs);
+    let mut backward_contribs = forward.contributions.clone();
+    backward_contribs.reverse();
+    let backward = FileAuthorship {
+        path: forward.path.clone(),
+        contributions: backward_contribs,
+    };
+
+    // The degenerate branch returns exactly one author (the highest DoA,
+    // ties broken by smallest hashed id) — not the multi-author normal
+    // path, which would credit every author at the 0.75 ratio threshold.
+    // This length check pins that the `max_doa <= 0.0` branch is taken.
+    let forward_authors = authors_of_file(&forward);
+    let backward_authors = authors_of_file(&backward);
+    assert_eq!(
+        forward_authors.len(),
+        1,
+        "degenerate branch credits exactly one author"
+    );
+    assert_eq!(
+        backward_authors.len(),
+        1,
+        "degenerate branch credits exactly one author"
+    );
+
+    // The crux of #701: the resolved author is identical under forward and
+    // reversed contribution order. A last-wins `max_by` (no hashed-id
+    // tie-break) would return the *last* tied author, which differs once
+    // the list is reversed.
+    assert_eq!(
+        forward_authors[0], backward_authors[0],
+        "degenerate-path author resolution must not depend on input order"
+    );
+
+    // The deterministic pick is the smallest hashed id among all tied
+    // contributors — independent of how the list was ordered.
+    let expected = forward
+        .contributions
+        .iter()
+        .map(|c| &c.author)
+        .min_by_key(|id| id.hashed())
+        .expect("non-empty contributions");
+    assert_eq!(
+        forward_authors[0], expected,
+        "tie-break must pick the smallest hashed id"
+    );
+}
