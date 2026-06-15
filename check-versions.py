@@ -90,21 +90,30 @@ PACKAGE_VERSION_RE = re.compile(
     r"^\[package\][^\[]*?^version\s*=\s*\"([^\"]+)\"",
     re.MULTILINE | re.DOTALL,
 )
-# Match an internal-crate pin in either layout:
-#   single-line: `<dep> = { ..., version = "=X.Y.Z", ... }`
-#   multi-line:  `<dep> = {\n  path = "..",\n  version = "=X.Y.Z",\n}`
-# Anchoring on the inline-table opener `{` (rather than allowing any
-# trailing text) is what makes the multi-line form safe: `[^}]*?`
-# scans across newlines *inside* the table but stops at its closing
-# `}`, so a `version = "..."` on its own line is found, yet the scan
-# can never bleed past the brace into an unrelated later dependency.
+# An internal-crate pin lives inside an inline dependency table:
+#   single-line: `<key> = { ..., version = "=X.Y.Z", ... }`
+#   multi-line:  `<key> = {\n  path = "..",\n  version = "=X.Y.Z",\n}`
+# `INTERNAL_TABLE_RE` captures the whole `{ … }` table body, anchored
+# on the opener `{`; `[^}]*?` scans across newlines *inside* the table
+# but stops at its closing `}`, so the body can never bleed past the
+# brace into an unrelated later dependency. The body is then probed for
+# the `=X.Y.Z` pin and, separately, for whether the table is an
+# internal crate (see `_is_internal_table`). Splitting "is this a pin"
+# from "is this an internal crate" is what lets us recognise the
+# vendored form, where the table KEY is the upstream alias
+# (`tree-sitter-ccomment`) and the `bca-tree-sitter-*` name only
+# appears in `package = "…"` inside the body (#878). Field order inside
+# the table is irrelevant — `version` may precede or follow `package`.
 # (Internal crates are always path-deps pinned via the `{ … }` table
 # form; the bare-string `<dep> = "X.Y.Z"` snippet form is a doc pin,
 # handled separately by DOC_PIN_RE.)
-INTERNAL_PIN_RE = re.compile(
-    r"(?:bca-tree-sitter-\w+|big-code-analysis)\s*=\s*\{"
-    r"[^}]*?\bversion\s*=\s*\"=([^\"]+)\""
-)
+INTERNAL_TABLE_RE = re.compile(r"(?P<key>[\w-]+)\s*=\s*\{(?P<body>[^}]*?)\}")
+INTERNAL_VERSION_PIN_RE = re.compile(r"\bversion\s*=\s*\"=([^\"]+)\"")
+# An internal crate is identified by the dependency table KEY being
+# `big-code-analysis` / `bca-tree-sitter-*`, OR by the table body
+# aliasing a `bca-tree-sitter-*` package (the vendored grammar form).
+_INTERNAL_KEY_RE = re.compile(r"bca-tree-sitter-[\w-]+|big-code-analysis")
+_INTERNAL_PACKAGE_RE = re.compile(r"\bpackage\s*=\s*\"bca-tree-sitter-[\w-]+\"")
 # Match: `big-code-analysis = "X.Y.Z"`, `bca-tree-sitter-* = "X.Y"`,
 # or `big-code-analysis = "= X.Y.Z"` style snippets in doc prose.
 DOC_PIN_RE = re.compile(
@@ -125,8 +134,8 @@ DOC_PIN_RE = re.compile(
 #     <name> = "=X.Y.Z"
 # The vendored `{ package = ..., path = ... }` forks are deliberately
 # excluded — those are internal-crate pins already enforced against the
-# canonical workspace version by INTERNAL_PIN_RE above, so re-checking
-# them here would be redundant.
+# canonical workspace version by the INTERNAL_TABLE_RE scan above, so
+# re-checking them here would be redundant.
 EXTERNAL_GRAMMAR_MANIFESTS = (
     "Cargo.toml",
     "enums/Cargo.toml",
@@ -139,6 +148,18 @@ EXTERNAL_GRAMMAR_PIN_RE = re.compile(
 
 def read(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _is_internal_table(key: str, body: str) -> bool:
+    """True if an inline dependency table refers to an owned crate.
+
+    Recognised by the table KEY (`big-code-analysis` / `bca-tree-sitter-*`)
+    or, for the vendored grammar forks, by a `package = "bca-tree-sitter-*"`
+    alias inside the body — the case the old key-only regex missed (#878).
+    """
+    return bool(_INTERNAL_KEY_RE.fullmatch(key)) or bool(
+        _INTERNAL_PACKAGE_RE.search(body)
+    )
 
 
 def normalize(version: str, canonical: str) -> str:
@@ -215,10 +236,17 @@ def main() -> int:
 
     for manifest_path in INTERNAL_PIN_MANIFESTS:
         manifest = root / manifest_path
-        for m in INTERNAL_PIN_RE.finditer(read(manifest)):
-            pinned = m.group(1)
+        text = read(manifest)
+        for table in INTERNAL_TABLE_RE.finditer(text):
+            body = table.group("body")
+            if not _is_internal_table(table.group("key"), body):
+                continue
+            pin = INTERNAL_VERSION_PIN_RE.search(body)
+            if pin is None:
+                continue
+            pinned = pin.group(1)
             if pinned != canonical:
-                line = read(manifest)[: m.start()].count("\n") + 1
+                line = text[: table.start()].count("\n") + 1
                 failures.append(
                     f"{manifest_path}:{line}: internal-dep pin "
                     f"= {pinned!r}, expected {canonical!r}"

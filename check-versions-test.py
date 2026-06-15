@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Tests for check-versions.py.
+
+Two kinds of test live here:
+
+* Unit tests that import the module and exercise the pin-scanning
+  patterns/helpers directly. These pin the two drift classes the
+  hand-maintained regexes used to miss — the vendored `bca-tree-sitter-*`
+  internal pins (#878) and the `recipes/ci.md` release pins (#879) —
+  against synthetic inputs, including the exact strings the *old*
+  patterns silently skipped.
+* A smoke test that runs the real script against the real repo and
+  asserts a clean tree reports lockstep.
+
+Run with:
+    python3 -m unittest -q check-versions-test.py
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import subprocess
+import sys
+import unittest
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent
+SCRIPT_SRC = REPO_ROOT / "check-versions.py"
+
+
+def _load_module():  # type: ignore[no-untyped-def]
+    spec = importlib.util.spec_from_file_location("check_versions", SCRIPT_SRC)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+cv = _load_module()
+
+
+def _scan_internal_pins(text: str) -> list[tuple[str, str]]:
+    """Mirror main()'s internal-pin scan over a manifest snippet."""
+    out: list[tuple[str, str]] = []
+    for table in cv.INTERNAL_TABLE_RE.finditer(text):
+        body = table.group("body")
+        if not cv._is_internal_table(table.group("key"), body):
+            continue
+        pin = cv.INTERNAL_VERSION_PIN_RE.search(body)
+        if pin is not None:
+            out.append((table.group("key"), pin.group(1)))
+    return out
+
+
+class InternalVendoredPinTest(unittest.TestCase):
+    """#878: vendored `bca-tree-sitter-*` pins must be validated."""
+
+    VENDORED = (
+        'tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", '
+        'path = "./tree-sitter-mozcpp", version = "=1.1.0" }'
+    )
+
+    def test_vendored_pin_is_recognized(self) -> None:
+        # The key is the upstream alias; the bca-* name is only in
+        # `package = "..."`. main()'s scan must still see the pin.
+        self.assertEqual(
+            _scan_internal_pins(self.VENDORED),
+            [("tree-sitter-mozcpp", "1.1.0")],
+        )
+
+    def test_vendored_pin_recognized_regardless_of_field_order(self) -> None:
+        # `version` may precede `package`; the span scan is order-free.
+        line = (
+            'tree-sitter-x = { version = "=2.2.2", '
+            'package = "bca-tree-sitter-x", path = "./x" }'
+        )
+        self.assertEqual(_scan_internal_pins(line), [("tree-sitter-x", "2.2.2")])
+
+    def test_consumer_pin_still_recognized(self) -> None:
+        # The `big-code-analysis = { … }` consumer form (the only
+        # internal pins the old regex caught) must keep working.
+        line = 'big-code-analysis = { path = "..", version = "=1.1.0" }'
+        self.assertEqual(_scan_internal_pins(line), [("big-code-analysis", "1.1.0")])
+
+    def test_external_grammar_table_not_treated_as_internal(self) -> None:
+        # A non-vendored grammar declared as an inline table (no
+        # bca-* package alias) must NOT be swept into the internal pin
+        # set — it is enforced separately, against the upstream pin.
+        line = 'tree-sitter-bash = { version = "=0.25.1" }'
+        self.assertEqual(_scan_internal_pins(line), [])
+
+    def test_old_key_only_pattern_would_have_missed_vendored(self) -> None:
+        # Regression marker: the pre-#878 key-anchored regex returned
+        # nothing for the vendored form, which is exactly the silent
+        # skip this fix closes. If the scan were ever reverted to a
+        # key-only match, test_vendored_pin_is_recognized fails; this
+        # test documents *why*.
+        import re
+
+        old = re.compile(
+            r"(?:bca-tree-sitter-\w+|big-code-analysis)\s*=\s*\{"
+            r"[^}]*?\bversion\s*=\s*\"=([^\"]+)\""
+        )
+        self.assertEqual(old.findall(self.VENDORED), [])
+
+    def test_real_manifests_expose_all_vendored_pins(self) -> None:
+        # Across the real INTERNAL_PIN_MANIFESTS the scan must find the
+        # 10 vendored grammar pins plus the 2 consumer pins (12 total),
+        # all at the canonical workspace version.
+        canonical = cv.workspace_version(REPO_ROOT)
+        pins: list[tuple[str, str]] = []
+        for manifest_path in cv.INTERNAL_PIN_MANIFESTS:
+            pins += _scan_internal_pins(cv.read(REPO_ROOT / manifest_path))
+        self.assertEqual(len(pins), 12, pins)
+        self.assertTrue(all(ver == canonical for _, ver in pins), pins)
+
+
+class CiRecipePinTest(unittest.TestCase):
+    """#879: recipes/ci.md release pins must be checked in lockstep."""
+
+    def _stale_lines(self, text: str, canonical: str) -> list[str]:
+        out: list[str] = []
+        for m in cv.CI_PIN_RE.finditer(text):
+            cited = next(g for g in m.groups() if g is not None)
+            if cv.normalize(cited, canonical) != canonical:
+                out.append(cited)
+        return out
+
+    def test_all_three_install_forms_match(self) -> None:
+        text = (
+            'BCA_VERSION: "1.1.0"\n'
+            "tool: big-code-analysis-cli@1.1.0\n"
+            "cargo binstall big-code-analysis-cli --version 1.1.0\n"
+        )
+        # All three forms cite 1.1.0; on a bump to 1.2.0 all three are
+        # stale.
+        self.assertEqual(self._stale_lines(text, "1.2.0"), ["1.1.0"] * 3)
+
+    def test_cache_key_form_is_not_matched(self) -> None:
+        # The `key: bca-…-X.Y.Z` GitHub Actions cache key is
+        # deliberately exempt — a stale cache key is only a cache miss.
+        text = "key: bca-${{ runner.os }}-1.1.0\n"
+        self.assertEqual(self._stale_lines(text, "1.2.0"), [])
+
+    def test_runtime_version_output_is_not_matched(self) -> None:
+        # A `bca --version` example printing runtime output is install
+        # documentation noise, not a pin; the patterns key on install
+        # invocations, so a bare "big-code-analysis-cli 1.1.0" line is
+        # not over-matched.
+        text = "$ bca --version\nbig-code-analysis-cli 1.1.0\n"
+        self.assertEqual(self._stale_lines(text, "1.2.0"), [])
+
+    def test_real_ci_md_pins_are_at_canonical(self) -> None:
+        canonical = cv.workspace_version(REPO_ROOT)
+        for ci_path in cv.CI_RECIPE_FILES:
+            text = cv.read(REPO_ROOT / ci_path)
+            self.assertEqual(self._stale_lines(text, canonical), [], ci_path)
+
+    def test_real_ci_md_would_flag_on_bump(self) -> None:
+        # On a hypothetical bump, the real ci.md pins go stale — proving
+        # the file is actually in scope (the gap #879 closed).
+        for ci_path in cv.CI_RECIPE_FILES:
+            text = cv.read(REPO_ROOT / ci_path)
+            stale = self._stale_lines(text, "9.9.9")
+            self.assertTrue(stale, f"{ci_path} should expose stale pins on a bump")
+
+
+class SmokeTest(unittest.TestCase):
+    def test_clean_repo_reports_lockstep(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_SRC)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("versions OK", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
