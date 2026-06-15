@@ -47,11 +47,20 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
 
     Wraps ``analyze_all`` in ``asyncio.run`` and returns a small
     summary so the caller can assert on it.
+
+    ``bca.analyze`` has three documented outcomes: a ``dict`` (a
+    ``FuncSpaceDict``), ``None`` for files the walker skips (empty /
+    binary / generated), or an exception surfaced by ``analyze_all``.
+    The summary tallies all three — ``analyzed`` / ``skipped`` /
+    ``errors`` — so the totals reconcile (``analyzed + skipped +
+    errors == count``) instead of silently dropping the ``None``
+    case the way a two-bucket summary would.
     """
     results = asyncio.run(analyze_all(paths))
     return {
         "count": len(results),
         "analyzed": sum(isinstance(r, dict) for r in results),
+        "skipped": sum(r is None for r in results),
         "errors": sum(isinstance(r, BaseException) for r in results),
     }
 

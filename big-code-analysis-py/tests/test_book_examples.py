@@ -197,7 +197,9 @@ def test_async_patterns(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert summary["count"] == 3
     assert summary["analyzed"] == 3
+    assert summary["skipped"] == 0
     assert summary["errors"] == 0
+    assert summary["analyzed"] + summary["skipped"] + summary["errors"] == summary["count"]
     assert seen_threads - {test_thread}, (
         f"analyze never dispatched off the test thread (seen={seen_threads}, test={test_thread})"
     )
@@ -219,7 +221,33 @@ def test_async_patterns_return_exceptions() -> None:
     )
     assert summary["count"] == 3
     assert summary["analyzed"] == 2
+    assert summary["skipped"] == 0
     assert summary["errors"] == 1
+    assert summary["analyzed"] + summary["skipped"] + summary["errors"] == summary["count"]
+
+
+def test_async_patterns_skipped_reconciles_count() -> None:
+    """Regression for #881: ``analyze`` returns ``None`` for generated
+    files, and the ``run()`` summary must tally that as ``skipped`` so
+    the totals reconcile with ``count``.
+
+    A pre-fix summary bucketed results into ``analyzed`` (dict) and
+    ``errors`` (exception) only; a ``None`` result was neither, so it
+    was counted in ``count`` but vanished from the breakdown
+    (``analyzed + errors < count`` with no signal). The fix adds a
+    ``skipped`` bucket; here ``generated.rs`` must land in it and the
+    three counts must sum exactly to ``count``.
+    """
+    mod = _load("async_patterns")
+    inputs = [
+        FIXTURES_DIR / "hello.rs",
+        FIXTURES_DIR / "hello.py",
+        FIXTURES_DIR / "generated.rs",
+    ]
+    summary = mod.run(inputs)
+    assert summary["count"] == 3
+    assert summary["skipped"] >= 1, "generated.rs must be counted as skipped, not silently dropped"
+    assert summary["analyzed"] + summary["skipped"] + summary["errors"] == summary["count"]
 
 
 @pytest.mark.parametrize(
