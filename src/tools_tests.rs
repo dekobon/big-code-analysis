@@ -24,8 +24,10 @@ fn test_read() {
     let tmp_dir = std::env::temp_dir();
     let tmp_path = tmp_dir.join("test_read");
     let data = vec![
-        (b"\xFF\xFEabc".to_vec(), Some(b"abc\n".to_vec())),
-        (b"\xFE\xFFabc".to_vec(), Some(b"abc\n".to_vec())),
+        // UTF-16 LE/BE BOM: the file is skipped, not stripped-and-parsed
+        // (issue #803) — the interleaved-NUL body is not UTF-8 source.
+        (b"\xFF\xFEabc".to_vec(), None),
+        (b"\xFE\xFFabc".to_vec(), None),
         (b"\xEF\xBB\xBFabc".to_vec(), Some(b"abc\n".to_vec())),
         (b"\xEF\xBB\xBFabc\n".to_vec(), Some(b"abc\n".to_vec())),
         (b"\xEF\xBBabc\n".to_vec(), None),
@@ -835,4 +837,64 @@ fn read_eol_accepts_plain_ascii_past_probe() {
     let bytes = b"the quick brown fox jumps over the lazy dog several times over\n".repeat(3);
     let path = write_tmp("bca_read_eol_plain_ascii", &bytes);
     assert_eq!(read_file_with_eol(&path).unwrap(), Some(bytes));
+}
+
+// Build a UTF-16 byte stream (without BOM) from an ASCII string by
+// interleaving a NUL after each byte, in the requested endianness.
+fn utf16_ascii_body(text: &str, little_endian: bool) -> Vec<u8> {
+    text.bytes()
+        .flat_map(|b| if little_endian { [b, 0x00] } else { [0x00, b] })
+        .collect()
+}
+
+#[test]
+fn read_eol_rejects_utf16_le_bom() {
+    // #803: a UTF-16-LE file (FF FE BOM + interleaved-NUL ASCII body) must be
+    // skipped, not stripped-and-parsed. Before the fix the BOM was dropped and
+    // the body — every byte <= 0x7F, so valid single-byte UTF-8 — passed the
+    // probe, feeding NUL-interleaved garbage to the parser. The body is padded
+    // well past the 64-byte probe so the file is unambiguously not too-small.
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(utf16_ascii_body(
+        "int main() { return 0; } // padding to exceed the probe window\n",
+        true,
+    ));
+    let path = write_tmp("bca_read_eol_utf16_le_bom", &bytes);
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
+#[test]
+fn read_eol_rejects_utf16_be_bom() {
+    // #803, big-endian sibling: FE FF BOM + NUL-then-byte body. Same rejection.
+    let mut bytes = vec![0xFE, 0xFF];
+    bytes.extend(utf16_ascii_body(
+        "int main() { return 0; } // padding to exceed the probe window\n",
+        false,
+    ));
+    let path = write_tmp("bca_read_eol_utf16_be_bom", &bytes);
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
+#[test]
+fn read_eol_strips_utf8_bom_and_keeps_body() {
+    // #803 (acceptance side): a UTF-8 BOM prefixes genuine UTF-8, so it is
+    // stripped and the body is read normally — UTF-8 BOM handling must NOT
+    // regress when UTF-16 BOMs start being rejected.
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(b"abc");
+    let path = write_tmp("bca_read_eol_utf8_bom_body", &bytes);
+    assert_eq!(read_file_with_eol(&path).unwrap(), Some(b"abc\n".to_vec()));
+}
+
+#[cfg(unix)]
+#[test]
+fn read_eol_propagates_non_eof_io_error() {
+    // #804: a real I/O fault during the probe read must propagate as `Err`,
+    // not collapse to `Ok(None)`. On Unix, opening a directory succeeds but
+    // `read_exact` fails with a non-`UnexpectedEof` error (`IsADirectory`),
+    // exercising the propagation branch. Before the fix every `read_exact`
+    // failure became `Ok(None)`, swallowing this fault.
+    let dir = std::env::temp_dir();
+    let err = read_file_with_eol(&dir).expect_err("reading a directory must error");
+    assert_ne!(err.kind(), std::io::ErrorKind::UnexpectedEof);
 }

@@ -81,8 +81,11 @@ const UTF8_PROBE_BYTES: usize = 64;
 ///
 /// Returns any [`std::io::Error`] surfaced by [`File::open`] (the
 /// path is missing, lacks read permission, is a directory, …) or by
-/// the subsequent reads from the open file handle. A non-UTF-8 head
-/// or a too-small file is reported via `Ok(None)`, not an error.
+/// the subsequent reads from the open file handle. A clean short read
+/// during the probe (`UnexpectedEof`) yields `Ok(None)`; any other
+/// `read_exact` error kind propagates as `Err`. A non-UTF-8 head, a
+/// too-small file, or a UTF-16 BE/LE BOM is reported via `Ok(None)`,
+/// not an error.
 ///
 /// # Examples
 ///
@@ -105,17 +108,33 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
     let probe_len = UTF8_PROBE_BYTES.min(file_size);
     let mut start = vec![0; probe_len];
-    let start = if file.read_exact(&mut start).is_ok() {
-        // Skip the bom if one
-        if start[..2] == [b'\xFE', b'\xFF'] || start[..2] == [b'\xFF', b'\xFE'] {
-            &start[2..]
-        } else if start[..3] == [b'\xEF', b'\xBB', b'\xBF'] {
-            &start[3..]
-        } else {
-            &start
-        }
-    } else {
+    // A clean short read (the file shrank below the probe between the
+    // `metadata` call and here) is reported as `Ok(None)`, matching the
+    // too-small-file case. Any other `read_exact` failure — a real I/O
+    // fault such as a permission or hardware error — must propagate as
+    // `Err` per the documented contract (issue #804); collapsing every
+    // error to `Ok(None)` would silently swallow genuine read failures.
+    match file.read_exact(&mut start) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(e) => return Err(e),
+    }
+
+    // A UTF-16 BE/LE BOM marks a file whose body is interleaved-NUL UTF-16,
+    // which the metric engine cannot parse: stripping the BOM and continuing
+    // would let the ASCII-dominant body pass the UTF-8 probe (each NUL is a
+    // valid single-byte UTF-8 scalar) and reach the parser as garbage (issue
+    // #803). Skip such files, mirroring `is_generated`'s documented stance
+    // that UTF-16 source is unsupported. A UTF-8 BOM, by contrast, prefixes
+    // genuine UTF-8 and is stripped so the body parses normally. `starts_with`
+    // is bounds-safe for a probe shorter than the BOM (a file of 4..=64 bytes
+    // here, since file_size <= 3 already returned above).
+    let start = if start.starts_with(b"\xFE\xFF") || start.starts_with(b"\xFF\xFE") {
         return Ok(None);
+    } else if let Some(rest) = start.strip_prefix(b"\xEF\xBB\xBF") {
+        rest
+    } else {
+        &start
     };
 
     // Validate the probe as UTF-8 at the byte level rather than via a lossy
