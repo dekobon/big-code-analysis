@@ -74,19 +74,24 @@ fn cpp_and_mozcpp_agree_on_plain_cpp() {
         "Cpp and Mozcpp must compute identical metrics on non-Gecko C++"
     );
     // Sanity: the fixture is non-trivial, so the run is meaningful (a
-    // degenerate all-zero parse would make the equality vacuous).
-    let assignments = cpp
-        .iter()
-        .find(|(k, _)| *k == "abc.assignments")
-        .map(|(_, v)| *v)
-        .unwrap();
-    let branches = cpp
-        .iter()
-        .find(|(k, _)| *k == "abc.branches")
-        .map(|(_, v)| *v)
-        .unwrap();
+    // degenerate all-zero parse would make the equality vacuous). Guard
+    // all three ABC dimensions — in particular `conditions`, which is
+    // exactly where the docstring's load-bearing `<=>` / `try` / `catch`
+    // constructs accumulate.
+    let get = |key: &str| {
+        cpp.iter()
+            .find(|(k, _)| *k == key)
+            .map_or_else(|| panic!("metric_sums omitted {key}: {cpp:?}"), |(_, v)| *v)
+    };
+    // conditions: `<=>` +1, the `< 0` on its result +1, the `if (a < b)`
+    // +1, `try` +1, `catch` +1, the `less ? a : b` ternary +1 = 6.
+    assert_eq!(
+        get("abc.conditions"),
+        6,
+        "fixture exercises <=>/try/catch conditions: {cpp:?}"
+    );
     assert!(
-        assignments >= 1 && branches >= 1,
+        get("abc.assignments") >= 1 && get("abc.branches") >= 1,
         "fixture should exercise assignments and branches: {cpp:?}"
     );
 }
