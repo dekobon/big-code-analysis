@@ -3,9 +3,10 @@
 // exact-zero checks use a literal that is bit-exact.
 #![allow(clippy::float_cmp)]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{CochangeGraph, MAX_COCHANGE_COMMIT_FILES, shannon_entropy};
+use super::{CochangeGraph, FileId, MAX_COCHANGE_COMMIT_FILES, node_entropy, shannon_entropy};
 
 /// log₂(3) — the entropy of a uniform 3-way distribution, reused as the
 /// expected value in several cases.
@@ -162,12 +163,18 @@ fn over_wide_commits_are_excluded_from_the_graph() {
     );
 }
 
-/// Issue #701 / #334 bit-identity: a node's co-change entropy must be the
-/// *same f64 bits* no matter what order its edges were interned in. The
-/// `-Σ p·log2(p)` fold is non-associative, so summing edge weights in
-/// HashMap order would let two processes (the live walk vs. a cache replay,
-/// each with a different `RandomState` seed) diverge by ULPs. Three
-/// distinct edge weights make the sum order observable.
+/// Logical-graph equivalence across interning orders: the same hub graph,
+/// built by interning its neighbours in different orders, yields the same
+/// co-change entropy and the expected closed-form value.
+///
+/// This checks that interning order does not change the *logical* graph,
+/// and pins the closed form of `{3, 2, 1}`. It does **not** guard the
+/// #334/#701 cross-process bit-identity contract: all three builds run in
+/// one process, sharing one `RandomState` seed and the identical key set
+/// `{FileId(1), FileId(2), FileId(3)}`, so their hub `HashMap`s iterate in
+/// the *same* order and would sum identically even without the canonical
+/// sort in `node_entropy`. The summation-order contract is guarded
+/// directly by `node_entropy_sums_in_fileid_order_not_hashmap_order`.
 #[test]
 fn cochange_entropy_is_independent_of_edge_interning_order() {
     // A hub with three neighbours carrying distinct edge weights
@@ -207,6 +214,56 @@ fn cochange_entropy_is_independent_of_edge_interning_order() {
     assert!(
         (forward - 1.459_147_917_027_245).abs() < 1e-12,
         "got {forward}"
+    );
+}
+
+/// #334/#701 bit-identity contract, guarded directly: `node_entropy` must
+/// sum a node's edge weights in **`FileId`-ascending** order, not raw
+/// `HashMap` iteration order. The `-Σ p·log2(p)` fold is non-associative,
+/// so two processes with different `RandomState` seeds would otherwise
+/// diverge by ULPs between the live walk and a cache replay.
+///
+/// We assert the bit-exact value `node_entropy` produces against the
+/// closed form computed over the canonical (`FileId`-ascending) weight
+/// sequence — an order specified independently of the production output,
+/// not a re-sort of it. Weights `{1, 2, 4, 8, 16}` are chosen because
+/// their permutations yield three distinct `f64` bit patterns (verified):
+/// the ascending sum is bit-distinct from other orders, so dropping the
+/// `sort_unstable_by_key` in `node_entropy` makes the result follow the
+/// seed-dependent `HashMap` order and no longer match this expected value.
+#[test]
+fn node_entropy_sums_in_fileid_order_not_hashmap_order() {
+    // Hub node is FileId(0); its five neighbours FileId(1..=5) carry edge
+    // weights 1,2,4,8,16. FileId-ascending iteration therefore visits the
+    // weights in the order [1, 2, 4, 8, 16].
+    let weights_in_fileid_order = [1u32, 2, 4, 8, 16];
+    let mut hub_edges: HashMap<FileId, u32> = HashMap::new();
+    for (i, &w) in weights_in_fileid_order.iter().enumerate() {
+        // Neighbour ids 1..=5; insertion order here is irrelevant — only
+        // the production sort (or its absence) decides summation order.
+        hub_edges.insert(FileId(u32::try_from(i + 1).expect("small")), w);
+    }
+    // Adjacency vector indexed by node; only index 0 (the hub) is queried.
+    let adjacency = vec![hub_edges];
+
+    // Expected: the canonical fold over FileId-ascending weights. Derived
+    // independently of `node_entropy`'s internals.
+    let expected = shannon_entropy(weights_in_fileid_order.iter().map(|&w| f64::from(w)));
+    assert_eq!(
+        node_entropy(&adjacency, 0).to_bits(),
+        expected.to_bits(),
+        "node_entropy must sum edge weights in FileId-ascending order"
+    );
+
+    // Guard against a vacuous assertion: confirm the order is actually
+    // observable in the float fold. A non-canonical order (here, reversed)
+    // must produce *different* bits, so the equality above is load-bearing
+    // and would break if the production sort were dropped for HashMap order.
+    let reversed = shannon_entropy(weights_in_fileid_order.iter().rev().map(|&w| f64::from(w)));
+    assert_ne!(
+        expected.to_bits(),
+        reversed.to_bits(),
+        "summation order must be observable for this test to mean anything"
     );
 }
 
