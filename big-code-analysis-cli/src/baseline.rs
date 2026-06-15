@@ -284,7 +284,11 @@ pub(crate) struct BaselineEntry {
     start_line: usize,
     metric: String,
     /// Metric value at baseline time. `current > value` still fails
-    /// (ratchet-down). Non-finite values are skipped at construction.
+    /// (ratchet-down). Both non-finite and negative values (the latter
+    /// via `is_sign_negative()`, so `-0.0` is caught too) are skipped at
+    /// construction by the read (`from_str`) and write (`from_violations`)
+    /// filters; see those sites for why the negative filter is
+    /// load-bearing for round-trip symmetry and the regressed-tag path.
     value: f64,
     /// Lowercase-hex `u64` digest of the normalised function body,
     /// written only when `--baseline-fuzzy-match` is active. Omitted
