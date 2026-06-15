@@ -47,6 +47,13 @@ from pathlib import Path
 # arm; a genuinely extensionless bare name (e.g. `Makefile`) is NOT
 # masked, so a change to it is *flagged* for review rather than hidden —
 # the safe direction.
+#
+# One further guard: a token with no alphabetic character is never a
+# path, it is a numeric value (a ratio/fraction like `3/4`, a date-like
+# `2024/01`). The first arm would otherwise mask it — since digits, `.`,
+# and `-` are all in `[\w\-.]` — and silently absorb a drift in that
+# value. _is_path_token() rejects all-non-alpha matches so such drift
+# still changes the fingerprint and FAILs the gate (#880).
 _SOURCE_EXT = (
     r"rs|pyi?|c|cc|cpp|cxx|h|hh|hpp|hxx|js|jsx|mjs|cjs|ts|tsx|mts|cts|"
     r"java|go|rb|tcl|kt|kts|cs|mm?|swift|php|sh|bash|zsh|irule|irules"
@@ -72,8 +79,19 @@ def strip_header(text: str) -> str:
     return text
 
 
+def _is_path_token(tok: str) -> bool:
+    """A `PATH_RE` match is a real path only if it has a letter.
+
+    An all-non-alpha match (`3/4`, `2024/01`) is a numeric value, not a
+    source path, and must not be masked away (#880)."""
+    return any(c.isalpha() for c in tok)
+
+
 def mask_paths(text: str) -> str:
-    return PATH_RE.sub(_PATH_SENTINEL, text)
+    return PATH_RE.sub(
+        lambda m: _PATH_SENTINEL if _is_path_token(m.group(0)) else m.group(0),
+        text,
+    )
 
 
 def fingerprint(text: str) -> Counter:
@@ -82,7 +100,7 @@ def fingerprint(text: str) -> Counter:
 
 
 def paths_in(text: str) -> Counter:
-    return Counter(PATH_RE.findall(strip_header(text)))
+    return Counter(t for t in PATH_RE.findall(strip_header(text)) if _is_path_token(t))
 
 
 def verify_pair(
@@ -198,6 +216,10 @@ def _self_test() -> int:
     # FAIL: a value change *masquerading* under a simultaneous rename
     # (the #94/#95 scenario the gate exists to catch).
     sneaky = rename.replace('"nargs": 2', '"nargs": 9')
+    # FAIL: a slash-joined numeric value (ratio/date) drifts. The path
+    # mask must not eat it — it is a value, not a source path (#880).
+    ratio_base = base.replace('"kind": "unit"', '"ratio": "3/4"')
+    ratio_drift = ratio_base.replace('"ratio": "3/4"', '"ratio": "3/5"')
 
     cases = [
         ("pure path rename", base, rename, True),
@@ -205,6 +227,7 @@ def _self_test() -> int:
         ("function-name change", base, ident, False),
         ("dropped document", base, drop, False),
         ("value change hidden behind a rename", base, sneaky, False),
+        ("slash-joined value drift", ratio_base, ratio_drift, False),
     ]
     ok = True
     for name, old, new, expect_pass in cases:
