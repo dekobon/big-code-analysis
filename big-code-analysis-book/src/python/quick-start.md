@@ -24,7 +24,10 @@ order, same numeric formatting, same shape.
 
 A few details worth noting:
 
-* `analyze` returns `None` when the file matches the CLI walker's
+* `analyze` returns `None` for any file the CLI walker would skip:
+  one that is three bytes or fewer (treated as empty), one whose
+  leading window is not valid UTF-8 (treated as binary), or — with
+  the default `skip_generated=True` — one matching the walker's
   `is_generated` predicate (a leading `@generated`, `DO NOT EDIT`,
   or `GENERATED CODE` marker). Always handle the optional return
   before reaching into `result["metrics"]`.

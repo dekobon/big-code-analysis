@@ -19,7 +19,7 @@ def run(path: Path) -> FuncSpaceDict:
     """Analyse ``path`` and return its metric dict."""
     result = bca.analyze(path)
     if result is None:
-        msg = f"{path} was skipped (looks generated)"
+        msg = f"{path} was skipped (empty, binary, or generated)"
         raise SystemExit(msg)
 
     cyclomatic = result["metrics"]["cyclomatic"]
