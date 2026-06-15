@@ -1566,7 +1566,7 @@ impl Cognitive for PhpCode {
     ) {
         use Php::*;
 
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // The two-word `else if` form parses as `else_clause →
@@ -1624,6 +1624,24 @@ impl Cognitive for PhpCode {
             }
             AnonymousFunction | ArrowFunction => {
                 lambda += 1;
+            }
+            // At a (possibly nested) named-function / method boundary, reset
+            // structural nesting to zero and bump the function-depth
+            // surcharge when this definition is itself nested inside another
+            // — matching Java and the sibling families. Without this, a PHP
+            // function/method declared inside a control construct inherited
+            // the enclosing nesting and every nested definition missed the
+            // SonarSource B-nesting amplification (#775, the #696 gap).
+            // Closures (`AnonymousFunction` / `ArrowFunction`) are handled by
+            // the lambda arm above and intentionally do *not* reset nesting,
+            // mirroring how the siblings treat lambda vs named-function arms.
+            FunctionDefinition | MethodDeclaration => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[FunctionDefinition, MethodDeclaration],
+                );
             }
             _ => {}
         }
@@ -9104,6 +9122,71 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 1);
                 assert_eq!(metric.cognitive.cognitive_max(), 1);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_nested_function_resets_nesting_775() {
+        // Regression for #775 (the #696 gap): a PHP named function defined
+        // inside control flow must reset structural nesting to 0 at the
+        // definition boundary and pick up the +1 function-depth surcharge,
+        // exactly like Java/C/Rust/etc. Before the fix, `inner` inherited
+        // `outer`'s leaked nesting (2 by the time the definition is reached)
+        // and scored its body against it: `inner` was 7 (and the file 10).
+        //
+        // After the fix, inside `inner` nesting resets to 0 and depth = 1
+        // (it is nested in `outer`), so:
+        //   inner `if ($b)`: structural += (nesting 0 + depth 1) + 1 = 2
+        //   inner `if ($d)`: structural += (nesting 1 + depth 1) + 1 = 3
+        //   => inner = 5
+        // `outer` itself (excluding the nested space) is:
+        //   `if ($a)`: +1 (nesting 0→1); `if ($c)`: +2 (nesting 1→2) => 3
+        // so the file sum is 3 + 5 = 8, max = 5 (the `inner` space).
+        check_metrics::<PhpParser>(
+            "<?php
+            function outer() {
+                if ($a) {
+                    if ($c) {
+                        function inner() {
+                            if ($b) {
+                                if ($d) {
+                                    echo 'x';
+                                }
+                            }
+                        }
+                    }
+                }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 8);
+                assert_eq!(metric.cognitive.cognitive_max(), 5);
+            },
+        );
+    }
+
+    #[test]
+    fn php_top_level_function_unchanged_775() {
+        // Regression guard paired with `php_nested_function_resets_nesting_775`:
+        // a *top-level* PHP function with the same body is unaffected by the
+        // #775 fix — nesting is already 0 and depth is 0 there. The two
+        // `if` statements score +1 and +2 respectively, so cognitive = 3.
+        // If the #775 boundary arm ever over-fires on top-level functions,
+        // this value moves and the test fails.
+        check_metrics::<PhpParser>(
+            "<?php
+            function inner() {
+                if ($b) {
+                    if ($d) {
+                        echo 'x';
+                    }
+                }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+                assert_eq!(metric.cognitive.cognitive_max(), 3);
             },
         );
     }
