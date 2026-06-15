@@ -281,10 +281,12 @@ fn is_null_sha_matches_both_object_formats() {
 fn materialize_tree_rejects_non_empty_dest() {
     // The empty-dest contract is now enforced, not just documented
     // (#704): a populated dest would mix leftover files into the
-    // extracted ref tree. We can exercise the guard without a git repo
-    // because the dest check precedes any git invocation only after
-    // `git_repo_root` — so run it from inside this checkout (a real git
-    // repo) with a dest that already has a file.
+    // extracted ref tree. `materialize_tree` probes `git_repo_root()`
+    // first and only then checks the dest, so we run this from inside
+    // this checkout (a real git repo) — `git_repo_root()` succeeds and
+    // the empty-dest guard then fires on the seeded file. Run outside a
+    // git checkout, `git_repo_root()` would fail first and we'd never
+    // reach the "is not empty" error.
     let dest = tempfile::TempDir::new().expect("tempdir");
     std::fs::write(dest.path().join("leftover.txt"), b"x").expect("seed leftover");
     let err = materialize_tree("HEAD", dest.path()).expect_err("non-empty dest must be rejected");
