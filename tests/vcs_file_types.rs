@@ -84,6 +84,61 @@ fn all_scope_reproduces_the_whole_tree_ranking() {
     );
 }
 
+/// Issue #952: the `all`-scope assertion message claims "non-binary,
+/// non-symlink" filtering, but the shared fixture has neither, so the
+/// production guard `entry_mode.is_blob() && !entry_mode.is_link()`
+/// (`src/vcs/git/repo.rs`) is never exercised. Add a NUL-bearing binary
+/// blob and (on Unix) a symlink to the tracked set and assert that even
+/// under the broadest scope — where the extension filter admits
+/// everything — both are dropped by that guard, not by the extension
+/// filter. The plain `TRACKED_FILES` must still all rank.
+#[test]
+fn all_scope_excludes_binary_and_symlink_entries() {
+    let repo = fixture();
+
+    // A binary blob (embedded NUL): git classifies it as a blob, so it
+    // clears `is_blob()`, but its diff yields no line counts, so the seed
+    // skips it. `write` is text-only; write the raw bytes directly.
+    std::fs::write(repo.path().join("logo.bin"), b"\x00\x01\x02PNG\x00\xff").expect("write binary");
+
+    // A symlink: git records mode 120000, so `is_link()` is true and the
+    // `!is_link()` guard drops it regardless of scope. Symlink creation
+    // needs elevated privileges on Windows, so gate it to Unix.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("src/lib.rs", repo.path().join("link.rs")).expect("symlink");
+
+    repo.commit(
+        "Ada",
+        "ada@example.com",
+        FIXED_NOW - 9 * DAY,
+        "add binary + symlink",
+    );
+
+    let index = build_history_index(repo.path(), &opts(FileTypeScope::All)).expect("walk");
+    let ranked = ranked_paths(&index);
+
+    // Every plain tracked file still ranks under `all`.
+    for rel in TRACKED_FILES {
+        assert!(ranked.contains(*rel), "`all` must still rank {rel}");
+    }
+
+    // The binary blob is dropped (no line counts → not seeded). `all`
+    // admits the `.bin` extension, so only the binary handling can exclude
+    // it — removing it from the suite would otherwise rank.
+    assert!(
+        !ranked.contains("logo.bin"),
+        "a binary blob must not be ranked under `all`; got {ranked:?}"
+    );
+
+    // The symlink is dropped by the `!is_link()` guard. `all` admits the
+    // `.rs` extension, so only that guard can exclude `link.rs`.
+    #[cfg(unix)]
+    assert!(
+        !ranked.contains("link.rs"),
+        "a symlink must not be ranked under `all`; got {ranked:?}"
+    );
+}
+
 #[test]
 fn custom_scope_ranks_only_listed_extensions() {
     let repo = fixture();
