@@ -261,8 +261,10 @@ fn paths_from_file_trims_whitespace() {
     let dir = TempDir::new().unwrap();
     let (keep, _skip) = make_tree(dir.path());
     let listfile = dir.path().join("paths.txt");
-    // Line has trailing spaces and a tab — the bug would construct a path
-    // that doesn't exist, causing a "File doesn't exist" warning and no output.
+    // Line has trailing spaces and a tab. If the trim regressed, the seed
+    // `<keep>  \t` would fail `seed_kind` and production would
+    // `die("path does not exist: ...")` with exit 1 — caught by both the
+    // `.success()` below and the `does not exist` stderr guard.
     std::fs::write(&listfile, format!("{}  \t\n\n   \n", keep.display())).unwrap();
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
@@ -280,7 +282,7 @@ fn paths_from_file_trims_whitespace() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("doesn't exist").not());
+        .stderr(predicate::str::contains("does not exist").not());
 
     let names = json_files(&out);
     assert_eq!(
