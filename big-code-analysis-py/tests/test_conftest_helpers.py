@@ -10,6 +10,12 @@ Run via::
     python -m pytest big-code-analysis-py/tests/test_conftest_helpers.py
 """
 
+# This suite deliberately unit-tests the underscore-prefixed conftest
+# helpers (`_locate_workspace_binary`, `_workspace_target_dir`); there is
+# no public surface for the binary-resolution logic they encode, so the
+# private access is intentional here only.
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import os
