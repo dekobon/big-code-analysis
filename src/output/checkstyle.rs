@@ -81,7 +81,10 @@ fn write_error<W: Write>(writer: &mut W, record: &OffenderRecord) -> io::Result<
     let message = record.default_message();
     write!(writer, "    <error line=\"{}\"", record.start_line.max(1))?;
     if let Some(col) = record.start_col {
-        write!(writer, " column=\"{col}\"")?;
+        // Checkstyle columns are 1-based; clamp symmetrically with the
+        // `start_line.max(1)` above so a 0-based-column producer can
+        // never emit `column="0"` (#784, mirrors SARIF's clamp #698).
+        write!(writer, " column=\"{}\"", col.max(1))?;
     }
     writeln!(
         writer,

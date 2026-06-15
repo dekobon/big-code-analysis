@@ -55,6 +55,12 @@ const SARIF_VERSION: &str = "2.1.0";
 /// - For absolute Windows paths beginning with a drive letter
 ///   (`C:\…` → `C:/…`), prefix with `file:///` so the leading `C:`
 ///   is not interpreted as a URI scheme.
+/// - For a relative path whose first segment contains a colon
+///   (`a:b/c.rs`), prefix with `./` so the colon no longer sits in
+///   the first segment: RFC 3986 §4.2 reads a bare `a:b/c.rs` as
+///   scheme `a:`, but `./a:b/c.rs` is an unambiguous relative-ref
+///   (`./` is a complete colon-free first segment). A colon *after*
+///   the first `/` is already RFC-legal and passes through untouched.
 fn path_to_uri_reference(path: &str) -> String {
     let bytes = path.as_bytes();
     let is_windows_drive_abs = bytes.len() >= 2
@@ -62,9 +68,27 @@ fn path_to_uri_reference(path: &str) -> String {
         && bytes[1] == b':'
         && (bytes.len() == 2 || bytes[2] == b'/' || bytes[2] == b'\\');
 
-    let mut out = String::with_capacity(path.len() + if is_windows_drive_abs { 8 } else { 0 });
+    // A relative reference (no leading separator, not a Windows drive)
+    // whose first path segment carries a colon is scheme-ambiguous under
+    // RFC 3986 §4.2; the `./` prefix below neutralizes it (#798). The
+    // first segment ends at the first `/` or `\` separator.
+    let first_segment_has_colon = !is_windows_drive_abs
+        && bytes.first() != Some(&b'/')
+        && bytes.first() != Some(&b'\\')
+        && bytes
+            .iter()
+            .take_while(|&&b| b != b'/' && b != b'\\')
+            .any(|&b| b == b':');
+
+    let mut out = String::with_capacity(
+        path.len()
+            + if is_windows_drive_abs { 8 } else { 0 }
+            + usize::from(first_segment_has_colon) * 2,
+    );
     if is_windows_drive_abs {
         out.push_str("file:///");
+    } else if first_segment_has_colon {
+        out.push_str("./");
     }
     for &b in bytes {
         match b {
@@ -633,6 +657,28 @@ mod tests {
     #[test]
     fn space_is_percent_encoded() {
         assert_eq!(path_to_uri_reference("src/my file.rs"), "src/my%20file.rs");
+    }
+
+    #[test]
+    fn relative_path_with_colon_in_first_segment_is_not_scheme_ambiguous() {
+        // RFC 3986 §4.2: a bare `a:b/c.rs` parses as scheme `a:`. The
+        // `./` prefix makes it an unambiguous relative-ref (#798).
+        assert_eq!(path_to_uri_reference("a:b/c.rs"), "./a:b/c.rs");
+        assert_eq!(path_to_uri_reference("foo:bar/baz.rs"), "./foo:bar/baz.rs");
+    }
+
+    #[test]
+    fn relative_path_with_colon_after_first_slash_is_unchanged() {
+        // A colon *after* the first segment is RFC-3986-legal in a
+        // relative-ref (only the first segment may not contain one), so
+        // it must pass through without a `./` prefix (#798).
+        assert_eq!(path_to_uri_reference("a/b:c.rs"), "a/b:c.rs");
+    }
+
+    #[test]
+    fn normal_relative_path_keeps_no_dot_slash_prefix() {
+        // No colon in the first segment → untouched (#798 guard).
+        assert_eq!(path_to_uri_reference("a/b/c.rs"), "a/b/c.rs");
     }
 
     #[test]

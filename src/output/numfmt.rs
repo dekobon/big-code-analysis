@@ -87,6 +87,13 @@ impl fmt::Display for MessageMetric {
         // offender, not per metric column.
         let formatted = format!("{:.6}", self.0);
         let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+        // A tiny negative in (-0.0000005, 0.0) rounds to "-0.000000",
+        // which trims to the signed zero "-0". Drop the sign so the
+        // warning reads "0" rather than the nonsensical "-0" (#800).
+        // Exact -0.0 never reaches here (it takes the integer fast-path).
+        if trimmed == "-0" {
+            return f.write_str("0");
+        }
         f.write_str(trimmed)
     }
 }
@@ -197,6 +204,20 @@ mod tests {
         // Trailing zeros after the rounded fraction get stripped.
         assert_eq!(msg(1.500_000_5), "1.500001");
         assert_eq!(msg(1.250_000), "1.25");
+    }
+
+    #[test]
+    fn message_tiny_negative_rounding_to_zero_drops_sign() {
+        // A tiny negative in (-0.0000005, 0.0) rounds to "-0.000000",
+        // which previously trimmed to the nonsensical "-0" (#800).
+        assert_eq!(msg(-0.000_000_4), "0");
+        // A real small negative that does NOT round to zero keeps its
+        // sign and magnitude.
+        assert_eq!(msg(-0.5), "-0.5");
+        // A normal negative MI value is unaffected.
+        assert_eq!(msg(-1.5), "-1.5");
+        // A positive tiny value already rounds cleanly to "0".
+        assert_eq!(msg(0.000_000_4), "0");
     }
 
     #[test]

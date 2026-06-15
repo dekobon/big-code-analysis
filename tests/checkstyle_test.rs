@@ -68,19 +68,19 @@ fn checkstyle_severity_value_is_in_xsd_enum() {
 }
 
 #[test]
-fn checkstyle_column_must_be_positive_integer_when_present() {
-    // Defense-in-depth: the writer doesn't currently clamp
-    // `record.start_col`. If a future producer (#96 threshold engine)
-    // emits start_col=Some(0), the resulting `column="0"` violates
-    // the XSD's xs:positiveInteger constraint. The walker catches it.
+fn checkstyle_column_zero_is_clamped_to_positive_integer() {
+    // The writer clamps `record.start_col` symmetrically with
+    // `start_line` (#784). A producer emitting start_col=Some(0) must
+    // render `column="1"`, satisfying the XSD's xs:positiveInteger
+    // constraint rather than emitting the invalid `column="0"`.
     let mut r = rec("a.rs", "cyclomatic", 17.0, 15.0);
     r.start_col = Some(0);
     let out = render(&[r]);
-    let panicked = std::panic::catch_unwind(|| assert_checkstyle_well_formed_and_structural(&out));
     assert!(
-        panicked.is_err(),
-        "walker must reject column=\"0\" (xs:positiveInteger requires >0)"
+        out.contains(r#"column="1""#),
+        "start_col=Some(0) must clamp to column=\"1\" in:\n{out}"
     );
+    assert_checkstyle_well_formed_and_structural(&out);
 
     // And the happy path with Some(1) must pass.
     let mut r2 = rec("a.rs", "cyclomatic", 17.0, 15.0);

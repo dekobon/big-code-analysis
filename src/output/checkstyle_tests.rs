@@ -120,6 +120,17 @@ fn start_line_zero_is_clamped_to_one() {
 }
 
 #[test]
+fn start_column_zero_is_clamped_to_one() {
+    // Checkstyle columns are 1-based; a 0-based-column producer feeding
+    // `start_col = Some(0)` must clamp to 1, symmetric with the
+    // already-clamped `line` and with SARIF's `startColumn` (#784).
+    let mut r = rec("a.rs", "cyclomatic", 17.0, 15.0);
+    r.start_col = Some(0);
+    let out = render(&[r]);
+    assert!(out.contains(r#"column="1""#), "{out}");
+}
+
+#[test]
 fn control_characters_in_message_replaced() {
     let r = OffenderRecord {
         path: PathBuf::from("a.rs"),
