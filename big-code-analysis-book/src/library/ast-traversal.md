@@ -249,7 +249,7 @@ walk_preorder(ast.as_tree_sitter(), |node| {
     }
 });
 
-assert_eq!(space.metrics.nom.functions_sum(), 3.0);
+assert_eq!(space.metrics.nom.functions_sum(), 3);
 assert_eq!(functions, ["outer", "inner", "alone"]);
 ```
 
@@ -282,6 +282,7 @@ let payload = AstPayload {
 };
 let cfg = AstCfg {
     id: payload.id.clone(),
+    language: "rust".to_owned(),
     comment: payload.comment,
     span: payload.span,
 };
