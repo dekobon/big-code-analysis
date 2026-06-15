@@ -237,7 +237,20 @@ fn ops_output_writes_single_aggregate_file() {
     assert!(out.is_file(), "ops --output must produce a regular file");
     let doc: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&out).unwrap()).expect("aggregate is valid JSON");
-    assert!(doc.is_array(), "ops aggregate is a top-level array");
+    // `is_array()` alone is satisfied by `[]` — the canonical signature
+    // of a dropped-records regression (#912). Pin the record count (one
+    // fixture analyzed) and each element's real ops shape, mirroring the
+    // metrics sibling `output_writes_single_aggregate_file`.
+    let arr = doc.as_array().expect("ops aggregate is a top-level array");
+    assert_eq!(arr.len(), 1, "one element per analyzed file");
+    for elem in arr {
+        assert!(
+            elem.get("name").is_some()
+                && elem.get("operands").is_some()
+                && elem.get("operators").is_some(),
+            "each element is an ops record (name + operands + operators): {elem}"
+        );
+    }
 }
 
 /// `--output` without a structured format errors (#661 coordination):
