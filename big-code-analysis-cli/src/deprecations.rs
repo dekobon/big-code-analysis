@@ -119,7 +119,11 @@ pub(crate) fn warn_deprecated_aliases(argv: impl IntoIterator<Item = OsString>) 
     }
 
     for (deprecated, canonical) in DEPRECATED_SUBCOMMAND_ALIASES {
-        if subcommand_used(&tokens, deprecated) {
+        // Scan `flag_tokens`, not `tokens`: a path literally named `jit`
+        // after a `--` marker is a positional value, never a subcommand
+        // (clap stops subcommand dispatch at `--`), so it must not warn
+        // (#836).
+        if subcommand_used(flag_tokens, deprecated) {
             warn_deprecated_flag(deprecated, canonical);
         }
     }

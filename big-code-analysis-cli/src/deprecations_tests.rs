@@ -85,6 +85,27 @@ fn subcommand_used_quiet_for_canonical_commit() {
 }
 
 #[test]
+fn subcommand_used_ignores_vcs_jit_after_double_dash() {
+    // Paths named `vcs` and `jit` after a `--` end-of-options marker are
+    // positional values, not a subcommand pair. Production truncates at
+    // `--` before calling `subcommand_used`; mirror that here and assert
+    // no detection (#836). The raw (untruncated) slice would falsely
+    // detect `jit`.
+    let tokens = [
+        String::from("metrics"),
+        String::from("--paths"),
+        String::from("--"),
+        String::from("vcs"),
+        String::from("jit"),
+    ];
+    let end = tokens.iter().position(|t| t == "--").expect("has --");
+    assert!(!subcommand_used(&tokens[..end], "jit"));
+    // Sanity: without the truncation the spurious detection would fire,
+    // proving the truncation is what protects the post-`--` values.
+    assert!(subcommand_used(&tokens, "jit"));
+}
+
+#[test]
 fn top_subcommand_is_first_non_flag_token() {
     let tokens = vec![
         String::from("check"),

@@ -139,6 +139,30 @@ fn format_canonical_on_metrics_is_silent() {
         .stderr(predicate::str::contains("is deprecated").not());
 }
 
+/// #836: paths named `vcs` and `jit` after a `--` end-of-options marker
+/// are positional values, never a subcommand pair. The subcommand scan
+/// must stop at `--` (like the flag scan), so no spurious `jit` is
+/// deprecated warning fires.
+#[test]
+fn vcs_jit_paths_after_double_dash_are_silent() {
+    let dir = TempDir::new().expect("tempdir");
+    // Real files named exactly `vcs` and `jit` so `metrics` succeeds and
+    // the only thing under test is the deprecation scan, not a path error.
+    // `cli_in` roots the command at `dir`, so bare relative names appear
+    // verbatim in argv — the literal `vcs` / `jit` tokens the scan sees.
+    for name in ["vcs", "jit"] {
+        let path = dir.path().join(name);
+        let mut f = std::fs::File::create(&path).expect("create fixture");
+        f.write_all(b"fn f() {}\n").expect("write fixture");
+    }
+
+    cli(&dir)
+        .args(["metrics", "--language", "rust", "--", "vcs", "jit"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("is deprecated").not());
+}
+
 /// `--format text` requests the default human-readable output explicitly
 /// (a permanent, supported spelling) and must not draw a deprecation
 /// warning.
