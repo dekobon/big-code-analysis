@@ -779,6 +779,34 @@ fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize) {
     stats.cloc.only_comment_line_starts.extend(start..=end);
 }
 
+// Adds every physical row spanned by a multi-line string literal to PLOC.
+//
+// Interior rows of a multi-line string hold real source text, not blank
+// lines: classifying them as blank (which happens whenever a language
+// no-ops its string nodes, so the rows reach neither PLOC nor CLOC and
+// `blank = sloc - ploc - cloc` mislabels them) diverges from Python's
+// established behaviour, where a non-docstring multi-line string credits
+// all of its rows to PLOC (#415). This helper makes every other language
+// agree with that decision (#778).
+//
+// Mirrors Python's `String` arm exactly: the opening row is inserted only
+// when the enclosing statement begins on an earlier row — otherwise that
+// row is already attributed to the parent — and rows `start + 1..=end`
+// (the interior and closing rows) are always inserted.
+#[inline]
+fn add_multiline_string_ploc(node: &Node, stats: &mut Stats, start: usize, end: usize) {
+    if node
+        .parent()
+        .is_none_or(|parent| parent.start_row() != start)
+    {
+        check_comment_ends_on_code_line(stats, start);
+        stats.ploc.lines.insert(start);
+    }
+    (start + 1..=end).for_each(|line| {
+        stats.ploc.lines.insert(line);
+    });
+}
+
 impl Loc for PythonCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         use Python::*;
@@ -881,6 +909,11 @@ impl Loc for MozjsCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
+            // A `template_string` (`` `…` ``) can span multiple rows; credit
+            // every spanned row to PLOC to match Python's #415 decision (#778).
+            TemplateString => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             // `StatementBlock` is a syntactic `{ … }` brace grouping, not a
             // logical statement, so it is deliberately absent here (#777). It
             // falls through to the `_` PLOC catch-all, matching every other
@@ -914,6 +947,11 @@ impl Loc for JavascriptCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
+            // A `template_string` (`` `…` ``) can span multiple rows; credit
+            // every spanned row to PLOC to match Python's #415 decision (#778).
+            TemplateString => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             // `StatementBlock` is deliberately absent — see MozjsCode::compute
             // (#777). It is a brace grouping, not a logical statement.
             ExpressionStatement | ExportStatement | ImportStatement | IfStatement
@@ -942,6 +980,11 @@ impl Loc for TypescriptCode {
             // See MozjsCode::compute — `HtmlComment` counts as CLOC (#697).
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
+            }
+            // A `template_string` (`` `…` ``) can span multiple rows; credit
+            // every spanned row to PLOC to match Python's #415 decision (#778).
+            TemplateString => {
+                add_multiline_string_ploc(node, stats, start, end);
             }
             // `StatementBlock` is deliberately absent — see MozjsCode::compute
             // (#777). It is a brace grouping, not a logical statement.
@@ -972,6 +1015,11 @@ impl Loc for TsxCode {
             Comment | HtmlComment => {
                 add_cloc_lines(stats, start, end);
             }
+            // A `template_string` (`` `…` ``) can span multiple rows; credit
+            // every spanned row to PLOC to match Python's #415 decision (#778).
+            TemplateString => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             // `StatementBlock` is deliberately absent — see MozjsCode::compute
             // (#777). It is a brace grouping, not a logical statement.
             ExpressionStatement | ExportStatement | ImportStatement | IfStatement
@@ -996,9 +1044,7 @@ impl Loc for RustCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            StringLiteral
-            | RawStringLiteral
-            | Block
+            Block
             | SourceFile
             | SLASH
             | SLASHSLASH
@@ -1009,6 +1055,12 @@ impl Loc for RustCode {
             | DocComment
             | InnerDocCommentMarker
             | BANG => {}
+            // A `string_literal` / `raw_string_literal` can span multiple
+            // rows; credit every spanned row to PLOC to match Python's #415
+            // decision (#778).
+            StringLiteral | RawStringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             BlockComment => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1046,8 +1098,13 @@ impl Loc for CppCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            RawStringLiteral | StringLiteral | DeclarationList | FieldDeclarationList
-            | TranslationUnit => {}
+            DeclarationList | FieldDeclarationList | TranslationUnit => {}
+            // A `raw_string_literal` (`R"(…)"`) or a `string_literal` written
+            // across adjacent lines can span multiple rows; credit every
+            // spanned row to PLOC to match Python's #415 decision (#778).
+            RawStringLiteral | StringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             Comment => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1095,7 +1152,13 @@ impl Loc for CCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            StringLiteral | DeclarationList | FieldDeclarationList | TranslationUnit => {}
+            DeclarationList | FieldDeclarationList | TranslationUnit => {}
+            // A `string_literal` continued across rows (`"…\` + newline) can
+            // span multiple rows; credit every spanned row to PLOC to match
+            // Python's #415 decision (#778).
+            StringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             Comment => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1148,8 +1211,13 @@ impl Loc for ObjcCode {
             // the `{ … }` ivar block of an `@interface` /
             // `@implementation`; like `DeclarationList` it is a brace
             // container, not a logical line.
-            StringLiteral | DeclarationList | FieldDeclarationList | InstanceVariables
-            | TranslationUnit => {}
+            DeclarationList | FieldDeclarationList | InstanceVariables | TranslationUnit => {}
+            // A `string_literal` continued across rows can span multiple rows;
+            // credit every spanned row to PLOC to match Python's #415 decision
+            // (#778). ObjC has no raw string literals.
+            StringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             Comment => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1218,8 +1286,13 @@ impl Loc for MozcppCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            RawStringLiteral | StringLiteral | DeclarationList | FieldDeclarationList
-            | TranslationUnit => {}
+            DeclarationList | FieldDeclarationList | TranslationUnit => {}
+            // A `raw_string_literal` (`R"(…)"`) or a `string_literal` written
+            // across adjacent lines can span multiple rows; credit every
+            // spanned row to PLOC to match Python's #415 decision (#778).
+            RawStringLiteral | StringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             Comment => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1273,6 +1346,12 @@ impl Loc for JavaCode {
             LineComment | BlockComment => {
                 add_cloc_lines(stats, start, end);
             }
+            // A Java text block (`"""…"""`) is a `string_literal` whose body
+            // is a `multiline_string_fragment` spanning several rows; credit
+            // every spanned row to PLOC to match Python's #415 decision (#778).
+            StringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             AssertStatement | BreakStatement | ContinueStatement | DoStatement
             | EnhancedForStatement | ExpressionStatement | ForStatement | IfStatement
             | ReturnStatement | SwitchExpression | ThrowStatement | TryStatement
@@ -1321,6 +1400,12 @@ impl Loc for GroovyCode {
             SourceFile => {}
             LineComment | BlockComment | GroovydocComment => {
                 add_cloc_lines(stats, start, end);
+            }
+            // A Groovy triple-quoted string (`"""…"""` / `'''…'''`) is a
+            // `string_literal` spanning several rows; credit every spanned row
+            // to PLOC to match Python's #415 decision (#778).
+            StringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
             }
             // An `ExpressionStatement` whose only child is a bare
             // `Closure` is a Groovy-specific grammar artifact: the
@@ -1371,6 +1456,12 @@ impl Loc for CsharpCode {
             Comment => {
                 add_cloc_lines(stats, start, end);
             }
+            // A C# verbatim (`@"…"`) or raw (`"""…"""`) string literal can span
+            // several rows; credit every spanned row to PLOC to match Python's
+            // #415 decision (#778).
+            VerbatimStringLiteral | RawStringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             BreakStatement | CheckedStatement | ContinueStatement | DoStatement
             | ExpressionStatement | FixedStatement | ForStatement | ForeachStatement
             | GotoStatement | IfStatement | LabeledStatement | LockStatement | ReturnStatement
@@ -1407,7 +1498,13 @@ impl Loc for GoCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            G::SourceFile | G::RawStringLiteral | G::InterpretedStringLiteral => {}
+            G::SourceFile | G::InterpretedStringLiteral => {}
+            // A Go raw string literal (`` `…` ``) can span several rows;
+            // credit every spanned row to PLOC to match Python's #415
+            // decision (#778).
+            G::RawStringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             G::Comment => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1464,15 +1561,7 @@ impl Loc for PerlCode {
             P::SourceFile
             | P::Block
             | P::StandaloneBlock
-            | P::HeredocBodyStatement
-            | P::HeredocContent
             | P::PodContent
-            | P::StringSingleQuoted
-            | P::StringDoubleQuoted
-            | P::StringQQuoted
-            | P::StringQqQuoted
-            | P::BacktickQuoted
-            | P::CommandQxQuoted
             // Internal string tokens — already accounted for by the
             // parent string node's start row.
             | P::SQUOTE
@@ -1485,6 +1574,21 @@ impl Loc for PerlCode {
             | P::EscapeSequence
             | P::EscapeSequenceToken1
             | P::Interpolation => {}
+            // Multi-line-capable string literals: their interior rows are
+            // real code, not blank lines, so credit every spanned row to
+            // PLOC to match Python's #415 decision (#778). `HeredocBodyStatement`
+            // / `HeredocContent` are the body of a `<<EOT … EOT` heredoc; the
+            // quoted forms span rows when their literal text contains newlines.
+            P::HeredocBodyStatement
+            | P::HeredocContent
+            | P::StringSingleQuoted
+            | P::StringDoubleQuoted
+            | P::StringQQuoted
+            | P::StringQqQuoted
+            | P::BacktickQuoted
+            | P::CommandQxQuoted => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             P::Comments | P::PodStatement => {
                 add_cloc_lines(stats, start, end);
             }
@@ -1535,8 +1639,15 @@ impl Loc for LuaCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            // Skip root and string literals.
-            Lua::Chunk | Lua::String => {}
+            // Skip root.
+            Lua::Chunk => {}
+
+            // A Lua long-bracket string (`[[…]]`) can span several rows;
+            // credit every spanned row to PLOC to match Python's #415
+            // decision (#778).
+            Lua::String => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
 
             // Skip tokens that are children of comment nodes.
             // Lua's comment nodes have children: DASHDASH / LBRACKLBRACK (openers),
@@ -1605,6 +1716,12 @@ impl Loc for KotlinCode {
             LineComment | BlockComment => {
                 add_cloc_lines(stats, start, end);
             }
+            // A Kotlin raw string (`"""…"""`) is a `multiline_string_literal`
+            // spanning several rows; credit every spanned row to PLOC to match
+            // Python's #415 decision (#778).
+            MultilineStringLiteral => {
+                add_multiline_string_ploc(node, stats, start, end);
+            }
             ForStatement | WhileStatement | DoWhileStatement | IfExpression | WhenExpression
             | TryExpression | ThrowExpression | ReturnExpression | Assignment
             | PropertyDeclaration => {
@@ -1646,6 +1763,14 @@ impl Loc for PhpCode {
             Program => {}
             Comment => {
                 add_cloc_lines(stats, start, end);
+            }
+            // A PHP double-quoted (`encapsed_string`) or single-quoted
+            // (`string`) literal can span several rows; credit every spanned
+            // row to PLOC to match Python's #415 decision (#778). Heredoc /
+            // nowdoc bodies already reach PLOC through their inner statement
+            // nodes, so they are not routed here.
+            EncapsedString | String => {
+                add_multiline_string_ploc(node, stats, start, end);
             }
             // Statement kinds that contribute one logical line each.
             ExpressionStatement
@@ -1695,6 +1820,12 @@ impl Loc for RubyCode {
             R::Program => {}
             R::Comment => {
                 add_cloc_lines(stats, start, end);
+            }
+            // A Ruby string literal (`"…"` / `'…'` / `%q{…}`) or a heredoc
+            // body can span several rows; credit every spanned row to PLOC to
+            // match Python's #415 decision (#778).
+            R::String | R::HeredocBody => {
+                add_multiline_string_ploc(node, stats, start, end);
             }
             // LLOC contributors: control-flow constructs, method/class/module
             // declarations, postfix statement modifiers, and the dedicated
@@ -5724,21 +5855,58 @@ my $x = 1;",
     }
 
     #[test]
-    fn perl_lloc_string_content_excluded_from_ploc() {
-        // The body of a multi-line double-quoted string is data, not code:
-        // intermediate rows that contain only string contents should not be
-        // added to PLOC. Row 0 holds `my $s = "line1`; row 2 holds `line3";`
-        // (both have code); row 1 is purely string content.
+    fn perl_multiline_string_assignment_ploc() {
+        // Regression test for issue #778: interior rows of a multi-line string
+        // literal are real code, not blank lines, and must be credited to PLOC
+        // exactly as Python does (#415). Previously Perl no-op'd its string
+        // kinds, so row 1 reached neither PLOC nor CLOC and `blank =
+        // sloc - ploc - cloc` mislabelled it as blank (ploc was 2, blank 1).
+        // Row 0 holds `my $s = "line1`, row 1 `line2`, row 2 `line3";`.
         check_metrics::<PerlParser>(
             "my $s = \"line1
 line2
 line3\";",
             "foo.pl",
             |metric| {
-                // PLOC = {row 0, row 2} = 2. Without the gate, row 1 would
-                // also leak in as a leaf-row of the string body.
-                assert_eq!(metric.loc.ploc(), 2);
+                // Three physical rows, all code, no blanks — matching Python.
+                assert_eq!(metric.loc.sloc(), 3);
+                assert_eq!(metric.loc.ploc(), 3);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 0);
             },
+        );
+    }
+
+    #[test]
+    fn multiline_string_ploc_consistent_across_languages() {
+        // Cross-language parity for issue #778: the SAME 3-line string
+        // assignment must report identical ploc / blank in every language
+        // that has a multi-line string literal. The canonical value is
+        // Python's #415 decision: all three rows are code, none are blank.
+        // `check_metrics` takes a plain `fn(CodeMetrics)`, so the shared
+        // assertion is a named function rather than a capturing closure and
+        // must take its argument by value to match that pointer type.
+        #[allow(clippy::needless_pass_by_value)]
+        fn assert_three_code_rows(metric: crate::CodeMetrics) {
+            assert_eq!(metric.loc.sloc(), 3);
+            assert_eq!(metric.loc.ploc(), 3);
+            assert_eq!(metric.loc.cloc(), 0);
+            assert_eq!(metric.loc.blank(), 0);
+        }
+        check_metrics::<PythonParser>(
+            "s = \"\"\"line1\nline2\nline3\"\"\"",
+            "foo.py",
+            assert_three_code_rows,
+        );
+        check_metrics::<PerlParser>(
+            "my $s = \"line1\nline2\nline3\";",
+            "foo.pl",
+            assert_three_code_rows,
+        );
+        check_metrics::<RubyParser>(
+            "s = \"line1\nline2\nline3\"",
+            "foo.rb",
+            assert_three_code_rows,
         );
     }
 
@@ -5936,11 +6104,15 @@ end",
 ]]",
             "foo.lua",
             |metric| {
+                // #778: a multi-line long-bracket string credits every spanned
+                // row to PLOC (matching Python's #415 decision), so all four
+                // rows are code and none are blank. It still contributes a
+                // single lloc — the assignment statement.
                 assert_eq!(metric.loc.sloc(), 4);
-                assert_eq!(metric.loc.ploc(), 2);
+                assert_eq!(metric.loc.ploc(), 4);
                 assert_eq!(metric.loc.lloc(), 1);
                 assert_eq!(metric.loc.cloc(), 0);
-                assert_eq!(metric.loc.blank(), 2);
+                assert_eq!(metric.loc.blank(), 0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -9549,22 +9721,20 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
 
     #[test]
     fn ruby_heredoc_lloc_and_blank() {
-        // A `<<~TXT` heredoc contributes: SLOC = every line in the
-        // file (including heredoc body); PLOC = the def header,
-        // assignment, heredoc-end marker, trailing identifier, and
-        // closing `end`; LLOC = just the surrounding `def`. The
-        // heredoc-body lines are counted as `blank` (they have no
-        // grammar-visible non-comment tokens past the literal-content
-        // marker).
-        // expected: sloc = 7, ploc = 5, lloc = 1, blank = 2.
+        // A `<<~TXT` heredoc contributes: SLOC = every line in the file
+        // (including the heredoc body); LLOC = just the surrounding `def`.
+        // #778: the heredoc-body rows (`one`, `two`) hold real string text,
+        // so they are credited to PLOC like Python's multi-line strings
+        // (#415) rather than mislabelled as blank. Every row is now code.
+        // expected: sloc = 7, ploc = 7, lloc = 1, blank = 0.
         check_metrics::<RubyParser>(
             "def foo\n  msg = <<~TXT\n    one\n    two\n  TXT\n  msg\nend\n",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.loc.sloc(), 7);
-                assert_eq!(metric.loc.ploc(), 5);
+                assert_eq!(metric.loc.ploc(), 7);
                 assert_eq!(metric.loc.lloc(), 1);
-                assert_eq!(metric.loc.blank(), 2);
+                assert_eq!(metric.loc.blank(), 0);
             },
         );
     }
