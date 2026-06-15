@@ -200,9 +200,32 @@ fn escape_cell(s: &str) -> String {
     crate::check_format::escape_gfm_cell(s)
 }
 
-fn escape_name(s: &str) -> String {
-    let sanitized = s.replace('`', "\u{02CB}");
-    format!("`{}`", escape_cell(&sanitized))
+/// Escape an identifier for display inside a backtick code span in a GFM
+/// table cell. Unlike [`escape_cell`], this must **not** double literal
+/// backslashes: inside a code span GFM treats content literally and never
+/// processes backslash escapes, so `escape_cell`'s `\` → `\\` rule (correct
+/// for a bare cell) would render a doubled backslash (issue #846). The only
+/// characters that still need handling inside the span are the backtick
+/// (replaced with the modifier-letter U+02CB so it cannot close the span),
+/// the pipe (GFM's table parser strips `\|` → `|` *before* code-span parsing,
+/// so it renders correctly), and line breaks (collapsed to a space so a
+/// multi-line name cannot break the table layout).
+///
+/// `pub(crate)` so the provenance footer can reuse this single code-span
+/// escaping policy for the seed paths it renders (issue #848).
+pub(crate) fn escape_name(s: &str) -> String {
+    let mut span = String::with_capacity(s.len() + 2);
+    span.push('`');
+    for ch in s.chars() {
+        match ch {
+            '`' => span.push('\u{02CB}'),
+            '|' => span.push_str("\\|"),
+            '\n' | '\r' => span.push(' '),
+            _ => span.push(ch),
+        }
+    }
+    span.push('`');
+    span
 }
 
 /// Format an integer with comma thousands separators (`15973` -> `15,973`).
@@ -1885,6 +1908,16 @@ mod tests {
         assert_eq!(escape_name("a|b"), "`a\\|b`");
         assert_eq!(escape_name("a`b"), "`a\u{02CB}b`");
         assert_eq!(escape_name("a\nb"), "`a b`");
+        // A literal backslash must NOT be doubled inside a code span: GFM
+        // treats span content literally, so `escape_cell`'s `\` → `\\` rule
+        // would render a visible doubled backslash (issue #846). A PHP-style
+        // fully-qualified name `Foo\Bar` must keep its single backslash.
+        assert_eq!(escape_name("Foo\\Bar"), "`Foo\\Bar`");
+        // A backslash adjacent to a pipe stays single (one `\`) while the
+        // pipe still gets its `\|` table escape — input chars a \ | b become
+        // span content a \ \ | b, i.e. the literal backslash plus the pipe's
+        // own `\|`.
+        assert_eq!(escape_name("a\\|b"), "`a\\\\|b`");
     }
 
     #[test]
