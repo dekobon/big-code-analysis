@@ -587,11 +587,19 @@ representation.
 > make the server walk *any* git repository it can read and return that
 > repository's relative file paths, churn, and author signals. This is
 > materially different from the source-in-body endpoints, which only
-> ever see code the client sends. **Do not expose `/vcs`, `/vcs/trend`,
-> or `/vcs/jit` to untrusted clients without an authorization layer in
-> front of `bca-web`.** The default `127.0.0.1` bind keeps them local.
-> Each walk runs under the same parse-timeout and blocking-pool guard as
-> the analysis endpoints.
+> ever see code the client sends. The optional `cache_dir` field is a
+> second caller-supplied server-side path that grants a *write*
+> capability: with caching enabled (the default), the server creates
+> directories and writes JSON cache files under it
+> (`<cache_dir>/<repo>/<head_sha>.json`), so a caller controlling
+> `cache_dir` can direct the server to write cache files at any path the
+> server process can write to. The endpoint's filesystem reach is
+> therefore an arbitrary read of any readable git repository *and* an
+> arbitrary write of cache files under any writable path. **Do not expose
+> `/vcs`, `/vcs/trend`, or `/vcs/jit` to untrusted clients without an
+> authorization layer in front of `bca-web`.** The default `127.0.0.1`
+> bind keeps them local. Each walk runs under the same parse-timeout and
+> blocking-pool guard as the analysis endpoints.
 
 All three endpoints are `POST`-only, accept `application/json`, echo the
 request `id`, and report errors with the uniform `{error, error_kind,

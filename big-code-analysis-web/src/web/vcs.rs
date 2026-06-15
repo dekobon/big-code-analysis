@@ -18,10 +18,24 @@
 //! lets the caller make the server walk any git repository it can read
 //! and returns that repo's relative file paths, churn, and author
 //! signals. This is materially different from every other endpoint
-//! (which only ever sees code in the request body). Operators must not
-//! expose `/vcs` to untrusted clients without an authorization layer;
-//! the default `127.0.0.1` bind keeps it local. The walk runs under the
-//! same parse-timeout / blocking-pool guard as the other endpoints.
+//! (which only ever sees code in the request body).
+//!
+//! The optional `cache_dir` field is a second caller-supplied
+//! server-side path, and it grants a *write* capability: when the
+//! persistent change-history cache is enabled (the default), the server
+//! creates directories and writes JSON cache files under that location
+//! (`<cache_dir>/<repo>/<head_sha>.json`). A caller that controls
+//! `cache_dir` can therefore direct the server to create directories
+//! and write cache files at any path the server process can write to —
+//! a strictly larger filesystem reach than the `repo_path` read. Both
+//! `/vcs` and `/vcs/trend` accept `cache_dir`.
+//!
+//! Together these make the endpoint's filesystem reach an arbitrary
+//! read of any readable git repository **and** an arbitrary write of
+//! cache files under any writable path. Operators must not expose `/vcs`
+//! to untrusted clients without an authorization layer; the default
+//! `127.0.0.1` bind keeps it local. The walk runs under the same
+//! parse-timeout / blocking-pool guard as the other endpoints.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -117,6 +131,9 @@ pub struct WebVcsPayload {
     pub no_cache: Option<bool>,
     /// Override the server-side cache directory. Defaults to the platform
     /// cache location (`$XDG_CACHE_HOME/big-code-analysis/vcs`, etc.).
+    ///
+    /// This is a caller-supplied write path: see the module-level
+    /// `# Security` note for the arbitrary-write capability it grants.
     pub cache_dir: Option<String>,
 }
 
@@ -581,7 +598,8 @@ pub struct WebVcsTrendPayload {
     pub bus_factor_threshold: Option<f64>,
     /// Disable the persistent change-history cache for this request.
     pub no_cache: Option<bool>,
-    /// Override the server-side cache directory.
+    /// Override the server-side cache directory. Caller-supplied write
+    /// path — see the module-level `# Security` note.
     pub cache_dir: Option<String>,
     // --- trend-only knobs ---
     /// Number of evenly-spaced sample points (>= 2; default 12 — #636).
