@@ -34,8 +34,11 @@ METRICS_DIR = REPO_ROOT / "src" / "metrics"
 DEFAULT_BASELINE = REPO_ROOT / ".snapshot-anchor-baseline.txt"
 
 MACRO_RE = re.compile(r"insta::assert_json_snapshot!\s*\(")
-# Matches inline raw-string anchors: @r"…", @r#"…"#, @r###"…"###, etc.
-INLINE_ANCHOR_RE = re.compile(r"@r#*\"")
+# Matches insta inline anchors in both forms: the non-raw `@"…"` and
+# the raw-string `@r"…"`, `@r#"…"#`, `@r###"…"###`, etc. The `r` is
+# optional so `@"…"` is recognized as a valid anchor rather than
+# mis-counted as bare (#876).
+INLINE_ANCHOR_RE = re.compile(r"@r?#*\"")
 ASSERT_EQ_RE = re.compile(r"\bassert_eq!\s*\(")
 EXPECTED_COMMENT_RE = re.compile(r"//\s*expected\s*:", re.IGNORECASE)
 LOOKBACK_LINES = 5
@@ -249,6 +252,46 @@ def default_targets() -> list[pathlib.Path]:
     return sorted(p for p in METRICS_DIR.glob("*.rs") if p.is_file())
 
 
+def _bare_in_source(source: str) -> int:
+    """Run ``count_bare`` over an in-memory snippet (self-test helper)."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".rs", encoding="utf-8", delete=False
+    ) as fh:
+        fh.write(source)
+        tmp = pathlib.Path(fh.name)
+    try:
+        return count_bare(tmp)
+    finally:
+        tmp.unlink()
+
+
+def _self_test() -> int:
+    """Prove the bare-call scanner classifies the tricky cases.
+
+    Each case is a small Rust snippet with its expected bare count.
+    """
+    cases: list[tuple[str, str, int]] = [
+        # Anchored: insta's non-raw inline anchor must be recognized (#876).
+        ("non-raw inline anchor", 'insta::assert_json_snapshot!(m.x, @"123");', 0),
+        # Anchored: raw inline anchor (existing behavior, no regression).
+        ("raw inline anchor", 'insta::assert_json_snapshot!(m.x, @r###"1"###);', 0),
+        # Bare: no anchor at all.
+        ("bare call", "insta::assert_json_snapshot!(m.x);", 1),
+    ]
+    ok = True
+    for name, source, expected in cases:
+        got = _bare_in_source(source)
+        good = got == expected
+        ok = ok and good
+        print(
+            f"  [{'ok' if good else 'WRONG'}] {name}: bare={got} (expected {expected})"
+        )
+    print("\nSelf-test:", "all expectations met." if ok else "SCANNER IS WRONG.")
+    return 0 if ok else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -273,7 +316,15 @@ def main() -> int:
         action="store_true",
         help="Print current per-file counts and exit 0.",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run the scanner's built-in self-test and exit.",
+    )
     args = parser.parse_args()
+
+    if args.self_test:
+        return _self_test()
 
     targets = [p.resolve() for p in args.files] if args.files else default_targets()
     counts = collect_counts(targets)
