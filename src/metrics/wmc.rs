@@ -211,8 +211,11 @@ impl Wmc for CsharpCode {
 // singletons map to `Class`. Function spaces (top-level `fun`, member
 // `fun`, secondary constructors, lambdas, anonymous functions) contribute
 // their cyclomatic to the enclosing class / interface. `companion_object`
-// is not a `func_space`, so its members fold into the surrounding class —
-// matching Kotlin's "static members" semantics.
+// IS a `func_space` and opens its own `Class` scope (#431): `Checker::
+// is_func_space` matches `Kotlin::CompanionObject` and `Getter::
+// get_space_kind` maps it to `SpaceKind::Class`, so its members accrue to
+// the companion's own class-WMC rather than folding into the surrounding
+// class. See `kotlin_companion_object_opens_class_space` below.
 impl Wmc for KotlinCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
         class_interface_compute(space_kind, cyclomatic, stats);

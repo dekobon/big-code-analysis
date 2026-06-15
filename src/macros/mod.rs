@@ -30,8 +30,8 @@ macro_rules! get_language {
 // `Npm`, `Loc`, `Wmc`) is silent: the metric will report 0 on every
 // input. The bracketed-trait arm (`[Trait]`) is different — it
 // emits an empty `impl Trait for X {}` and relies on the trait's
-// own default method body, which is correct for `Tokens`, `Nom`,
-// and `NArgs`.
+// own default method body, which is correct for `Mi`, `Tokens`,
+// `Nom`, and `NArgs`.
 //
 // Audit: #188 walked every `(language, metric)` cell and classified
 // each as either a real default (the language has no construct the

@@ -322,7 +322,12 @@ pub struct ConcurrentRunner<Config> {
 impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     /// Creates a new `ConcurrentRunner`.
     ///
-    /// * `num_jobs` - Number of jobs utilized to process files concurrently.
+    /// * `num_jobs` - Total worker budget (one producer thread plus the
+    ///   consumer threads). [`run`](Self::run) always spawns a single
+    ///   producer thread, so the number of consumer threads it spawns is
+    ///   `max(2, num_jobs) - 1`. This means `0`, `1`, and `2` all collapse
+    ///   to a single consumer (no panic, no linear scaling below 2);
+    ///   values of `3` or more yield `num_jobs - 1` consumers.
     /// * `proc_files` - Function that processes each file in the list.
     pub fn new<ProcFiles>(num_jobs: usize, proc_files: ProcFiles) -> Self
     where
