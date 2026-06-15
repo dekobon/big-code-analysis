@@ -2393,6 +2393,108 @@ for historical reference.
   count matches what the Many-parameters hotspot table actually hides under a
   non-default manifest `nargs` threshold; both the Markdown and HTML renderers
   are affected (#844).
+- CLI metric-direction handling for the lower-is-worse `mi.*`
+  (Maintainability Index) family is now consistent across the baseline
+  surfaces. `bca diff-baseline` buckets an MI *drop* as **Worsened** and
+  an MI *rise* as **Improved** (previously inverted, so the summary
+  counts and `--worsened-only`/`--improved-only` filters selected the
+  wrong rows) (#825); `bca check --baseline` classifies an MI drop below
+  the recorded value as a regression instead of silently dropping it as
+  `Covered` (#827); and `bca check --tier=soft --strict-exit-codes`
+  escalates an MI value below its hard floor to a hard breach (exit 5)
+  rather than under-reporting it as exit 2/3 (#837). All three now reuse
+  the central `metric_catalog::lower_is_worse` predicate via a shared
+  `breaches_limit` helper so the gate and the outcome classifier cannot
+  drift on direction.
+- `bca vcs commit --fail-above` now rejects a non-finite (`nan`, `inf`,
+  `-inf`) or negative threshold at parse time (exit 1) instead of
+  accepting it: a `nan`/`inf` threshold silently disabled the CI gate
+  (`score >= NaN` is always `false`) and a negative one tripped on every
+  commit. The flag now uses the same finite-non-negative validation as
+  the `check` threshold parser (#850).
+- A VCS-injection failure on one file in `analyze_batch` /
+  `analyze_paths` no longer aborts the whole batch. The injection step
+  (re-parse / reserialize of the self-produced metrics JSON) now degrades
+  to the un-attached JSON — leaving that file's AST metrics intact —
+  instead of propagating an `Err` that raised to Python and discarded
+  every result computed so far, matching the documented graceful-
+  degradation contract and the sibling `json_string_to_py` handling
+  (#851).
+- `big_code_analysis.analyze_paths` no longer silently drops a
+  nonexistent (or dangling-symlink) path seed. It now classifies seeds
+  with `symlink_metadata` (not `Path::is_file`) and surfaces a missing
+  seed as an `AnalysisFailure` element (`error_kind="IoError"`,
+  `error="path does not exist"`), restoring CLI parity with `bca
+  metrics <paths>`'s hard error on a missing `--paths` seed (#596) while
+  preserving the never-raise posture of the result vector (#858).
+- The `pipeline_db.py` example's `_persist` no longer crashes when an
+  existing sqlite db is reused with a wider metric column set. It now
+  reconciles the live schema via `PRAGMA table_info` +
+  `ALTER TABLE ... ADD COLUMN` before inserting, honouring the example's
+  "survives the addition of new metrics" promise on db reuse (a library
+  upgrade adding a metric, or a prior run with a narrower `metrics=[...]`
+  selection) instead of raising
+  `OperationalError: table metrics has no column named <X>` (#890).
+- The Python binding's `to_sarif` no longer over-emits findings for the
+  four aggregate-shaped metrics (`cyclomatic`, `cyclomatic.modified`,
+  `cognitive`, `abc`) at interior container spaces. These metrics read
+  the subtree-summed JSON field (`*.sum`, `abc.magnitude`), which equals
+  the CLI's per-space accessor only at a leaf space; the binding now
+  emits them only at leaf spaces (no descendant function/closure
+  spaces), restoring byte-equivalence with `bca check -O sarif` for a
+  file with nested functions or methods inside classes. Previously a
+  class was flagged for the sum of its methods' complexity — a finding
+  the CLI never produces (#855).
+- `bca` CLI: the `vcs jit` -> `vcs commit` deprecation warning is no
+  longer dropped when a `global = true` or either-position flag precedes
+  the `jit` subcommand token (`bca vcs -w jit`, `bca vcs --long-window
+  6mo jit`); the argv scan now finds the subcommand past any leading
+  flags and their values instead of inspecting only the token right after
+  `vcs` (#834).
+- `bca` CLI: the deprecated-subcommand scan now stops at the `--`
+  end-of-options marker (matching the flag scan), so path values literally
+  named `vcs` and `jit` after `--` no longer trigger a spurious
+  `` `jit` is deprecated `` warning (#836).
+- `bca diff --since <ref>` no longer reports `export-ignore`'d source
+  files as spuriously "added", nor perturbs `export-subst`'d file
+  metrics. The before-side tree is now materialized with `git ls-tree`
+  and `git cat-file` (which never consult gitattributes) instead of
+  `git archive` (which silently honoured `export-ignore` /
+  `export-subst`), so the before-side reflects the source exactly as
+  committed at `<ref>` (#838).
+- `bca find` (`dispatch_find`) no longer escalates a future-fallible
+  `Ast::find` error to a worker-thread panic: it now degrades to no
+  output for that file, matching the `bca metrics` / `bca ops`
+  dispatchers. Behaviour is unchanged today (`Ast::find` is currently
+  infallible); this removes a latent multi-file crash for the
+  contracted strict-parsing mode (#839).
+- The generated `From<u16> for Tcl` out-of-range fallback now resolves to
+  the tree-sitter ERROR sentinel (`Tcl::Error2`, display `"ERROR"`)
+  instead of the Tcl `error` *command keyword* (`Tcl::Error`, display
+  `"error"`). The `enums/` Rust template hardcoded `unwrap_or(Self::Error)`
+  and never consumed the renamed sentinel name, so Tcl — the lone grammar
+  whose keyword set camel-cases to `Error` — silently misclassified an
+  unknown/error node as a valid `error` token; every other language
+  module already pointed at its ERROR sentinel. The template now renders
+  the generator-computed sentinel name (#954).
+- The `enums/data/mac.py` codegen helper is no longer append-only: it now
+  rewrites `c_macros.txt` to exactly `sorted(macros)` each run, so a name
+  removed from its `macs` template is pruned from the data file rather
+  than lingering forever. The prior diff-and-union contract could only
+  grow the artifact, letting it drift from its own generator (#892).
+- `make py-stubtest` now also diffs the Python `vcs` submodule
+  (`rank` / `trend` / `commit` / `score_diff` / the `Options`
+  constructor) against its `vcs.pyi` stub by adding a second
+  `big_code_analysis.vcs` module argument to the stubtest run. The
+  submodule was previously allowlisted out wholesale, so PyO3
+  signature/default drift in the change-history surface escaped the
+  gate — reopening the #583 stub-drift failure mode for that surface.
+  `vcs.pyi` now spells the PyO3-introspected shapes (a `@final`
+  `Options` with a `__new__` constructor, and `commit`'s
+  computed-default `...`) so the gate passes on correct stubs and
+  fails on a planted default mismatch; the allowlist keeps only the
+  `_native.vcs` submodule-attribute entry (its signatures are now
+  checked via the facade) and runtime `__all__` (#854).
 - Cross-language metric consistency: several per-language metrics were
   brought into line with their siblings. ABC now counts numeric-truthy
   operands in Python/JS/TS boolean slots (`if 5:`, `while (5)`, `x && 5`)

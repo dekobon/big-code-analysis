@@ -8,7 +8,12 @@
 //! that `recipes/baselines.md` used to walk through: it pairs entries
 //! across an old and a new baseline on their `(path, qualified, metric)`
 //! identity and reports four buckets — `added`, `removed`, `worsened`,
-//! `improved` — in TTY, Markdown, or JSON form.
+//! `improved` — in TTY, Markdown, or JSON form. Bucketing is
+//! direction-aware: for higher-is-worse metrics a value rise is
+//! `worsened` and a fall `improved`, but for the lower-is-worse `mi.*`
+//! family (Maintainability Index) the mapping inverts — an MI drop is a
+//! regression (`worsened`) and an MI gain an improvement (`improved`),
+//! matching `big_code_analysis::metric_catalog::lower_is_worse` (#825).
 //!
 //! The identity deliberately omits `start_line` (mirroring the on-disk
 //! matcher from issue #377): a function that drifts up or down the file
@@ -40,9 +45,11 @@ pub(crate) struct EntryDelta {
     pub(crate) value: f64,
 }
 
-/// An entry present in both baselines whose recorded value moved
-/// (`worsened` = value rose, `improved` = value fell). `start_line` is
-/// the *new* baseline's line, the one a reviewer would jump to.
+/// An entry present in both baselines whose recorded value moved. For
+/// higher-is-worse metrics `worsened` = value rose and `improved` =
+/// value fell; for the lower-is-worse `mi.*` family the mapping inverts
+/// (see [`BaselineDiff::compute`]). `start_line` is the *new* baseline's
+/// line, the one a reviewer would jump to.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ValueDelta {
     pub(crate) path: String,
@@ -136,9 +143,21 @@ impl BaselineDiff {
             for i in 0..paired {
                 let o = olds[i];
                 let n = news[i];
+                // Direction-aware bucketing: for the lower-is-worse
+                // `mi.*` family a value *drop* is the regression and a
+                // *rise* the improvement, so the Greater/Less mapping
+                // inverts. Reuse the central catalog predicate (the same
+                // one the threshold gate consults at `thresholds.rs:818`)
+                // rather than hard-coding the `mi.*` list here.
+                let (worse, better) =
+                    if big_code_analysis::metric_catalog::lower_is_worse(&n.metric) {
+                        (Ordering::Less, Ordering::Greater)
+                    } else {
+                        (Ordering::Greater, Ordering::Less)
+                    };
                 match n.value.partial_cmp(&o.value) {
-                    Some(Ordering::Greater) => worsened.push(value_delta(n, o.value, n.value)),
-                    Some(Ordering::Less) => improved.push(value_delta(n, o.value, n.value)),
+                    Some(ord) if ord == worse => worsened.push(value_delta(n, o.value, n.value)),
+                    Some(ord) if ord == better => improved.push(value_delta(n, o.value, n.value)),
                     // Equal (byte-identical re-baseline of unchanged
                     // code) — or, defensively, an incomparable NaN that
                     // the load filter should already have dropped —

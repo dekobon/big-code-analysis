@@ -64,6 +64,55 @@ fn higher_value_is_worsened_lower_is_improved() {
 }
 
 #[test]
+fn mi_family_direction_is_inverted() {
+    // mi.* is lower-is-worse: a drop is a regression (worsened) and a
+    // rise is an improvement (improved) — the opposite of the
+    // higher-is-worse default above (#825). Verified against the catalog
+    // predicate `metric_catalog::lower_is_worse("mi.original")`.
+    let old = vec![
+        entry("src/bar.rs", "act", "mi.original", 5, 70.0),
+        entry("src/baz.rs", "resolve", "mi.original", 8, 50.0),
+    ];
+    let new = vec![
+        // Value fell 70 -> 60: an MI regression -> worsened.
+        entry("src/bar.rs", "act", "mi.original", 5, 60.0),
+        // Value rose 50 -> 65: an MI improvement -> improved.
+        entry("src/baz.rs", "resolve", "mi.original", 8, 65.0),
+    ];
+    let diff = BaselineDiff::compute(&old, &new);
+    assert_eq!(diff.worsened.len(), 1, "an mi.* drop must be worsened");
+    assert_eq!(diff.improved.len(), 1, "an mi.* rise must be improved");
+    assert_eq!(diff.worsened[0].qualified, "act");
+    assert_eq!(diff.worsened[0].old, 70.0);
+    assert_eq!(diff.worsened[0].new, 60.0);
+    assert_eq!(diff.improved[0].qualified, "resolve");
+    assert_eq!(diff.improved[0].old, 50.0);
+    assert_eq!(diff.improved[0].new, 65.0);
+}
+
+#[test]
+fn mixed_directions_coexist_in_one_diff() {
+    // A higher-is-worse rise and a lower-is-worse rise in the same diff
+    // must land in opposite buckets, proving the per-entry direction
+    // lookup (not a single global flag) drives bucketing.
+    let old = vec![
+        entry("src/a.rs", "f", "cognitive", 1, 10.0),
+        entry("src/b.rs", "g", "mi.original", 1, 40.0),
+    ];
+    let new = vec![
+        // cognitive rose -> worsened (higher-is-worse).
+        entry("src/a.rs", "f", "cognitive", 1, 15.0),
+        // mi.original rose -> improved (lower-is-worse).
+        entry("src/b.rs", "g", "mi.original", 1, 55.0),
+    ];
+    let diff = BaselineDiff::compute(&old, &new);
+    assert_eq!(diff.worsened.len(), 1);
+    assert_eq!(diff.improved.len(), 1);
+    assert_eq!(diff.worsened[0].metric, "cognitive");
+    assert_eq!(diff.improved[0].metric, "mi.original");
+}
+
+#[test]
 fn unchanged_value_is_omitted_from_all_buckets() {
     // Byte-identical re-baseline of unchanged code: the entry exists on
     // both sides with the same value, so it appears in no bucket.
