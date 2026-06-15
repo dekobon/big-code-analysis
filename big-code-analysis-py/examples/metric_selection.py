@@ -17,10 +17,10 @@ from big_code_analysis import FuncSpaceDict
 def run(path: Path) -> FuncSpaceDict:
     """Compute only LoC + cyclomatic for ``path`` and return the result.
 
-    ``bca.METRIC_NAMES`` is a ``tuple[str, ...]`` of every canonical
-    name accepted by ``metrics=``. The string ``"halstead"`` is one
-    of them; ``in`` membership tests the selection client-side
-    before any I/O is paid for.
+    ``bca.METRIC_NAMES`` is a ``tuple[MetricName, ...]`` of canonical
+    names accepted by ``metrics=``; its ``StrEnum`` members are
+    ``str``-comparable, so ``"halstead" in bca.METRIC_NAMES`` works — an
+    ABI smoke check the catalog is populated, not a test of the selection.
     """
     if "halstead" not in bca.METRIC_NAMES:
         msg = "halstead is missing from METRIC_NAMES — bindings ABI drift"
