@@ -16,7 +16,9 @@
 //! The fixture is the simplest possible: a function with exactly
 //! three formal parameters, body empty. Every supported language
 //! whose grammar models a named parameter list reports
-//! `fn_args_sum() == 3`.
+//! `fn_args_sum() == 3`: Rust, C/C++, Java, JavaScript, TypeScript,
+//! Python, PHP, C#, Kotlin, Go, Groovy, Ruby, Tcl, iRules, and
+//! Objective-C.
 //!
 //! The test uses `fn_args_sum()` (matches the metric definition;
 //! file-level sum over functions, but with one function the value
@@ -116,6 +118,34 @@ func f(a int, b int, c int) {}
 ",
         "groovy",
     );
+    let ruby = fn_args_sum(
+        LANG::Ruby,
+        r"def f(a, b, c)
+  a + b + c
+end
+",
+        "rb",
+    );
+    let tcl = fn_args_sum(
+        LANG::Tcl,
+        r"proc f {a b c} { puts $a }
+",
+        "tcl",
+    );
+    let irules = fn_args_sum(
+        LANG::Irules,
+        r"proc f { a b c } { return $a }
+",
+        "irule",
+    );
+    let objc = fn_args_sum(
+        LANG::Objc,
+        r"void f(int a, int b, int c) {
+    return;
+}
+",
+        "m",
+    );
 
     // expected: three formal parameters.
     let expected = 3.0;
@@ -130,4 +160,8 @@ func f(a int, b int, c int) {}
     assert_eq!(kotlin, expected, "kotlin");
     assert_eq!(go, expected, "go");
     assert_eq!(groovy, expected, "groovy");
+    assert_eq!(ruby, expected, "ruby");
+    assert_eq!(tcl, expected, "tcl");
+    assert_eq!(irules, expected, "irules");
+    assert_eq!(objc, expected, "objc");
 }
