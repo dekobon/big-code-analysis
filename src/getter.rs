@@ -714,6 +714,16 @@ impl Getter for CppCode {
     fn get_op_type(node: &Node) -> HalsteadType {
         use Cpp::*;
 
+        // `LPAREN2` here (and the `LBRACK2`/`LBRACK3` aliases in the
+        // Elixir/Ruby impls) is a defensive arm, not an active one: every
+        // grammar's `public_symbol_map` collapses the second-alias opener
+        // to its base before `Node::kind_id()` (`ts_node_symbol`) returns,
+        // so `kind_id()` never yields the alias id and the arm cannot fire
+        // for real source. It guards against a future grammar bump that
+        // drops that collapse — at which point the alias would also need
+        // folding to its pair glyph in `get_operator_id_as_str`. The
+        // invariant is pinned by `second_alias_opener_collapses_to_base_kind_id`
+        // in `metrics/halstead.rs` (issue #768).
         match node.kind_id().into() {
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
@@ -805,6 +815,8 @@ impl Getter for CCode {
         // (`.*` / `->*`, `new` / `delete`, `try` / `catch` / `throw`,
         // `<=>`, the `>>`-closing `GT2`). Raw string literals and the
         // `namespace`-qualified identifier likewise do not exist in C.
+        // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
+        // `kind_id()`; #768, see the Cpp note).
         match node.kind_id().into() {
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
@@ -909,6 +921,8 @@ impl Getter for ObjcCode {
         // `@synchronized` / `@autoreleasepool` control keywords, and the
         // `@selector` / `@encode` compile-time directives. Each keeps a
         // distinct kind_id, so keying by kind_id keeps them distinct in n1.
+        // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
+        // `kind_id()`; #768, see the Cpp note).
         match node.kind_id().into() {
             DOT | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return | Break
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | EQ
@@ -1002,6 +1016,8 @@ impl Getter for MozcppCode {
     fn get_op_type(node: &Node) -> HalsteadType {
         use Mozcpp::*;
 
+        // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
+        // `kind_id()`; #768, see the Cpp note).
         match node.kind_id().into() {
             DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
             | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
@@ -1835,6 +1851,8 @@ impl Getter for TclCode {
             // `get_operator_id_as_str`); counting the matching closer too
             // (former `RBRACE`/`RBRACK`/`RPAREN` arms) double-counted every
             // balanced pair, inflating n1/N1 (#695).
+            // `LPAREN2` is defensive — the runtime collapses it to `LPAREN`
+            // before `kind_id()`, so it never fires (#768; see the Cpp note).
             | Tcl::LBRACE
             | Tcl::LBRACK
             | Tcl::LPAREN
@@ -1964,6 +1982,8 @@ impl Getter for IrulesCode {
             // `get_operator_id_as_str`); counting the matching closer too
             // (former `RBRACE`/`RBRACK`/`RPAREN` arms) double-counted every
             // balanced pair, inflating n1/N1 (#695).
+            // `LPAREN2` is defensive — the runtime collapses it to `LPAREN`
+            // before `kind_id()`, so it never fires (#768; see the Cpp note).
             | Irules::LBRACE
             | Irules::LBRACK
             | Irules::LPAREN
@@ -2109,7 +2129,9 @@ impl Getter for PhpCode {
             // delimiter is an operator (the pair folds to one glyph in
             // `get_operator_id_as_str`); the former closing arms
             // (`RBRACE`/`RPAREN`/`RPAREN2`/`RBRACK`) double-counted every
-            // balanced pair, inflating n1/N1 (#695).
+            // balanced pair, inflating n1/N1 (#695). `LPAREN2` is defensive —
+            // the runtime collapses it to `LPAREN` before `kind_id()`, so it
+            // never fires (#768; see the Cpp note).
             | LBRACE | LPAREN | LPAREN2
             | LBRACK
             | COMMA | SEMI | COLON | COLONCOLON
@@ -2358,7 +2380,10 @@ impl Getter for ElixirCode {
             // `RBRACK` arms double-counted every balanced pair, inflating
             // n1/N1 (#695). `LTLT`/`GTGT` are the bitstring `<<`/`>>`
             // delimiters — left unfolded and counted as the majority of
-            // languages count their shift-like glyphs.
+            // languages count their shift-like glyphs. `LPAREN2`/`LBRACK2`
+            // are defensive — the runtime `public_symbol_map` collapses them
+            // to `LPAREN`/`LBRACK` before `kind_id()`, so they never fire
+            // (#768; see the Cpp impl note).
             | E::LPAREN | E::LPAREN2 | E::LBRACE
             | E::LBRACK | E::LBRACK2 | E::LTLT | E::GTGT
             | E::COMMA | E::SEMI | E::COLON | E::COLONCOLON | E::DOT
@@ -2464,6 +2489,10 @@ impl Getter for RubyCode {
             // balanced pair, inflating n1/N1 (#695). The `LBRACKRBRACK` /
             // `LBRACKRBRACKEQ` indexer *method names* below (`def [](i)`)
             // are whole-token operators, not a balanced pair, and stay.
+            // `LPAREN2`/`LBRACK2`/`LBRACK3` are defensive — the runtime
+            // `public_symbol_map` collapses them to `LPAREN`/`LBRACK` before
+            // `kind_id()`, so they never fire (#768; see the Cpp impl note
+            // and `second_alias_opener_collapses_to_base_kind_id`).
             | R::LPAREN | R::LPAREN2
             | R::LBRACE | R::LBRACK | R::LBRACK2 | R::LBRACK3
             | R::COMMA | R::SEMI | R::DOT | R::COLONCOLON | R::COLONCOLON2 | R::AMPDOT
