@@ -2380,6 +2380,10 @@ for historical reference.
   a Markdown table code span, so a backslash-bearing identifier (e.g. a PHP
   fully-qualified name `Foo\Bar`) renders with a single backslash instead of
   `Foo\\Bar` (#846).
+- Report (CLI): the Markdown provenance footer now wraps user-supplied seed
+  paths in a backtick code span so Markdown-active characters (`_`, `*`,
+  `` ` ``) no longer leak into the italic footnote's emphasis, matching the
+  HTML footer's escaping (#848).
 - Cross-language metric consistency: several per-language metrics were
   brought into line with their siblings. ABC now counts numeric-truthy
   operands in Python/JS/TS boolean slots (`if 5:`, `while (5)`, `x && 5`)
