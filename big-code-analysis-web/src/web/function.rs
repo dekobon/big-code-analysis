@@ -6,6 +6,10 @@ use big_code_analysis::{Ast, FunctionSpan, LANG, MetricsError, Source};
 /// Payload containing source code with function spans to be retrieved.
 ///
 /// Unknown fields are rejected with a `400` naming the offender (#633).
+///
+/// `Serialize` is exercised by the `/function` JSON round-trip test, which
+/// builds its request body from this type (mirroring the sibling
+/// `WebCommentPayload` / `WebMetricsPayload` request DTOs) — #860.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebFunctionPayload {

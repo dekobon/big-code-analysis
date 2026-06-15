@@ -895,7 +895,7 @@ async fn test_web_function_json() {
     .await;
     let req = test::TestRequest::post()
         .uri("/function")
-        .set_json(WebCommentPayload {
+        .set_json(WebFunctionPayload {
             id: "1234".to_string(),
             file_name: "test.py".to_string(),
             code: "def foo():\n    pass\n\ndef bar():\n    pass".to_string(),
