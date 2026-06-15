@@ -35,6 +35,34 @@ from big_code_analysis import FuncSpaceDict
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
+# Single source of truth for the runnable-example gate (#917). Every
+# ``examples/*.py`` must be exercised by a dedicated ``test_<name>``
+# above and listed here; the existence-gate parametrize lists below are
+# derived from this set so they cannot drift apart, and
+# ``test_every_example_is_covered`` reconciles it against the directory
+# so a *newly added* example (one nobody remembered to enumerate) fails
+# the suite rather than silently escaping the net.
+RUNNABLE_EXAMPLES = frozenset(
+    {
+        "quick_start",
+        "batch_processing",
+        "flat_records",
+        "metric_selection",
+        "sarif_output",
+        "errors_taxonomy",
+        "async_patterns",
+        "cli_parity",
+        "pipeline_db",
+        "sarif_upload",
+    }
+)
+
+# Non-``.py`` example artifacts that are exercised by a different gate
+# (the notebook runs under CI's ``python-examples-nbconvert`` step, with
+# only an existence smoke check here). Listed so a future ``*.py``
+# companion is not accidentally waived.
+NON_PY_EXAMPLES = frozenset({"jupyter_quickstart.ipynb"})
+
 
 def _load(name: str) -> Any:
     """Load ``examples/<name>.py`` as a standalone module."""
@@ -274,18 +302,35 @@ def test_async_patterns_skipped_reconciles_count() -> None:
     assert summary["analyzed"] + summary["skipped"] + summary["errors"] == summary["count"]
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "quick_start",
-        "batch_processing",
-        "flat_records",
-        "metric_selection",
-        "sarif_output",
-        "errors_taxonomy",
-        "async_patterns",
-    ],
-)
+def test_every_example_is_covered() -> None:
+    """Auto-discovery gate (#917): every ``examples/*.py`` must be claimed
+    by a runnable test, and every claimed name must exist on disk.
+
+    The per-example ``test_<name>`` functions and the existence-gate
+    parametrize lists are hand-written, so a *new* ``examples/foo.py``
+    used to escape the runnable-test net entirely — the "lockstep with
+    the API" promise in this module's docstring held only for examples a
+    contributor remembered to enumerate. Enumerating the directory here
+    and reconciling it against ``RUNNABLE_EXAMPLES`` closes both
+    directions: a new uncovered example fails immediately, and a name
+    listed but deleted on disk fails too.
+    """
+    on_disk_py = {p.stem for p in EXAMPLES_DIR.glob("*.py")}
+    uncovered = on_disk_py - RUNNABLE_EXAMPLES
+    assert not uncovered, (
+        f"examples without a runnable test: {sorted(uncovered)} — add a "
+        "test_<name>() in this file and list it in RUNNABLE_EXAMPLES"
+    )
+    missing = RUNNABLE_EXAMPLES - on_disk_py
+    assert not missing, f"RUNNABLE_EXAMPLES names missing on disk: {sorted(missing)}"
+
+    # Guard the non-``.py`` waiver too: a waived artifact that vanished
+    # would otherwise leave its existence gate silently green-on-nothing.
+    for artifact in NON_PY_EXAMPLES:
+        assert (EXAMPLES_DIR / artifact).is_file(), f"missing waived example {artifact}"
+
+
+@pytest.mark.parametrize("name", sorted(RUNNABLE_EXAMPLES))
 def test_example_file_exists_for_book_include(name: str) -> None:
     """Defensive gate: every page in the book references one of these
     files via ``{{#include}}``. If a file is renamed without updating
@@ -766,14 +811,16 @@ def test_sarif_upload_threshold_fallback_semantics(
     )
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "cli_parity",
-        "pipeline_db",
-        "sarif_upload",
-    ],
+# The phase-9 examples (issue #273) are a named subset of the runnable
+# set — end-user copy-paste scripts not embedded in the book. Pinned to
+# ``RUNNABLE_EXAMPLES`` so a typo here cannot list a non-existent name.
+PHASE9_EXAMPLES = frozenset({"cli_parity", "pipeline_db", "sarif_upload"})
+assert PHASE9_EXAMPLES <= RUNNABLE_EXAMPLES, (
+    f"phase-9 examples not in RUNNABLE_EXAMPLES: {sorted(PHASE9_EXAMPLES - RUNNABLE_EXAMPLES)}"
 )
+
+
+@pytest.mark.parametrize("name", sorted(PHASE9_EXAMPLES))
 def test_phase9_example_file_exists(name: str) -> None:
     """Defensive gate that fires before any of the phase-9 examples
     can be renamed out from under the runnable smoke tests above.
