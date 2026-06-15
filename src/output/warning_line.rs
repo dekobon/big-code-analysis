@@ -4,11 +4,16 @@
 
 //! Compiler-warning line writers for [`OffenderRecord`] batches.
 //!
-//! Editor- and CI-annotator-friendly inline warnings: one offender per
-//! line, in the conventional Clang/GCC and MSVC formats that quickfix
-//! parsers (VS Code, IntelliJ, Vim) and CI annotators (GitHub Actions
-//! `::warning::`, GitLab, Jenkins warnings-ng) recognize out of the
-//! box.
+//! Editor-friendly inline warnings: one offender per line, in the
+//! conventional Clang/GCC and MSVC formats that editor quickfix parsers
+//! (VS Code, IntelliJ, Vim) recognize out of the box. CI annotators do
+//! *not* auto-recognize these formats: GitHub Actions surfaces them only
+//! through a registered problem matcher, and other systems (GitLab,
+//! Jenkins warnings-ng) need an equivalent parser configured. This is the
+//! plain compiler-warning line; GitHub Actions' own `::warning file=…::`
+//! workflow-command syntax is produced elsewhere, on the CLI annotation
+//! path (`big-code-analysis-cli/src/check_format.rs`), not by these
+//! writers.
 //!
 //! Clang/GCC ([`write_clang_warning`]):
 //!

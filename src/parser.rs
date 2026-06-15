@@ -189,6 +189,17 @@ impl<
                 "function" => res.push(Box::new(T::is_func)),
                 _ => {
                     if let Ok(n) = f.parse::<u16>() {
+                        // A numeric `-t`/`--type` value matches by raw
+                        // tree-sitter `kind_id` rather than node-type name.
+                        // This is an escape hatch for grammar inspection
+                        // (matching a kind that has no stable name, or one
+                        // the string path mis-resolves), but `kind_id` is an
+                        // index into the grammar's symbol table and is *not*
+                        // stable across grammar versions — the same number
+                        // names different nodes after a bump, and `-t 0` is
+                        // the end/ERROR sentinel. Documented as unstable in
+                        // big-code-analysis-book/src/commands/nodes.md; the
+                        // string (`kind()`) path below is the supported one.
                         res.push(Box::new(move |node: &Node| -> bool { node.kind_id() == n }));
                     } else {
                         // Exact match on `node.kind()` — the CLI documents

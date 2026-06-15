@@ -69,8 +69,6 @@ const TEXT_FLOAT_DECIMALS: usize = 2;
 /// // Dump all metrics
 /// dump_root(&space).unwrap();
 /// ```
-///
-/// [`Result`]: #variant.Result
 pub fn dump_root(space: &FuncSpace) -> std::io::Result<()> {
     dump_root_with_color(space, ColorMode::Always)
 }
@@ -270,7 +268,10 @@ fn format_number(n: &serde_json::Number) -> String {
         return n.to_string();
     };
     // A safe-integer-valued float (e.g. an exact `2.0` average) prints as
-    // an integer, matching the JSON serializer's trailing-`.0` elision.
+    // an integer. This *diverges* from the JSON serializer, which keeps
+    // the `.0` (serde_json renders `2.0` as `"2.0"`, not `"2"`); the dump
+    // drops it deliberately for terminal legibility, the same presentation
+    // tradeoff the module header documents for rounded floats (#674).
     if float.fract() == 0.0 && float.abs() < F64_SAFE_INT_BOUND {
         #[allow(clippy::cast_possible_truncation)]
         return (float as i64).to_string();

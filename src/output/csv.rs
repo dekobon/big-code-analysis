@@ -263,10 +263,18 @@ fn write_one_row<W: Write>(
     // `path` and `space_name` are free-text identifiers derived from
     // source content; defang any leading spreadsheet-formula trigger so a
     // function or file named `=cmd|'...'` cannot execute as a formula in
-    // Excel / Google Sheets (CWE-1236, #703). The remaining cells —
-    // `space_kind` (a fixed enum), the integer line numbers, and the
-    // numeric metric cells — cannot begin with a trigger character, so
-    // they need no guard.
+    // Excel / Google Sheets (CWE-1236, #703). The remaining cells need no
+    // guard: `space_kind` is a fixed enum and the line numbers are
+    // non-negative integers, so neither can begin with a trigger. The
+    // numeric metric cells *can* begin with `-` (a `FORMULA_TRIGGERS`
+    // char) — `mi.original()` / `mi.sei()` may be negative, and
+    // `CellMetric` renders e.g. `-1` — but they are still safe: each is a
+    // self-contained numeric literal (`-1`, `-1.5`) with no attacker-
+    // controlled operator or function call following the sign, so a
+    // spreadsheet parses it as the number it is, never as a formula. The
+    // injection vector OWASP's leading-`-`/`+` rule targets is text where
+    // a payload follows the sign (`-2+cmd|'/calc'!A1`), which a pure
+    // numeric cell can never produce.
     row.push(defang_formula(path_str));
     row.push(defang_formula(space.name.as_deref().unwrap_or("")));
     row.push(space.kind.to_string());
