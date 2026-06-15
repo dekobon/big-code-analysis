@@ -29,7 +29,7 @@ def run(
 
     sarif_path.parent.mkdir(parents=True, exist_ok=True)
     sarif_path.write_text(sarif, encoding="utf-8")
-    print(f"wrote {sarif_path} ({len(sarif)} bytes)")
+    print(f"wrote {sarif_path} ({len(sarif.encode('utf-8'))} bytes)")
     return sarif
 
 
