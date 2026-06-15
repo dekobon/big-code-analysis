@@ -61,11 +61,14 @@ mod mozcpp_metrics {
         );
         // A Class space is produced under the annotation overlay.
         assert!(has_class(&space), "Mozcpp recognised the class space");
-        // The branch inside `parse` is counted (base unit/fn/method + if).
-        assert!(
-            m.cyclomatic.cyclomatic_sum() >= 3,
-            "cyclomatic includes the method branch: {}",
-            m.cyclomatic.cyclomatic_sum()
+        // cyclomatic: every space seeds 1, so the sum is
+        // unit(1) + class Parser(1) + parse(1 + the `if` 1) + reset(1) = 5.
+        // Pinning the exact value catches a dropped `if` decision point
+        // (sum 4), which a loose `>= 3` would silently admit.
+        assert_eq!(
+            m.cyclomatic.cyclomatic_sum(),
+            5,
+            "cyclomatic: unit + class + (parse + if) + reset"
         );
     }
 
@@ -87,10 +90,14 @@ mod mozcpp_metrics {
         let m = &space.metrics;
         assert_eq!(m.nom.functions_sum(), 1, "function recognised");
         assert_eq!(m.nexits.nexits_sum(), 2, "two returns");
-        assert!(
-            m.cyclomatic.cyclomatic_sum() >= 3,
-            "the `if` branch is counted: {}",
-            m.cyclomatic.cyclomatic_sum()
+        // cyclomatic: unit(1) + function Foo(1) + the `if` (1) = 3. Exact
+        // equality catches both a dropped `if` (sum 2) and an overcount
+        // (e.g. a `QM_TRY_INSPECT` macro argument spuriously adding a
+        // branch), which a loose `>= 3` would miss.
+        assert_eq!(
+            m.cyclomatic.cyclomatic_sum(),
+            3,
+            "cyclomatic: unit + Foo + if"
         );
     }
 
