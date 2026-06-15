@@ -944,20 +944,33 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     its *qualified* ``Container::method`` name (issue #706) and line
     span. Guards the nested-space traversal feeding the refactored
     ``collect_offenders`` qualified-prefix threading.
+
+    Positive regression test for #855: the class ``C`` carries a
+    *realistic* ``cyclomatic.sum`` of ``7.0`` (an interior container's
+    sum accumulates its descendants via ``merge``, so it is always ``>=``
+    the method's value — never the impossible ``1.0`` the pre-#855
+    fixture used). With the limit at ``3`` the bug over-emitted a finding
+    at the interior ``C``; the leaf-only fix reports just ``C::m``, so
+    ``fq_names == ["C::m"]`` fails pre-#855 and passes after.
     """
     unit: dict[str, Any] = {
         "name": "mod.rs",
         "kind": "unit",
         "start_line": 1,
         "end_line": 30,
-        "metrics": {"cyclomatic": {"sum": 1.0}},
+        # Unit aggregate = the whole file's summed cyclomatic (>= C's).
+        "metrics": {"cyclomatic": {"sum": 7.0}},
         "spaces": [
             {
                 "name": "C",
                 "kind": "class",
                 "start_line": 2,
                 "end_line": 29,
-                "metrics": {"cyclomatic": {"sum": 1.0}},
+                # Realistic interior aggregate: the class's only method
+                # contributes 7.0, so C's own sum is also 7.0 (>= limit
+                # of 3). Pre-#855 this over-emitted a spurious `C`
+                # finding; the leaf-only fix suppresses it.
+                "metrics": {"cyclomatic": {"sum": 7.0}},
                 "spaces": [
                     {
                         "name": "m",
@@ -973,7 +986,12 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     }
     parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", unit), thresholds={"cyclomatic": 3}))
     findings = parsed["runs"][0]["results"]
-    assert len(findings) == 1
+    fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
+    # Only the leaf method may be reported — neither the interior class
+    # `C` nor the file-level unit, both of which carry the same aggregate
+    # sum but are not leaves (#855).
+    assert fq_names == ["C::m"], (
+        f"aggregate metric must emit only at the leaf method, got {fq_names!r}"
+    )
     loc = findings[0]["locations"][0]
-    assert loc["logicalLocations"][0]["fullyQualifiedName"] == "C::m"
     assert loc["physicalLocation"]["region"]["startLine"] == 5
