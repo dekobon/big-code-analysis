@@ -91,7 +91,12 @@ def test_ordering_preserved_with_interleaved_failures(tmp_path: Path) -> None:
 
     The success / failure / success pattern catches a regression
     that *appends* errors at the end instead of slotting them at
-    the matching index.
+    the matching index. Pinning each success slot's ``name`` to its
+    source path additionally catches a *transposition* of the two
+    same-typed success results — a reorder the bare ``isinstance``
+    checks could not see (#916). The two successes are deliberately
+    different languages so a same-language collapse cannot satisfy
+    the per-slot ``name`` check by accident.
     """
     paths = [
         FIXTURES / "hello.py",
@@ -100,9 +105,18 @@ def test_ordering_preserved_with_interleaved_failures(tmp_path: Path) -> None:
     ]
     results = bca.analyze_batch(paths)
     assert len(results) == 3
-    assert isinstance(results[0], dict)
-    assert isinstance(results[1], bca.AnalysisFailure)
-    assert isinstance(results[2], dict)
+    py_result, failure, rs_result = results
+    assert isinstance(py_result, dict)
+    assert isinstance(failure, bca.AnalysisFailure)
+    assert isinstance(rs_result, dict)
+
+    # Each success slot must carry its own source path; a transposition
+    # of the two would put hello.rs's result at index 0 and fail here.
+    assert py_result["name"] == str(paths[0])
+    assert rs_result["name"] == str(paths[2])
+    # The failure slot is pinned to the missing seed, mirroring
+    # test_missing_file_yields_io_error.
+    assert str(paths[1]) in failure.path
 
 
 # ── analyze_batch: error taxonomy ───────────────────────────────
@@ -203,7 +217,13 @@ def test_generator_input_works() -> None:
 
     results = bca.analyze_batch(gen())
     assert len(results) == 2
-    assert all(isinstance(r, dict) for r in results)
+    py_result, rs_result = results
+    assert isinstance(py_result, dict)
+    assert isinstance(rs_result, dict)
+    # Back the "matching-order results" docstring claim with a per-slot
+    # name assertion so a generator-path reorder is caught (#916).
+    assert py_result["name"] == str(FIXTURES / "hello.py")
+    assert rs_result["name"] == str(FIXTURES / "hello.rs")
 
 
 def test_pathlib_and_str_inputs_both_accepted() -> None:
