@@ -138,8 +138,8 @@ fn control_characters_in_message_replaced() {
         start_line: 1,
         end_line: 1,
         start_col: None,
-        // metric name carries a NUL — bizarre, but escape must keep
-        // the document well-formed.
+        // metric name carries a SOH control character (U+0001) —
+        // bizarre, but escape must keep the document well-formed.
         metric: "weird\u{0001}name".into(),
         value: 1.0,
         limit: 0.0,
