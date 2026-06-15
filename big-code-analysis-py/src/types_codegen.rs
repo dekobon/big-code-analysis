@@ -30,9 +30,13 @@
 //! `src/vcs/jit.rs` (#664), so `vcs.rank` / `vcs.trend` / `vcs.commit` /
 //! `vcs.score_diff` now carry typed dicts (`VcsReportDict` / `VcsTrendDict`
 //! / `JitCommitReportDict` / `JitDiffReportDict`) instead of the former
-//! `dict[str, Any]`. The `vcs_and_jit_specs_match_wire_json_keys` test
-//! pins those specs against the live serialized JSON the same way
-//! `spec_matches_wire_json_keys` pins the metric tree.
+//! `dict[str, Any]`. The bus-factor family (`VcsAggregateDict` /
+//! `BusFactorDict` / `GroupBusFactorDict` / `DirectoryBusFactorDict`)
+//! mirrors `src/vcs/bus_factor.rs`. The
+//! `vcs_and_jit_specs_match_wire_json_keys` test pins every one of those
+//! specs — VCS report / trend envelopes, the JIT family, and the
+//! bus-factor family — against the live serialized JSON the same way
+//! `spec_matches_wire_json_keys` pins the metric tree (issue #856).
 
 use std::fmt::Write as _;
 
@@ -1023,8 +1027,9 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn vcs_and_jit_specs_match_wire_json_keys() {
         use big_code_analysis::vcs::{
-            JitCommit, JitContributions, JitDiffContributions, JitDiffReport, JitDiffusion,
-            JitFeatures, JitReport, JitSize, JitSource,
+            BusFactor, DirectoryBusFactor, GroupBusFactor, JitCommit, JitContributions,
+            JitDiffContributions, JitDiffReport, JitDiffusion, JitFeatures, JitReport, JitSize,
+            JitSource, VcsAggregate,
         };
         use big_code_analysis::wire::{
             Vcs, VcsReport, VcsReportFile, VcsTrend, VcsTrendDelta, VcsTrendDeltas, VcsTrendPoint,
@@ -1146,6 +1151,62 @@ mod tests {
             serde_json::json!("diff"),
             "JIT diff report source discriminator changed",
         );
+
+        // Bus-factor family (issue #856): VcsAggregateDict -> BusFactorDict ->
+        // GroupBusFactorDict / DirectoryBusFactorDict. `key_author_ids` is
+        // skip_serializing_if-NotRequired, so populate it on both the repo and
+        // the directory group, strip it before comparing against the required
+        // set, then assert the spec lists it as NotRequired (mirrors the VcsDict
+        // probe above). DirectoryBusFactor flattens GroupBusFactor, so its
+        // serialized object carries `directory` + the flattened group keys.
+        let group_with_details = || GroupBusFactor {
+            bus_factor: 2,
+            files: 5,
+            authors: 3,
+            key_author_ids: Some(vec!["abc".to_owned()]),
+        };
+        let aggregate = VcsAggregate {
+            bus_factor: BusFactor {
+                bus_factor_schema_version: 1,
+                coverage_threshold: 0.5,
+                doa_threshold: 0.75,
+                repo: group_with_details(),
+                by_directory: vec![DirectoryBusFactor {
+                    directory: "src".to_owned(),
+                    group: group_with_details(),
+                }],
+            },
+        };
+        let mut agg_value = serde_json::to_value(&aggregate).expect("serialize aggregate");
+        assert_keys_match("VcsAggregateDict", &agg_value);
+        assert_keys_match("BusFactorDict", &agg_value["bus_factor"]);
+
+        // Strip the NotRequired `key_author_ids` from the repo and the first
+        // directory group so the remaining keys equal the required set.
+        let repo = agg_value["bus_factor"]["repo"]
+            .as_object_mut()
+            .expect("repo group object");
+        repo.remove("key_author_ids");
+        assert_keys_match("GroupBusFactorDict", &agg_value["bus_factor"]["repo"]);
+        let dir = agg_value["bus_factor"]["by_directory"][0]
+            .as_object_mut()
+            .expect("directory group object");
+        dir.remove("key_author_ids");
+        assert_keys_match(
+            "DirectoryBusFactorDict",
+            &agg_value["bus_factor"]["by_directory"][0],
+        );
+
+        // Confirm both group specs list `key_author_ids` as NotRequired.
+        for class in ["GroupBusFactorDict", "DirectoryBusFactorDict"] {
+            assert!(
+                spec(class)
+                    .fields
+                    .iter()
+                    .any(|f| f.name == "key_author_ids" && !f.required),
+                "{class} spec missing NotRequired field key_author_ids"
+            );
+        }
     }
 
     /// The `suppressed` field's tagged-enum shape: `{"kind": "all"}` and
