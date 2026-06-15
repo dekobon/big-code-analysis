@@ -25,6 +25,7 @@ before deleting or weakening their assertions.
 from __future__ import annotations
 
 import concurrent.futures
+import math
 from pathlib import Path
 from typing import Any
 
@@ -230,6 +231,27 @@ def test_mi_transitively_pulls_dependencies() -> None:
     assert "nom" not in keys
     assert "tokens" not in keys
 
+    # Key presence alone cannot distinguish "dependency computed" from
+    # "dependency key present but Stats zeroed" — the exact corruption
+    # mode `src/metric_set.rs` warns about (#924). Assert the deps carry
+    # real, non-default VALUES using integer-valued accessors that are
+    # stable; a zeroed dependency would leave these at 0.
+    metrics = result["metrics"]
+    assert metrics["cyclomatic"]["sum"] > 0, metrics["cyclomatic"]
+    halstead = metrics["halstead"]
+    assert halstead["unique_operators"] > 0, halstead
+    assert halstead["total_operands"] > 0, halstead
+    assert metrics["loc"]["sloc"] > 0, metrics["loc"]
+    # `mi` itself must be finite and within the canonical 0-171 band —
+    # a coarse bound (MI float magnitude is bit-brittle, so no exact
+    # equality), proving it was derived from real deps, not zeroed input.
+    # `mi.original` is typed `float | None`; a computed mi is always
+    # present, so pin that before the numeric comparison.
+    mi_original = metrics["mi"]["original"]
+    assert mi_original is not None, metrics["mi"]
+    assert math.isfinite(mi_original), mi_original
+    assert 0.0 < mi_original <= 171.0, mi_original
+
 
 def test_wmc_transitively_pulls_dependencies() -> None:
     """``metrics=["wmc"]`` auto-includes cyclomatic+nom on a class-bearing fixture.
@@ -246,6 +268,16 @@ def test_wmc_transitively_pulls_dependencies() -> None:
     assert {"cyclomatic", "nom", "wmc"}.issubset(keys), (
         f"wmc or its dependencies missing; got {keys}"
     )
+
+    # As with `mi` above (#924), key presence cannot catch a zeroed
+    # dependency. `wmc` is a class-method-complexity roll-up of
+    # `cyclomatic` over `nom`; both deps are integer-valued, so assert
+    # they are non-default and that `wmc.total` is the non-zero product
+    # of real computation, not a present-but-zeroed key.
+    metrics = result["metrics"]
+    assert metrics["cyclomatic"]["sum"] > 0, metrics["cyclomatic"]
+    assert metrics["nom"]["total"] > 0, metrics["nom"]
+    assert metrics["wmc"]["total"] > 0, metrics["wmc"]
 
 
 # ─────────────────────────────────────────────────────────────────
