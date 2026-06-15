@@ -398,6 +398,21 @@ pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
     })
 }
 
+// C# 8+ interface members default to public, so a field is a public
+// attribute UNLESS it carries an explicit `private` or `protected`
+// modifier. This is the inverse of `csharp_is_explicit_public` (the
+// class rule, which requires an explicit `public`): missing modifier
+// means public here, matching `ts_member_is_public!`'s default-public
+// gate for TypeScript class members.
+pub(crate) fn csharp_interface_member_is_public(declaration: &Node) -> bool {
+    !declaration.children().any(|child| {
+        matches!(child.kind_id().into(), Csharp::Modifier)
+            && child
+                .first_child(|id| id == Csharp::Private || id == Csharp::Protected)
+                .is_some()
+    })
+}
+
 impl Npa for CsharpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;
@@ -443,7 +458,13 @@ impl Npa for CsharpCode {
                 {
                     let attributes = csharp_count_field_declarators(&declaration);
                     stats.interface_na += attributes;
-                    stats.interface_npa = stats.interface_na;
+                    // The modifier applies to every declarator of the field,
+                    // so the public/private split is per-declaration: count
+                    // all declarators as public unless the field is explicitly
+                    // private/protected.
+                    if csharp_interface_member_is_public(&declaration) {
+                        stats.interface_npa += attributes;
+                    }
                 }
             }
             _ => {}
@@ -3191,8 +3212,57 @@ mod tests {
                 let metric = &func_space.metrics;
                 assert_eq!(metric.npa.class_na_sum(), 0);
                 assert_eq!(metric.npa.interface_na_sum(), 2);
+                // No explicit modifier means default-public: both fields
+                // count as public attributes (#780 regression guard).
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
                 insta::assert_json_snapshot!(metric.npa);
                 assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_interface_explicit_modifiers() {
+        // #780 — C# 8+ permits explicit `private`/`protected` on interface
+        // members. Default-public members count toward npa; an explicit
+        // private/protected member does not. Here `Hidden` is private, so
+        // only `Shown` and the unmodified `Implicit` are public.
+        check_metrics::<CsharpParser>(
+            "interface I {
+                private static int Hidden = 1;
+                protected static int AlsoHidden = 2;
+                public static int Shown = 3;
+                static int Implicit = 4;
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 4);
+                // Only `Shown` (explicit public) and `Implicit` (default
+                // public) count; `Hidden`/`AlsoHidden` are excluded.
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_interface_multi_declarator_modifier() {
+        // The visibility modifier applies to every declarator of a field, so
+        // the public/private split is per-declaration. `private int a, b;`
+        // contributes two attributes, neither public; `int c, d;` (default
+        // public) contributes two public attributes.
+        check_metrics::<CsharpParser>(
+            "interface I {
+                private static int a = 1, b = 2;
+                static int c = 3, d = 4;
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 4);
+                assert_eq!(metric.npa.interface_npa_sum(), 2);
+                assert_eq!(metric.npa.class_na_sum(), 0);
+                insta::assert_json_snapshot!(metric.npa);
             },
         );
     }
