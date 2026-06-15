@@ -23,6 +23,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use big_code_analysis::FuncSpace;
+use big_code_analysis::defang_formula;
 use big_code_analysis::vcs::{
     self, CacheConfig, Options, build_history_index_cached, hotspot, parse_timestamp, parse_window,
     score, stats,
@@ -528,8 +529,17 @@ fn write_csv(report: &Report, output: Option<&PathBuf>) -> std::io::Result<()> {
     .map_err(csv_err)?;
     for entry in &report.files {
         let v = &entry.vcs;
+        // `path` is the only free-text, user-controlled cell: it is a
+        // repository-relative path from the VCS walk, so a checked-in file
+        // literally named `=cmd|'/C calc'!A0` would execute as a formula on
+        // open. Defang it with the shared OWASP leading-apostrophe helper
+        // (CWE-1236, #703, #794). The csv crate's RFC-4180 quoting does NOT
+        // defang formulas. Every other cell is a non-negative numeric metric
+        // (f64 scores / entropy / shares, u32 counts and day spans) that can
+        // never begin with a trigger character, so they need no guard.
+        let path = defang_formula(entry.path.as_str());
         wtr.write_record([
-            entry.path.as_str(),
+            path.as_str(),
             &format!("{:.4}", v.risk_score),
             &v.commits_long.to_string(),
             &v.commits_recent.to_string(),
@@ -860,6 +870,61 @@ mod tests {
         };
         default.join_hotspot_scores(&[(PathBuf::from("/whatever/src/a.rs"), 7.0)]);
         assert_eq!(default.report.files[0].vcs.hotspot_score, None);
+    }
+
+    /// Render a one-entry VCS report to CSV via a temp file and return
+    /// the file's contents. `write_csv` only targets a file path or
+    /// stdout, so a temp file is the capturable sink.
+    fn render_csv(entry: FileEntry) -> String {
+        let report = Report {
+            long_window_days: 365,
+            recent_window_days: 90,
+            risk_score_version: 1,
+            vcs_schema_version: 1,
+            truncated_shallow_clone: false,
+            vcs_aggregate: None,
+            files: vec![entry],
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("vcs.csv");
+        write_csv(&report, Some(&out)).expect("write_csv to temp file");
+        std::fs::read_to_string(&out).expect("read CSV back")
+    }
+
+    #[test]
+    fn csv_path_cell_is_defanged_against_formula_injection() {
+        // A checked-in file whose repository-relative path begins with a
+        // spreadsheet formula trigger must not execute as a formula when the
+        // VCS CSV is opened in Excel / LibreOffice / Sheets (CWE-1236, #703,
+        // #794). The `path` cell is the only free-text, user-controlled
+        // column; it must carry the same OWASP leading-apostrophe defang as
+        // the main FuncSpace CSV writer. Cover every trigger character.
+        for trigger in ['=', '+', '-', '@'] {
+            let path = format!("{trigger}cmd|'/C calc'!A0.rs");
+            let out = render_csv(file_entry(&path, 10));
+            let data_row = out.lines().nth(1).expect("a data row after the header");
+            assert!(
+                data_row.starts_with(&format!("'{trigger}")),
+                "path cell must be defanged with a leading quote for trigger \
+                 {trigger:?}, got:\n{out}"
+            );
+            assert!(
+                !data_row.starts_with(trigger),
+                "the raw formula trigger must not lead the row for {trigger:?}:\n{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn csv_plain_path_is_not_quoted() {
+        // A normal path must pass through untouched — no spurious leading
+        // quote that would corrupt the value for downstream consumers.
+        let out = render_csv(file_entry("src/main.rs", 10));
+        let data_row = out.lines().nth(1).expect("a data row after the header");
+        assert!(
+            data_row.starts_with("src/main.rs,"),
+            "a plain path must be emitted verbatim, got:\n{out}"
+        );
     }
 
     #[test]
