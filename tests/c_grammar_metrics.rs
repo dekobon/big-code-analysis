@@ -77,8 +77,12 @@ mod c_metrics {
             m.halstead.total_operators(),
             m.halstead.total_operands()
         );
-        // Nested control flow yields non-zero cognitive complexity.
-        assert!(m.cognitive.cognitive_sum() > 0, "cognitive > 0");
+        // cognitive: if +1, `&&` boolean sequence +1, for +1, switch +1 = 4
+        // (each construct sits at function-body top level, so no nesting
+        // surcharge applies). Pinning the exact value guards the C
+        // cognitive arm's boolean-sequence/nesting accounting, which the
+        // cyclomatic assertion above does not redundantly cover.
+        assert_eq!(m.cognitive.cognitive_sum(), 4, "cognitive");
     }
 
     /// C has no classes/methods/attributes, so `npm` / `npa` / `wmc` are
