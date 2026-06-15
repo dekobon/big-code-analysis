@@ -68,7 +68,10 @@ pub fn validate_points(points: usize) -> Result<usize, Error> {
 /// Integer division places the interior points; the two endpoints are
 /// exact regardless of rounding. `points` is assumed already validated by
 /// [`validate_points`] (`>= MIN_TREND_POINTS`), so the `points - 1`
-/// divisor is always positive.
+/// divisor is always positive. This function does **not** re-check that
+/// precondition: a direct caller passing an arbitrarily large `points`
+/// allocates a `Vec<i64>` of that length (the [`MAX_TREND_POINTS`] upper
+/// bound is enforced only by [`validate_points`], not here).
 #[must_use]
 pub fn timestamps(end: i64, span_secs: i64, points: usize) -> Vec<i64> {
     // Defensive: a single (or zero) point degenerates to just the
@@ -78,8 +81,12 @@ pub fn timestamps(end: i64, span_secs: i64, points: usize) -> Vec<i64> {
         return vec![end];
     }
     let start = end.saturating_sub(span_secs);
-    // `points` is small (validated `<= MAX_TREND_POINTS`); `try_from`
-    // keeps the conversion total and lint-clean without an `as` wrap.
+    // `points` is an unvalidated caller-supplied count (this helper is
+    // `pub` and does not call `validate_points`); the
+    // `try_from(...).unwrap_or(i64::MAX)` fallback alone keeps the
+    // conversion total without assuming any upper bound. `points - 1`
+    // cannot underflow here: the `points <= 1` early return above
+    // guarantees `points >= 2`.
     let divisor = i64::try_from(points - 1).unwrap_or(i64::MAX);
     (0..points)
         .map(|i| {
