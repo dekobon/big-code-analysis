@@ -355,6 +355,58 @@ fn known_keys_covers_report_table() {
     );
 }
 
+/// Every key each typed sub-table consumes must appear in its per-table
+/// allowlist (`CHECK_KEYS` / `REPORT_KEYS` / `VCS_KEYS`); otherwise the
+/// typed parse honors it while `unknown_sub_table_keys` flags it as
+/// unrecognized — the #409 dual-update trap, one nesting level down
+/// (#843). Each `text` exercises one consumed field per sub-table.
+#[test]
+fn sub_table_allowlists_cover_consumed_keys() {
+    // Every field RawCheck / RawReport / RawVcs deserializes, by table.
+    for text in [
+        "[check]\nexclude = [\"x\"]\n",
+        "[check]\nexclude_from = \"i\"\n",
+        "[check]\nexit_codes = \"tiered\"\n",
+        "[check]\nbaseline = \"b\"\n",
+        "[check]\nbaseline_line_tolerance = 2\n",
+        "[check]\nbaseline_fuzzy_match = true\n",
+        "[check]\nheadroom = 0.9\n",
+        "[report]\nno_suppress = true\n",
+        "[vcs]\nfile_types = \"all\"\n",
+    ] {
+        // The typed parse must accept it (proves the field is consumed)...
+        toml::from_str::<RawManifest>(text).expect("typed parse");
+        // ...and the allowlist must agree, so no spurious warning fires.
+        assert!(
+            unknown_sub_table_keys(text).is_empty(),
+            "consumed sub-table key flagged as unknown: {text:?}"
+        );
+    }
+}
+
+/// A typo in a `[check]` / `[report]` / `[vcs]` sub-table key is surfaced
+/// by `unknown_sub_table_keys` as `[<table>].<key>`, rather than silently
+/// dropped by serde (#843). The reported name is fully qualified so the
+/// warning points the user at the exact line.
+#[test]
+fn sub_table_typos_are_flagged_with_qualified_name() {
+    assert_eq!(
+        unknown_sub_table_keys("[check]\nbaseilne = \"x\"\n"),
+        vec!["[check].baseilne".to_owned()]
+    );
+    assert_eq!(
+        unknown_sub_table_keys("[report]\nno_supress = true\n"),
+        vec!["[report].no_supress".to_owned()]
+    );
+    assert_eq!(
+        unknown_sub_table_keys("[vcs]\nfile_type = \"all\"\n"),
+        vec!["[vcs].file_type".to_owned()]
+    );
+    // `[thresholds]` is validated separately (`split_thresholds_table`),
+    // so its keys are deliberately not walked here.
+    assert!(unknown_sub_table_keys("[thresholds]\nbogus = 1\n").is_empty());
+}
+
 /// `[report] no_suppress = true` enables the audit view when the CLI
 /// left `--no-suppress` unset (`None`); an explicit CLI value overrides
 /// the manifest in EITHER direction (#683 full override).

@@ -370,6 +370,63 @@ fn unknown_top_level_key_warns_but_runs() {
         ));
 }
 
+/// A typo inside the typed `[check]` / `[report]` / `[vcs]` sub-tables is
+/// surfaced with the same "ignoring unrecognized key" warning a top-level
+/// typo draws, naming the fully-qualified `[<table>].<key>` (#843).
+/// Before #843 these were silently dropped by serde, disabling a
+/// gate-relevant option with no feedback. A high `cyclomatic` keeps the
+/// run clean so the warning is the assertion under test. Discovery runs
+/// once at load, so a `check` surfaces the warning for every sub-table —
+/// not just `[check]`.
+#[test]
+fn sub_table_typo_warns_but_runs() {
+    for (table, typo, manifest) in [
+        (
+            "check",
+            "baseilne",
+            "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 100\n\n[check]\nbaseilne = \"b\"\n",
+        ),
+        (
+            "report",
+            "no_supress",
+            "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 100\n\n[report]\nno_supress = true\n",
+        ),
+        (
+            "vcs",
+            "file_type",
+            "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 100\n\n[vcs]\nfile_type = \"all\"\n",
+        ),
+    ] {
+        let dir = fixture(manifest);
+        cli()
+            .current_dir(dir.path())
+            .arg("check")
+            .assert()
+            .success()
+            .stderr(predicate::str::contains(format!(
+                "ignoring unrecognized key `[{table}].{typo}`"
+            )));
+    }
+}
+
+/// A recognized sub-table key draws no warning (the negative companion to
+/// [`sub_table_typo_warns_but_runs`]) — the warning must fire only on a
+/// genuine typo, never on a valid key (#843).
+#[test]
+fn valid_sub_table_key_does_not_warn() {
+    // `exit_codes = "default"` is a recognized `[check]` key that needs no
+    // backing file, so a clean run isolates the no-warning assertion.
+    let dir = fixture(
+        "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 100\n\n[check]\nexit_codes = \"default\"\n",
+    );
+    cli()
+        .current_dir(dir.path())
+        .arg("check")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("ignoring unrecognized key").not());
+}
+
 /// End-to-end proof that the `cyclomatic_count_try` manifest key reaches
 /// metric computation through the CLI's `metrics_options()` seam — the
 /// unit merge tests stop at `GlobalOpts`, and nothing else asserts the

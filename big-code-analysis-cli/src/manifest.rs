@@ -1,7 +1,9 @@
-// bca: suppress-file(halstead, nargs, nexits)
+// bca: suppress-file(halstead, nargs, nexits, nom)
 // bca.toml manifest load/merge; the offenders are many-fn / impl-aggregate
-// artifacts. (`merge_check`'s cyclomatic — flat field-by-field config merge —
-// is suppressed per-function below; cognitive stays enforced.)
+// artifacts. `nom` counts the module's many small accessors / typed-table
+// helpers (one per manifest key family) — a flat config-merge surface, not a
+// hard-to-follow function. (`merge_check`'s cyclomatic — flat field-by-field
+// config merge — is suppressed per-function below; cognitive stays enforced.)
 
 //! `bca.toml` manifest discovery and merge (issue #374).
 //!
@@ -85,6 +87,40 @@ const KNOWN_KEYS: &[&str] = &[
     "check",
     "report",
     "vcs",
+];
+
+/// Recognized keys inside the `[check]` sub-table. A typo here is
+/// otherwise silently dropped by serde (the typed [`RawCheck`] derives
+/// `Deserialize` without `deny_unknown_fields`), disabling a gate-
+/// relevant option with no feedback (#843). Listing each consumed field
+/// lets [`unknown_sub_table_keys`] warn on anything else — the nested
+/// counterpart of [`KNOWN_KEYS`]'s top-level dual-update discipline.
+const CHECK_KEYS: &[&str] = &[
+    "exclude",
+    "exclude_from",
+    "exit_codes",
+    "baseline",
+    "baseline_line_tolerance",
+    "baseline_fuzzy_match",
+    "headroom",
+];
+
+/// Recognized keys inside the `[report]` sub-table (#843). See
+/// [`CHECK_KEYS`] for the rationale.
+const REPORT_KEYS: &[&str] = &["no_suppress"];
+
+/// Recognized keys inside the `[vcs]` sub-table (#843). See
+/// [`CHECK_KEYS`] for the rationale.
+const VCS_KEYS: &[&str] = &["file_types"];
+
+/// The typed sub-tables whose keys are allowlisted, paired with their
+/// per-table allowlist. `[thresholds]` is deliberately absent: it is
+/// validated separately by [`split_thresholds_table`], which already
+/// rejects unknown metric names.
+const KNOWN_SUB_TABLES: &[(&str, &[&str])] = &[
+    ("check", CHECK_KEYS),
+    ("report", REPORT_KEYS),
+    ("vcs", VCS_KEYS),
 ];
 
 /// A parsed `bca.toml` plus the directory it was found in.
@@ -300,11 +336,19 @@ fn warn_deprecated_top_level_check_keys(raw: &RawManifest) {
     }
 }
 
-/// Emit one stderr warning per unrecognized top-level key. Parses the
-/// raw text a second time into a generic table because the typed
-/// [`RawManifest`] silently drops anything it does not name.
+/// Emit one stderr warning per unrecognized top-level key, and one per
+/// unrecognized key inside the typed `[check]` / `[report]` / `[vcs]`
+/// sub-tables (#843). Parses the raw text a second time into a generic
+/// table because the typed [`RawManifest`] silently drops anything it
+/// does not name — at every nesting level.
 fn warn_unknown_keys(text: &str) {
     for key in unknown_top_level_keys(text) {
+        warn(format_args!(
+            "bca.toml: ignoring unrecognized key `{key}` \
+             (unknown option, or a feature not yet released)"
+        ));
+    }
+    for key in unknown_sub_table_keys(text) {
         warn(format_args!(
             "bca.toml: ignoring unrecognized key `{key}` \
              (unknown option, or a feature not yet released)"
@@ -330,6 +374,38 @@ fn unknown_top_level_keys(text: &str) -> Vec<String> {
         .filter(|key| !KNOWN_KEYS.contains(&key.as_str()))
         .cloned()
         .collect()
+}
+
+/// Keys inside a recognized typed sub-table (`[check]`, `[report]`,
+/// `[vcs]`) that are absent from that table's allowlist, returned as
+/// `[<table>].<key>` (#843).
+///
+/// The typed sub-tables derive `Deserialize` without
+/// `deny_unknown_fields`, so a typo'd sub-table key is otherwise dropped
+/// silently — the same hole [`unknown_top_level_keys`] closes for the
+/// top level. Split out from [`warn_unknown_keys`] so the per-table
+/// allowlists can be tested directly: every field each `Raw*` struct
+/// consumes must be listed in its `*_KEYS` array, or it is honored while
+/// bca prints a misleading "ignoring unrecognized key" warning (the #409
+/// dual-update trap, one nesting level down).
+fn unknown_sub_table_keys(text: &str) -> Vec<String> {
+    let Ok(table) = toml::from_str::<toml::Table>(text) else {
+        // The typed parse already succeeded, so this cannot fail in
+        // practice; if it somehow does, report no unknown keys.
+        return Vec::new();
+    };
+    let mut unknown = Vec::new();
+    for (name, allowed) in KNOWN_SUB_TABLES {
+        let Some(toml::Value::Table(sub)) = table.get(*name) else {
+            continue;
+        };
+        for key in sub.keys() {
+            if !allowed.contains(&key.as_str()) {
+                unknown.push(format!("[{name}].{key}"));
+            }
+        }
+    }
+    unknown
 }
 
 /// Climb from the working directory to the repo root looking for
