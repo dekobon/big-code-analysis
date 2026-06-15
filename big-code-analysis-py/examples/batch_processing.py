@@ -22,7 +22,13 @@ def run(paths: Iterable[Path]) -> dict[str, int]:
     accompanying test can assert on it without re-parsing.
     """
     materialised = list(paths)
-    results = bca.analyze_batch(materialised)
+    # `skip_generated=False` guarantees one result element per input
+    # (generated files are analysed, not dropped), so the `strict=True`
+    # zip against `materialised` cannot raise `ValueError`. Under the
+    # 2.0 default (`skip_generated=True`) a generated input yields no
+    # slot, the lengths diverge, and the strict zip blows up — the same
+    # bug #660 fixed in `pipeline_db.py`.
+    results = bca.analyze_batch(materialised, skip_generated=False)
 
     ok = 0
     errors = 0

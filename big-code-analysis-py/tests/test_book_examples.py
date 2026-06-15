@@ -62,14 +62,36 @@ def test_quick_start() -> None:
 
 
 def test_batch_processing() -> None:
+    """Regression (#882): the example's ``zip(..., strict=True)`` must
+    hold when a generated file is in the batch.
+
+    ``run`` calls ``analyze_batch(..., skip_generated=False)`` so every
+    input — generated or not — yields exactly one result slot, keeping
+    the strict zip from raising ``ValueError``. The pre-fix code used the
+    2.0 default (``skip_generated=True``), which drops the generated
+    input's slot, diverges the lengths, and blows up the strict zip —
+    the same bug #660 fixed in ``pipeline_db.py``. The fixtures below
+    are deliberately mixed: a generated file (must be analysed here, not
+    skipped), a normal source file, and a missing file (the
+    ``AnalysisFailure`` discriminator path).
+    """
     mod = _load("batch_processing")
+    generated = FIXTURES_DIR / "generated.rs"
+    # Single-file `analyze` skips this under the default (`None`); the
+    # batch's `skip_generated=False` must NOT — confirming the fixture is
+    # genuinely generated keeps this test non-vacuous for the skip path.
+    assert bca.analyze(generated) is None, "fixture must be detected as generated"
+
     summary = mod.run(
         [
+            generated,
             FIXTURES_DIR / "hello.rs",
-            FIXTURES_DIR / "hello.py",
             FIXTURES_DIR / "does_not_exist.rs",
         ]
     )
+    # Reaching here proves the strict zip did not raise. The generated
+    # file is analysed (not dropped), so it lands in the `ok` bucket
+    # alongside `hello.rs`; only the missing file errors.
     assert summary["total"] == 3
     assert summary["ok"] == 2
     assert summary["errors"] == 1

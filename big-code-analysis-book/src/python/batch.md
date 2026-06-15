@@ -11,7 +11,7 @@ options — `exclude_tests`, `allow_lossy_path`, `skip_generated`
 behaviour-preserving.
 
 ```python
-{{#include ../../../big-code-analysis-py/examples/batch_processing.py:18:38}}
+{{#include ../../../big-code-analysis-py/examples/batch_processing.py:18:44}}
 ```
 
 A few key contracts:
@@ -77,7 +77,7 @@ sequential sweep. For parallelism, fan the per-file `analyze`
 call out across a thread pool:
 
 ```python
-{{#include ../../../big-code-analysis-py/examples/batch_processing.py:41:53}}
+{{#include ../../../big-code-analysis-py/examples/batch_processing.py:47:59}}
 ```
 
 PyO3's `Python::detach` releases the GIL across each file's read +
