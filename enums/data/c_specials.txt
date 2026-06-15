@@ -3,9 +3,7 @@ bool
 char
 char16_t
 char32_t
-char64_t
 char8_t
-charptr_t
 const
 constexpr
 double
