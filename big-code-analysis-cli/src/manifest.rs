@@ -132,6 +132,12 @@ pub(crate) struct Manifest {
     /// `--print-effective-config`).
     path: PathBuf,
     raw: RawManifest,
+    /// The spelling the user actually wrote for the job-count key —
+    /// canonical `jobs` or the deprecated `num_jobs` alias (#666) — so a
+    /// `jobs = 0` rejection names `jobs`, not the alias, and never the
+    /// `--num-jobs` flag the user did not type (#910). `None` when neither
+    /// key is present.
+    jobs_key: Option<&'static str>,
 }
 
 /// Typed view of the keys we consume. Unknown keys are ignored by serde
@@ -285,7 +291,49 @@ pub(crate) fn discover_and_load() -> Option<Manifest> {
     warn_unknown_keys(&text);
     warn_deprecated_top_level_check_keys(&raw);
     warn_deprecated_renamed_keys(&text);
-    Some(Manifest { dir, path, raw })
+    let jobs_key = job_count_key(&text);
+    Some(Manifest {
+        dir,
+        path,
+        raw,
+        jobs_key,
+    })
+}
+
+/// The job-count key spelling present in `text`: the canonical `jobs`,
+/// the deprecated `num_jobs` alias (#666), or `None` when neither
+/// appears. Used to attribute a `jobs = 0` rejection to the key the user
+/// actually wrote (#910). `jobs` wins if both are present, matching the
+/// serde `rename = "jobs"` precedence.
+fn job_count_key(text: &str) -> Option<&'static str> {
+    let table = toml::from_str::<toml::Table>(text).ok()?;
+    if table.contains_key("jobs") {
+        Some("jobs")
+    } else if table.contains_key("num_jobs") {
+        Some("num_jobs")
+    } else {
+        None
+    }
+}
+
+/// Render the flag-agnostic detail of a rejected job-count value,
+/// avoiding the `--num-jobs` CLI-flag wording of [`ParseNumJobsError`]'s
+/// `Display` so a manifest-sourced error names no flag the user did not
+/// type (#910). Validation stays single-sourced in [`NumJobs::from_str`];
+/// only the surface wording is rebuilt, from the typed error's `input()`.
+fn job_count_detail(err: &big_code_analysis::ParseNumJobsError) -> String {
+    use big_code_analysis::ParseNumJobsError::{NotAPositiveInteger, Zero};
+    match err {
+        Zero { .. } => "must be >= 1 (use `1` to force serial mode, \
+             or `auto` for the OS-reported CPU count)"
+            .to_owned(),
+        NotAPositiveInteger { .. } => {
+            format!(
+                "expected a positive integer or `auto`, got `{}`",
+                err.input()
+            )
+        }
+    }
 }
 
 /// Manifest keys renamed in the 2.0 flag-alignment sweep (issue #666)
@@ -689,22 +737,29 @@ impl Manifest {
     /// value, reusing [`NumJobs::from_str`]'s diagnostics.
     fn num_jobs(&self) -> Option<NumJobs> {
         let value = self.raw.jobs.as_ref()?;
-        // Normalise every arm to `Result<_, String>` for the `die`
-        // formatter: `NumJobs::from_str` now returns the typed
-        // `ParseNumJobsError`, rendered via `Display` here.
-        let parsed = match value {
-            toml::Value::String(s) => NumJobs::from_str(s).map_err(|e| e.to_string()),
+        // Attribute the diagnostic to the key the user actually wrote
+        // (#910): `jobs` or the deprecated `num_jobs` alias — never the
+        // `--num-jobs` CLI flag, which a manifest user did not type. The
+        // `>= 1` validation stays the single source of truth in
+        // `NumJobs::from_str`; only the surface wording is rebuilt here
+        // (flag-agnostic, via the typed error's `input()`), so a `jobs = 0`
+        // value reports `bca.toml: jobs: ...`.
+        let key = self.jobs_key.unwrap_or("jobs");
+        let detail = match value {
+            toml::Value::String(s) => NumJobs::from_str(s).map_err(|e| job_count_detail(&e)),
             // Route the integer through `from_str` (the small `to_string`
-            // is once-per-run) so the `>= 1` validation and its error
-            // message live in exactly one place; a negative integer
-            // surfaces the same "positive integer or auto" diagnostic.
-            toml::Value::Integer(i) => NumJobs::from_str(&i.to_string()).map_err(|e| e.to_string()),
+            // is once-per-run) so the `>= 1` validation lives in exactly
+            // one place; a negative integer surfaces the same "positive
+            // integer or auto" diagnostic.
+            toml::Value::Integer(i) => {
+                NumJobs::from_str(&i.to_string()).map_err(|e| job_count_detail(&e))
+            }
             other => Err(format!(
                 "expected a positive integer or \"auto\", got {}",
                 other.type_str()
             )),
         };
-        Some(parsed.unwrap_or_else(|e| die(format_args!("bca.toml: num_jobs: {e}"))))
+        Some(detail.unwrap_or_else(|e| die(format_args!("bca.toml: {key}: {e}"))))
     }
 }
 

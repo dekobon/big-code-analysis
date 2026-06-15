@@ -569,8 +569,11 @@ fn cli_num_jobs_overrides_manifest() {
         .success();
 }
 
-/// An out-of-range `num_jobs` in the manifest is a hard error with a
-/// clear message, reusing the `--jobs` validator's diagnostics.
+/// An out-of-range value under the deprecated `num_jobs` key is a hard
+/// error with a clear message attributed to the key the user wrote
+/// (#910), reusing the shared `>= 1` validator's wording. (The companion
+/// `manifest_jobs_canonical_key_is_honored` covers the canonical `jobs`
+/// spelling.)
 #[test]
 fn manifest_num_jobs_zero_is_rejected() {
     let dir = fixture("paths = [\".\"]\nnum_jobs = 0\n\n[thresholds]\ncyclomatic = 1\n");
@@ -580,12 +583,19 @@ fn manifest_num_jobs_zero_is_rejected() {
         .arg("check")
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("num_jobs"));
+        .stderr(predicate::str::contains("bca.toml: num_jobs:"))
+        .stderr(predicate::str::contains("must be >= 1"));
 }
 
 /// The canonical `jobs` key (issue #666) is honored — a `jobs = 0`
-/// fails with the same validator the `--jobs` flag uses, proving the
-/// rename took effect (not just the alias).
+/// fails with the same validator the `--jobs` flag uses, and the error is
+/// attributed to the canonical `jobs` key (#910), proving the rename took
+/// effect (not just the alias). The assertion must distinguish `jobs`
+/// from `num_jobs`: a bare `contains("jobs")` is satisfied by the
+/// substring inside `num_jobs`, so it would pass even against the
+/// wrong-key message. Anchoring on the `bca.toml: jobs:` prefix and
+/// excluding the deprecated `num_jobs` / `--num-jobs` spellings makes the
+/// test fail if `jobs` ever regresses to alias-only handling.
 #[test]
 fn manifest_jobs_canonical_key_is_honored() {
     let dir = fixture("paths = [\".\"]\njobs = 0\n\n[thresholds]\ncyclomatic = 1\n");
@@ -595,7 +605,12 @@ fn manifest_jobs_canonical_key_is_honored() {
         .arg("check")
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("jobs"));
+        .stderr(predicate::str::contains("bca.toml: jobs:"))
+        .stderr(predicate::str::contains("must be >= 1"))
+        // The canonical message must not name the deprecated key or the
+        // CLI flag the user never typed.
+        .stderr(predicate::str::contains("num_jobs").not())
+        .stderr(predicate::str::contains("--num-jobs").not());
 }
 
 /// The deprecated `num_jobs` key still works for one release cycle but

@@ -13,6 +13,10 @@ fn manifest(raw: RawManifest) -> Manifest {
         dir: PathBuf::from("/repo"),
         path: PathBuf::from("/repo/bca.toml"),
         raw,
+        // These transforms never read disk text, so default the job-count
+        // key to the canonical spelling; the alias-attribution path is
+        // covered by the integration tests in `tests/manifest.rs`.
+        jobs_key: Some("jobs"),
     }
 }
 
