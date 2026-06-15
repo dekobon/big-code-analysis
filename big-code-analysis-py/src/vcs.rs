@@ -5,11 +5,18 @@
 // (cognitive/cyclomatic stay enforced).
 
 //! Bridge for the change-history (VCS) metrics surface exposed to
-//! Python: the standalone [`vcs_report_json`] (backing `vcs_metrics()`)
-//! and [`inject_vcs_with_index`] (backing the `analyze(..., vcs=True)`
-//! opt-in).
+//! Python under the `big_code_analysis.vcs` facade (issue #612).
 //!
-//! Both produce / mutate JSON strings, reusing the same
+//! The standalone reports back the `vcs.rank` / `trend` / `commit` /
+//! `score_diff` entry points — [`vcs_report_json`] backs `vcs.rank()`,
+//! [`vcs_trend_json`] backs `vcs.trend()`, [`vcs_commit_json`] backs
+//! `vcs.commit()`, and [`vcs_score_diff_json`] backs `vcs.score_diff()`.
+//! [`inject_vcs_with_index`] and [`inject_vcs_per_function_with_blame`]
+//! back the `analyze(..., vcs=True)` / `vcs_per_function=True` opt-ins,
+//! with the batch helpers ([`build_index_for`], [`open_blame_for`],
+//! [`workdir_root_for`]) reusing one history index across a tree walk.
+//!
+//! These all produce / mutate JSON strings, reusing the same
 //! `conversion::json_string_to_py` boundary as the AST entry points, so
 //! the Python side sees ordinary dicts.
 
@@ -97,7 +104,7 @@ fn options_from(params: &VcsParams) -> Result<Options, PyErr> {
     if let Some(scope) = &params.file_types {
         options.file_types = scope.parse().map_err(vcs_error_to_py)?;
     }
-    // `vcs_metrics()` always returns the directory/repo bus factor.
+    // `vcs.rank()` always returns the directory/repo bus factor.
     options.compute_bus_factor = true;
     if let Some(threshold) = params.bus_factor_threshold {
         options.bus_factor_threshold =
