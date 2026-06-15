@@ -125,9 +125,11 @@ fn check_requires_at_least_one_threshold() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    // `--no-config` keeps the test hermetic: the runner's cwd is inside
-    // the repo, whose root `bca.toml` supplies a `[thresholds]` table
-    // that would otherwise satisfy the "at least one threshold" check.
+    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
+    // discovery never reaches the repo's root `bca.toml` (whose
+    // `[thresholds]` table would otherwise satisfy the "at least one
+    // threshold" check). `--no-config` is an explicit belt-and-suspenders
+    // guard on top of that cwd anchor.
     cli(dir.path())
         .args(["check", "--no-config", "--paths", &path])
         .assert()
@@ -323,10 +325,12 @@ fn check_uses_file_sentinel_for_top_level_space() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    // `--no-config` keeps the test hermetic: the runner's cwd is inside
-    // the repo, whose root `bca.toml` declares a `baseline` key that
-    // would otherwise prefix the violation line with a `[new]` tag and
-    // break the `starts_with(path)` assertion below.
+    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
+    // discovery never reaches the repo's root `bca.toml` (whose
+    // `baseline` key would otherwise prefix the violation line with a
+    // `[new]` tag and break the `starts_with(path)` assertion below).
+    // `--no-config` is an explicit belt-and-suspenders guard on top of
+    // that cwd anchor.
     let assert = cli(dir.path())
         // loc.sloc aggregates source lines at the file level, so a
         // threshold of 1 is guaranteed to fire there for any
@@ -1245,10 +1249,11 @@ fn check_soft_tier_without_config_warns_and_noops() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    // `--no-config` keeps the test hermetic: the runner's cwd is inside
-    // the repo, whose root `bca.toml` `[thresholds]` table would give
-    // the soft tier something to scale, so the "no effect" note would
-    // not fire.
+    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
+    // discovery never reaches the repo's root `bca.toml` (whose
+    // `[thresholds]` table would otherwise give the soft tier something
+    // to scale, suppressing the "no effect" note). `--no-config` is an
+    // explicit belt-and-suspenders guard on top of that cwd anchor.
     cli(dir.path())
         .args([
             "check",
@@ -1457,10 +1462,12 @@ fn check_soft_table_scale_without_hard_base_errors() {
         "[thresholds]\nnargs = 7\n[thresholds.soft]\ncyclomatic = \"0.9x\"\n",
     );
 
-    // `--no-config` keeps the test hermetic: the runner's cwd is inside
-    // the repo, whose root `bca.toml` declares a hard `cyclomatic`
-    // limit that would merge under `--config` and give the `"0.9x"`
-    // soft scale a base to multiply, masking the intended error.
+    // `cli()` already anchors the cwd at a `.git`-free tempdir, so
+    // discovery never reaches the repo's root `bca.toml` (whose hard
+    // `cyclomatic` limit would otherwise merge in and give the `"0.9x"`
+    // soft scale a base to multiply, masking the intended error).
+    // `--no-config` is an explicit belt-and-suspenders guard on top of
+    // that cwd anchor.
     cli(dir.path())
         .args([
             "check",
