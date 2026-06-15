@@ -225,10 +225,10 @@ fn sarif_relative_path_with_colon_first_segment_is_not_scheme_ambiguous() {
     }];
     let out = render(&offenders);
     let v = parse(&out);
-    let uri = v["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
-        ["artifactLocation"]["uri"]
-        .as_str()
-        .expect("uri is a string");
+    let uri =
+        v["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            .as_str()
+            .expect("uri is a string");
     assert_eq!(
         uri, "./a:b/c.rs",
         "colon in first segment must be neutralized via a ./ prefix"
