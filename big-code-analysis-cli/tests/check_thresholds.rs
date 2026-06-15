@@ -85,6 +85,107 @@ fn check_violation_exits_two_with_stable_stderr() {
         .stderr(predicate::str::contains("(limit 1)"));
 }
 
+/// The remediation block's "Detailed reports" line reads
+/// `GITHUB_REPOSITORY` / `GITHUB_RUN_ID` and points at the CI artifact
+/// URL when both are set, falling back to `run bca report …` locally
+/// (`commands.rs::artifact_link`). `scrub_ci_env` must `env_remove` both
+/// so a helper-built `bca check` does not *inherit* them from the parent
+/// (a GitHub Actions runner exports both), always emitting the local
+/// fallback regardless of where the suite runs (#900).
+///
+/// `env_remove` blocks *inheritance*, not an explicit per-command
+/// `.env`, so the test exercises the real path: it sets both vars on the
+/// parent process for the duration of the test (restored on drop) and
+/// then proves a raw child inherits them (CI URL) while a helper-built
+/// child does not (local fallback). Without the parent set the scrub
+/// would have nothing to remove and the assertion would be vacuous.
+#[test]
+fn helper_scrubs_artifact_link_env_to_local_fallback() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let args = [
+        "check",
+        "--paths",
+        path.as_str(),
+        "--threshold",
+        "cyclomatic=1",
+    ];
+
+    let _guard = ArtifactEnvGuard::set("octo/repo", "424242");
+
+    // Control: a raw command inherits the parent's artifact-link vars
+    // and emits the CI artifact URL. If this branch never fired, the
+    // scrub assertion below would be vacuous.
+    Command::cargo_bin("bca")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(args)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "https://github.com/octo/repo/actions/runs/424242",
+        ));
+
+    // The helper's `env_remove` blocks inheritance, so the same parent
+    // env yields the local fallback, never the URL.
+    cli(dir.path())
+        .args(args)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "run `bca report` to see them locally",
+        ))
+        .stderr(predicate::str::contains("https://github.com/octo/repo").not());
+}
+
+/// RAII guard that sets `GITHUB_REPOSITORY` / `GITHUB_RUN_ID` on the
+/// parent process and restores their prior values on drop. `set_var` /
+/// `remove_var` are `unsafe` in Rust 2024 (concurrent-mutation footgun);
+/// a process-wide mutex serializes this guard against itself so parallel
+/// integration tests cannot observe a half-applied env. No other test in
+/// this binary touches these two vars, so this lock is sufficient.
+struct ArtifactEnvGuard {
+    repo: Option<String>,
+    run_id: Option<String>,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl ArtifactEnvGuard {
+    fn set(repo: &str, run_id: &str) -> Self {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let lock = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prior = Self {
+            repo: std::env::var("GITHUB_REPOSITORY").ok(),
+            run_id: std::env::var("GITHUB_RUN_ID").ok(),
+            _lock: lock,
+        };
+        // SAFETY: serialized by ENV_LOCK; restored on drop.
+        unsafe {
+            std::env::set_var("GITHUB_REPOSITORY", repo);
+            std::env::set_var("GITHUB_RUN_ID", run_id);
+        }
+        prior
+    }
+}
+
+impl Drop for ArtifactEnvGuard {
+    fn drop(&mut self) {
+        // SAFETY: still holding ENV_LOCK via `_lock`.
+        unsafe {
+            match &self.repo {
+                Some(v) => std::env::set_var("GITHUB_REPOSITORY", v),
+                None => std::env::remove_var("GITHUB_REPOSITORY"),
+            }
+            match &self.run_id {
+                Some(v) => std::env::set_var("GITHUB_RUN_ID", v),
+                None => std::env::remove_var("GITHUB_RUN_ID"),
+            }
+        }
+    }
+}
+
 #[test]
 fn check_no_fail_keeps_exit_zero_but_still_reports() {
     let dir = TempDir::new().unwrap();

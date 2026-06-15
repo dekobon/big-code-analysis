@@ -48,6 +48,18 @@ pub mod validators;
 /// which is why it stayed latent until the first PR. A test that
 /// *wants* a diff scope sets the var explicitly after construction.
 ///
+/// The artifact-link vars (`GITHUB_REPOSITORY`, `GITHUB_RUN_ID`) are
+/// scrubbed for the same local/CI-divergence reason: a failing
+/// `bca check` always emits a remediation block whose "Detailed reports"
+/// line reads both vars (`commands.rs::artifact_link`) and, when both are
+/// present (every GitHub Actions runner), points at the uploaded
+/// `bca-reports` artifact URL — otherwise it falls back to
+/// `run bca report to see them locally`. Leaving them inherited makes
+/// remediation-block output environment-dependent, so a test asserting
+/// the local-fallback wording would pass locally and fail on CI (#900).
+/// A test that *wants* the CI artifact link sets both explicitly after
+/// construction.
+///
 /// CLI-crate call sites name their builder `cli()`; each routes
 /// through [`bca_command`] / [`cli_in`], which delegate here so a
 /// future new env-leak only needs to be patched once. The
@@ -62,6 +74,8 @@ pub fn scrub_ci_env(cmd: &mut Command) -> &mut Command {
         .env_remove("GITHUB_BASE_REF")
         .env_remove("BCA_DIFF_BASE")
         .env_remove("GITHUB_EVENT_BEFORE")
+        .env_remove("GITHUB_REPOSITORY")
+        .env_remove("GITHUB_RUN_ID")
 }
 
 /// Build a `bca` `Command` with CI-side env vars scrubbed. The
@@ -109,4 +123,61 @@ pub fn cli_hermetic() -> (tempfile::TempDir, Command) {
     let dir = tempfile::tempdir().expect("create tempdir for hermetic cwd");
     let cmd = cli_in(dir.path());
     (dir, cmd)
+}
+
+/// Serialize every test that mutates process-global environment state and
+/// then spawns a child `bca`. Spawning snapshots the *whole* parent
+/// environment, so a concurrent `set_var` from an unrelated env-mutating
+/// test in the same binary can tear that snapshot and leak its variable
+/// into the wrong child — the cross-test race that let
+/// `ArtifactEnvGuard`'s `GITHUB_REPOSITORY`/`GITHUB_RUN_ID` surface in
+/// `cli_helper_does_not_leak_to_github_step_summary`'s child even though
+/// the two tests touch different variables. Holding one shared lock across
+/// the mutate-and-spawn critical section makes those sections mutually
+/// exclusive regardless of which variable each one touches.
+///
+/// `set_var` / `remove_var` are `unsafe` in Rust 2024 for exactly this
+/// concurrency hazard; this lock is the binary-wide serialization point
+/// that makes the test-only mutations sound.
+#[allow(dead_code)]
+pub fn process_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// RAII guard that sets the process working directory and restores the
+/// prior one on drop. `set_current_dir` mutates process-global state, so
+/// a static mutex serializes this guard against itself.
+///
+/// Used by hermeticity regression tests that must reproduce the
+/// non-hermetic leak: a pre-#491 helper inherits the process cwd, so
+/// these drive the cwd into a `.git`-rooted manifest dir and prove the
+/// hermetic builders ignore it (the assertion then fails if a builder is
+/// reverted to the un-anchored `bca_command()` — see
+/// `.claude/rules/testing.md`).
+#[allow(dead_code)]
+pub struct CwdGuard {
+    prior: std::path::PathBuf,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl CwdGuard {
+    #[allow(dead_code)]
+    pub fn enter(dir: &Path) -> Self {
+        static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let lock = CWD_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let prior = std::env::current_dir().expect("read current dir");
+        std::env::set_current_dir(dir).expect("enter guard dir");
+        Self { prior, _lock: lock }
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.prior);
+    }
 }
