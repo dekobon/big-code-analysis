@@ -188,6 +188,57 @@ fn legacy_allow_marker_does_not_suppress() {
         ));
 }
 
+/// Regression fixture for #896. The marker lists one valid metric
+/// (`cyclomatic`) and one unknown one (`bogusmetric`). The contract is
+/// that an unknown identifier voids the *entire* marker — so the
+/// otherwise-valid `cyclomatic` entry must NOT suppress either.
+const UNKNOWN_METRIC_RUST: &str = r#"
+pub fn classify(n: i32) -> &'static str {
+    // bca: suppress(cyclomatic, bogusmetric)
+    if n < 0 {
+        "neg"
+    } else if n == 0 {
+        "zero"
+    } else {
+        "pos"
+    }
+}
+"#;
+
+#[test]
+fn unknown_metric_voids_entire_marker() {
+    // Void-on-unknown regression (#896): a `bca: suppress(...)` marker
+    // whose list contains an unknown metric must warn to stderr AND
+    // void the *whole* marker — the valid `cyclomatic` sibling does not
+    // get to suppress on its own. This is the unknown-*metric* twin of
+    // `legacy_allow_marker_does_not_suppress` (which covers an unknown
+    // *verb*); the two take distinct `SuppressionError` variants and
+    // render distinct stderr strings, so each needs its own end-to-end
+    // pin through the binary.
+    //
+    // Three things must all be true; we pin each one independently so a
+    // regression in any single half surfaces clearly:
+    //   1. exit code 2 — the violation is reported, not silenced (the
+    //      most dangerous regression would treat the unknown metric as
+    //      suppress-all and swallow the violation);
+    //   2. stderr names the offender and metric — the violation line
+    //      exists and is intelligible;
+    //   3. stderr carries the unknown-metric diagnostic — the user gets
+    //      a typo pointer, not a silent drop.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", UNKNOWN_METRIC_RUST);
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("classify"))
+        .stderr(predicate::str::contains("cyclomatic"))
+        .stderr(predicate::str::contains(
+            "unknown metric 'bogusmetric' in bca suppression marker",
+        ));
+}
+
 #[test]
 fn unsuppressed_metric_still_violates() {
     // Per-metric scoping: `bca: suppress(cyclomatic)` leaves other
