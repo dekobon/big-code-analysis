@@ -597,7 +597,9 @@ representation.
 > directories and writes JSON cache files under it
 > (`<cache_dir>/<repo>/<head_sha>.json`), so a caller controlling
 > `cache_dir` can direct the server to write cache files at any path the
-> server process can write to. The endpoint's filesystem reach is
+> server process can write to. (`cache_dir` is accepted only by `/vcs`;
+> `/vcs/trend` and `/vcs/jit` do not cache.) The endpoint's filesystem
+> reach is
 > therefore an arbitrary read of any readable git repository *and* an
 > arbitrary write of cache files under any writable path. **Do not expose
 > `/vcs`, `/vcs/trend`, or `/vcs/jit` to untrusted clients without an
@@ -722,7 +724,10 @@ series, not a ranked snapshot, so it is a distinct route from `/vcs`.
 POST http://127.0.0.1:8080/v1/vcs/trend
 ```
 
-**Payload:** every `/vcs` field above, plus:
+**Payload:** every `/vcs` field above **except the cache controls**
+(`no_cache` / `cache_dir`) — trend does not use the persistent cache, so
+sending either field is a `400` (issue #961) rather than a silent no-op —
+plus:
 
 - `points`: number of evenly-spaced sample points (`>= 2`). Defaults to
   `12` (the `bca vcs trend --points` default) when omitted.

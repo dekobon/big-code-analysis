@@ -27,8 +27,9 @@
 //! (`<cache_dir>/<repo>/<head_sha>.json`). A caller that controls
 //! `cache_dir` can therefore direct the server to create directories
 //! and write cache files at any path the server process can write to —
-//! a strictly larger filesystem reach than the `repo_path` read. Both
-//! `/vcs` and `/vcs/trend` accept `cache_dir`.
+//! a strictly larger filesystem reach than the `repo_path` read. Only
+//! `/vcs` accepts `cache_dir`; `/vcs/trend` does not use the persistent
+//! cache and rejects both cache knobs (issue #961).
 //!
 //! Together these make the endpoint's filesystem reach an arbitrary
 //! read of any readable git repository **and** an arbitrary write of
@@ -572,8 +573,15 @@ pub fn compute_vcs_jit(payload: WebVcsJitPayload) -> Result<WebVcsJitResponse, v
 /// cannot tell which struct owns a given key), so the only way to reject an
 /// unknown key on this endpoint is a single flat struct. The JSON shape is
 /// unchanged — every field still sits at the top level. The inlined block
-/// mirrors [`WebVcsPayload`] field-for-field; keep the two in lockstep when
-/// either gains a knob.
+/// mirrors [`WebVcsPayload`] field-for-field **except the cache knobs**
+/// (`no_cache` / `cache_dir`): trend does not use the persistent cache, so
+/// those fields are deliberately omitted and a client that sends them gets
+/// a `400` under `deny_unknown_fields` rather than the silent no-op the
+/// endpoint used to accept (issue #961). Each sampled point re-anchors at a
+/// distinct historical tip with its own `as_of`, which the cache
+/// fingerprints separately and never evicts — honoring the knobs would only
+/// grow the cache with per-point entries that never hit. Keep the two
+/// structs in lockstep when either gains any *other* knob.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebVcsTrendPayload {
@@ -621,11 +629,8 @@ pub struct WebVcsTrendPayload {
     pub include_deleted: Option<bool>,
     /// Bus-factor coverage (abandonment) threshold in `(0, 1)` (issue #332).
     pub bus_factor_threshold: Option<f64>,
-    /// Disable the persistent change-history cache for this request.
-    pub no_cache: Option<bool>,
-    /// Override the server-side cache directory. Caller-supplied write
-    /// path — see the module-level `# Security` note.
-    pub cache_dir: Option<String>,
+    // NOTE: `no_cache` / `cache_dir` are intentionally absent here — trend
+    // does not use the persistent cache (issue #961). See the struct doc.
     // --- trend-only knobs ---
     /// Number of evenly-spaced sample points (>= 2; default 12 — #636).
     #[serde(default = "default_trend_points")]
@@ -661,8 +666,13 @@ impl WebVcsTrendPayload {
             author_hash_key: self.author_hash_key,
             include_deleted: self.include_deleted,
             bus_factor_threshold: self.bus_factor_threshold,
-            no_cache: self.no_cache,
-            cache_dir: self.cache_dir,
+            // Trend never builds a `CacheConfig`, and these fields are not
+            // even present on the trend payload (issue #961): the base only
+            // exists to reuse `options_from`, which ignores them. Pin them
+            // off so a future reader cannot mistake the base for a caching
+            // path.
+            no_cache: None,
+            cache_dir: None,
         };
         let knobs = TrendKnobs {
             points: self.points,
@@ -867,6 +877,26 @@ mod tests {
             err.to_string().contains("top_dletas"),
             "the error must name the offending key, got: {err}"
         );
+    }
+
+    // #961 drift guard: the trend endpoint does not use the persistent
+    // cache, so the shared `/vcs` cache knobs are absent from its payload —
+    // a client that sends them gets a `400` under `deny_unknown_fields`
+    // (the serde error names the offender) rather than the silent no-op the
+    // endpoint used to accept. Re-adding either field by copy-paste from
+    // `WebVcsPayload` without wiring it into a real `CacheConfig` would flip
+    // this back to silent acceptance and fail here.
+    #[test]
+    fn trend_payload_rejects_cache_knobs() {
+        for (field, value) in [("no_cache", "true"), ("cache_dir", "\"/tmp/x\"")] {
+            let body = format!(r#"{{"id":"t","repo_path":"/x","{field}":{value}}}"#);
+            let err = serde_json::from_str::<WebVcsTrendPayload>(&body)
+                .expect_err("trend must reject a cache knob it cannot honor");
+            assert!(
+                err.to_string().contains(field),
+                "the error must name the rejected `{field}`, got: {err}"
+            );
+        }
     }
 
     // #647: the presence list, the named-field list, and the conflict

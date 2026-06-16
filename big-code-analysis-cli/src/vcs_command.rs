@@ -68,6 +68,14 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     }
     let root = resolve_root(&globals);
 
+    // Cache controls apply only to the bare `bca vcs` file ranking. Reject
+    // them up front when combined with a subcommand so the CLI does not
+    // silently ignore a knob the caller set, exactly as the web `/vcs/trend`
+    // endpoint used to (issue #961).
+    if let Err(message) = reject_cache_flags_with_subcommand(&args) {
+        die(format_args!("{message}"));
+    }
+
     // `bca vcs commit <commit>` and `bca vcs trend` are distinct paths;
     // the bare `bca vcs` ranking flow is the `None` case below.
     match args.command.as_ref() {
@@ -108,6 +116,25 @@ pub(crate) fn run(mut globals: GlobalOpts, args: VcsArgs) {
     };
 
     emit(&report, &args).unwrap_or_else(|e| die(format_args!("writing vcs output: {e}")));
+}
+
+/// Reject the cache controls when they accompany a `vcs` subcommand.
+///
+/// `--no-cache` / `--clear-cache` / `--cache-dir` live on the parent
+/// [`VcsArgs`] but only the bare `bca vcs` ranking consults them; `commit`
+/// and `trend` never touch the persistent cache, so accepting the flags in
+/// the parent position (`bca vcs --no-cache trend`) would silently drop
+/// them — the misleading behaviour the web `/vcs/trend` endpoint had
+/// (issue #961). The bare ranking (no subcommand) is unaffected.
+pub(crate) fn reject_cache_flags_with_subcommand(args: &VcsArgs) -> Result<(), &'static str> {
+    if args.command.is_some() && (args.no_cache || args.clear_cache || args.cache_dir.is_some()) {
+        return Err(
+            "--no-cache / --clear-cache / --cache-dir apply only to the bare \
+                    `bca vcs` file ranking, not to `bca vcs commit` or `bca vcs trend` \
+                    (which do not use the cache)",
+        );
+    }
+    Ok(())
 }
 
 /// Build a ranked change-history [`Report`] with **default** windows for

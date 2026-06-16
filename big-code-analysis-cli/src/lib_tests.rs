@@ -308,6 +308,31 @@ fn vcs_flags_bind_to_their_fields() {
     assert!(args.emit_author_details);
 }
 
+// #961: cache controls apply only to the bare `bca vcs` ranking. Combining
+// them with `commit` / `trend` (which never touch the cache) is rejected
+// rather than silently ignored — the CLI counterpart of the `/vcs/trend`
+// endpoint dropping its advertised cache knobs. `bca vcs trend --no-cache`
+// is already a clap error (the flags are non-`global`), so the gap is the
+// parent position, which these cases exercise.
+#[test]
+fn vcs_cache_flags_rejected_with_subcommand() {
+    use crate::vcs_command::reject_cache_flags_with_subcommand as guard;
+    for argv in [
+        vec!["vcs", "--no-cache", "trend"],
+        vec!["vcs", "--clear-cache", "trend"],
+        vec!["vcs", "--cache-dir", "/tmp/x", "trend"],
+        vec!["vcs", "--no-cache", "commit"],
+    ] {
+        assert!(
+            guard(&parse_vcs(&argv)).is_err(),
+            "{argv:?} must be rejected — the subcommand ignores the cache flag"
+        );
+    }
+    // The bare ranking still accepts the cache flags.
+    assert!(guard(&parse_vcs(&["vcs", "--no-cache"])).is_ok());
+    assert!(guard(&parse_vcs(&["vcs", "--cache-dir", "/tmp/x"])).is_ok());
+}
+
 // `bca vcs` carries its own format set (issue #573): the per-file
 // `MetricsFormat` values plus the rendered `markdown` / `html` pages.
 // Unlike `metrics`/`ops`, `--output` names a single file (a whole-repo

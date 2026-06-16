@@ -2401,6 +2401,16 @@ for historical reference.
 
 ### Fixed
 
+- Web (`POST /vcs/trend`): the trend endpoint no longer advertises the
+  `no_cache` / `cache_dir` cache controls it could never honor. Trend does
+  not use the persistent change-history cache (each sampled point re-anchors
+  at a distinct historical tip with its own `as_of`, which the cache
+  fingerprints separately and never evicts), so the two fields are removed
+  from the trend payload and now answer `400` (`unknown_field`) instead of
+  being silently accepted and ignored. The CLI mirrors this: `--no-cache` /
+  `--clear-cache` / `--cache-dir` combined with `bca vcs trend` or
+  `bca vcs commit` (which also do not cache) is now a usage error rather
+  than a silent no-op (#961).
 - Python `to_sarif`: findings are now emitted for the four
   subtree-aggregate metrics (`cyclomatic`, `cyclomatic.modified`,
   `cognitive`, `abc`) at *interior* spaces — a function owning nested

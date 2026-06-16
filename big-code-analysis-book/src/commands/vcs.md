@@ -259,6 +259,13 @@ The REST (`POST /vcs`) and Python ([`vcs.rank`](../python/vcs.md))
 surfaces expose the same behaviour through optional `no_cache` /
 `cache_dir` parameters.
 
+The cache is specific to the file ranking. The `trend` and `commit`
+subcommands — and the `/vcs/trend` and `/vcs/jit` endpoints — do not use
+it, so the cache flags do not apply there: passing `--no-cache` /
+`--cache-dir` alongside a subcommand is a usage error, and the trend
+endpoint rejects a `no_cache` / `cache_dir` field rather than silently
+ignoring it (issue #961).
+
 ## In `bca metrics`
 
 Pass `bca metrics --vcs` to attach a `vcs` block (plus a `hotspot_score`
