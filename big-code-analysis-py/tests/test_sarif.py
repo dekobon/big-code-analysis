@@ -280,7 +280,7 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
     """``AnalysisFailure`` entries in an iterable must be skipped, not
     raised — they represent files we couldn't analyse.
 
-    Uses ``cyclomatic=0`` so the ok.py finding is positively
+    Uses ``cyclomatic=0`` so the ok.py findings are positively
     asserted alongside the silent-skip behaviour. A regression that
     dropped successful dicts together with the errors would emit
     zero findings and slip past a bare "no errors raised" check.
@@ -296,17 +296,21 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
         "fixture expected to produce at least one AnalysisFailure"
     )
     parsed = _parse(bca.to_sarif(results, thresholds={"cyclomatic": 0}))
-    # ok.py's `f` has cyclomatic = 1 > 0 → exactly one finding.
-    # Pins that AnalysisFailure entries are dropped while the
-    # successful dict is still walked.
+    # Both ok.py spaces have cyclomatic value = 1 > 0 → the file unit
+    # (`<file>`) and `f` each emit. Pins that AnalysisFailure entries are
+    # dropped while the successful dict is still walked at every space.
     findings = parsed["runs"][0]["results"]
-    assert len(findings) == 1, (
-        f"expected one finding from ok.py (errors skipped, dict kept), got {findings!r}"
+    fq_names = sorted(
+        f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     )
-    assert findings[0]["ruleId"] == "cyclomatic"
-    assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"][
-        "uri"
-    ] == _expected_sarif_uri(ok)
+    assert fq_names == ["<file>", "f"], (
+        f"expected findings from ok.py only (errors skipped, dict kept), got {findings!r}"
+    )
+    for finding in findings:
+        assert finding["ruleId"] == "cyclomatic"
+        assert finding["locations"][0]["physicalLocation"]["artifactLocation"][
+            "uri"
+        ] == _expected_sarif_uri(ok)
 
 
 def test_to_sarif_does_not_raise_on_pure_analysis_error_input(
@@ -332,7 +336,7 @@ def test_to_sarif_filters_none_entries_silently(tmp_path: Path) -> None:
     the ``AnalysisFailure`` contract — both represent "no record
     emitted for this file".
 
-    Uses ``cyclomatic=0`` so the ok.py finding is positively
+    Uses ``cyclomatic=0`` so the ok.py findings are positively
     asserted alongside the silent-skip behaviour, mirroring
     ``test_to_sarif_filters_analysis_errors_silently``: a regression
     that dropped successful dicts together with ``None`` would emit
@@ -345,13 +349,18 @@ def test_to_sarif_filters_none_entries_silently(tmp_path: Path) -> None:
 
     parsed = _parse(bca.to_sarif([good, None], thresholds={"cyclomatic": 0}))
     findings = parsed["runs"][0]["results"]
-    assert len(findings) == 1, (
-        f"expected one finding from ok.py (None skipped, dict kept), got {findings!r}"
+    fq_names = sorted(
+        f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     )
-    assert findings[0]["ruleId"] == "cyclomatic"
-    assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"][
-        "uri"
-    ] == _expected_sarif_uri(ok)
+    # Both ok.py spaces (`<file>` and `f`) have cyclomatic value 1 > 0.
+    assert fq_names == ["<file>", "f"], (
+        f"expected findings from ok.py only (None skipped, dict kept), got {findings!r}"
+    )
+    for finding in findings:
+        assert finding["ruleId"] == "cyclomatic"
+        assert finding["locations"][0]["physicalLocation"]["artifactLocation"][
+            "uri"
+        ] == _expected_sarif_uri(ok)
 
 
 def test_to_sarif_does_not_raise_on_pure_none_input() -> None:
@@ -446,9 +455,9 @@ def test_to_sarif_matches_cli_check_for_single_function(bca_binary: str, tmp_pat
     differences (tool.driver.version is identical because both come
     from ``CARGO_PKG_VERSION``).
 
-    Uses a Python fixture with a single function so all per-space
-    findings are at leaf-function level — no unit-vs-function
-    aggregate divergence for sum-shaped metrics.
+    Uses a Python fixture with a single function: the function's own
+    cyclomatic breaches while the file unit's own cyclomatic (base 1)
+    does not, so both front-ends emit exactly one finding.
     """
     src = tmp_path / "branchy.py"
     src.write_text(
@@ -507,14 +516,12 @@ def test_to_sarif_matches_cli_check_for_wmc_with_unit_emission(
     """CLI parity for a metric that emits at the unit level.
 
     Complements ``test_to_sarif_matches_cli_check_for_single_function``
-    (which uses ``cyclomatic`` — a skip-at-unit metric) by exercising
-    a metric (`wmc`) where the binding now emits unit findings as
-    well. A multi-class Python file produces one finding per class
-    plus one file-level finding; both sides must agree on count,
+    by exercising a metric (`wmc`) whose subtree total naturally breaches
+    at the file unit. A multi-class Python file produces one finding per
+    class plus one file-level finding; both sides must agree on count,
     rule, level, message, physical region, logical location, and
-    artifact URI. Catches any regression in the unit-level
-    `<file>` placeholder or in the `skip_at_unit=false` flag for
-    a metric whose CLI accessor matches the JSON headline.
+    artifact URI. Catches any regression in the unit-level `<file>`
+    placeholder or in walking the file unit at all.
     """
     src = tmp_path / "classes.py"
     src.write_text(
@@ -575,12 +582,11 @@ def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
     not catch (a top-level function's qualified name equals its bare
     name).
 
-    Since #855 the binding emits the four aggregate-shaped metrics
-    (``cyclomatic`` among them) only at *leaf* spaces, where the JSON
-    ``sum`` equals the CLI's per-space scalar. It no longer over-emits a
-    spurious finding at the enclosing class ``A`` for the aggregate of
-    its methods, so the full finding *set* now matches the CLI — this
-    test asserts set equality, not just membership of the method symbol.
+    The binding keys every metric off its per-space own value, so the
+    enclosing class ``A`` (own cyclomatic = base 1, below the limit) is
+    not reported while the method that genuinely breaches is — the full
+    finding *set* matches the CLI exactly. This test asserts set equality,
+    not just membership of the method symbol.
     """
     src = tmp_path / "nested.py"
     src.write_text(
@@ -609,10 +615,9 @@ def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
     # The method-level offender must carry the container-joined symbol
     # on both sides — the core #706 divergence.
     assert "A::branchy" in cli_names, f"CLI reference must qualify the method; got {cli_names!r}"
-    # Since #855 the binding's finding set matches the CLI exactly: the
-    # aggregate-shaped `cyclomatic` is emitted only at the leaf method,
-    # so the enclosing class `A` is NOT over-emitted. (Pre-#855 the
-    # binding flagged `A` for the sum of its methods' complexity.)
+    # The binding's finding set matches the CLI exactly: `cyclomatic` is
+    # compared per-space via its own value, so the enclosing class `A`
+    # (own value below the limit) is not emitted — only the method is.
     assert py_names == cli_names, (
         f"binding finding set must match the CLI; got py={py_names!r} cli={cli_names!r}"
     )
@@ -628,7 +633,7 @@ def test_to_sarif_anonymous_space_collapses_to_anon_line() -> None:
     matching the CLI's ``space_segment`` (issue #706). The prior binding
     passed ``<anonymous>`` through verbatim, which the CLI never emits.
     """
-    fake = _fake_function_dict(name="<anonymous>", start_line=42, cyclomatic_sum=5.0)
+    fake = _fake_function_dict(name="<anonymous>", start_line=42, cyclomatic_value=5.0)
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
     findings = parsed["runs"][0]["results"]
     assert len(findings) == 1
@@ -646,7 +651,7 @@ def _fake_function_dict(
     kind: str = "function",
     start_line: int = 1,
     end_line: int = 5,
-    cyclomatic_sum: Any = 5.0,
+    cyclomatic_value: Any = 5.0,
 ) -> FuncSpaceDict:
     """Hand-construct a FuncSpace-shaped dict for adversarial input
     tests that cannot be reached through ``analyze_source``.
@@ -655,7 +660,12 @@ def _fake_function_dict(
     where the wire shape is ``int``) are the point of these tests, so the
     builder is ``cast`` to :class:`FuncSpaceDict` — the static shape
     :func:`to_sarif` now expects (#623) — rather than re-deriving a
-    looser parameter type that would weaken every other call site."""
+    looser parameter type that would weaken every other call site.
+
+    ``cyclomatic_value`` drives the per-space ``cyclomatic.value`` the
+    binding thresholds against since #958. The dict is a leaf
+    (``spaces: []``), so ``sum`` mirrors ``value`` to stay shape-realistic.
+    """
     fake: dict[str, Any] = {
         "name": name,
         "kind": kind,
@@ -664,11 +674,18 @@ def _fake_function_dict(
         "spaces": [],
         "metrics": {
             "cyclomatic": {
-                "sum": cyclomatic_sum,
+                "sum": cyclomatic_value,
+                "value": cyclomatic_value,
                 "average": 1.0,
                 "min": 1.0,
                 "max": 1.0,
-                "modified": {"sum": 1.0, "average": 1.0, "min": 1.0, "max": 1.0},
+                "modified": {
+                    "sum": 1.0,
+                    "value": 1.0,
+                    "average": 1.0,
+                    "min": 1.0,
+                    "max": 1.0,
+                },
             },
         },
     }
@@ -678,19 +695,21 @@ def _fake_function_dict(
 @pytest.mark.parametrize(
     ("metric_name", "json_path"),
     [
-        ("cyclomatic", ("cyclomatic", "sum")),
-        ("cyclomatic.modified", ("cyclomatic", "modified", "sum")),
-        ("cognitive", ("cognitive", "sum")),
+        ("cyclomatic", ("cyclomatic", "value")),
+        ("cyclomatic.modified", ("cyclomatic", "modified", "value")),
+        ("cognitive", ("cognitive", "value")),
         ("loc.lloc", ("loc", "lloc")),
     ],
 )
 def test_to_sarif_rejects_bool_metric_value(metric_name: str, json_path: tuple[str, ...]) -> None:
     """Python ``True`` extracts as ``1.0`` via PyO3's ``f64`` extractor
     because ``bool`` inherits from ``int``. Without an explicit guard,
-    a user-crafted dict with any metric headline set to ``True`` would
-    silently emit a finding at value 1.0. Cover every shape of JSON
-    path the extractor walks: top-level (``loc.lloc``), one-level
-    nested-with-sum (``cyclomatic``, ``cognitive``), two-level nested
+    a user-crafted dict with any metric value set to ``True`` would
+    silently emit a finding at value 1.0. The path under test is the one
+    the binding actually thresholds against, so the rejection — not an
+    incidentally-absent field — is what suppresses the finding. Cover
+    every shape the extractor walks: top-level (``loc.lloc``), one-level
+    nested own-value (``cyclomatic``, ``cognitive``), two-level nested
     (``cyclomatic.modified``).
     """
     fake = _fake_function_dict()
@@ -719,7 +738,7 @@ def test_to_sarif_rejects_bool_line_number() -> None:
     the guard, ``start_line: True`` would extract as 1 (Python bool
     inherits from int) and emit a finding at line 1. The
     SARIF-writer's ``max(1)`` clamp would mask the issue."""
-    fake = _fake_function_dict(start_line=10, end_line=15, cyclomatic_sum=5.0)
+    fake = _fake_function_dict(start_line=10, end_line=15, cyclomatic_value=5.0)
     fake["start_line"] = True
     fake["end_line"] = True
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
@@ -734,12 +753,11 @@ def test_to_sarif_treats_unit_kind_case_insensitively() -> None:
     but defending against a future upstream rename (or a hand-crafted
     dict using ``Unit``) is cheap: the kind comparison normalises to
     ASCII-lowercase. The capitalised ``Unit`` must still resolve to the
-    file-level ``<file>`` symbol on the offender it emits. Build the unit
-    as a leaf (no child spaces) so the aggregate metric is allowed to
-    emit (#855): the point under test is the kind-name normalisation, not
-    the interior-space skip.
+    file-level ``<file>`` symbol on the offender it emits. The unit's own
+    ``cyclomatic.value`` breaches the limit, so it emits; the point under
+    test is the kind-name normalisation driving the ``<file>`` symbol.
     """
-    fake = _fake_function_dict(kind="Unit", cyclomatic_sum=999)
+    fake = _fake_function_dict(kind="Unit", cyclomatic_value=999)
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
     findings = parsed["runs"][0]["results"]
     fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
@@ -764,13 +782,12 @@ def test_to_sarif_rejects_mappingproxytype_with_clear_error() -> None:
 
 
 def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
-    """Unit-level findings are now emitted for metrics whose JSON
-    headline matches the CLI's per-space accessor (loc, halstead,
-    wmc, mi, nom, tokens, nargs, nexits, npa, npm). Pinned with
-    ``wmc`` because the multi-class fixture cleanly distinguishes
-    unit-aggregate from per-class. (``abc`` is NOT in this list — its
-    JSON ``magnitude`` is an aggregate sum, so it is skipped at unit;
-    see ``test_to_sarif_still_skips_unit_for_aggregate_metrics``.)
+    """Unit-level findings are emitted whenever the file unit's own value
+    breaches the limit. Pinned with ``wmc`` because the multi-class
+    fixture cleanly distinguishes the file total from per-class values.
+    (Since #958 ``cyclomatic``/``cognitive``/``abc`` also emit at the unit
+    when their per-space ``value`` breaches — see
+    ``test_to_sarif_emits_interior_space_when_own_value_breaches``.)
     """
     code = (
         "class A:\n"
@@ -794,39 +811,71 @@ def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
     assert "B" in fully_qualified
 
 
+def _own_value_block(metric_name: str, own: float) -> dict[str, Any]:
+    """Build a minimal ``metrics`` sub-dict carrying ``own`` at the path
+    the binding thresholds ``metric_name`` against since #958 (the
+    per-space ``value`` field, or ``modified.value`` for the modified
+    variant). Only the walked path needs to be present — ``extract_metric``
+    ignores the sibling aggregate/min/max keys — so the fixtures stay
+    readable.
+    """
+    if metric_name == "cyclomatic.modified":
+        return {"cyclomatic": {"modified": {"value": own}}}
+    if metric_name == "cyclomatic":
+        return {"cyclomatic": {"value": own}}
+    if metric_name in ("cognitive", "abc"):
+        return {metric_name: {"value": own}}
+    raise AssertionError(f"unhandled metric {metric_name!r}")
+
+
 @pytest.mark.parametrize(
     "metric_name",
     ["cyclomatic", "cyclomatic.modified", "cognitive", "abc"],
 )
-def test_to_sarif_still_skips_unit_for_aggregate_metrics(metric_name: str) -> None:
-    """The metrics whose CLI accessor returns the per-space scalar
-    while the JSON exposes an aggregate over children MUST be skipped
-    at the unit level. These are cyclomatic / cyclomatic.modified /
-    cognitive (JSON ``sum``) and abc (JSON ``magnitude`` built from
-    the ``*_sum`` accumulators — #441). A regression that emitted unit
-    findings for any of these would diverge from the CLI in a way
-    that's hard to spot. Parameterised so the contract is pinned for
-    each member, not just `cyclomatic`.
+def test_to_sarif_emits_interior_space_when_own_value_breaches(metric_name: str) -> None:
+    """#958: an interior space (here a function owning a nested closure)
+    whose *own* value breaches the limit is now reported — exactly as the
+    CLI's per-space accessor does. For these four metrics the JSON exposes
+    a subtree aggregate (``sum``/``magnitude``) *and*, since #958, the
+    per-space ``value``; the binding reads ``value``, so it no longer has
+    to skip interior spaces. Before #958 it could read only the aggregate,
+    so it skipped every interior space and silently under-emitted this
+    breach (the residual gap #855's leaf-only fix left open).
     """
-    code = (
-        "def branchy(x):\n"
-        "    if x > 0:\n"
-        "        return 1\n"
-        "    if x < 0:\n"
-        "        return -1\n"
-        "    return 0\n"
-    )
-    result = bca.analyze_source(code, "python")
-    # Use threshold 0 so any value > 0 fires (the unit's aggregate
-    # value is positive for all three metrics on this fixture). The
-    # unit must still be skipped; only `branchy` should emit.
-    parsed = _parse(bca.to_sarif(result, thresholds={metric_name: 0}))
+    # outer.value (5) breaches the limit (3); the closure it owns and the
+    # file unit stay below it, so only `outer` may be reported.
+    unit: dict[str, Any] = {
+        "name": "mod.py",
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 12,
+        "metrics": _own_value_block(metric_name, 1.0),
+        "spaces": [
+            {
+                "name": "outer",
+                "kind": "function",
+                "start_line": 2,
+                "end_line": 11,
+                "metrics": _own_value_block(metric_name, 5.0),
+                "spaces": [
+                    {
+                        "name": "<anonymous>",
+                        "kind": "function",
+                        "start_line": 4,
+                        "end_line": 6,
+                        "metrics": _own_value_block(metric_name, 1.0),
+                        "spaces": [],
+                    }
+                ],
+            }
+        ],
+    }
+    parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", unit), thresholds={metric_name: 3}))
     findings = parsed["runs"][0]["results"]
-    assert len(findings) == 1, (
-        f"expected single per-function finding for {metric_name!r}, got {findings!r}"
+    fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
+    assert fq_names == ["outer"], (
+        f"only the interior function whose own {metric_name} breaches may emit, got {fq_names!r}"
     )
-    fq = findings[0]["locations"][0]["logicalLocations"][0]["fullyQualifiedName"]
-    assert fq == "branchy", f"expected per-function finding for {metric_name!r}, got fq={fq!r}"
 
 
 def test_to_sarif_nameless_space_emits_anon_line_placeholder() -> None:
@@ -837,7 +886,7 @@ def test_to_sarif_nameless_space_emits_anon_line_placeholder() -> None:
     identity; the prior binding emitted a bare ``<unnamed>`` that the
     CLI never produces.
     """
-    fake = _fake_function_dict(name=None, start_line=1, cyclomatic_sum=5.0)
+    fake = _fake_function_dict(name=None, start_line=1, cyclomatic_value=5.0)
     # The outer dict's name doubles as `path`; set it explicitly so
     # the test isolates the `function` field behaviour.
     fake["name"] = None
@@ -883,7 +932,7 @@ def test_to_sarif_clamps_oversized_line_numbers_to_u32_max() -> None:
     fake = _fake_function_dict(
         start_line=2**32 + 5,
         end_line=2**32 + 10,
-        cyclomatic_sum=5.0,
+        cyclomatic_value=5.0,
     )
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
     region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
@@ -897,7 +946,7 @@ def test_to_sarif_negative_line_numbers_fall_back_to_zero() -> None:
     region; they fall back to 0, which the upstream writer clamps to
     1 (its documented invariant). Pin both ends of that contract.
     """
-    fake = _fake_function_dict(start_line=-5, end_line=-3, cyclomatic_sum=5.0)
+    fake = _fake_function_dict(start_line=-5, end_line=-3, cyclomatic_value=5.0)
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
     region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
     # Binding: start_line = 0 (i64 was negative, fell back).
@@ -906,26 +955,28 @@ def test_to_sarif_negative_line_numbers_fall_back_to_zero() -> None:
     assert region["endLine"] == 1
 
 
-def test_to_sarif_skip_at_unit_metric_not_emitted_at_unit_space() -> None:
-    """A ``skip_at_unit`` metric (cognitive) must not produce a finding at
-    the file-level unit space even when the unit aggregate exceeds the
-    limit; the nested function that genuinely exceeds it is still
-    reported. Exercises the ``fields.is_unit && threshold.skip_at_unit``
-    skip in the refactored ``collect_offenders`` loop.
+def test_to_sarif_unit_not_emitted_when_only_aggregate_exceeds() -> None:
+    """A unit whose subtree aggregate (``cognitive.sum``) exceeds the limit
+    but whose *own* value (``cognitive.value``) does not must NOT produce a
+    unit finding — the binding reads the own value, so it is no longer
+    fooled by the rolled-up aggregate (#958). The nested function whose own
+    value genuinely exceeds the limit is still reported.
     """
     unit: dict[str, Any] = {
         "name": "mod.rs",
         "kind": "unit",
         "start_line": 1,
         "end_line": 20,
-        "metrics": {"cognitive": {"sum": 99.0}},
+        # Aggregate (99) >> limit, but the unit's own cognitive (2) is below
+        # it: the binding must key off `value`, not `sum`.
+        "metrics": {"cognitive": {"sum": 99.0, "value": 2.0}},
         "spaces": [
             {
                 "name": "f",
                 "kind": "function",
                 "start_line": 3,
                 "end_line": 18,
-                "metrics": {"cognitive": {"sum": 42.0}},
+                "metrics": {"cognitive": {"sum": 42.0, "value": 42.0}},
                 "spaces": [],
             }
         ],
@@ -934,50 +985,48 @@ def test_to_sarif_skip_at_unit_metric_not_emitted_at_unit_space() -> None:
     findings = parsed["runs"][0]["results"]
     fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
     assert fq_names == ["f"], (
-        f"only the nested function may be reported for a skip_at_unit metric, got {fq_names!r}"
+        f"unit (own value below limit) must not emit; only the nested fn, got {fq_names!r}"
     )
 
 
 def test_to_sarif_reports_deeply_nested_space_offender() -> None:
-    """A function nested two levels deep (unit -> class -> method) that
+    """A method nested two levels deep (unit -> class -> method) that
     exceeds a threshold must be discovered by the stack walk and carry
     its *qualified* ``Container::method`` name (issue #706) and line
-    span. Guards the nested-space traversal feeding the refactored
-    ``collect_offenders`` qualified-prefix threading.
+    span. Guards the nested-space traversal feeding ``collect_offenders``'
+    qualified-prefix threading.
 
-    Positive regression test for #855: the class ``C`` carries a
-    *realistic* ``cyclomatic.sum`` of ``7.0`` (an interior container's
-    sum accumulates its descendants via ``merge``, so it is always ``>=``
-    the method's value — never the impossible ``1.0`` the pre-#855
-    fixture used). With the limit at ``3`` the bug over-emitted a finding
-    at the interior ``C``; the leaf-only fix reports just ``C::m``, so
-    ``fq_names == ["C::m"]`` fails pre-#855 and passes after.
+    Also the interior-emission regression test for #958: each space's
+    own ``cyclomatic.value`` drives emission independently, so an interior
+    container (``C``) whose own value breaches is reported *alongside* the
+    leaf method — while the file unit, whose own value stays below the
+    limit, is not. Pre-#958 the binding read only the subtree ``sum`` and
+    skipped every interior space, so ``C`` was silently dropped.
     """
     unit: dict[str, Any] = {
         "name": "mod.rs",
         "kind": "unit",
         "start_line": 1,
         "end_line": 30,
-        # Unit aggregate = the whole file's summed cyclomatic (>= C's).
-        "metrics": {"cyclomatic": {"sum": 7.0}},
+        # Unit's own cyclomatic stays below the limit -> no unit finding.
+        "metrics": {"cyclomatic": {"sum": 13.0, "value": 1.0}},
         "spaces": [
             {
                 "name": "C",
                 "kind": "class",
                 "start_line": 2,
                 "end_line": 29,
-                # Realistic interior aggregate: the class's only method
-                # contributes 7.0, so C's own sum is also 7.0 (>= limit
-                # of 3). Pre-#855 this over-emitted a spurious `C`
-                # finding; the leaf-only fix suppresses it.
-                "metrics": {"cyclomatic": {"sum": 7.0}},
+                # The class body itself owns enough complexity to breach
+                # (own value 5 > limit 3); pre-#958 this interior space was
+                # skipped, so its genuine breach went unreported.
+                "metrics": {"cyclomatic": {"sum": 12.0, "value": 5.0}},
                 "spaces": [
                     {
                         "name": "m",
                         "kind": "function",
                         "start_line": 5,
                         "end_line": 12,
-                        "metrics": {"cyclomatic": {"sum": 7.0}},
+                        "metrics": {"cyclomatic": {"sum": 7.0, "value": 7.0}},
                         "spaces": [],
                     }
                 ],
@@ -986,12 +1035,17 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     }
     parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", unit), thresholds={"cyclomatic": 3}))
     findings = parsed["runs"][0]["results"]
-    fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
-    # Only the leaf method may be reported — neither the interior class
-    # `C` nor the file-level unit, both of which carry the same aggregate
-    # sum but are not leaves (#855).
-    assert fq_names == ["C::m"], (
-        f"aggregate metric must emit only at the leaf method, got {fq_names!r}"
+    fq_names = sorted(
+        f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     )
-    loc = findings[0]["locations"][0]
-    assert loc["physicalLocation"]["region"]["startLine"] == 5
+    # Both the interior class `C` (own value 5) and the leaf method `C::m`
+    # (own value 7) breach; the file unit (own value 1) does not.
+    assert fq_names == ["C", "C::m"], (
+        f"interior container and leaf method must both emit on own-value breach, got {fq_names!r}"
+    )
+    method_finding = next(
+        f
+        for f in findings
+        if f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] == "C::m"
+    )
+    assert method_finding["locations"][0]["physicalLocation"]["region"]["startLine"] == 5

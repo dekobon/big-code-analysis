@@ -43,23 +43,25 @@
 //!
 //! # Interior-space emission
 //!
-//! For most metrics the JSON's headline field at any space IS that
-//! space's own value (e.g. `loc.sloc`, `wmc.total`, `mi.original`,
-//! `halstead.volume`), so emitting a finding wherever it breaches
-//! matches the CLI at every space level — unit, container, and leaf
-//! alike. For four metrics — `cyclomatic`, `cyclomatic.modified`,
-//! `cognitive`, and `abc` — the JSON exposes the aggregate value across
-//! child spaces (a `sum` field, or `abc.magnitude` built from the
-//! `*_sum` accumulators) while the CLI's per-space accessor returns
-//! just that space's own scalar. The aggregate equals the per-space
-//! scalar only at a **leaf** space (no descendant function/closure
-//! spaces); at any interior space — the unit or a container with
-//! descendants — it is larger, so comparing it against the limit
-//! over-emits findings the CLI never produces (#855). For those four
-//! the binding therefore emits only at leaf spaces; for everything
-//! else it emits at every space. The per-metric `skip_at_unit` flag in
-//! [`METRIC_FIELDS`] (named for its original unit-only scope, retained
-//! as the shared-registry column name) marks the affected four.
+//! The binding emits a finding wherever a space's **own** metric value
+//! breaches its limit — at every space level (unit, container, leaf)
+//! alike — matching the CLI's per-space accessors exactly.
+//!
+//! For most metrics the JSON's headline field at any space already IS
+//! that space's own value (e.g. `loc.sloc`, `wmc.total`, `mi.original`,
+//! `halstead.volume`). Four metrics — `cyclomatic`, `cyclomatic.modified`,
+//! `cognitive`, and `abc` — additionally expose a `sum`/`*_sum` aggregate
+//! across child spaces that, at interior spaces, exceeds the per-space
+//! scalar the CLI thresholds against. Before #958 the wire shape exposed
+//! *only* that aggregate for the four, so the binding could compare it
+//! safely only at leaf spaces (where aggregate == own) and conservatively
+//! skipped interior spaces — under-emitting the interior breaches the CLI
+//! reports (#855 closed the over-emission; this residual under-emission
+//! remained). As of #958 the wire shape serializes each of the four's
+//! per-space own value alongside the aggregate (`cyclomatic.value`,
+//! `cyclomatic.modified.value`, `cognitive.value`, `abc.value`), so
+//! [`METRIC_FIELDS`] points every metric at the own-value field and the
+//! binding emits at every space — no leaf-only special-casing remains.
 //!
 //! Defaults: `thresholds=None` is equivalent to `thresholds={}` — the
 //! CLI itself has no built-in defaults (every check run must supply
@@ -96,24 +98,17 @@ const FILE_SYMBOL: &str = "<file>";
 
 /// One metric entry in the threshold-name → JSON-path table.
 ///
-/// `skip_at_unit` is true for the metrics whose CLI accessor returns
-/// the per-space scalar while the JSON exposes only the aggregate
-/// across child spaces (`*.sum`, `abc.magnitude`). The JSON aggregate
-/// equals the CLI's per-space scalar *only at a leaf space* — one with
-/// no descendant function/closure spaces, whose `merge` folds in just
-/// its own value. At any interior space (the file-level `unit` or a
-/// container with descendants) the aggregate exceeds the per-space
-/// scalar, so comparing it against the limit would emit findings the
-/// CLI never produces. The flag therefore drives a skip at every
-/// interior space, not the unit alone (#855); see
-/// [`record_threshold_breaches`]. For every other metric the JSON
-/// field IS the per-space value (or matches the CLI's aggregate
-/// accessor at unit), so findings are emitted at every space.
+/// Every entry's `path` reaches that space's **own** per-space scalar —
+/// the value the CLI thresholds against — so a breach is emitted at
+/// every space level. For `cyclomatic`, `cyclomatic.modified`,
+/// `cognitive`, and `abc` that scalar is the `value` field the wire
+/// shape gained in #958 (the sibling `sum`/`magnitude` field is a
+/// subtree aggregate and is deliberately *not* used here); for every
+/// other metric the headline JSON field already is the per-space value.
 #[derive(Clone, Copy)]
 struct MetricField {
     name: &'static str,
     path: &'static [&'static str],
-    skip_at_unit: bool,
 }
 
 /// Mapping from CLI threshold name → JSON `metrics.<…>` path segments.
@@ -124,143 +119,119 @@ struct MetricField {
 /// sequence of dict keys to walk on the space's `metrics` sub-dict to
 /// reach the comparison scalar.
 ///
-/// **Sync requirement:** the metric-name set and the per-metric
-/// `skip_at_unit` flag are now derived from a single shared registry
-/// in the library crate — [`big_code_analysis::metric_catalog::METRICS`]
-/// — which both the CLI's `EXTRACTORS` table and this table are checked
-/// against (#442). `metric_fields_agree_with_shared_registry` below fails
-/// the build if a metric is added to one front-end but not the other, or
-/// if a `skip_at_unit` flag disagrees with the registry. The JSON `path`
+/// **Sync requirement:** the metric-name set is derived from a single
+/// shared registry in the library crate —
+/// [`big_code_analysis::metric_catalog::METRICS`] — which both the CLI's
+/// `EXTRACTORS` table and this table are checked against (#442).
+/// `metric_fields_agree_with_shared_registry` below fails the build if a
+/// metric is added to one front-end but not the other. The JSON `path`
 /// is the only column unique to this binding (the CLI reaches the same
 /// scalar through a typed `CodeMetrics` accessor, not a JSON walk); it is
 /// pinned by `metric_field_paths_are_pinned` so a path edit is a
 /// deliberate, reviewed change rather than silent drift.
 const METRIC_FIELDS: &[MetricField] = &[
-    // Per-space accessor differs from JSON sum at the unit level.
+    // The four aggregate-shaped metrics read the per-space `value` field
+    // (the wire shape's own-scalar projection added in #958), never the
+    // sibling `sum`/`magnitude` subtree aggregate — so a breach is
+    // reported at every space exactly as the CLI's per-space accessor
+    // does (#441, #855, #958).
     MetricField {
         name: "cognitive",
-        path: &["cognitive", "sum"],
-        skip_at_unit: true,
+        path: &["cognitive", "value"],
     },
     MetricField {
         name: "cyclomatic",
-        path: &["cyclomatic", "sum"],
-        skip_at_unit: true,
+        path: &["cyclomatic", "value"],
     },
     MetricField {
         name: "cyclomatic.modified",
-        path: &["cyclomatic", "modified", "sum"],
-        skip_at_unit: true,
+        path: &["cyclomatic", "modified", "value"],
     },
-    // JSON `abc.magnitude` is serialized from `magnitude_sum()` (the
-    // aggregate across descendant spaces) while the CLI threshold
-    // accessor is the per-space `m.abc.magnitude()` — the same
-    // sum-vs-per-space divergence as the three metrics above (#441).
     MetricField {
         name: "abc",
-        path: &["abc", "magnitude"],
-        skip_at_unit: true,
+        path: &["abc", "value"],
     },
-    // Everything below: JSON field == CLI per-space accessor at unit.
+    // Everything below: the headline JSON field already is the CLI's
+    // per-space accessor.
     MetricField {
         name: "halstead.volume",
         path: &["halstead", "volume"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "halstead.difficulty",
         path: &["halstead", "difficulty"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "halstead.effort",
         path: &["halstead", "effort"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "halstead.time",
         path: &["halstead", "time"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "halstead.bugs",
         path: &["halstead", "bugs"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "loc.sloc",
         path: &["loc", "sloc"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "loc.ploc",
         path: &["loc", "ploc"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "loc.lloc",
         path: &["loc", "lloc"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "loc.cloc",
         path: &["loc", "cloc"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "loc.blank",
         path: &["loc", "blank"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "nom",
         path: &["nom", "total"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "tokens",
         path: &["tokens", "tokens"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "nexits",
         path: &["nexits", "sum"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "nargs",
         path: &["nargs", "total"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "mi.original",
         path: &["mi", "original"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "mi.sei",
         path: &["mi", "sei"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "mi.visual_studio",
         path: &["mi", "visual_studio"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "wmc",
         path: &["wmc", "total"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "npm",
         path: &["npm", "total"],
-        skip_at_unit: false,
     },
     MetricField {
         name: "npa",
         path: &["npa", "total"],
-        skip_at_unit: false,
     },
 ];
 
@@ -270,13 +241,9 @@ struct Threshold {
     /// as the SARIF `ruleId` so the rule descriptions the upstream
     /// writer attaches resolve correctly.
     name: &'static str,
-    /// Sequence of dict keys to walk to reach the scalar value on a
-    /// space's `metrics` sub-dict.
+    /// Sequence of dict keys to walk to reach the per-space scalar value
+    /// on a space's `metrics` sub-dict.
     path: &'static [&'static str],
-    /// True for the aggregate-shaped metrics, whose emission must be
-    /// skipped at every interior (non-leaf) space
-    /// (see [`MetricField::skip_at_unit`]).
-    skip_at_unit: bool,
     /// Threshold the metric value is compared against to emit a finding.
     /// The comparison direction depends on `lower_is_worse`; in both
     /// directions the exact-limit value is acceptable (strict `<`/`>`,
@@ -337,7 +304,6 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
         out.push(Threshold {
             name: entry.name,
             path: entry.path,
-            skip_at_unit: entry.skip_at_unit,
             limit,
             lower_is_worse,
         });
@@ -416,11 +382,6 @@ struct SpaceFields {
     /// Whether the space is the file-level `unit` space (drives the
     /// `<file>` function-name rule and the empty child prefix).
     is_unit: bool,
-    /// Whether the space has no descendant function/closure spaces.
-    /// Only at a leaf does a `skip_at_unit` metric's JSON aggregate
-    /// (`*.sum`, `abc.magnitude`) equal the per-space scalar the CLI
-    /// compares, so leaf-ness gates emission of those metrics (#855).
-    is_leaf: bool,
     /// This space's own `::`-segment in the qualified-symbol chain (the
     /// CLI's `space_segment`): the AST-derived name for a named space, or
     /// `<anon@L{start_line}>` for anonymous / unnamed spaces. The unit
@@ -462,7 +423,6 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
         .and_then(|n| n.extract().ok());
     let start_line: u32 = extract_line_number(space, intern!(py, "start_line"))?.unwrap_or(0);
     let end_line: u32 = extract_line_number(space, intern!(py, "end_line"))?.unwrap_or(start_line);
-    let is_leaf = !has_child_spaces(space)?;
 
     // This space's own `::`-segment in the qualified-symbol chain.
     // Mirrors the CLI's `space_segment`
@@ -480,32 +440,10 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
 
     Ok(SpaceFields {
         is_unit,
-        is_leaf,
         segment,
         start_line,
         end_line,
     })
-}
-
-/// Whether `space` has at least one child space dict under `spaces`.
-///
-/// Mirrors [`push_child_spaces`]'s tolerance: only dict children count
-/// as descendants (a non-dict entry is skipped by the walk and so
-/// cannot carry a metric to aggregate), and a missing / non-iterable
-/// `spaces` value means no children. Used to decide leaf-ness, which
-/// gates emission of the `skip_at_unit` aggregate metrics (#855).
-fn has_child_spaces(space: &Bound<'_, PyDict>) -> PyResult<bool> {
-    let py = space.py();
-    if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
-        && let Ok(seq) = spaces.try_iter()
-    {
-        for child in seq {
-            if child?.cast_into::<PyDict>().is_ok() {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
 }
 
 /// The qualified symbol of a space, given the `::`-joined symbol of its
@@ -537,14 +475,6 @@ fn record_threshold_breaches(
     out: &mut Vec<OffenderRecord>,
 ) {
     for threshold in thresholds {
-        // For the aggregate-shaped metrics (`skip_at_unit`), the JSON
-        // field is the subtree sum, which equals the CLI's per-space
-        // scalar only at a leaf. Skipping every interior space — the
-        // unit and any container with descendants — keeps the binding
-        // from over-emitting findings the CLI never produces (#855).
-        if !fields.is_leaf && threshold.skip_at_unit {
-            continue;
-        }
         let Some(value) = extract_metric(metrics, threshold.path) else {
             continue;
         };
@@ -818,20 +748,24 @@ mod tests {
         }
     }
 
-    /// Cross-crate drift guard (#442). The metric-name set and every
-    /// `skip_at_unit` flag must agree with the shared library registry
+    /// Cross-crate drift guard (#442). The metric-name set must agree
+    /// with the shared library registry
     /// [`big_code_analysis::metric_catalog::METRICS`], which the CLI's
     /// `EXTRACTORS` table is also pinned to (parity test in
     /// `big-code-analysis-cli/src/thresholds.rs`). A metric added to the
-    /// CLI but not here (or vice versa), or a `skip_at_unit` flag that
-    /// disagrees with the registry's aggregate-vs-per-space property,
-    /// fails this assertion with the offending name — turning what used
-    /// to be silent divergence into a build failure.
+    /// CLI but not here (or vice versa) fails this assertion with the
+    /// offending name — turning what used to be silent divergence into a
+    /// build failure.
+    ///
+    /// The registry's `skip_at_unit` flag is no longer mirrored here:
+    /// since #958 every metric reads its per-space own value (the four
+    /// aggregate-shaped metrics via their `value` field), so the binding
+    /// emits at every space and the flag has no consumer in this front-end
+    /// (it still documents the `sum`-field divergence in the registry).
     #[test]
     fn metric_fields_agree_with_shared_registry() {
         use big_code_analysis::metric_catalog::METRICS;
 
-        // (i) name-set agreement: same metrics in both tables.
         let mut ours: Vec<&str> = METRIC_FIELDS.iter().map(|m| m.name).collect();
         let mut registry: Vec<&str> = METRICS.iter().map(|m| m.id).collect();
         ours.sort_unstable();
@@ -841,22 +775,6 @@ mod tests {
             "METRIC_FIELDS and library metric_catalog::METRICS disagree on \
              metric names; a metric was added to one front-end but not the other"
         );
-
-        // (ii) per-metric skip_at_unit agreement: the divergence flag is
-        // owned by the registry; this binding must mirror it exactly.
-        for entry in METRIC_FIELDS {
-            let registry_skip = METRICS
-                .iter()
-                .find(|m| m.id == entry.name)
-                .map(|m| m.skip_at_unit);
-            assert_eq!(
-                Some(entry.skip_at_unit),
-                registry_skip,
-                "skip_at_unit for {:?} disagrees with the shared registry; \
-                 review the JSON-aggregate-vs-CLI-accessor property",
-                entry.name,
-            );
-        }
     }
 
     /// (iii) JSON-path drift guard (#442). The `path` column is unique to
@@ -873,10 +791,10 @@ mod tests {
             .map(|m| (m.name, m.path.to_vec()))
             .collect();
         let expected: &[(&str, &[&str])] = &[
-            ("cognitive", &["cognitive", "sum"]),
-            ("cyclomatic", &["cyclomatic", "sum"]),
-            ("cyclomatic.modified", &["cyclomatic", "modified", "sum"]),
-            ("abc", &["abc", "magnitude"]),
+            ("cognitive", &["cognitive", "value"]),
+            ("cyclomatic", &["cyclomatic", "value"]),
+            ("cyclomatic.modified", &["cyclomatic", "modified", "value"]),
+            ("abc", &["abc", "value"]),
             ("halstead.volume", &["halstead", "volume"]),
             ("halstead.difficulty", &["halstead", "difficulty"]),
             ("halstead.effort", &["halstead", "effort"]),

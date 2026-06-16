@@ -1392,11 +1392,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -1610,11 +1612,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 6,
+                    "value": 1,
                     "average": 6.0,
                     "min": 1,
                     "max": 5
@@ -1651,11 +1655,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -1700,11 +1706,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -1731,11 +1739,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -1766,11 +1776,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -1802,11 +1814,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -1915,11 +1929,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -1952,11 +1968,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -1991,11 +2009,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -2040,11 +2060,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 3,
                   "average": 7.0,
                   "min": 3,
                   "max": 4,
                   "modified": {
                     "sum": 7,
+                    "value": 3,
                     "average": 7.0,
                     "min": 3,
                     "max": 4
@@ -2093,11 +2115,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 3,
                   "average": 7.0,
                   "min": 3,
                   "max": 4,
                   "modified": {
                     "sum": 7,
+                    "value": 3,
                     "average": 7.0,
                     "min": 3,
                     "max": 4
@@ -2138,11 +2162,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 9,
+                  "value": 1,
                   "average": 4.5,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 9,
+                    "value": 1,
                     "average": 4.5,
                     "min": 1,
                     "max": 3
@@ -2198,11 +2224,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 1,
                   "average": 3.6666666666666665,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 10,
+                    "value": 1,
                     "average": 3.3333333333333335,
                     "min": 1,
                     "max": 3
@@ -2241,11 +2269,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
@@ -2284,11 +2314,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 9,
+                  "value": 1,
                   "average": 4.5,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 9,
+                    "value": 1,
                     "average": 4.5,
                     "min": 1,
                     "max": 3
@@ -2343,11 +2375,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 1,
                   "average": 3.6666666666666665,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 10,
+                    "value": 1,
                     "average": 3.3333333333333335,
                     "min": 1,
                     "max": 3
@@ -2378,11 +2412,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 2.5,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 2.5,
                     "min": 1,
                     "max": 2
@@ -2422,11 +2458,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
@@ -2589,11 +2627,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
@@ -2621,11 +2661,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 1,
                   "average": 7.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 7,
+                    "value": 1,
                     "average": 7.0,
                     "min": 1,
                     "max": 5
@@ -2655,11 +2697,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -2697,11 +2741,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -2733,11 +2779,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -2762,11 +2810,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 1,
                   "average": 2.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 2,
+                    "value": 1,
                     "average": 2.0,
                     "min": 1,
                     "max": 1
@@ -2796,11 +2846,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -2833,11 +2885,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -2864,11 +2918,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -2898,11 +2954,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -2932,11 +2990,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -2972,11 +3032,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -3005,11 +3067,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -3039,11 +3103,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -3070,11 +3136,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -3102,11 +3170,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 1,
                   "average": 2.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 2,
+                    "value": 1,
                     "average": 2.0,
                     "min": 1,
                     "max": 1
@@ -3163,11 +3233,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 1,
                   "average": 2.2,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 11,
+                    "value": 1,
                     "average": 2.2,
                     "min": 1,
                     "max": 2
@@ -3208,11 +3280,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
@@ -3252,11 +3326,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
@@ -3491,11 +3567,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -3521,11 +3599,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -3555,11 +3635,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -3587,11 +3669,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 6,
+                    "value": 1,
                     "average": 6.0,
                     "min": 1,
                     "max": 5
@@ -3617,11 +3701,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -3658,11 +3744,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -3687,11 +3775,13 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -3721,11 +3811,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -3755,11 +3847,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -3796,11 +3890,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -3833,11 +3929,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -3874,11 +3972,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -3909,11 +4009,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -3961,11 +4063,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 9,
+                  "value": 1,
                   "average": 9.0,
                   "min": 1,
                   "max": 7,
                   "modified": {
                     "sum": 8,
+                    "value": 1,
                     "average": 8.0,
                     "min": 1,
                     "max": 6
@@ -4001,11 +4105,13 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -4081,11 +4187,13 @@ end",
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4117,11 +4225,13 @@ end",
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -4147,11 +4257,13 @@ end",
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -4208,11 +4320,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -4326,11 +4440,13 @@ f() {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 1,
                   "average": 2.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 2,
+                    "value": 1,
                     "average": 2.0,
                     "min": 1,
                     "max": 1
@@ -4450,11 +4566,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4485,11 +4603,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -4518,11 +4638,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4551,11 +4673,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4587,11 +4711,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4622,11 +4748,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4657,11 +4785,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4692,11 +4822,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -4730,11 +4862,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -4766,11 +4900,13 @@ f() {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 6,
+                    "value": 1,
                     "average": 6.0,
                     "min": 1,
                     "max": 5
@@ -4802,11 +4938,13 @@ f() {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 6,
+                    "value": 1,
                     "average": 6.0,
                     "min": 1,
                     "max": 5
@@ -4838,11 +4976,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 4
@@ -4977,11 +5117,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 3
@@ -5202,11 +5344,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -5457,11 +5601,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -5692,11 +5838,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -5759,11 +5907,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -5825,11 +5975,13 @@ f() {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -5865,11 +6017,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -5893,11 +6047,13 @@ f() {
                 @r#"
             {
               "sum": 2,
+              "value": 1,
               "average": 2.0,
               "min": 1,
               "max": 1,
               "modified": {
                 "sum": 3,
+                "value": 1,
                 "average": 3.0,
                 "min": 1,
                 "max": 2
@@ -5933,11 +6089,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -5978,11 +6136,13 @@ f() {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6020,11 +6180,13 @@ f() {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6090,11 +6252,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -6129,11 +6293,13 @@ f() {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 6,
+                    "value": 1,
                     "average": 6.0,
                     "min": 1,
                     "max": 5
@@ -6177,11 +6343,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6224,11 +6392,13 @@ f() {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 1,
                   "average": 3.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6288,11 +6458,13 @@ f() {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 1,
                   "average": 2.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6325,11 +6497,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6360,11 +6534,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6395,11 +6571,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6432,11 +6610,13 @@ f() {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 4,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -6467,11 +6647,13 @@ f() {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 1,
                   "average": 2.0,
                   "min": 1,
                   "max": 1,
                   "modified": {
                     "sum": 3,
+                    "value": 1,
                     "average": 3.0,
                     "min": 1,
                     "max": 2
@@ -6509,11 +6691,13 @@ f() {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 1,
                   "average": 6.0,
                   "min": 1,
                   "max": 5,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -6548,11 +6732,13 @@ f() {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 3
@@ -6975,11 +7161,13 @@ f() {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 5,
+                  "value": 1,
                   "average": 5.0,
                   "min": 1,
                   "max": 3,
                   "modified": {
                     "sum": 5,
+                    "value": 1,
                     "average": 5.0,
                     "min": 1,
                     "max": 3
@@ -7012,11 +7200,13 @@ f() {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
@@ -7048,11 +7238,13 @@ f() {
                 insta::assert_json_snapshot!(metric.cyclomatic, @r#"
                 {
                   "sum": 4,
+                  "value": 1,
                   "average": 4.0,
                   "min": 1,
                   "max": 2,
                   "modified": {
                     "sum": 4,
+                    "value": 1,
                     "average": 4.0,
                     "min": 1,
                     "max": 2
