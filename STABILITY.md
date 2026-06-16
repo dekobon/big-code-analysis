@@ -344,6 +344,18 @@ additive and non-breaking for external constructors. This was landed early
 (part of the `2.0` `#[non_exhaustive]` sweep, #505) because the VCS surface
 is still unreleased, so sealing it now breaks no existing downstream user.
 
+Opt-in keyed author-identity hashing (#956) is an additive hardening of
+`--emit-author-details`: `big_code_analysis::vcs::AuthorHashKey`, the
+additive `Options::author_hash_key` field (admissible precisely because
+`Options` is `#[non_exhaustive]`), and `AuthorId::emit_hashed`. It is
+surfaced by `bca vcs --author-hash-key` (and the `BCA_AUTHOR_HASH_KEY`
+environment variable), the `POST /vcs` `author_hash_key` field, and the
+`vcs.Options(author_hash_key=…)` parameter. The default (no key) emits the
+same bare SHA-256 digest as before, so output is unchanged; the key is a
+finalization-time transform that leaves the cache-replay invariant intact
+(the on-disk cache stores the unkeyed inner digest, so a cached walk
+re-finalizes under any key without a re-walk).
+
 The following are explicitly **not** part of the shape contract:
 
 - Anything marked `#[doc(hidden)]` (see `src/traits.rs` for current

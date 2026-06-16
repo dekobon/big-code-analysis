@@ -21,7 +21,13 @@
 //! mapping by hashing each candidate or via a precomputed email→hash
 //! table — the same weakness that broke Gravatar's email hashing. See
 //! [`AuthorId::hashed`] for the threat model.
+//!
+//! Users who need stronger resistance can opt into keyed hashing with a
+//! secret [`AuthorHashKey`] (`--author-hash-key`, issue #956): the emitted
+//! digest becomes an HMAC the attacker cannot reproduce without the key.
+//! See [`AuthorId::emit_hashed`].
 
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 use regex::Regex;
@@ -138,16 +144,105 @@ impl AuthorId {
         }
         let mut hasher = Sha256::new();
         hasher.update(self.key.as_bytes());
-        let digest = hasher.finalize();
-        let mut hex = String::with_capacity(digest.len() * 2);
-        for byte in digest {
-            use std::fmt::Write as _;
-            // Writing to a String is infallible; the formatter never
-            // errors, so the result is discarded deliberately.
-            let _ = write!(hex, "{byte:02x}");
-        }
-        hex
+        to_hex(&hasher.finalize())
     }
+
+    /// The author digest emitted for `--emit-author-details`, optionally
+    /// hardened with a caller-supplied [`AuthorHashKey`].
+    ///
+    /// Without a key this is exactly [`hashed`](Self::hashed) — the bare
+    /// SHA-256 — so default output is unchanged. With a key it is
+    /// `HMAC-SHA256(key, hashed_hex)`: an attacker holding a candidate set
+    /// of emails can no longer recover the mapping by hashing each
+    /// candidate, nor with a precomputed email→hash table (the Gravatar
+    /// weakness [`hashed`](Self::hashed) documents), because computing the
+    /// digest for any candidate now requires the secret key they do not
+    /// hold.
+    ///
+    /// Keying the *inner* digest rather than the raw email is what
+    /// preserves the issue-#334 cache-replay invariant: the persistent
+    /// cache stores the unkeyed inner SHA-256 (a
+    /// [`from_digest`](Self::from_digest) identity *is* that digest), so
+    /// replaying a cached walk under any key reproduces the same emitted
+    /// value as a fresh walk, and the same cached walk can be re-finalized
+    /// under a different key without re-walking. The trade-off is that the
+    /// on-disk cache still holds the *unkeyed* digest; it is local-only and
+    /// never published, matching the cache's existing threat model.
+    #[must_use]
+    pub fn emit_hashed(&self, key: Option<&AuthorHashKey>) -> String {
+        let base = self.hashed();
+        match key {
+            None => base,
+            Some(key) => key.apply(&base),
+        }
+    }
+}
+
+/// A secret key for the opt-in keyed author-identity hashing
+/// (`--author-hash-key`, issue #956).
+///
+/// A newtype for two reasons: it keeps the key material out of any
+/// derived `Debug` (the impl below redacts it, so the secret never lands
+/// in [`Options`](super::options::Options)' debug output or a log), and it
+/// gives the non-empty validation one enforced home — an
+/// [`AuthorHashKey`] cannot hold a zero-length key.
+#[derive(Clone)]
+pub struct AuthorHashKey {
+    key: Vec<u8>,
+}
+
+impl AuthorHashKey {
+    /// Build a key from raw bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidAuthorHashKey`] when `key` is empty — an
+    /// empty key provides no protection and is always a user mistake
+    /// (e.g. an unset environment variable expanding to `""`).
+    pub fn new(key: Vec<u8>) -> Result<Self, Error> {
+        if key.is_empty() {
+            return Err(Error::InvalidAuthorHashKey("the key is empty".to_owned()));
+        }
+        Ok(Self { key })
+    }
+
+    /// Harden an already-computed unkeyed hex digest into its keyed
+    /// `HMAC-SHA256(key, digest_hex)` form. Shared by
+    /// [`AuthorId::emit_hashed`] and the bus-factor key-author list, which
+    /// holds the unkeyed digest for deterministic tie-breaking and only
+    /// hardens it on the way out.
+    #[must_use]
+    pub(crate) fn apply(&self, digest_hex: &str) -> String {
+        // `new_from_slice` accepts a key of any length (HMAC pads or hashes
+        // it per RFC 2104), so it is infallible here; the `expect`
+        // documents that provably-unreachable invariant (AGENTS.md permits
+        // it for such cases).
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.key).expect("HMAC accepts a key of any length");
+        mac.update(digest_hex.as_bytes());
+        to_hex(&mac.finalize().into_bytes())
+    }
+}
+
+impl std::fmt::Debug for AuthorHashKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never render the secret material — report only that a key is set,
+        // so it cannot leak through `Options`' derived `Debug`.
+        f.debug_struct("AuthorHashKey").finish_non_exhaustive()
+    }
+}
+
+/// Lowercase-hex encode bytes. Shared by [`AuthorId::hashed`] and the
+/// keyed [`AuthorHashKey::apply`] so both render digests identically.
+fn to_hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        // Writing to a String is infallible; the formatter never errors,
+        // so the result is discarded deliberately.
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 /// Matches author identities against a bot-exclusion pattern.

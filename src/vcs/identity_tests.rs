@@ -90,6 +90,84 @@ fn from_digest_hashes_to_itself_and_preserves_identity() {
 }
 
 #[test]
+fn empty_author_hash_key_is_rejected() {
+    // An empty key provides no protection and is always a user mistake
+    // (e.g. an unset environment variable expanding to ""); reject it loudly.
+    assert!(matches!(
+        AuthorHashKey::new(Vec::new()),
+        Err(Error::InvalidAuthorHashKey(_))
+    ));
+    // A non-empty key is accepted.
+    assert!(AuthorHashKey::new(b"secret".to_vec()).is_ok());
+}
+
+#[test]
+fn author_hash_key_debug_redacts_the_secret() {
+    // The key must never leak through `Options`' derived `Debug`; its own
+    // `Debug` reports only that a key is set, never the bytes.
+    let key = AuthorHashKey::new(b"super-secret-key".to_vec()).expect("non-empty");
+    let rendered = format!("{key:?}");
+    // Pin the *exact* redacted form. A `#[derive(Debug)]` would instead
+    // render `AuthorHashKey { key: [115, 117, ...] }` — note it leaks the
+    // bytes as decimals, not as the ASCII string, so a plain
+    // `!contains("super-secret-key")` check would pass against the leaky
+    // derive. Exact equality is what actually catches that regression.
+    assert_eq!(rendered, "AuthorHashKey { .. }");
+    assert!(!rendered.contains("super-secret-key"));
+}
+
+#[test]
+fn emit_hashed_without_key_is_the_bare_digest() {
+    // Default output (no key) is exactly `hashed()` — #956 must not change
+    // the unkeyed emission, for SemVer and cache compatibility.
+    let id = AuthorId::new(b"Ada", b"ada@example.com");
+    assert_eq!(id.emit_hashed(None), id.hashed());
+}
+
+#[test]
+fn emit_hashed_with_key_hardens_and_is_deterministic() {
+    let email = "ada@example.com";
+    let id = AuthorId::new(b"Ada", email.as_bytes());
+    let key = AuthorHashKey::new(b"team-secret".to_vec()).expect("non-empty");
+
+    let keyed = id.emit_hashed(Some(&key));
+    // Still a 64-char SHA-256-width hex digest, never the plaintext email.
+    assert_eq!(keyed.len(), 64);
+    assert!(keyed.chars().all(|c| c.is_ascii_hexdigit()));
+    assert!(!keyed.contains(email));
+    // The key changes the emission: an attacker without the key sees a
+    // value unrelated to the bare SHA-256 they could precompute.
+    assert_ne!(keyed, id.hashed());
+    // Stable across runs/reports for a fixed key (the property #334 and
+    // cross-report pseudonyms rely on).
+    assert_eq!(keyed, id.emit_hashed(Some(&key)));
+    // A different key yields a different digest for the same author.
+    let other_key = AuthorHashKey::new(b"different-secret".to_vec()).expect("non-empty");
+    assert_ne!(keyed, id.emit_hashed(Some(&other_key)));
+    // Distinct authors stay distinct under the same key.
+    let bob = AuthorId::new(b"Bob", b"bob@example.com");
+    assert_ne!(keyed, bob.emit_hashed(Some(&key)));
+}
+
+#[test]
+fn keyed_emit_survives_a_cache_round_trip() {
+    // The crux of the #334 reconciliation: the cache stores the *unkeyed*
+    // inner digest, and the key is applied at finalization. So a fresh
+    // identity and one reconstructed from its cached digest must emit the
+    // SAME keyed value — otherwise replaying a cached walk under a key
+    // would diverge from a fresh walk.
+    let key = AuthorHashKey::new(b"team-secret".to_vec()).expect("non-empty");
+    let fresh = AuthorId::new(b"Ada", b"ada@example.com");
+    let restored = AuthorId::from_digest(fresh.hashed());
+    assert_eq!(
+        fresh.emit_hashed(Some(&key)),
+        restored.emit_hashed(Some(&key))
+    );
+    // And the unkeyed round-trip is unchanged too.
+    assert_eq!(fresh.emit_hashed(None), restored.emit_hashed(None));
+}
+
+#[test]
 fn default_bot_pattern_matches_known_bots() {
     let filter = BotFilter::new(DEFAULT_BOT_PATTERN).expect("default pattern compiles");
     assert!(filter.is_bot(

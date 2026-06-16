@@ -565,6 +565,37 @@ def test_vcs_exception_hierarchy() -> None:
         assert issubclass(cls, ValueError), cls
 
 
+def test_vcs_metrics_author_hash_key_hardens_ids(tmp_path: Path) -> None:
+    """Issue #956: ``author_hash_key`` hardens the emitted ``author_ids``
+    into a keyed HMAC, deterministically, without leaking the plaintext."""
+    repo = _build_repo(tmp_path)
+
+    def author_ids(**kw: Any) -> list[str]:
+        report = bca_vcs.rank(repo, options=bca_vcs.Options(emit_author_details=True, **kw))
+        ids = report["files"][0]["vcs"]["author_ids"]
+        assert isinstance(ids, list)
+        return ids
+
+    plain = author_ids()
+    keyed = author_ids(author_hash_key="team-secret")
+    assert len(keyed) == len(plain)
+    assert keyed != plain
+    assert all(len(h) == 64 for h in keyed)
+    assert "ada@example.com" not in keyed
+    # Stable across runs for a fixed key.
+    assert keyed == author_ids(author_hash_key="team-secret")
+    # A different key yields different digests.
+    assert keyed != author_ids(author_hash_key="other-secret")
+
+
+def test_vcs_metrics_author_hash_key_requires_emit(tmp_path: Path) -> None:
+    """A key without ``emit_author_details`` is a client error, not a
+    silent no-op (#956)."""
+    repo = _build_repo(tmp_path)
+    with pytest.raises(bca.VcsError, match="emit_author_details"):
+        bca_vcs.rank(repo, options=bca_vcs.Options(author_hash_key="team-secret"))
+
+
 # --- Python-native kwarg widenings (issue #619) -----------------------------
 #
 # Each widened kwarg is asserted to produce output IDENTICAL to its

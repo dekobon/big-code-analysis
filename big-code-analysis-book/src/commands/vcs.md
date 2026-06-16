@@ -206,6 +206,7 @@ cross-project robustness.
 | `--as-of <WHEN>` | wall clock | Reference "now" (RFC 3339 / `@unix` / git date) for reproducible snapshots |
 | `--risk-formula {weighted\|percentile}` | `weighted` | Composite formula |
 | `--emit-author-details` | off | Emit SHA-256-hashed canonical author IDs |
+| `--author-hash-key <KEY>` | unset | Harden the emitted author digests into a keyed HMAC (see [Author-detail privacy](#author-detail-privacy)); requires `--emit-author-details` |
 | `--include-deleted` | off | Also rank files deleted at the target ref |
 | `--no-cache` | off | Skip the persistent history cache (always walk fresh) |
 | `--clear-cache` | off | Wipe this repo's cached history before running |
@@ -231,8 +232,9 @@ every run, so a cached result is never stale. An entry is ignored — and
 the history recomputed — whenever the schema, the score-formula version,
 or the *walk-affecting* options differ; in particular **changing a window
 forces a fresh walk**. (Finalization-only knobs such as `--risk-formula`,
-`--emit-author-details`, and `--include-deleted` are applied on replay, so
-they reuse the same cached walk.)
+`--emit-author-details`, `--author-hash-key`, and `--include-deleted` are
+applied on replay, so they reuse the same cached walk — a cached walk even
+re-finalizes under a *different* author-hash key without re-walking.)
 
 By default the cache lives under
 `$XDG_CACHE_HOME/big-code-analysis/vcs` (`%LOCALAPPDATA%` on Windows,
@@ -600,10 +602,45 @@ recover which digest belongs to whom by hashing each candidate or with a
 precomputed email→hash table. This is the same weakness that broke
 Gravatar's email hashing.
 
-Treat published `key_author_ids` as pseudonymization that avoids emitting
-plaintext emails, **not** as a guarantee that authors cannot be
-re-identified by a determined attacker. If you need that guarantee, do not
-publish the digests.
+Treat published `key_author_ids` (and the per-file `author_ids`) as
+pseudonymization that avoids emitting plaintext emails, **not** as a
+guarantee that authors cannot be re-identified by a determined attacker. If
+you need that guarantee, do not publish the digests.
+
+#### Hardened mode: `--author-hash-key`
+
+For stronger resistance, pass a secret key with `--author-hash-key <KEY>`
+(requires `--emit-author-details`). The emitted digests then become an
+`HMAC-SHA256(key, SHA-256(email))` instead of a bare hash: an attacker
+without the key can no longer hash a candidate email to recognise its
+digest, nor use a precomputed email→hash table — both attacks need the
+secret key. Pick a high-entropy key and keep it secret; anyone who learns
+it can re-run the enumeration.
+
+The key is **stable**: the same key yields the same digests across every
+report and across a persistent-cache replay, so cross-report correlation
+and the cache still work. Different keys produce unrelated digests, so two
+teams sharing histories cannot cross-link authors unless they share the
+key.
+
+Prefer the `BCA_AUTHOR_HASH_KEY` environment variable over the flag — a key
+on the command line is visible to other local users via the process list
+(`ps`) and is saved in shell history. The flag takes precedence when both
+are set:
+
+```bash
+export BCA_AUTHOR_HASH_KEY="$(cat ~/.config/bca/author-key)"
+bca vcs --emit-author-details
+```
+
+What the key does **not** cover: the on-disk history cache (issue #334)
+deliberately stores the *unkeyed* inner SHA-256 digest, because the key is
+applied at finalization so a cached walk can be re-finalized under any key
+without re-walking. The cache is local-only and never published, but if
+your threat model includes an attacker reading your local cache directory,
+disable the cache (`--no-cache`) or clear it (`--clear-cache`). The same
+key option is available on the REST endpoint (`author_hash_key`) and in
+Python (`vcs.Options(author_hash_key=…)`).
 
 ## Dogfooding in this repo
 

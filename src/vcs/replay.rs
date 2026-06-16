@@ -247,6 +247,7 @@ pub(crate) fn bus_factor_aggregate(
         &authorship,
         options.bus_factor_threshold,
         options.emit_author_details,
+        options.author_hash_key.as_ref(),
     ))
 }
 

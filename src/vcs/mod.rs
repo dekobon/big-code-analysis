@@ -53,6 +53,7 @@ pub use bus_factor::{
 };
 pub use cache::{CACHE_SCHEMA_VERSION, CacheConfig};
 pub use error::Error;
+pub use identity::AuthorHashKey;
 pub use jit::{
     JIT_SCHEMA_VERSION, JIT_SCORE_VERSION, JitCommit, JitContributions, JitDiffContributions,
     JitDiffReport, JitDiffusion, JitExperience, JitFeatures, JitHistory, JitPurpose, JitReport,

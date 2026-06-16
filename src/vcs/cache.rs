@@ -28,15 +28,24 @@
 //!
 //! # Author privacy
 //!
-//! Authors are stored only as their SHA-256 [`hashed`](super::identity::AuthorId::hashed)
-//! digests, never plaintext: the cache must not write raw author emails to
-//! disk. Replay reconstructs identities with
+//! Authors are stored only as their **unkeyed** SHA-256
+//! [`hashed`](super::identity::AuthorId::hashed) digests, never plaintext:
+//! the cache must not write raw author emails to disk. Replay reconstructs
+//! identities with
 //! [`AuthorId::from_digest`](super::identity::AuthorId::from_digest),
 //! which preserves author counts, ownership, and the emitted hashes
 //! bit-for-bit (distinct emails yield distinct digests). The digest is a
 //! stable pseudonym, **not** anonymization — it is recoverable against a
 //! candidate email set; see [`hashed`](super::identity::AuthorId::hashed)
 //! for the threat model.
+//!
+//! The opt-in `--author-hash-key` hardening (issue #956) keys the *emitted*
+//! digest only, applied at finalization (like `--emit-author-details`), so
+//! it never changes what the cache stores: the cache holds the unkeyed
+//! inner digest and replaying it under any key reproduces a fresh walk's
+//! keyed output. The on-disk digest is therefore deliberately unkeyed; it
+//! is local-only and never published. See
+//! [`AuthorId::emit_hashed`](super::identity::AuthorId::emit_hashed).
 //!
 //! # Invalidation
 //!
@@ -223,8 +232,10 @@ impl HistoryCache {
 /// and the `--as-of` reference time.
 ///
 /// Finalization-only knobs (`--risk-formula`, `--emit-author-details`,
-/// `--include-deleted`, the bus-factor options) are deliberately excluded:
-/// they are applied at replay, so changing one reuses the same event log.
+/// `--author-hash-key` (#956), `--include-deleted`, the bus-factor options)
+/// are deliberately excluded: they are applied at replay, so changing one
+/// reuses the same event log — including re-finalizing a cached walk under
+/// a different author-hash key without a re-walk.
 /// The file-type scope (`--file-types`, #576) is excluded for the same
 /// reason — the cached event log spans every touched file regardless of
 /// scope, and the scope is re-applied to the freshly-enumerated seed and

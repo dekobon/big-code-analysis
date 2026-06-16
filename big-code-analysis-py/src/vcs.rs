@@ -27,8 +27,8 @@ use pyo3::exceptions::PyValueError;
 use serde_json::Value;
 
 use big_code_analysis::vcs::{
-    self, CacheConfig, Options, build_history_index_cached, build_trend, hotspot, parse_timestamp,
-    parse_window, score_commit, score_diff, workdir_root,
+    self, AuthorHashKey, CacheConfig, Options, build_history_index_cached, build_trend, hotspot,
+    parse_timestamp, parse_window, score_commit, score_diff, workdir_root,
 };
 use big_code_analysis::wire::{self, VcsReport, VcsReportFile};
 
@@ -54,6 +54,14 @@ pub(crate) struct VcsParams {
     pub bot_pattern: Option<String>,
     pub as_of: Option<String>,
     pub emit_author_details: bool,
+    /// Secret key that hardens `emit_author_details` into a keyed
+    /// HMAC-SHA256 (issue #956). `None` emits the bare SHA-256 pseudonym.
+    /// Requires `emit_author_details`.
+    ///
+    /// SECURITY: holds the raw secret. If a `Debug` derive is ever added to
+    /// this struct, do not whole-struct debug-log it — it is moved into the
+    /// redacting `AuthorHashKey` newtype in `options_from`.
+    pub author_hash_key: Option<String>,
     pub include_deleted: bool,
     pub bus_factor_threshold: Option<f64>,
     /// Disable the persistent change-history cache for this call (issue
@@ -82,6 +90,17 @@ fn options_from(params: &VcsParams) -> Result<Options, PyErr> {
     options.follow_renames = params.follow_renames;
     options.exclude_bots = params.exclude_bots;
     options.emit_author_details = params.emit_author_details;
+    if let Some(key) = &params.author_hash_key {
+        // The key only hardens emitted digests, so reject it without
+        // `emit_author_details` rather than silently doing nothing.
+        if !params.emit_author_details {
+            return Err(vcs_error_to_py(vcs::Error::InvalidAuthorHashKey(
+                "author_hash_key requires emit_author_details".to_owned(),
+            )));
+        }
+        options.author_hash_key =
+            Some(AuthorHashKey::new(key.clone().into_bytes()).map_err(vcs_error_to_py)?);
+    }
     options.include_deleted = params.include_deleted;
     if let Some(spec) = &params.long_window {
         options.long_window_secs = parse_window(spec).map_err(vcs_error_to_py)?;

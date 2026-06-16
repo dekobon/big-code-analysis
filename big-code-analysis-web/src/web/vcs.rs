@@ -41,8 +41,9 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use big_code_analysis::vcs::{
-    self, CacheConfig, JitDiffReport, JitReport, Options, build_history_index_cached, build_trend,
-    parse_timestamp, parse_window, score_commit, score_diff,
+    self, AuthorHashKey, CacheConfig, JitDiffReport, JitReport, Options,
+    build_history_index_cached, build_trend, parse_timestamp, parse_window, score_commit,
+    score_diff,
 };
 use big_code_analysis::wire;
 
@@ -120,6 +121,15 @@ pub struct WebVcsPayload {
     pub as_of: Option<String>,
     /// Emit SHA-256-hashed author identities.
     pub emit_author_details: Option<bool>,
+    /// Secret key that hardens `emit_author_details` into a keyed
+    /// HMAC-SHA256 (issue #956). Requires `emit_author_details`; an empty
+    /// key or one without it is a `400`.
+    ///
+    /// SECURITY: holds the raw secret, and this struct derives `Debug`, so
+    /// never whole-struct debug-log a payload (`{payload:?}`) — that would
+    /// leak the key into server logs. It is moved into the redacting
+    /// `AuthorHashKey` newtype in `options_from`.
+    pub author_hash_key: Option<String>,
     /// Include files deleted at the target ref.
     pub include_deleted: Option<bool>,
     /// Bus-factor coverage (abandonment) threshold in `(0, 1)` (issue
@@ -201,6 +211,16 @@ fn options_from(payload: &WebVcsPayload) -> Result<Options, vcs::Error> {
     options.emit_author_details = payload
         .emit_author_details
         .unwrap_or(options.emit_author_details);
+    if let Some(key) = &payload.author_hash_key {
+        // The key only hardens emitted digests, so it is meaningless —
+        // and a likely client mistake — without `emit_author_details`.
+        if !options.emit_author_details {
+            return Err(vcs::Error::InvalidAuthorHashKey(
+                "author_hash_key requires emit_author_details".to_owned(),
+            ));
+        }
+        options.author_hash_key = Some(AuthorHashKey::new(key.clone().into_bytes())?);
+    }
     options.include_deleted = payload.include_deleted.unwrap_or(options.include_deleted);
     // The endpoint always surfaces the aggregate; validate the threshold
     // up front so a bad value is a clean 4xx, not a clamped surprise.
@@ -592,6 +612,11 @@ pub struct WebVcsTrendPayload {
     pub as_of: Option<String>,
     /// Emit SHA-256-hashed author identities.
     pub emit_author_details: Option<bool>,
+    /// Secret key that hardens `emit_author_details` into a keyed
+    /// HMAC-SHA256 (issue #956). Requires `emit_author_details`. SECURITY:
+    /// raw secret in a `Debug`-deriving struct — never whole-struct
+    /// debug-log a payload; see [`WebVcsPayload::author_hash_key`].
+    pub author_hash_key: Option<String>,
     /// Include files deleted at the target ref.
     pub include_deleted: Option<bool>,
     /// Bus-factor coverage (abandonment) threshold in `(0, 1)` (issue #332).
@@ -633,6 +658,7 @@ impl WebVcsTrendPayload {
             bot_pattern: self.bot_pattern,
             as_of: self.as_of,
             emit_author_details: self.emit_author_details,
+            author_hash_key: self.author_hash_key,
             include_deleted: self.include_deleted,
             bus_factor_threshold: self.bus_factor_threshold,
             no_cache: self.no_cache,
@@ -757,6 +783,44 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         repo_path_must_exist(dir.path().to_str().expect("utf-8 path"))
             .expect("an existing path must pass the existence guard");
+    }
+
+    // #956: an `author_hash_key` without `emit_author_details` is a client
+    // mistake (the key would do nothing), surfaced as a `400`; an empty key
+    // is likewise rejected; and a key with the flag builds keyed options.
+    #[test]
+    fn author_hash_key_requires_emit_and_rejects_empty() {
+        let without_emit: WebVcsPayload =
+            serde_json::from_str(r#"{"id":"x","repo_path":"/x","author_hash_key":"k"}"#)
+                .expect("payload deserializes");
+        let err = options_from(&without_emit).expect_err("key without emit must be rejected");
+        assert!(
+            matches!(err, vcs::Error::InvalidAuthorHashKey(_)),
+            "key without emit must map to InvalidAuthorHashKey, got: {err:?}"
+        );
+        assert!(err.is_client_input(), "must map to a 400, not a 500");
+
+        let empty_key: WebVcsPayload = serde_json::from_str(
+            r#"{"id":"x","repo_path":"/x","emit_author_details":true,"author_hash_key":""}"#,
+        )
+        .expect("payload deserializes");
+        assert!(
+            matches!(
+                options_from(&empty_key),
+                Err(vcs::Error::InvalidAuthorHashKey(_))
+            ),
+            "an empty key must be rejected"
+        );
+
+        let valid: WebVcsPayload = serde_json::from_str(
+            r#"{"id":"x","repo_path":"/x","emit_author_details":true,"author_hash_key":"k"}"#,
+        )
+        .expect("payload deserializes");
+        let options = options_from(&valid).expect("a key with the flag builds options");
+        assert!(
+            options.author_hash_key.is_some(),
+            "the key must reach the backend options"
+        );
     }
 
     // #636: the web defaults must equal the CLI's bounded defaults so the

@@ -582,6 +582,7 @@ struct PyVcsOptions {
     bot_pattern: Option<String>,
     as_of: Option<String>,
     emit_author_details: bool,
+    author_hash_key: Option<String>,
     include_deleted: bool,
     bus_factor_threshold: Option<f64>,
 }
@@ -589,7 +590,7 @@ struct PyVcsOptions {
 #[pymethods]
 impl PyVcsOptions {
     #[new]
-    #[pyo3(signature = (*, long_window = None, recent_window = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, include_deleted = false, bus_factor_threshold = None))]
+    #[pyo3(signature = (*, long_window = None, recent_window = None, reference = None, risk_formula = None, file_types = None, full_history = false, include_merges = false, follow_renames = true, exclude_bots = true, bot_pattern = None, as_of = None, emit_author_details = false, author_hash_key = None, include_deleted = false, bus_factor_threshold = None))]
     #[allow(
         clippy::too_many_arguments,
         clippy::fn_params_excessive_bools,
@@ -611,6 +612,7 @@ impl PyVcsOptions {
         bot_pattern: Option<String>,
         as_of: Option<Bound<'_, PyAny>>,
         emit_author_details: bool,
+        author_hash_key: Option<String>,
         include_deleted: bool,
         bus_factor_threshold: Option<f64>,
     ) -> PyResult<Self> {
@@ -628,6 +630,7 @@ impl PyVcsOptions {
             bot_pattern,
             as_of,
             emit_author_details,
+            author_hash_key,
             include_deleted,
             bus_factor_threshold,
         })
@@ -657,6 +660,7 @@ impl PyVcsOptions {
             bot_pattern: self.bot_pattern.clone(),
             as_of: self.as_of.clone(),
             emit_author_details: self.emit_author_details,
+            author_hash_key: self.author_hash_key.clone(),
             include_deleted: self.include_deleted,
             bus_factor_threshold: self.bus_factor_threshold,
             no_cache,
