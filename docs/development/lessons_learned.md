@@ -4060,3 +4060,48 @@ every place is a regression class — give it one home), here applied across
 CLI surfaces rather than language modules.
 
 ---
+
+## 79. Key the derived digest, not the pre-image, when a cache already stores the derived form
+
+When you add a keyed or salted transform to an identity that a
+content-addressed cache persists in *derived* (already-hashed) form, key the
+**derived** digest, not the original pre-image. A cache that kept only the
+post-transform value has discarded the pre-image, so a cache replay can only
+reproduce the new keyed output if the key folds over the value the cache
+actually retained. Keying the pre-image instead forces an ugly fork —
+invalidate or re-key the whole cache per key, or persist the plaintext
+pre-image on disk — whereas keying the stored digest makes the key a pure
+finalization-time transform that the cache neither sees nor pays for.
+
+**Opt-in keyed author hashing had to harden published output without
+breaking the issue-#334 cache-replay invariant** (#956, `4493598a`).
+`--emit-author-details` emits a SHA-256 of the canonical email, and the
+persistent VCS cache stores only that digest — never the plaintext email (a
+`from_digest` identity *is* the digest). The obvious construction,
+`HMAC(key, email)`, cannot be reproduced from a cached walk: the email is
+gone, so replay would emit a different value and violate #334's
+bit-identical-replay contract. The shipped construction keys the *inner*
+digest — `HMAC-SHA256(key, hex(SHA-256(email)))`, the HMAC taken over the
+hex-encoded inner digest — applied at finalization over the exact value the
+cache retained. The author-hash key therefore stays out
+of the cache fingerprint (like `--emit-author-details` itself), a cached walk
+re-finalizes under any key with no re-walk, and
+`keyed_emit_survives_a_cache_round_trip` pins that a fresh identity and one
+rebuilt via `from_digest` emit the same keyed value. Security is unchanged:
+the secret key still defeats brute-force and precomputed-table attacks
+because the attacker must hold the key to compute the outer HMAC for any
+candidate — the public inner digest does not weaken it.
+
+**Lesson:** Before adding a key, salt, or any per-run transform to an
+identity a cache materializes, ask *what does the cache actually store?* If it
+stores the derived digest, layer the new transform **outside** that digest so
+replay reconstructs the output from cached state, and keep the transform out
+of the cache's invalidation fingerprint — it is a finalization concern, not a
+walk concern. Keying the pre-image silently couples the cache key to the
+secret and either re-walks on every key change or spills the pre-image to
+disk. Related to lesson #56 (a similarity hash must exclude the dimension it
+claims to be insensitive to): here the inner digest must *exclude* the key so
+the cache stays key-agnostic, while the outer digest *includes* it so the
+emitted value is hardened.
+
+---
