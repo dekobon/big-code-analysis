@@ -24,6 +24,11 @@ from pathlib import Path
 import conftest
 import pytest
 
+# The locator appends the platform executable suffix (`.exe` on Windows),
+# so the fixture files these tests create must use the same name or the
+# locator finds nothing on Windows (mirrors `conftest._locate_workspace_binary`).
+EXE = ".exe" if os.name == "nt" else ""
+
 # ── #920: post-build locator must pick the profile cargo built ──────
 
 
@@ -40,8 +45,8 @@ def test_locator_prefers_built_profile_over_newer_mtime(
     built (debug), not the newest-by-mtime candidate.
     """
     monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path))
-    debug = tmp_path / "debug" / "bca"
-    release = tmp_path / "release" / "bca"
+    debug = tmp_path / "debug" / f"bca{EXE}"
+    release = tmp_path / "release" / f"bca{EXE}"
     debug.parent.mkdir(parents=True)
     release.parent.mkdir(parents=True)
     debug.write_text("debug binary")
@@ -64,7 +69,7 @@ def test_locator_falls_back_to_release_when_debug_absent(
     """When the preferred profile is absent, fall back to the other one
     (e.g. a CI job that only produced a release artifact)."""
     monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path))
-    release = tmp_path / "release" / "bca"
+    release = tmp_path / "release" / f"bca{EXE}"
     release.parent.mkdir(parents=True)
     release.write_text("release binary")
 
