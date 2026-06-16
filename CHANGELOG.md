@@ -32,6 +32,21 @@ for historical reference.
 - `AuthorId::has_identity()` reports whether a VCS author carries any
   usable name or email key (#817).
 
+- Opt-in keyed author-identity hashing for `--emit-author-details`
+  (#956). A secret key — `--author-hash-key <KEY>` (or the
+  `BCA_AUTHOR_HASH_KEY` environment variable, preferred so the secret
+  stays off the process list), the REST `author_hash_key` field, and the
+  Python `vcs.Options(author_hash_key=…)` — hardens the emitted author
+  digests into an `HMAC-SHA256(key, SHA-256(email))`, defeating the
+  email-enumeration and precomputed-table attacks a bare SHA-256
+  pseudonym is vulnerable to (the Gravatar weakness; see #811). The key
+  hardens only the *emitted* digests (it requires `--emit-author-details`)
+  and is applied at finalization, so default output is unchanged and the
+  persistent-cache replay invariant (#334) holds: the cache stores the
+  unkeyed inner digest and a cached walk re-finalizes under any key
+  without a re-walk. New library surface: `vcs::AuthorHashKey`, the
+  additive `Options::author_hash_key` field, and `AuthorId::emit_hashed`.
+
 - `LANG::Objc` (slug `objc`) and the `objc` Cargo feature: dedicated
   Objective-C support backed by upstream `tree-sitter-objc` `=3.0.2`,
   owning the `.m` extension and the `objc` / `objective-c` emacs modes

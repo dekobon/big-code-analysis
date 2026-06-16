@@ -660,6 +660,9 @@ are:
 - `as_of`: reference "now" (RFC 3339 / `@unix` / git date) for
   snapshots.
 - `emit_author_details`: emit SHA-256-hashed author identities.
+- `author_hash_key`: secret key that hardens `emit_author_details` into a
+  keyed HMAC-SHA256 (requires `emit_author_details`; an empty key or one
+  without the flag is a `400`).
 - `include_deleted`: include files deleted at the target ref.
 - `bus_factor_threshold`: bus-factor coverage threshold in `(0, 1)`
   (default `0.5`).

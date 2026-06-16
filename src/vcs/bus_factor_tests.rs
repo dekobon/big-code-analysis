@@ -36,7 +36,7 @@ fn schema_version_is_pinned() {
 
 #[test]
 fn empty_input_yields_zero_everywhere() {
-    let bf = compute(&[], DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&[], DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo, GroupBusFactor::default());
     assert!(bf.by_directory.is_empty());
 }
@@ -51,7 +51,7 @@ fn single_author_repo_has_bus_factor_one() {
         file("b.rs", &[("alice", 5, false)]),
         file("c.rs", &[("alice", 3, false)]),
     ];
-    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo.bus_factor, 1);
     assert_eq!(bf.repo.files, 3);
     assert_eq!(bf.repo.authors, 1);
@@ -66,7 +66,7 @@ fn two_single_author_files_need_both_owners_removed() {
         file("a.rs", &[("alice", 5, true)]),
         file("b.rs", &[("bob", 5, true)]),
     ];
-    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo.bus_factor, 2);
     assert_eq!(bf.repo.authors, 2);
 }
@@ -81,7 +81,7 @@ fn shared_authorship_raises_the_factor() {
         file("c.rs", &[("alice", 5, true), ("bob", 5, false)]),
         file("d.rs", &[("alice", 5, false), ("bob", 5, true)]),
     ];
-    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo.bus_factor, 2);
 }
 
@@ -94,7 +94,7 @@ fn dominant_author_excludes_minor_contributor() {
         file("a.rs", &[("alice", 40, true), ("bob", 1, false)]),
         file("b.rs", &[("alice", 40, true), ("bob", 1, false)]),
     ];
-    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo.bus_factor, 1);
     // Bob never clears the authorship threshold for any file.
     assert_eq!(bf.repo.authors, 1);
@@ -109,8 +109,8 @@ fn coverage_threshold_changes_the_factor() {
         file("b.rs", &[("bob", 5, true)]),
         file("c.rs", &[("carol", 5, true)]),
     ];
-    assert_eq!(compute(&files, 0.5, false).repo.bus_factor, 2);
-    assert_eq!(compute(&files, 0.9, false).repo.bus_factor, 3);
+    assert_eq!(compute(&files, 0.5, false, None).repo.bus_factor, 2);
+    assert_eq!(compute(&files, 0.9, false, None).repo.bus_factor, 3);
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn directory_grouping_is_independent_of_the_repo() {
         file("dir2/c.rs", &[("bob", 5, true)]),
         file("dir2/d.rs", &[("bob", 5, false)]),
     ];
-    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None);
     assert_eq!(bf.repo.bus_factor, 2);
 
     let dirs: Vec<(&str, u32)> = bf
@@ -145,7 +145,7 @@ fn directory_grouping_breaks_out_depth_two() {
         file("src/metrics/abc.rs", &[("bob", 5, true)]),
         file("README.md", &[("carol", 5, true)]),
     ];
-    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false);
+    let bf = compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None);
     let dirs: Vec<&str> = bf
         .by_directory
         .iter()
@@ -166,8 +166,8 @@ fn result_is_independent_of_input_order() {
     let mut reversed = files.to_vec();
     reversed.reverse();
     assert_eq!(
-        compute(&files, DEFAULT_COVERAGE_THRESHOLD, true),
-        compute(&reversed, DEFAULT_COVERAGE_THRESHOLD, true),
+        compute(&files, DEFAULT_COVERAGE_THRESHOLD, true, None),
+        compute(&reversed, DEFAULT_COVERAGE_THRESHOLD, true, None),
     );
 }
 
@@ -175,18 +175,51 @@ fn result_is_independent_of_input_order() {
 fn key_author_ids_emitted_only_on_opt_in() {
     let files = [file("a.rs", &[("alice", 5, true)])];
     assert!(
-        compute(&files, DEFAULT_COVERAGE_THRESHOLD, false)
+        compute(&files, DEFAULT_COVERAGE_THRESHOLD, false, None)
             .repo
             .key_author_ids
             .is_none()
     );
-    let opted = compute(&files, DEFAULT_COVERAGE_THRESHOLD, true);
+    let opted = compute(&files, DEFAULT_COVERAGE_THRESHOLD, true, None);
     let ids = opted.repo.key_author_ids.expect("opt-in emits ids");
     // One removed key author, surfaced as a SHA-256 hex digest, never the
     // plaintext email.
     assert_eq!(ids.len(), 1);
     assert_eq!(ids[0], author("alice").hashed());
     assert!(!ids[0].contains('@'));
+}
+
+#[test]
+fn author_hash_key_hardens_ids_without_changing_the_factor() {
+    // Issue #956: a key must harden the emitted `key_author_ids` into an
+    // HMAC while leaving the bus-factor *count* and the removal-order
+    // tie-break (which key off the unkeyed digest) untouched — so the
+    // numeric result stays key-independent and cache-replay-stable.
+    let files = [
+        file("a.rs", &[("alice", 5, true)]),
+        file("b.rs", &[("bob", 5, true)]),
+    ];
+    let key = AuthorHashKey::new(b"team-secret".to_vec()).expect("non-empty");
+
+    let unkeyed = compute(&files, DEFAULT_COVERAGE_THRESHOLD, true, None);
+    let keyed = compute(&files, DEFAULT_COVERAGE_THRESHOLD, true, Some(&key));
+
+    // The aggregate count is identical with and without the key.
+    assert_eq!(keyed.repo.bus_factor, unkeyed.repo.bus_factor);
+    assert_eq!(keyed.repo.authors, unkeyed.repo.authors);
+
+    let unkeyed_ids = unkeyed.repo.key_author_ids.expect("opt-in emits ids");
+    let keyed_ids = keyed.repo.key_author_ids.expect("opt-in emits ids");
+    // Same number of key developers, in the same order (order is
+    // key-independent), but every id is hardened to its HMAC.
+    assert_eq!(keyed_ids.len(), unkeyed_ids.len());
+    assert_ne!(keyed_ids, unkeyed_ids);
+    // Each emitted id matches the keyed emission of that author identity.
+    let expected: Vec<String> = unkeyed_ids
+        .iter()
+        .map(|digest| AuthorId::from_digest(digest.clone()).emit_hashed(Some(&key)))
+        .collect();
+    assert_eq!(keyed_ids, expected);
 }
 
 #[test]
@@ -270,12 +303,14 @@ fn authors_of_file_is_independent_of_contribution_order() {
         compute(
             std::slice::from_ref(&forward),
             DEFAULT_COVERAGE_THRESHOLD,
-            true
+            true,
+            None,
         ),
         compute(
             std::slice::from_ref(&backward),
             DEFAULT_COVERAGE_THRESHOLD,
-            true
+            true,
+            None,
         ),
     );
 }
@@ -292,11 +327,17 @@ fn compute_ignores_empty_contribution_files() {
         contributions: Vec::new(),
     };
 
-    let with_empty = compute(&[real.clone(), empty], DEFAULT_COVERAGE_THRESHOLD, false);
+    let with_empty = compute(
+        &[real.clone(), empty],
+        DEFAULT_COVERAGE_THRESHOLD,
+        false,
+        None,
+    );
     let without = compute(
         std::slice::from_ref(&real),
         DEFAULT_COVERAGE_THRESHOLD,
         false,
+        None,
     );
 
     // The empty file contributes no authorship signal, so it must not

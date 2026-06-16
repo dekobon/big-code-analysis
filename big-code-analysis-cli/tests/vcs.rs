@@ -451,6 +451,69 @@ fn vcs_emit_author_details_controls_author_ids() {
 }
 
 #[test]
+fn vcs_author_hash_key_hardens_the_emitted_ids() {
+    let repo = repo_two_commits();
+    // First file's `author_ids` array for the given extra args / env.
+    let ids = |extra: &[&str], env: Option<(&str, &str)>| -> Vec<String> {
+        let mut args = vec!["vcs", "--paths", ".", "--format", "json"];
+        args.extend_from_slice(extra);
+        let mut cmd = cli();
+        cmd.current_dir(repo.path()).args(args);
+        if let Some((key, value)) = env {
+            cmd.env(key, value);
+        }
+        let assert = cmd.assert().success();
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+        let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+        doc["files"][0]["vcs"]["author_ids"]
+            .as_array()
+            .expect("author_ids array")
+            .iter()
+            .map(|v| v.as_str().expect("hex string").to_owned())
+            .collect()
+    };
+
+    let plain = ids(&["--emit-author-details"], None);
+    let keyed = ids(
+        &["--emit-author-details", "--author-hash-key", "team-secret"],
+        None,
+    );
+    // The key hardens every id (HMAC) while keeping the SHA-256 hex width.
+    assert_eq!(keyed.len(), plain.len());
+    assert_ne!(keyed, plain);
+    assert!(keyed.iter().all(|h| h.len() == 64));
+    // Deterministic for a fixed key (stable cross-report pseudonyms).
+    assert_eq!(
+        keyed,
+        ids(
+            &["--emit-author-details", "--author-hash-key", "team-secret"],
+            None
+        )
+    );
+    // The `BCA_AUTHOR_HASH_KEY` env var is equivalent to the flag.
+    assert_eq!(
+        keyed,
+        ids(
+            &["--emit-author-details"],
+            Some(("BCA_AUTHOR_HASH_KEY", "team-secret"))
+        )
+    );
+}
+
+#[test]
+fn vcs_author_hash_key_requires_emit_author_details() {
+    let repo = repo_two_commits();
+    // The key only hardens *emitted* digests; supplying it without
+    // `--emit-author-details` is a loud usage error, not a silent no-op.
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--author-hash-key", "team-secret"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("requires --emit-author-details"));
+}
+
+#[test]
 fn vcs_include_deleted_surfaces_removed_file() {
     let now = now();
     let repo = tempfile::tempdir().expect("tempdir");

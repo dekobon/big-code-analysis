@@ -80,7 +80,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use super::identity::AuthorId;
+use super::identity::{AuthorHashKey, AuthorId};
 
 /// Output-shape / algorithm version for the bus-factor aggregate. Bump on
 /// any change to the formula, thresholds, grouping, or serialized fields.
@@ -190,12 +190,17 @@ pub struct VcsAggregate {
 ///
 /// `coverage_threshold` is clamped into the open interval `(0, 1)`
 /// defensively (front ends validate it); `emit_author_details` opts the
-/// hashed key-developer lists into the output.
+/// hashed key-developer lists into the output. `author_hash_key`, when
+/// present, hardens those emitted ids into a keyed HMAC (issue #956)
+/// without affecting the bus-factor count or the tie-break order, both of
+/// which stay keyed on the unkeyed digest so they remain key-independent
+/// and cache-replay-stable.
 #[must_use]
 pub fn compute(
     authorship: &[FileAuthorship],
     coverage_threshold: f64,
     emit_author_details: bool,
+    author_hash_key: Option<&AuthorHashKey>,
 ) -> BusFactor {
     let coverage = clamp_threshold(coverage_threshold);
 
@@ -215,7 +220,7 @@ pub fn compute(
     let resolved: Vec<Vec<&AuthorId>> = files.iter().map(|f| authors_of_file(f)).collect();
 
     let repo_files: Vec<&[&AuthorId]> = resolved.iter().map(Vec::as_slice).collect();
-    let repo = group_bus_factor(&repo_files, coverage, emit_author_details);
+    let repo = group_bus_factor(&repo_files, coverage, emit_author_details, author_hash_key);
 
     let mut groups: HashMap<PathBuf, Vec<usize>> = HashMap::new();
     for (idx, file) in files.iter().enumerate() {
@@ -232,7 +237,7 @@ pub fn compute(
             let directory = path_to_forward_slash(&dir)?;
             let files: Vec<&[&AuthorId]> =
                 indices.iter().map(|&i| resolved[i].as_slice()).collect();
-            let group = group_bus_factor(&files, coverage, emit_author_details);
+            let group = group_bus_factor(&files, coverage, emit_author_details, author_hash_key);
             Some(DirectoryBusFactor { directory, group })
         })
         .collect();
@@ -271,7 +276,12 @@ struct GroupAuthor {
 /// Developers are greedily removed (most-authored-files first, ties broken
 /// by hashed id) until more than `coverage` of the files are orphaned; the
 /// count removed is the bus factor.
-fn group_bus_factor(files: &[&[&AuthorId]], coverage: f64, emit: bool) -> GroupBusFactor {
+fn group_bus_factor(
+    files: &[&[&AuthorId]],
+    coverage: f64,
+    emit: bool,
+    key: Option<&AuthorHashKey>,
+) -> GroupBusFactor {
     let total_files = files.len();
     if total_files == 0 {
         return GroupBusFactor::default();
@@ -298,7 +308,7 @@ fn group_bus_factor(files: &[&[&AuthorId]], coverage: f64, emit: bool) -> GroupB
         }
     }
 
-    let bus_factor = greedy_truck_factor(&authors, &mut remaining_authors, coverage, emit);
+    let bus_factor = greedy_truck_factor(&authors, &mut remaining_authors, coverage, emit, key);
     GroupBusFactor {
         bus_factor: bus_factor.removed,
         files: u32::try_from(total_files).unwrap_or(u32::MAX),
@@ -374,6 +384,7 @@ fn greedy_truck_factor(
     remaining_authors: &mut [u32],
     coverage: f64,
     emit: bool,
+    key: Option<&AuthorHashKey>,
 ) -> TruckFactor {
     let total_files = remaining_authors.len();
     #[allow(clippy::cast_precision_loss)] // file counts never approach 2^53
@@ -391,7 +402,11 @@ fn greedy_truck_factor(
         removed_set[pick] = true;
         removed = removed.saturating_add(1);
         if let Some(ids) = key_authors.as_mut() {
-            ids.push(authors[pick].hashed.clone());
+            // Emit the unkeyed digest, or its keyed HMAC when a key is set.
+            // Tie-breaking above still uses the unkeyed `hashed`, so the
+            // removal order — and the bus-factor count — is key-independent.
+            let digest = &authors[pick].hashed;
+            ids.push(key.map_or_else(|| digest.clone(), |k| k.apply(digest)));
         }
         for &file_idx in &authors[pick].authored_files {
             if let Some(count) = remaining_authors.get_mut(file_idx)

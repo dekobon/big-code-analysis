@@ -193,7 +193,10 @@ The history-walk toggles mirror the CLI flags: `full_history`,
 (default `True`), and `bot_pattern` to override the bot-author regular
 expression. `bus_factor_threshold` sets the coverage fraction for the
 bus-factor flag (default `0.5`), and `emit_author_details` includes
-SHA-256-hashed canonical author identities.
+SHA-256-hashed canonical author identities. `author_hash_key` (requires
+`emit_author_details`) hardens those digests into a keyed HMAC-SHA256, the
+same opt-in described under
+[Author-detail privacy](../commands/vcs.md#author-detail-privacy).
 
 ## Caching
 

@@ -180,6 +180,10 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 # crates (Cargo.lock). Used by the GitLab Code Climate writer to
 # compute stable per-violation fingerprints.
 sha2 = "=0.10.9"
+# HMAC-SHA256 for the opt-in keyed author-identity hashing
+# (`--author-hash-key`, #956). Shares the RustCrypto `digest` 0.10 trait
+# family with `sha2`, so it adds no new transitive trait version.
+hmac = "=0.12.1"
 termcolor = "^1.2"
 
 tree-sitter.workspace = true

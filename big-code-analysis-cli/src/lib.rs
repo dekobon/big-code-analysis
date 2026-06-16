@@ -890,6 +890,29 @@ struct VcsArgs {
     /// Emit SHA-256-hashed canonical author identities.
     #[clap(long)]
     emit_author_details: bool,
+    /// Secret key that hardens `--emit-author-details` into a keyed
+    /// HMAC-SHA256: an attacker can no longer recover the emitted digests
+    /// by hashing a candidate set of emails or with a precomputed
+    /// email→hash table. Without it the digests are a bare SHA-256
+    /// pseudonym. Requires `--emit-author-details`; the same key yields the
+    /// same digests across runs and a cache replay.
+    ///
+    /// Prefer the `BCA_AUTHOR_HASH_KEY` environment variable: a key on the
+    /// command line is visible to other users via the process list (`ps`)
+    /// and lands in shell history. The flag takes precedence when both are
+    /// set.
+    //
+    // Hardening tracked in issue #956 (follow-up to #811); the rationale
+    // lives here in a `//` maintainer comment so clap never renders the
+    // issue number into `--help` (the help-text issue-reference gate).
+    //
+    // SECURITY: this holds the raw secret. `VcsArgs` derives `Debug`, so
+    // never whole-struct debug-log it (`{args:?}`) — that would leak the
+    // key. It is moved into the redacting `AuthorHashKey` newtype as early
+    // as `vcs_command::resolve_author_hash_key`. (On the CLI the key is also
+    // argv-visible, which is why the env-var form is recommended.)
+    #[clap(long, value_name = "KEY")]
+    author_hash_key: Option<String>,
     /// Emit stats for files deleted at the target ref.
     #[clap(long)]
     include_deleted: bool,

@@ -15,6 +15,7 @@
 use std::path::Path;
 
 use super::error::Error;
+use super::identity::AuthorHashKey;
 
 /// Seconds in a day.
 pub(crate) const SECONDS_PER_DAY: i64 = 86_400;
@@ -228,6 +229,14 @@ pub struct Options {
     /// Emit SHA-256-hashed canonical author identities (default: off —
     /// author identities never leave the process otherwise).
     pub emit_author_details: bool,
+    /// Optional secret key that hardens `emit_author_details` into a keyed
+    /// HMAC (issue #956). `None` (the default) emits the bare SHA-256
+    /// pseudonym. Has no effect unless `emit_author_details` is set. The
+    /// key is a finalization-time concern (like `emit_author_details`
+    /// itself), so it never enters the persistent-cache fingerprint: the
+    /// same cached walk re-finalizes under any key without a re-walk (see
+    /// [`AuthorId::emit_hashed`](super::identity::AuthorId::emit_hashed)).
+    pub author_hash_key: Option<AuthorHashKey>,
     /// Emit stats for files deleted at the target ref (default: off).
     pub include_deleted: bool,
     /// Compute the directory- / repo-level bus-factor aggregate from the
@@ -267,6 +276,7 @@ impl Default for Options {
             as_of: None,
             risk_formula: RiskFormula::Weighted,
             emit_author_details: false,
+            author_hash_key: None,
             include_deleted: false,
             compute_bus_factor: false,
             bus_factor_threshold: DEFAULT_BUS_FACTOR_THRESHOLD,

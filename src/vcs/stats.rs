@@ -301,10 +301,11 @@ impl Accumulator {
         });
 
         let author_ids = options.emit_author_details.then(|| {
+            let key = options.author_hash_key.as_ref();
             let mut ids: Vec<String> = self
                 .author_edits_long
                 .keys()
-                .map(AuthorId::hashed)
+                .map(|author| author.emit_hashed(key))
                 .collect();
             ids.sort_unstable();
             ids

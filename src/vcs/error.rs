@@ -60,6 +60,10 @@ pub enum Error {
     /// The bus-factor coverage threshold is outside the open interval
     /// `(0, 1)` (issue #332).
     InvalidBusFactorThreshold(String),
+    /// The opt-in author-hash key is unusable — empty, or supplied
+    /// without `--emit-author-details` (which it has no effect without)
+    /// (issue #956).
+    InvalidAuthorHashKey(String),
     /// The historical-trend parameters are out of range — the point
     /// count is below the two-point minimum or above
     /// [`MAX_TREND_POINTS`](crate::vcs::trend::MAX_TREND_POINTS) (issue
@@ -108,6 +112,7 @@ impl Error {
             | Self::InvalidFormula(_)
             | Self::InvalidFileTypeScope(_)
             | Self::InvalidBusFactorThreshold(_)
+            | Self::InvalidAuthorHashKey(_)
             | Self::InvalidTrend(_)
             | Self::InvalidDiff(_) => true,
             Self::OpenRepository(_)
@@ -147,6 +152,9 @@ impl std::fmt::Display for Error {
             Self::InvalidFileTypeScope(reason) => write!(f, "invalid file-type scope: {reason}"),
             Self::InvalidBusFactorThreshold(reason) => {
                 write!(f, "invalid bus-factor threshold: {reason}")
+            }
+            Self::InvalidAuthorHashKey(reason) => {
+                write!(f, "invalid author-hash key: {reason}")
             }
             Self::InvalidTrend(reason) => write!(f, "invalid trend parameters: {reason}"),
             Self::Blame(reason) => write!(f, "failed to blame file: {reason}"),

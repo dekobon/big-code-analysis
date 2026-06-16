@@ -25,8 +25,8 @@ use serde::Serialize;
 use big_code_analysis::FuncSpace;
 use big_code_analysis::defang_formula;
 use big_code_analysis::vcs::{
-    self, CacheConfig, Options, build_history_index_cached, hotspot, parse_timestamp, parse_window,
-    score, stats,
+    self, AuthorHashKey, CacheConfig, Options, build_history_index_cached, hotspot,
+    parse_timestamp, parse_window, score, stats,
 };
 use big_code_analysis::wire;
 
@@ -246,6 +246,7 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
     options.as_of = as_of;
     options.risk_formula = args.risk_formula.into();
     options.emit_author_details = args.emit_author_details;
+    options.author_hash_key = resolve_author_hash_key(args);
     options.include_deleted = args.include_deleted;
     // `build_options` (the shared builder) leaves `compute_bus_factor` at its
     // `Default` (`false`); the ranking callers `run` / `default_aggregate_index`
@@ -255,6 +256,41 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
             .unwrap_or_else(|e| die(format_args!("--bus-factor-threshold: {e}")));
     options.file_types = file_types;
     options
+}
+
+/// Environment variable holding the author-hash key, preferred over the
+/// `--author-hash-key` flag so the secret stays off the process list and
+/// out of shell history (issue #956).
+const AUTHOR_HASH_KEY_ENV: &str = "BCA_AUTHOR_HASH_KEY";
+
+/// Resolve the optional author-hash key (issue #956): the
+/// `--author-hash-key` flag takes precedence, else the
+/// [`AUTHOR_HASH_KEY_ENV`] environment variable.
+///
+/// The key only hardens *emitted* digests, so it is read only when
+/// `--emit-author-details` is set; an ambient environment variable never
+/// fails an unrelated run. An explicit flag without
+/// `--emit-author-details` is a usage error rather than a silent no-op,
+/// and an empty key is rejected by [`AuthorHashKey::new`].
+fn resolve_author_hash_key(args: &VcsArgs) -> Option<AuthorHashKey> {
+    if args.author_hash_key.is_some() && !args.emit_author_details {
+        die(format_args!(
+            "--author-hash-key requires --emit-author-details (the key only \
+             hardens the emitted author digests)"
+        ));
+    }
+    if !args.emit_author_details {
+        return None;
+    }
+    let raw = args.author_hash_key.clone().or_else(|| {
+        std::env::var(AUTHOR_HASH_KEY_ENV)
+            .ok()
+            .filter(|value| !value.is_empty())
+    })?;
+    Some(
+        AuthorHashKey::new(raw.into_bytes())
+            .unwrap_or_else(|e| die(format_args!("--author-hash-key: {e}"))),
+    )
 }
 
 /// Select the tracked files the global filters admit, sort them by risk

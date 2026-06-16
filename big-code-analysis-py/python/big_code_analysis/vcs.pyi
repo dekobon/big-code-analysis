@@ -52,6 +52,10 @@ class Options:
         or a string (RFC 3339 / ``@unix`` / git date).
     emit_author_details
         Include SHA-256-hashed canonical author identities.
+    author_hash_key
+        Secret key that hardens ``emit_author_details`` into a keyed
+        HMAC-SHA256 (issue #956). ``None`` (default) emits the bare
+        SHA-256 pseudonym. Requires ``emit_author_details``.
     include_deleted
         Rank files deleted at the reference too.
     bus_factor_threshold
@@ -80,6 +84,7 @@ class Options:
         bot_pattern: str | None = None,
         as_of: datetime | str | None = None,
         emit_author_details: bool = False,
+        author_hash_key: str | None = None,
         include_deleted: bool = False,
         bus_factor_threshold: float | None = None,
     ) -> Options: ...
