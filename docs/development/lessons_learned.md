@@ -2131,6 +2131,20 @@ crate) so the test is emitted only on Unix. A `git show
 not the bug — the lesson here is the *pattern*, not a
 historical regression.
 
+**The dual failure mode: a fixture that bakes in one platform's
+spelling fails *spuriously* off-target.** `test_conftest_helpers.py`
+(`big-code-analysis-py/tests/`, #920 follow-up) fabricated
+`debug/bca` and `release/bca` to exercise the CLI-locator helper,
+but `_locate_workspace_binary` appends the platform executable
+suffix (`.exe` on Windows). On `windows-latest` the locator looked
+for `bca.exe`, matched nothing, returned `None`, and two assertions
+failed — while Linux and macOS were green because the suffix is
+empty there. The bug was invisible to every non-Windows runner and
+to the local `make pre-commit`; only the Windows CI leg caught it.
+The fix names the fixtures `bca{EXE}` (with `EXE = ".exe" if
+os.name == "nt" else ""`), mirroring the locator's own suffix
+rather than hardcoding one OS's form.
+
 **Lesson:** When a test needs platform-gated *fixtures*
 (e.g. `OsStrExt::from_bytes` on Unix, `OsStringExt::from_wide`
 on Windows), gate the entire `fn` — not the inner block. An
@@ -2140,7 +2154,13 @@ so the harness does not report bogus coverage. Audit any
 `#[cfg(target_os = …)]` / `#[cfg(unix)]` / `#[cfg(windows)]`
 attribute inside a `#[test]` body — the only correct
 placement is on the function attribute stack, alongside
-`#[test]` itself.
+`#[test]` itself. The inverse trap is fabricating a
+platform-shaped *input* — an executable name, a path
+separator, a line ending — in one OS's form: it passes
+everywhere except the platform it silently mis-models, and
+only that platform's CI leg fails. Mirror the production
+code's platform logic in the fixture instead of hardcoding a
+single OS's spelling.
 
 ---
 
@@ -3966,5 +3986,77 @@ per-node compute) and #19 (a metric path that doesn't enumerate a
 construct scores it wrong silently) — all three are the same family:
 a cross-cutting traversal feature that some metrics opt into implicitly
 and others miss.
+
+---
+
+## 77. Issue references in a `///` doc comment leak into `--help` and the man pages
+
+clap derives every subcommand, flag, and value-enum help string from the
+`///` doc comments on the corresponding type, and the checked-in man pages
+under `man/` are generated from those same clap definitions by `cargo
+xtask`. A `///` on a CLI type is therefore user-facing *twice*. An internal
+maintainer note left in one — an issue number, a `#NNN` cross-reference, a
+"see PR" aside — ships verbatim to end users in `bca <cmd> --help` and
+drifts the generated man pages away from the committed copies.
+
+**A doc-accuracy fix leaked `(since #661)` into `bca metrics --help`**
+(#841). Reword­ing the `///` on the `MetricsFormat::Text` variant to
+correct a stale claim kept an issue reference in the doc text. clap surfaced
+it in `bca metrics --help` *and* `bca ops --help` (which share the format
+enum), and `man/bca-metrics.1` / `man/bca-ops.1` drifted because they are
+regenerated from the same definitions. The leak survived several waves of a
+batch fix: the two gates that catch it — the
+`help_text_carries_no_issue_references` integration test and the man-page
+drift check (`cargo xtask` + `git diff --exit-code -- man/`) — were both
+masked by an unrelated tooling mistake that suppressed the gate's real exit
+status. The fix moved the reference into the adjacent `//` maintainer
+comment and regenerated the man pages in the same commit.
+
+**Lesson:** Put issue/PR references in `//` maintainer comments, never in a
+`///` doc comment on a clap type (or any type whose docs render to a user).
+The `help_text_carries_no_issue_references` test pins this for the CLI —
+treat a failure as a real leak, not a test to relax. And because the man
+pages are generated from the same `///` text, any edit to a clap
+help/about/value doc — even a pure wording fix — must be followed by `cargo
+xtask` with the regenerated `man/` pages committed in the *same* change, or
+the man-page drift gate goes red on a clean checkout for everyone.
+
+---
+
+## 78. A metric's direction belongs in one predicate every gate and report shares
+
+Most metrics are higher-is-worse, but a few are lower-is-worse: the
+Maintainability Index family (`mi.*`), where a *drop* is the regression.
+Whenever more than one surface independently decides "did this value get
+worse?", the implementations drift — and the lower-is-worse minority is
+exactly where they first disagree, silently, because the common
+higher-is-worse case still agrees and most tests only cover it.
+
+**`mi.*` was bucketed and classified as improved when it dropped**
+(#825, #827, #837). Three CLI surfaces each re-derived the direction
+comparison:
+`diff-baseline`'s worsened/improved bucketing (#825), the `baseline`
+`Covered` ratchet (#827), and `check`'s hard-breach escalation in
+`classify_check_outcome` (#837). All three handled higher-is-worse
+correctly and all three got `mi.*` backwards — an MI decrease (worse
+maintainability) was reported as an improvement, and `--worsened-only` /
+`--improved-only` selected the wrong rows. The bugs persisted because the
+tests never set `lower_is_worse`, so their vacuous coverage agreed with the
+inverted code. The fix routes all three through a single
+`thresholds::breaches_limit(value, limit, lower_is_worse)` predicate keyed
+on the central `metric_catalog::lower_is_worse` registry, and derives the
+baseline `Covered` arm as `!breaches_limit(…)` so the ratchet and the gate
+cannot disagree on direction.
+
+**Lesson:** Encode per-metric direction once (here
+`metric_catalog::lower_is_worse`) and make every consumer — the threshold
+gate, the baseline ratchet, diff bucketing, report ordering — call one
+shared comparison instead of re-implementing `value > limit`. When you add a
+metric, or any new surface that ranks or compares metric values, wire it to
+that predicate and add a test that exercises a *lower-is-worse* metric
+specifically: a test that only covers higher-is-worse metrics passes against
+inverted direction logic. Related to lesson #59 (a rule re-implemented in
+every place is a regression class — give it one home), here applied across
+CLI surfaces rather than language modules.
 
 ---
