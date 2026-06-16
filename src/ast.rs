@@ -15,18 +15,37 @@ use serde::{Deserialize, Serialize};
 
 use crate::*;
 
-/// Start and end positions of a node in a code in terms of lines and columns.
+/// Start and end positions of a node in a code in terms of lines, columns,
+/// and byte offsets.
 ///
-/// Serialized as a flat object `{start_line, start_col, end_line, end_col}`,
-/// all 1-based. The `*_line` vocabulary aligns the `/ast` span field names
-/// with the `/function` and `/metrics` endpoints (`start_line` / `end_line`),
-/// so a client correlating spans across endpoints no longer special-cases
-/// `*_row` vs `*_line` per endpoint (#638). The former `start_row` /
-/// `end_row` keys were renamed as a `2.0`-line break.
+/// Serialized as a flat object
+/// `{start_line, start_col, end_line, end_col, start_byte, end_byte}`. The
+/// line/column pairs are 1-based; the byte offsets are 0-based half-open
+/// (`[start_byte, end_byte)`) indices into the parsed source bytes
+/// ([`Ast::source`](crate::Ast::source)). The `*_line` vocabulary aligns the
+/// `/ast` span field names with the `/function` and `/metrics` endpoints
+/// (`start_line` / `end_line`), so a client correlating spans across
+/// endpoints no longer special-cases `*_row` vs `*_line` per endpoint
+/// (#638). The former `start_row` / `end_row` keys were renamed as a
+/// `2.0`-line break.
+///
+/// The byte offsets let structural consumers slice the original source for a
+/// node — including internal nodes, whose `value` text the dump omits — so a
+/// caller can recover any subtree's exact bytes without re-deriving offsets
+/// from lines and columns (#727). They mirror tree-sitter's own
+/// `Node::start_byte` / `Node::end_byte`.
+///
+/// The struct is `#[non_exhaustive]`: construct it through [`Span::new`] and
+/// read its public fields, but do not rely on struct-literal construction or
+/// exhaustive destructuring from outside the crate. This is the last planned
+/// shape break to the type. The two byte fields carry `#[serde(default)]` so
+/// span objects serialized before they existed still deserialize (the
+/// offsets default to `0`).
 ///
 /// A node's span is `None` for the root and any node when span tracking is
 /// disabled; in that case the wrapping `Option<Span>` serializes as `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct Span {
     /// Line of the start position (1-based).
     pub start_line: usize,
@@ -36,6 +55,39 @@ pub struct Span {
     pub end_line: usize,
     /// Column of the end position (1-based).
     pub end_col: usize,
+    /// Byte offset of the node's first byte in the source (0-based).
+    #[serde(default)]
+    pub start_byte: usize,
+    /// Byte offset one past the node's last byte in the source (0-based,
+    /// exclusive).
+    #[serde(default)]
+    pub end_byte: usize,
+}
+
+impl Span {
+    /// Builds a [`Span`] from 1-based line/column pairs and 0-based,
+    /// half-open byte offsets (`[start_byte, end_byte)`).
+    ///
+    /// This is the supported construction path now that the struct is
+    /// `#[non_exhaustive]`.
+    #[must_use]
+    pub fn new(
+        start_line: usize,
+        start_col: usize,
+        end_line: usize,
+        end_col: usize,
+        start_byte: usize,
+        end_byte: usize,
+    ) -> Self {
+        Self {
+            start_line,
+            start_col,
+            end_line,
+            end_col,
+            start_byte,
+            end_byte,
+        }
+    }
 }
 
 /// The payload of an `Ast` request.
@@ -426,26 +478,22 @@ mod tests {
         // tree-sitter line/column values in the original tuple order
         // (start_line, start_col, end_line, end_col). The `*_line`
         // vocabulary matches /function and /metrics (#638).
+        // `fn f(){}` is 8 bytes on one line, so the root spans the whole
+        // half-open byte range [0, 8) (#727).
         let root = build_ast_with_span::<crate::RustParser>(b"fn f(){}", "test.rs");
         let span = root
             .span
             .expect("root span present when span tracking is on");
-        assert_eq!(
-            span,
-            Span {
-                start_line: 1,
-                start_col: 1,
-                end_line: 1,
-                end_col: 9,
-            }
-        );
+        assert_eq!(span, Span::new(1, 1, 1, 9, 0, 8));
         let json = serde_json::to_string(&root.span).expect("serialize span");
         assert!(
             json.contains("\"start_line\":1")
                 && json.contains("\"start_col\":1")
                 && json.contains("\"end_line\":1")
-                && json.contains("\"end_col\":9"),
-            "expected named span object; got {json}"
+                && json.contains("\"end_col\":9")
+                && json.contains("\"start_byte\":0")
+                && json.contains("\"end_byte\":8"),
+            "expected named span object with byte offsets; got {json}"
         );
         // The pre-2.0 `*_row` keys must be gone (#638).
         assert!(
@@ -457,14 +505,19 @@ mod tests {
     #[test]
     fn span_round_trips_through_serde() {
         // Span derives Deserialize for wire round-trip parity.
-        let span = Span {
-            start_line: 2,
-            start_col: 3,
-            end_line: 4,
-            end_col: 5,
-        };
+        let span = Span::new(2, 3, 4, 5, 11, 42);
         let json = serde_json::to_string(&span).expect("serialize");
         let back: Span = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(span, back);
+    }
+
+    #[test]
+    fn span_deserializes_pre_byte_offsets_with_default() {
+        // The byte fields carry `#[serde(default)]`, so a span object
+        // serialized before they existed (line/col only) still
+        // deserializes, with the offsets defaulting to 0 (#727).
+        let legacy = r#"{"start_line":2,"start_col":3,"end_line":4,"end_col":5}"#;
+        let span: Span = serde_json::from_str(legacy).expect("deserialize legacy span");
+        assert_eq!(span, Span::new(2, 3, 4, 5, 0, 0));
     }
 }

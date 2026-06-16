@@ -35,6 +35,8 @@ mk_langs!(
     // 7) tree-sitter function to call to get a Language
     // 8) file extensions
     // 9) emacs modes
+    // 10) pinned grammar crate version (mirrors the `=X.Y.Z` pin in the
+    //     workspace `Cargo.toml`; a drift test below asserts they agree)
     //
     // Per #252, each variant carries a Cargo feature that gates the
     // grammar crate references in `mk_lang!` / `mk_action!`. The enum
@@ -63,7 +65,8 @@ mk_langs!(
         JavascriptParser,
         tree_sitter_javascript,
         [js, mjs, cjs, jsx],
-        ["js", "js2"]
+        ["js", "js2"],
+        "0.25.0"
     ),
     (
         "mozjs",
@@ -76,7 +79,8 @@ mk_langs!(
         MozjsParser,
         tree_sitter_mozjs,
         [jsm],
-        []
+        [],
+        "1.1.0"
     ),
     (
         "java",
@@ -87,7 +91,8 @@ mk_langs!(
         JavaParser,
         tree_sitter_java,
         [java],
-        ["java"]
+        ["java"],
+        "0.23.5"
     ),
     (
         "go",
@@ -98,7 +103,8 @@ mk_langs!(
         GoParser,
         tree_sitter_go,
         [go],
-        ["go"]
+        ["go"],
+        "0.25.0"
     ),
     (
         "kotlin",
@@ -109,7 +115,8 @@ mk_langs!(
         KotlinParser,
         tree_sitter_kotlin_ng,
         [kt, kts],
-        ["kotlin"]
+        ["kotlin"],
+        "1.1.0"
     ),
     (
         "lua",
@@ -120,7 +127,8 @@ mk_langs!(
         LuaParser,
         tree_sitter_lua,
         [lua],
-        ["lua"]
+        ["lua"],
+        "0.5.0"
     ),
     (
         "rust",
@@ -131,7 +139,8 @@ mk_langs!(
         RustParser,
         tree_sitter_rust,
         [rs],
-        ["rust"]
+        ["rust"],
+        "0.24.2"
     ),
     (
         "tcl",
@@ -142,7 +151,8 @@ mk_langs!(
         TclParser,
         tree_sitter_tcl,
         [tcl, tk, tm],
-        ["tcl"]
+        ["tcl"],
+        "1.1.0"
     ),
     (
         "irules",
@@ -153,7 +163,8 @@ mk_langs!(
         IrulesParser,
         tree_sitter_irules,
         [irule, irules],
-        ["irules"]
+        ["irules"],
+        "0.1.1"
     ),
     (
         "c",
@@ -169,7 +180,8 @@ mk_langs!(
         CParser,
         tree_sitter_c,
         [c],
-        ["c"]
+        ["c"],
+        "0.24.2"
     ),
     (
         "cpp",
@@ -186,7 +198,8 @@ mk_langs!(
         CppParser,
         tree_sitter_cpp,
         [cpp, cxx, cc, hxx, hpp, h, hh, inc, mm],
-        ["c++", "objc++", "objective-c++"]
+        ["c++", "objc++", "objective-c++"],
+        "0.23.4"
     ),
     (
         "mozcpp",
@@ -200,7 +213,8 @@ mk_langs!(
         MozcppParser,
         tree_sitter_mozcpp,
         [],
-        []
+        [],
+        "1.1.0"
     ),
     (
         "objc",
@@ -216,7 +230,8 @@ mk_langs!(
         ObjcParser,
         tree_sitter_objc,
         [m],
-        ["objc", "objective-c"]
+        ["objc", "objective-c"],
+        "3.0.2"
     ),
     (
         "csharp",
@@ -227,7 +242,8 @@ mk_langs!(
         CsharpParser,
         tree_sitter_c_sharp,
         [cs, csx, cake],
-        ["csharp"]
+        ["csharp"],
+        "0.23.5"
     ),
     (
         "elixir",
@@ -238,7 +254,8 @@ mk_langs!(
         ElixirParser,
         tree_sitter_elixir,
         [ex, exs],
-        ["elixir"]
+        ["elixir"],
+        "0.3.5"
     ),
     (
         "python",
@@ -249,7 +266,8 @@ mk_langs!(
         PythonParser,
         tree_sitter_python,
         [py],
-        ["python"]
+        ["python"],
+        "0.25.0"
     ),
     (
         "typescript",
@@ -260,7 +278,8 @@ mk_langs!(
         TsxParser,
         tree_sitter_tsx,
         [tsx],
-        []
+        [],
+        "0.23.2"
     ),
     (
         "typescript",
@@ -271,7 +290,8 @@ mk_langs!(
         TypescriptParser,
         tree_sitter_typescript,
         [ts, jsw, jsmw],
-        ["typescript"]
+        ["typescript"],
+        "0.23.2"
     ),
     (
         "bash",
@@ -282,7 +302,8 @@ mk_langs!(
         BashParser,
         tree_sitter_bash,
         [sh, bash],
-        ["sh"]
+        ["sh"],
+        "0.25.1"
     ),
     (
         "c-family-helpers",
@@ -293,7 +314,8 @@ mk_langs!(
         CcommentParser,
         tree_sitter_ccomment,
         [],
-        []
+        [],
+        "1.1.0"
     ),
     (
         "c-family-helpers",
@@ -304,7 +326,8 @@ mk_langs!(
         PreprocParser,
         tree_sitter_preproc,
         [],
-        []
+        [],
+        "1.1.0"
     ),
     (
         "perl",
@@ -315,7 +338,8 @@ mk_langs!(
         PerlParser,
         tree_sitter_perl,
         [pl, pm, t],
-        ["perl", "cperl"]
+        ["perl", "cperl"],
+        "1.1.2"
     ),
     (
         "php",
@@ -326,7 +350,8 @@ mk_langs!(
         PhpParser,
         tree_sitter_php,
         [php, phtml, php3, php4, php5, php7, phps],
-        ["php"]
+        ["php"],
+        "0.24.2"
     ),
     (
         "ruby",
@@ -337,7 +362,8 @@ mk_langs!(
         RubyParser,
         tree_sitter_ruby,
         [rb, rake, gemspec],
-        ["ruby"]
+        ["ruby"],
+        "0.23.1"
     ),
     (
         "groovy",
@@ -348,7 +374,8 @@ mk_langs!(
         GroovyParser,
         dekobon_tree_sitter_groovy,
         [groovy, gradle, gvy, gy, gsh],
-        ["groovy"]
+        ["groovy"],
+        "0.2.2"
     )
 );
 
@@ -356,6 +383,83 @@ mk_langs!(
 mod tests {
     use super::*;
     use crate::MetricsError;
+
+    /// Drift guard: every [`LANG::grammar_version`] literal must match the
+    /// `=X.Y.Z` pin in the workspace `Cargo.toml`. Bumping a grammar pin
+    /// without updating the macro literal (or vice versa) fails here, so the
+    /// runtime accessor and the actual dependency graph cannot silently
+    /// disagree (#727). Feature-independent: the version literals and the
+    /// manifest pins both exist regardless of the enabled language set.
+    #[test]
+    fn grammar_version_matches_cargo_toml_pin() {
+        // CARGO_MANIFEST_DIR is the root crate's dir, which is the workspace
+        // root, so this is the manifest that carries `[workspace.dependencies]`.
+        let manifest = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+
+        // LANG variant -> its `[workspace.dependencies]` key. Tsx and
+        // Typescript share the one `tree-sitter-typescript` crate; the
+        // C-family helpers and dialect forks each have their own vendored
+        // `bca-tree-sitter-*` crate (aliased back to `tree-sitter-*`).
+        let dep_key = |lang: LANG| -> &'static str {
+            match lang {
+                LANG::Javascript => "tree-sitter-javascript",
+                LANG::Mozjs => "tree-sitter-mozjs",
+                LANG::Java => "tree-sitter-java",
+                LANG::Go => "tree-sitter-go",
+                LANG::Kotlin => "tree-sitter-kotlin-ng",
+                LANG::Lua => "tree-sitter-lua",
+                LANG::Rust => "tree-sitter-rust",
+                LANG::Tcl => "tree-sitter-tcl",
+                LANG::Irules => "tree-sitter-irules",
+                LANG::C => "tree-sitter-c",
+                LANG::Cpp => "tree-sitter-cpp",
+                LANG::Mozcpp => "tree-sitter-mozcpp",
+                LANG::Objc => "tree-sitter-objc",
+                LANG::Csharp => "tree-sitter-c-sharp",
+                LANG::Elixir => "tree-sitter-elixir",
+                LANG::Python => "tree-sitter-python",
+                LANG::Tsx | LANG::Typescript => "tree-sitter-typescript",
+                LANG::Bash => "tree-sitter-bash",
+                LANG::Ccomment => "tree-sitter-ccomment",
+                LANG::Preproc => "tree-sitter-preproc",
+                LANG::Perl => "tree-sitter-perl",
+                LANG::Php => "tree-sitter-php",
+                LANG::Ruby => "tree-sitter-ruby",
+                LANG::Groovy => "dekobon-tree-sitter-groovy",
+            }
+        };
+
+        // Pull the pinned `=X.Y.Z` for `key` out of the manifest. Handles
+        // both the bare-string form (`key = "=1.2.3"`) and the table form
+        // (`key = { package = ..., version = "=1.1.0" }`): the `"=` token
+        // appears only at the exact-version pin in either shape. The
+        // trailing space in the prefix keeps `tree-sitter-c` from matching
+        // `tree-sitter-c-sharp` / `tree-sitter-cpp`.
+        let pinned = |key: &str| -> String {
+            let prefix = format!("{key} = ");
+            let line = manifest
+                .lines()
+                .map(str::trim)
+                .find(|l| l.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("no `{key}` pin in workspace Cargo.toml"));
+            let Some(quote_eq) = line.find("\"=") else {
+                panic!("`{key}` pin is not an exact `=X.Y.Z` version: {line}")
+            };
+            let after_eq = &line[quote_eq + 2..];
+            let end = after_eq
+                .find('"')
+                .expect("closing quote on the version pin");
+            after_eq[..end].to_owned()
+        };
+
+        for lang in LANG::into_enum_iter() {
+            assert_eq!(
+                lang.grammar_version(),
+                pinned(dep_key(lang)),
+                "grammar_version() for {lang:?} drifted from its Cargo.toml pin",
+            );
+        }
+    }
 
     // The test suite normally runs under the workspace default
     // feature set (`all-languages` is on, see `Cargo.toml`), so

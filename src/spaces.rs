@@ -739,6 +739,51 @@ impl Ast {
         Ok(Self { inner, name })
     }
 
+    /// Read `path`, detect its language, and parse it into a reusable
+    /// [`Ast`] — the file-backed counterpart to [`Ast::parse`].
+    ///
+    /// The file is read through the same text reader [`analyze`] uses, so
+    /// the bytes (after end-of-line normalization and UTF-8 BOM stripping)
+    /// are byte-identical and `from_path(p)?.metrics(opts)` equals
+    /// `analyze` over the same file. The detected language follows the same
+    /// extension / shebang / mode-line rules as the CLI and `analyze`.
+    ///
+    /// Unlike [`analyze`], `from_path` is *no-magic*: it does **not** skip
+    /// generated files — the caller asked for *this* file's tree, so a
+    /// generated file is parsed like any other. It also does not run the
+    /// C/C++ preprocessor pass (matching the in-memory parse path); the
+    /// tree reflects the source as written.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FromPathError`](crate::FromPathError) variant for each
+    /// distinct failure: a real I/O fault
+    /// ([`Io`](crate::FromPathError::Io)), a non-UTF-8 path
+    /// ([`NonUtf8Path`](crate::FromPathError::NonUtf8Path)), an empty /
+    /// binary / non-UTF-8 file
+    /// ([`Unreadable`](crate::FromPathError::Unreadable)), an unrecognized
+    /// language ([`UnknownLanguage`](crate::FromPathError::UnknownLanguage)),
+    /// or a disabled-language build
+    /// ([`Parse`](crate::FromPathError::Parse)). `from_path` never silently
+    /// returns a tree-less success.
+    pub fn from_path(path: &std::path::Path) -> Result<Self, crate::FromPathError> {
+        use crate::FromPathError;
+
+        // The path doubles as the FuncSpace name (an identifier); reject a
+        // lossy conversion rather than corrupting it, matching `analyze`'s
+        // strict default.
+        let name = path.to_str().ok_or(FromPathError::NonUtf8Path)?.to_owned();
+        let code = crate::read_file_with_eol(path)
+            .map_err(FromPathError::Io)?
+            .ok_or(FromPathError::Unreadable)?;
+        let lang = crate::guess_language(&code, path)
+            .0
+            .ok_or(FromPathError::UnknownLanguage)?;
+        Ok(Self::parse(
+            Source::from_bytes(lang, code).with_name(Some(name)),
+        )?)
+    }
+
     /// Run the metric walker against the held parse. Safe to call
     /// repeatedly — the tree is reused.
     ///
@@ -3049,6 +3094,104 @@ end
             )
             .expect("analyze must yield a top-level space");
             assert_eq!(space.metrics.selected(), resolved);
+        }
+    }
+
+    // Gated on `rust`: the happy-path tests parse a `.rs` fixture, so they
+    // bind a live `Ast` — which is uninhabited when no grammar feature is
+    // compiled in (`--no-default-features`), making the binding's tail
+    // unreachable and tripping the `-D warnings` gate. The error-path tests
+    // here are feature-independent but live in the same cohesive module; the
+    // canonical all-features test run (and the minimal-langs leg, which
+    // enables `rust`) still exercises every one.
+    #[cfg(feature = "rust")]
+    mod from_path_tests {
+        use crate::{Ast, FromPathError, LANG, MetricsOptions, SpaceKind};
+        use std::io::Write;
+
+        fn write_file(dir: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+            let path = dir.join(name);
+            let mut f = std::fs::File::create(&path).expect("create temp file");
+            f.write_all(bytes).expect("write temp file");
+            path
+        }
+
+        #[test]
+        fn from_path_parses_and_detects_language() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = write_file(dir.path(), "foo.rs", b"fn main() {\n    let x = 1;\n}\n");
+            let ast = Ast::from_path(&path).expect("from_path parses a .rs file");
+            assert_eq!(ast.language(), LANG::Rust);
+            assert_eq!(ast.source(), b"fn main() {\n    let x = 1;\n}\n");
+            let space = ast
+                .metrics(MetricsOptions::default())
+                .expect("metrics from parsed file");
+            // The walker always pushes a synthetic top-level Unit space.
+            assert_eq!(space.kind, SpaceKind::Unit);
+            assert_eq!(space.name.as_deref(), path.to_str());
+        }
+
+        #[test]
+        fn from_path_normalizes_crlf_for_analyze_parity() {
+            // `from_path` reads through the same text reader `analyze` uses,
+            // so CRLF newlines are normalized to LF before parsing — the
+            // tree (and therefore metrics) cannot disagree with `analyze`
+            // over the same file (#727).
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = write_file(
+                dir.path(),
+                "crlf.rs",
+                b"fn a() {\r\n    let x = 1;\r\n}\r\n",
+            );
+            let ast = Ast::from_path(&path).expect("from_path parses CRLF source");
+            assert!(
+                !ast.source().contains(&b'\r'),
+                "carriage returns must be normalized away; got {:?}",
+                ast.source()
+            );
+        }
+
+        #[test]
+        fn from_path_unknown_extension_is_unknown_language() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = write_file(dir.path(), "mystery.zzz", b"some unrecognized content\n");
+            assert!(matches!(
+                Ast::from_path(&path),
+                Err(FromPathError::UnknownLanguage)
+            ));
+        }
+
+        #[test]
+        fn from_path_missing_file_is_io_error() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("does-not-exist.rs");
+            assert!(matches!(Ast::from_path(&path), Err(FromPathError::Io(_))));
+        }
+
+        #[test]
+        fn from_path_tiny_or_binary_file_is_unreadable() {
+            // Files of three bytes or fewer, and binary/non-UTF-8 files, are
+            // the inputs `analyze` skips; `from_path` reports them as
+            // `Unreadable` rather than handing back an empty tree.
+            let dir = tempfile::tempdir().expect("tempdir");
+            let tiny = write_file(dir.path(), "tiny.rs", b"ab");
+            assert!(matches!(
+                Ast::from_path(&tiny),
+                Err(FromPathError::Unreadable)
+            ));
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn from_path_non_utf8_path_is_rejected() {
+            use std::os::unix::ffi::OsStrExt;
+            // The path doubles as the FuncSpace name (an identifier); a
+            // non-UTF-8 path is rejected before any read.
+            let bad = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/tmp/\xff\xfe.rs"));
+            assert!(matches!(
+                Ast::from_path(bad),
+                Err(FromPathError::NonUtf8Path)
+            ));
         }
     }
 }

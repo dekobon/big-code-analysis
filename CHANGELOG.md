@@ -23,6 +23,37 @@ for historical reference.
 
 ### Added
 
+- Python `Ast` parse-once handle (`big_code_analysis.Ast`) binds the Rust
+  `Ast` seam, so a Python caller parses a source **once** and draws both
+  metrics and the AST from the same parse instead of parsing twice — once
+  in py-tree-sitter, once in `analyze()` (#727). `Ast.parse(code,
+  language)` and `Ast.from_path(path)` construct the handle; `.metrics()`
+  (byte-for-byte `analyze_source`), `.dump()` (the `bca dump` / `/ast` node
+  tree), `.functions()`, `.ops()`, `.count()`, `.strip_comments()`, and
+  `.suppressions()` all reuse the one parse. `from_path` is *no-magic*: it
+  reads through the same text reader as `analyze` (so metrics match) but
+  does not skip generated files and never silently returns nothing. New
+  `AstNodeDict` / `SpanDict` / `FunctionSpanDict` / `OpsDict` /
+  `SuppressionMarkerDict` TypedDicts; all covered by the `make py-stubtest`
+  gate.
+- `Ast::from_path` on the Rust surface (the file-backed counterpart to
+  `Ast::parse`): reads + language-detects + parses one file, returning a
+  new `FromPathError` for each distinct failure (I/O, non-UTF-8 path,
+  empty/binary/non-text file, unknown language, disabled-language build)
+  (#727).
+- `language_grammar_version(language)` (Python) and `LANG::grammar_version`
+  (Rust) return the pinned tree-sitter grammar crate version backing a
+  language (e.g. `"0.25.1"` for `bash`) — the exact upstream version for
+  crates.io grammars, the fork crate version for the vendored forks
+  (#727).
+- Byte offsets in the AST dump span: every dump node's `span` now carries
+  `start_byte` / `end_byte` (0-based, half-open) alongside the existing
+  1-based line/column pairs, across the library, CLI `dump`, web `/ast`,
+  and the Python `dump()` (#727). Structural consumers can slice the
+  original source for any node — including internal nodes whose `value`
+  the dump omits — without re-deriving offsets from lines and columns.
+  (See the **(breaking)** `Span` note under Changed for the Rust
+  struct-shape impact.)
 - `MetricSet::resolved()` returns the set closed under
   `Metric::dependencies` (idempotent), the set-in/set-out counterpart of
   `from_slice_with_deps` (#743).
@@ -1094,6 +1125,16 @@ for historical reference.
   Studio value). Report output is not contract-locked, so this is not a
   SemVer break, but published headline numbers move (#725, follow-up to
   #627).
+- **(breaking)** Lib: the AST `Span` struct (`big_code_analysis::Span`)
+  gains `start_byte` / `end_byte` fields (0-based, half-open byte offsets
+  into the parsed source) and is now `#[non_exhaustive]`. Construct it via
+  the new `Span::new(...)` constructor; struct-literal construction
+  (`Span { start_line, .. }`) and exhaustive destructuring from outside the
+  crate no longer compile. The serialized wire shape only *adds* the two
+  byte fields (both `#[serde(default)]`, so pre-existing line/col-only span
+  JSON still deserializes), so `/ast` and dump consumers are unaffected
+  beyond the additive fields; only Rust callers that built or destructured
+  `Span` by literal are affected. Deferred to the **2.0** milestone (#727).
 - **(breaking)** `LANG::Cpp` (slug `cpp`) is now backed by the upstream
   community `tree-sitter-cpp` grammar instead of the Mozilla fork. The
   fork moved to the new opt-in `LANG::Mozcpp` (see Added). The `cpp`
