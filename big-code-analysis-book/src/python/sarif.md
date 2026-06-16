@@ -70,14 +70,19 @@ the upload to the repository's Code Scanning alerts.
 
 ## What "Unit" findings mean
 
-`to_sarif` emits file-scope (unit-space) findings for every
-metric whose JSON headline at the unit space matches the CLI's
-per-space accessor (`loc.*`, `halstead.*`, `mi.*`, `nom`,
-`nargs`, `nexits`, `tokens`, `abc`, `wmc`, `npm`, `npa`). The
-three exceptions — `cyclomatic`, `cyclomatic.modified`,
-`cognitive` — are skipped at the unit level because the JSON
-exposes the aggregate `sum` across children while the CLI's
-per-space accessor returns just the unit's own scalar.
+`to_sarif` emits a finding at every space — the file unit, each
+container, and each leaf function or closure — whose **own** value
+breaches its limit, exactly matching `bca check -O sarif`. For most
+metrics the JSON headline at a space already is that space's own value.
+The four subtree-aggregate metrics — `cyclomatic`,
+`cyclomatic.modified`, `cognitive`, and `abc` — additionally expose a
+`sum` / `magnitude` rolled up across child spaces; the binding reads
+their per-space `value` field instead, so it reports an interior breach
+(for example a function whose own complexity breaches even though a
+nested closure's does not) without being fooled by the larger
+aggregate. Before the `value` field existed the binding could read only
+the aggregate and so emitted these four only at leaf spaces, missing
+genuine interior breaches the CLI reports (#958).
 
 Unit findings carry `logicalLocations: [{"fullyQualifiedName":
 "<file>"}]`. Nameless non-unit spaces (rare parse-failure case)

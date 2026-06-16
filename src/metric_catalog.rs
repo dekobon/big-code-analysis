@@ -74,12 +74,19 @@ pub struct MetricInfo {
     /// `cyclomatic.modified`, and `abc` (#441). The aggregate equals the
     /// per-space scalar only at a leaf space (no descendant
     /// function/closure spaces); at any interior space — the file-level
-    /// `unit` or a container with descendants — it is larger. Front-ends
-    /// that walk the JSON shape rather than the typed `CodeMetrics` (the
-    /// Python `to_sarif` binding) must therefore emit these only at leaf
-    /// spaces, so they do not emit subtree-wide values masquerading as
-    /// per-space findings the CLI never produces (#855). The flag name
-    /// retains its original unit-only framing.
+    /// `unit` or a container with descendants — it is larger.
+    ///
+    /// This flag describes the `sum`/`*_sum` *aggregate* field, which
+    /// still diverges. As of #958 the wire shape **also** serializes each
+    /// of these four metrics' per-space own value (`cyclomatic.value`,
+    /// `cyclomatic.modified.value`, `cognitive.value`, `abc.value`), so a
+    /// JSON-walking front-end no longer needs this flag to stay correct:
+    /// it reads the own value directly and emits at every space exactly
+    /// like the CLI. The Python `to_sarif` binding was switched to that
+    /// path in #958; before it, the binding emitted these only at leaf
+    /// spaces to avoid subtree-wide values masquerading as per-space
+    /// findings the CLI never produces (#855). The flag name retains its
+    /// original unit-only framing.
     ///
     /// The flag is **not** derivable from the JSON path string: `nexits`
     /// also serialises a `sum` field, but its CLI accessor (`nexits_sum()`)

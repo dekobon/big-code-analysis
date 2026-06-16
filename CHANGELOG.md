@@ -32,6 +32,16 @@ for historical reference.
 - `AuthorId::has_identity()` reports whether a VCS author carries any
   usable name or email key (#817).
 
+- Per-space *own* value for the four subtree-aggregate metrics in the
+  serialized wire shape: `cyclomatic.value`, `cyclomatic.modified.value`,
+  `cognitive.value`, and `abc.value` (#958). Each space already carried
+  its subtree aggregate (`sum` / `magnitude`); the new `value` field adds
+  the per-space scalar — the value the CLI thresholds against, excluding
+  nested function/closure spaces. SemVer-additive: it appears in every
+  output format (JSON / YAML / TOML / CBOR) and in the Python
+  `CyclomaticDict` / `CyclomaticModifiedDict` / `CognitiveDict` /
+  `AbcDict` TypedDicts.
+
 - Opt-in keyed author-identity hashing for `--emit-author-details`
   (#956). A secret key — `--author-hash-key <KEY>` (or the
   `BCA_AUTHOR_HASH_KEY` environment variable, preferred so the secret
@@ -2391,6 +2401,13 @@ for historical reference.
 
 ### Fixed
 
+- Python `to_sarif`: findings are now emitted for the four
+  subtree-aggregate metrics (`cyclomatic`, `cyclomatic.modified`,
+  `cognitive`, `abc`) at *interior* spaces — a function owning nested
+  closures, or a container — whose own value breaches the limit, matching
+  `bca check -O sarif` exactly. The binding now reads the new per-space
+  `value` wire field instead of the leaf-only subtree aggregate, closing
+  the residual under-emission that #855's leaf-only fix left open (#958).
 - Report (CLI): `escape_name` no longer doubles a literal backslash inside
   a Markdown table code span, so a backslash-bearing identifier (e.g. a PHP
   fully-qualified name `Foo\Bar`) renders with a single backslash instead of

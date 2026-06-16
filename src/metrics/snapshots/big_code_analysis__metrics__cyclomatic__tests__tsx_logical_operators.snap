@@ -4,11 +4,13 @@ expression: metric.cyclomatic
 ---
 {
   "sum": 4,
+  "value": 1,
   "average": 4.0,
   "min": 1,
   "max": 3,
   "modified": {
     "sum": 4,
+    "value": 1,
     "average": 4.0,
     "min": 1,
     "max": 3

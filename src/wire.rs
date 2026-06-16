@@ -109,9 +109,18 @@ pub struct Abc {
     pub branches: u64,
     /// Sum of conditions across the space.
     pub conditions: u64,
-    /// Euclidean ABC magnitude.
+    /// Euclidean ABC magnitude across the space (built from the summed
+    /// assignment/branch/condition accumulators).
     #[serde(default = "nan_default", with = "non_finite")]
     pub magnitude: f64,
+    /// This space's own ABC magnitude — `sqrt(A² + B² + C²)` over just
+    /// this space's assignments/branches/conditions, excluding nested
+    /// function/closure spaces. Equals [`magnitude`](Self::magnitude)
+    /// only at a leaf space; it is the per-space scalar the CLI
+    /// thresholds `abc` against (#958). Absent pre-#958 JSON
+    /// deserializes to `NaN` via `nan_default`.
+    #[serde(default = "nan_default", with = "non_finite")]
+    pub value: f64,
     /// Average assignments per space.
     #[serde(default = "nan_default", with = "non_finite")]
     pub assignments_average: f64,
@@ -142,6 +151,7 @@ impl From<&abc::Stats> for Abc {
             branches: s.branches_sum(),
             conditions: s.conditions_sum(),
             magnitude: s.magnitude_sum(),
+            value: s.magnitude(),
             assignments_average: s.assignments_average(),
             branches_average: s.branches_average(),
             conditions_average: s.conditions_average(),
@@ -160,6 +170,15 @@ impl From<&abc::Stats> for Abc {
 pub struct Cognitive {
     /// Cognitive-complexity sum across the space.
     pub sum: u64,
+    /// This space's own cognitive complexity, excluding nested
+    /// function/closure spaces. Equals [`sum`](Self::sum) only at a leaf
+    /// space; at an interior space the sum rolls up descendants while
+    /// this stays the per-space scalar the CLI thresholds against
+    /// (#958). `#[serde(default)]` so pre-#958 JSON (which lacks the
+    /// field) still deserializes — e.g. when `bca diff` reads an older
+    /// metrics file.
+    #[serde(default)]
+    pub value: u64,
     /// Average cognitive complexity per function.
     #[serde(default = "nan_default", with = "non_finite")]
     pub average: f64,
@@ -173,6 +192,7 @@ impl From<&cognitive::Stats> for Cognitive {
     fn from(s: &cognitive::Stats) -> Self {
         Self {
             sum: s.cognitive_sum(),
+            value: s.cognitive(),
             average: s.cognitive_average(),
             min: s.cognitive_min(),
             max: s.cognitive_max(),
@@ -185,6 +205,10 @@ impl From<&cognitive::Stats> for Cognitive {
 pub struct CyclomaticModified {
     /// Modified-cyclomatic sum across the space.
     pub sum: u64,
+    /// This space's own modified-cyclomatic complexity, excluding nested
+    /// function/closure spaces (see [`Cyclomatic::value`]).
+    #[serde(default)]
+    pub value: u64,
     /// Average modified cyclomatic complexity per function.
     #[serde(default = "nan_default", with = "non_finite")]
     pub average: f64,
@@ -199,6 +223,13 @@ pub struct CyclomaticModified {
 pub struct Cyclomatic {
     /// Cyclomatic-complexity sum across the space.
     pub sum: u64,
+    /// This space's own cyclomatic complexity, excluding nested
+    /// function/closure spaces. Equals [`sum`](Self::sum) only at a leaf
+    /// space; at an interior space the sum rolls up descendants while
+    /// this stays the per-space scalar the CLI thresholds against
+    /// (#958). `#[serde(default)]` so pre-#958 JSON still deserializes.
+    #[serde(default)]
+    pub value: u64,
     /// Average cyclomatic complexity per function.
     #[serde(default = "nan_default", with = "non_finite")]
     pub average: f64,
@@ -214,11 +245,13 @@ impl From<&cyclomatic::Stats> for Cyclomatic {
     fn from(s: &cyclomatic::Stats) -> Self {
         Self {
             sum: s.cyclomatic_sum(),
+            value: s.cyclomatic(),
             average: s.cyclomatic_average(),
             min: s.cyclomatic_min(),
             max: s.cyclomatic_max(),
             modified: CyclomaticModified {
                 sum: s.cyclomatic_modified_sum(),
+                value: s.cyclomatic_modified(),
                 average: s.cyclomatic_modified_average(),
                 min: s.cyclomatic_modified_min(),
                 max: s.cyclomatic_modified_max(),
@@ -1410,7 +1443,20 @@ fn run() {
 
         let m = &tree.metrics;
         assert_eq!(m.cyclomatic.as_ref().unwrap().sum, 6, "unit cyclomatic.sum");
+        // The unit's *own* cyclomatic is the base 1 (no decisions at file
+        // top level), while `sum` rolls up both functions and the closure
+        // (#958). `value != sum` here is the whole point of the field.
+        assert_eq!(
+            m.cyclomatic.as_ref().unwrap().value,
+            1,
+            "unit cyclomatic.value (own, excludes children)"
+        );
         assert_eq!(m.cognitive.as_ref().unwrap().sum, 3, "unit cognitive.sum");
+        assert_eq!(
+            m.cognitive.as_ref().unwrap().value,
+            0,
+            "unit cognitive.value (own)"
+        );
         assert_eq!(m.loc.as_ref().unwrap().sloc, 14, "unit loc.sloc");
         assert_eq!(m.nom.as_ref().unwrap().total, 3, "unit nom.total");
         // ABC is finite and distinguishes assignments/branches/conditions —
@@ -1423,10 +1469,24 @@ fn run() {
             .iter()
             .find(|s| s.name.as_deref() == Some("classify"))
             .expect("classify space");
+        let classify_cyclo = classify.metrics.cyclomatic.as_ref().unwrap();
+        assert_eq!(classify_cyclo.sum, 3, "classify cyclomatic.sum");
+        // `classify` is a leaf, so its own value equals its subtree sum.
+        assert_eq!(classify_cyclo.value, 3, "classify cyclomatic.value (leaf)");
+
+        // `run` is an interior space: it owns the `adder` closure child.
+        // Its own cyclomatic is the base 1, but `sum` (2) folds in the
+        // closure's base 1 — the exact interior-space case #958 closes.
+        let run = tree
+            .spaces
+            .iter()
+            .find(|s| s.name.as_deref() == Some("run"))
+            .expect("run space");
+        let run_cyclo = run.metrics.cyclomatic.as_ref().unwrap();
+        assert_eq!(run_cyclo.sum, 2, "run cyclomatic.sum (run + adder closure)");
         assert_eq!(
-            classify.metrics.cyclomatic.as_ref().unwrap().sum,
-            3,
-            "classify cyclomatic.sum",
+            run_cyclo.value, 1,
+            "run cyclomatic.value (own, excludes closure)"
         );
     }
 

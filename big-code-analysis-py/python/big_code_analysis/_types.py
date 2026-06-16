@@ -68,12 +68,15 @@ class SuppressionScopeDict(TypedDict):
 
 
 class AbcDict(TypedDict):
-    """ABC metric block (assignments / branches / conditions)."""
+    """ABC metric block (assignments / branches / conditions). `value` is this space's own
+    magnitude, excluding nested function/closure spaces (#958).
+    """
 
     assignments: int
     branches: int
     conditions: int
     magnitude: float | None
+    value: float | None
     assignments_average: float | None
     branches_average: float | None
     conditions_average: float | None
@@ -86,27 +89,36 @@ class AbcDict(TypedDict):
 
 
 class CognitiveDict(TypedDict):
-    """Cognitive-complexity metric block."""
+    """Cognitive-complexity metric block. `value` is this space's own complexity, excluding nested
+    function/closure spaces (#958); `sum` is the subtree aggregate.
+    """
 
     sum: int
+    value: int
     average: float | None
     min: int
     max: int
 
 
 class CyclomaticModifiedDict(TypedDict):
-    """Modified-cyclomatic sub-block of `CyclomaticDict`."""
+    """Modified-cyclomatic sub-block of `CyclomaticDict`. `value` is this space's own complexity,
+    excluding nested spaces (#958).
+    """
 
     sum: int
+    value: int
     average: float | None
     min: int
     max: int
 
 
 class CyclomaticDict(TypedDict):
-    """Cyclomatic-complexity metric block."""
+    """Cyclomatic-complexity metric block. `value` is this space's own complexity, excluding nested
+    function/closure spaces (#958); `sum` is the subtree aggregate.
+    """
 
     sum: int
+    value: int
     average: float | None
     min: int
     max: int

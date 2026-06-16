@@ -7,6 +7,7 @@ expression: metric.abc
   "branches": 0,
   "conditions": 14,
   "magnitude": 19.79898987322333,
+  "value": 0.0,
   "assignments_average": 7.0,
   "branches_average": 0.0,
   "conditions_average": 7.0,

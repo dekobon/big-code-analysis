@@ -2070,6 +2070,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -2087,6 +2088,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -2104,6 +2106,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -2121,6 +2124,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -2138,6 +2142,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -2162,6 +2167,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2197,6 +2203,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -2221,6 +2228,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -2245,6 +2253,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -2272,6 +2281,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2301,6 +2311,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -2339,6 +2350,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2374,6 +2386,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2407,6 +2420,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -2437,6 +2451,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -2675,6 +2690,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 0,
+                  "value": 0,
                   "average": 0.0,
                   "min": 0,
                   "max": 0
@@ -2707,6 +2723,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -2735,6 +2752,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2763,6 +2781,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2791,6 +2810,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2819,6 +2839,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -2842,6 +2863,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -2867,6 +2889,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -2889,6 +2912,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -2924,6 +2948,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -2957,6 +2982,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -2982,6 +3008,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3004,6 +3031,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3029,6 +3057,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3051,6 +3080,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3076,6 +3106,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3104,6 +3135,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3126,6 +3158,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -3163,6 +3196,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3187,6 +3221,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3215,6 +3250,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3237,6 +3273,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -3266,6 +3303,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -3288,6 +3326,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -3311,6 +3350,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3336,6 +3376,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3361,6 +3402,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3386,6 +3428,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3412,6 +3455,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3436,6 +3480,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3471,6 +3516,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -3496,6 +3542,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3531,6 +3578,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -3566,6 +3614,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -3595,6 +3644,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -3620,6 +3670,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -3650,6 +3701,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -3677,6 +3729,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -3710,6 +3763,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -3744,6 +3798,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3774,6 +3829,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3811,6 +3867,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 0,
                   "average": 7.0,
                   "min": 0,
                   "max": 7
@@ -3844,6 +3901,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -3877,6 +3935,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -3913,6 +3972,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -3942,6 +4002,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -3971,6 +4032,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4000,6 +4062,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4036,6 +4099,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -4069,6 +4133,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4102,6 +4167,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -4166,6 +4232,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 0,
                   "average": 7.0,
                   "min": 0,
                   "max": 7
@@ -4202,6 +4269,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4236,6 +4304,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -4266,6 +4335,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4300,6 +4370,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4332,6 +4403,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4364,6 +4436,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4395,6 +4468,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4427,6 +4501,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -4458,6 +4533,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4492,6 +4568,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4527,6 +4604,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -4565,6 +4643,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 2
@@ -4604,6 +4683,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4642,6 +4722,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4676,6 +4757,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4712,6 +4794,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4745,6 +4828,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4769,6 +4853,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -4797,6 +4882,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 1.25,
                   "min": 0,
                   "max": 3
@@ -4831,6 +4917,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 9,
+                  "value": 0,
                   "average": 9.0,
                   "min": 0,
                   "max": 9
@@ -4861,6 +4948,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -4893,6 +4981,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -4911,6 +5000,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -4937,6 +5027,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -4970,6 +5061,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5000,6 +5092,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -5034,6 +5127,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -5063,6 +5157,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -5094,6 +5189,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -5128,6 +5224,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -5161,6 +5258,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5192,6 +5290,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -5226,6 +5325,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -5302,6 +5402,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -5336,6 +5437,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 5.0,
                   "min": 0,
                   "max": 5
@@ -5354,6 +5456,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -5523,6 +5626,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -5557,6 +5661,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -5629,6 +5734,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -5665,6 +5771,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5700,6 +5807,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5716,6 +5824,7 @@ mod tests {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -5735,6 +5844,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 0,
+                  "value": 0,
                   "average": 0.0,
                   "min": 0,
                   "max": 0
@@ -5757,6 +5867,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -5779,6 +5890,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5813,6 +5925,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5839,6 +5952,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -5863,6 +5977,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5889,6 +6004,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -5915,6 +6031,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5941,6 +6058,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -5968,6 +6086,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 2
@@ -5990,6 +6109,7 @@ mod tests {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
               "sum": 1,
+              "value": 0,
               "average": 1.0,
               "min": 0,
               "max": 1
@@ -6018,6 +6138,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 4,
+                  "value": 4,
                   "average": 4.0,
                   "min": 4,
                   "max": 4
@@ -6044,6 +6165,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 1,
+                  "value": 1,
                   "average": 1.0,
                   "min": 1,
                   "max": 1
@@ -6072,6 +6194,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 0,
                   "average": 7.0,
                   "min": 0,
                   "max": 7
@@ -6100,6 +6223,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -6133,6 +6257,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -6173,6 +6298,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 14,
+                  "value": 0,
                   "average": 14.0,
                   "min": 0,
                   "max": 14
@@ -6189,6 +6315,7 @@ mod tests {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -6206,6 +6333,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -6232,6 +6360,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -6250,6 +6379,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -6274,6 +6404,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -6305,6 +6436,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -6345,6 +6477,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -6369,6 +6502,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -6387,6 +6521,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 2
@@ -6415,6 +6550,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 2
@@ -6432,6 +6568,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -6460,6 +6597,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -6490,6 +6628,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -6521,6 +6660,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -6549,6 +6689,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -6579,6 +6720,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -6610,6 +6752,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 7,
+                  "value": 0,
                   "average": 7.0,
                   "min": 0,
                   "max": 7
@@ -6641,6 +6784,7 @@ mod tests {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -6658,6 +6802,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -6682,6 +6827,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -6711,6 +6857,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -6738,6 +6885,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -6766,6 +6914,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -6795,6 +6944,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -6828,6 +6978,7 @@ mod tests {
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 5.0,
                   "min": 0,
                   "max": 5
@@ -7161,6 +7312,7 @@ mod tests {
                 @r#"
             {
               "sum": 0,
+              "value": 0,
               "average": 0.0,
               "min": 0,
               "max": 0
@@ -7190,6 +7342,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -7221,6 +7374,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -7249,6 +7403,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -7276,6 +7431,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -7304,6 +7460,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -7334,6 +7491,7 @@ end",
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -7365,6 +7523,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -7393,6 +7552,7 @@ end",
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -7427,6 +7587,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -7868,6 +8029,7 @@ end",
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -7901,6 +8063,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -7927,6 +8090,7 @@ end",
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -7953,6 +8117,7 @@ end",
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -7988,6 +8153,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -8022,6 +8188,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -8116,6 +8283,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -8150,6 +8318,7 @@ end",
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 5.0,
                   "min": 0,
                   "max": 5
@@ -8184,6 +8353,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -8736,6 +8906,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -8770,6 +8941,7 @@ end",
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 5.0,
                   "min": 0,
                   "max": 5
@@ -8804,6 +8976,7 @@ end",
                     @r#"
                 {
                   "sum": 4,
+                  "value": 0,
                   "average": 4.0,
                   "min": 0,
                   "max": 4
@@ -8903,6 +9076,7 @@ end",
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -8935,6 +9109,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -9225,6 +9400,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -9273,6 +9449,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -9315,6 +9492,7 @@ end",
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 5.0,
                   "min": 0,
                   "max": 5
@@ -9356,6 +9534,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -9387,6 +9566,7 @@ end",
                     @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -9420,6 +9600,7 @@ end",
                     @r#"
                 {
                   "sum": 6,
+                  "value": 0,
                   "average": 6.0,
                   "min": 0,
                   "max": 6
@@ -9630,6 +9811,7 @@ end",
                     @r#"
                 {
                   "sum": 0,
+                  "value": 0,
                   "average": 0.0,
                   "min": 0,
                   "max": 0
@@ -9966,6 +10148,7 @@ end",
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
               "sum": 1,
+              "value": 1,
               "average": 1.0,
               "min": 1,
               "max": 1
@@ -10050,6 +10233,7 @@ end",
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -10082,6 +10266,7 @@ end",
                     @r#"
                 {
                   "sum": 5,
+                  "value": 0,
                   "average": 5.0,
                   "min": 0,
                   "max": 5
@@ -10115,6 +10300,7 @@ end",
                     @r#"
                 {
                   "sum": 11,
+                  "value": 0,
                   "average": 11.0,
                   "min": 0,
                   "max": 11
@@ -10147,6 +10333,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -10176,6 +10363,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -10205,6 +10393,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -10235,6 +10424,7 @@ end",
                     @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -10269,6 +10459,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -10301,6 +10492,7 @@ end",
                     @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -10461,6 +10653,7 @@ end",
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 0,
+                  "value": 0,
                   "average": 0.0,
                   "min": 0,
                   "max": 0
@@ -10489,6 +10682,7 @@ end",
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 1,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 1
@@ -10519,6 +10713,7 @@ end",
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 2.0,
                   "min": 0,
                   "max": 2
@@ -10549,6 +10744,7 @@ end",
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 3,
+                  "value": 0,
                   "average": 3.0,
                   "min": 0,
                   "max": 3
@@ -10581,6 +10777,7 @@ end",
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
                   "sum": 2,
+                  "value": 0,
                   "average": 1.0,
                   "min": 0,
                   "max": 2

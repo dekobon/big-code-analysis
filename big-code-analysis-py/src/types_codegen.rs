@@ -151,12 +151,15 @@ use FieldType::{
 const SPECS: &[DictSpec] = &[
     DictSpec {
         class: "AbcDict",
-        doc: "ABC metric block (assignments / branches / conditions).",
+        doc: "ABC metric block (assignments / branches / conditions). \
+              `value` is this space's own magnitude, excluding nested \
+              function/closure spaces (#958).",
         fields: &[
             req("assignments", Int),
             req("branches", Int),
             req("conditions", Int),
             req("magnitude", Float),
+            req("value", Float),
             req("assignments_average", Float),
             req("branches_average", Float),
             req("conditions_average", Float),
@@ -170,9 +173,12 @@ const SPECS: &[DictSpec] = &[
     },
     DictSpec {
         class: "CognitiveDict",
-        doc: "Cognitive-complexity metric block.",
+        doc: "Cognitive-complexity metric block. `value` is this space's \
+              own complexity, excluding nested function/closure spaces \
+              (#958); `sum` is the subtree aggregate.",
         fields: &[
             req("sum", Int),
+            req("value", Int),
             req("average", Float),
             req("min", Int),
             req("max", Int),
@@ -180,9 +186,12 @@ const SPECS: &[DictSpec] = &[
     },
     DictSpec {
         class: "CyclomaticModifiedDict",
-        doc: "Modified-cyclomatic sub-block of `CyclomaticDict`.",
+        doc: "Modified-cyclomatic sub-block of `CyclomaticDict`. `value` \
+              is this space's own complexity, excluding nested spaces \
+              (#958).",
         fields: &[
             req("sum", Int),
+            req("value", Int),
             req("average", Float),
             req("min", Int),
             req("max", Int),
@@ -190,9 +199,12 @@ const SPECS: &[DictSpec] = &[
     },
     DictSpec {
         class: "CyclomaticDict",
-        doc: "Cyclomatic-complexity metric block.",
+        doc: "Cyclomatic-complexity metric block. `value` is this space's \
+              own complexity, excluding nested function/closure spaces \
+              (#958); `sum` is the subtree aggregate.",
         fields: &[
             req("sum", Int),
+            req("value", Int),
             req("average", Float),
             req("min", Int),
             req("max", Int),
