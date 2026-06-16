@@ -58,7 +58,7 @@ path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 793.0
+value = 820.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"

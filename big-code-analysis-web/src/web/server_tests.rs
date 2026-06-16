@@ -3149,6 +3149,47 @@ async fn test_web_vcs_trend_points_defaults_to_twelve() {
     );
 }
 
+/// #961: `/vcs/trend` does not use the persistent cache, so the shared
+/// `/vcs` cache knobs are not part of its payload. Sending `cache_dir` (or
+/// `no_cache`) must 400 naming the offender — not silently accept a value
+/// that could never affect execution, as the endpoint used to.
+#[actix_rt::test]
+async fn test_web_vcs_trend_rejects_cache_knobs() {
+    let repo = build_trend_repo();
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    for (field, value) in [("cache_dir", json!("/tmp/bca")), ("no_cache", json!(true))] {
+        let payload = json!({
+            "id": "trend-cache",
+            "repo_path": repo.path().to_str().unwrap(),
+            "points": 3,
+            "span": "300d",
+            field: value,
+        });
+        let req = test::TestRequest::post()
+            .uri("/v1/vcs/trend")
+            .insert_header(ContentType::json())
+            .set_json(&payload)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "a `{field}` knob trend cannot honor must 400, not be silently ignored (#961)"
+        );
+        let parsed: Value = serde_json::from_slice(&test::read_body(resp).await).unwrap();
+        assert_eq!(parsed["error_kind"], json!("unknown_field"));
+        assert!(
+            parsed["error"].as_str().is_some_and(|e| e.contains(field)),
+            "the 400 must name the rejected `{field}`, got: {parsed}"
+        );
+    }
+}
+
 // --- POST /vcs/jit (issues #331 / #580) ----------------------------------
 
 #[actix_rt::test]
