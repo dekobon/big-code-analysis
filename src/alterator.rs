@@ -51,15 +51,18 @@ where
             let (spos_row, spos_column) = node.start_position();
             let (epos_row, epos_column) = node.end_position();
             // Tree-sitter positions are 0-based; the dump shape reports
-            // 1-based rows and columns.
+            // 1-based rows and columns. Byte offsets stay 0-based and
+            // half-open, mirroring tree-sitter (#727).
             (
                 text,
-                Some(Span {
-                    start_line: spos_row + 1,
-                    start_col: spos_column + 1,
-                    end_line: epos_row + 1,
-                    end_col: epos_column + 1,
-                }),
+                Some(Span::new(
+                    spos_row + 1,
+                    spos_column + 1,
+                    epos_row + 1,
+                    epos_column + 1,
+                    node.start_byte(),
+                    node.end_byte(),
+                )),
             )
         } else {
             (text, None)

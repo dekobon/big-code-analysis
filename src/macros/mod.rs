@@ -115,7 +115,7 @@ macro_rules! implement_metric_trait {
 }
 
 macro_rules! mk_lang {
-    ( $( ($feature:literal, $camel:ident, $name:ident, $display: expr, $description:expr) ),* ) => {
+    ( $( ($feature:literal, $camel:ident, $name:ident, $display: expr, $description:expr, $version:literal) ),* ) => {
         /// The list of supported languages.
         ///
         /// Every variant is always defined regardless of the Cargo
@@ -161,6 +161,40 @@ macro_rules! mk_lang {
                 match self {
                     $(
                         LANG::$camel => $display,
+                    )*
+                }
+            }
+
+            /// Returns the pinned tree-sitter grammar crate version that
+            /// backs this variant (e.g. `"0.25.1"` for [`LANG::Bash`]).
+            ///
+            /// The value mirrors the `=X.Y.Z` pin in the workspace
+            /// `Cargo.toml` and is independent of the per-language Cargo
+            /// feature: it is returned even for a variant whose feature is
+            /// disabled in the current build (a build-time constant, no
+            /// grammar crate reference). A drift test in `src/langs.rs`
+            /// asserts every value here matches the manifest pin.
+            ///
+            /// # Grammars vs. forks
+            ///
+            /// For languages backed by an upstream crates.io grammar
+            /// (`bash`, `rust`, `python`, `typescript`, …) this is the
+            /// exact upstream grammar version, so a consumer migrating
+            /// matchers off py-tree-sitter can line node-kind vocabularies
+            /// up against the same pin. For the vendored big-code-analysis
+            /// forks (`mozcpp`, `mozjs`, `tcl`, `ccomment`, `preproc`,
+            /// `kotlin`) the value is the **fork crate's** version
+            /// (published as `bca-tree-sitter-*` / `tree-sitter-kotlin-ng`),
+            /// not an upstream tree-sitter grammar semver — there is no
+            /// upstream release to compare against.
+            ///
+            /// This is part of the value-not-stable surface: the returned
+            /// version changes whenever the grammar pin is bumped.
+            #[must_use]
+            pub fn grammar_version(&self) -> &'static str {
+                match self {
+                    $(
+                        LANG::$camel => $version,
                     )*
                 }
             }
@@ -686,8 +720,8 @@ macro_rules! mk_code {
 }
 
 macro_rules! mk_langs {
-    ( $( ($feature:literal, $camel:ident, $description: expr, $display: expr, $code:ident, $parser:ident, $name:ident, [ $( $ext:ident ),* ], [ $( $emacs_mode:expr ),* ]) ),* ) => {
-        mk_lang!($( ($feature, $camel, $name, $display, $description) ),*);
+    ( $( ($feature:literal, $camel:ident, $description: expr, $display: expr, $code:ident, $parser:ident, $name:ident, [ $( $ext:ident ),* ], [ $( $emacs_mode:expr ),* ], $version:literal) ),* ) => {
+        mk_lang!($( ($feature, $camel, $name, $display, $description, $version) ),*);
         mk_action!($( ($feature, $camel, $parser) ),*);
         mk_extensions!($( ($camel, [ $( $ext ),* ]) ),*);
         mk_emacs_mode!($( ($camel, [ $( $emacs_mode ),* ]) ),*);

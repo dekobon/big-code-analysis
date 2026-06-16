@@ -18,7 +18,13 @@ import os
 from collections.abc import Iterable, Sequence
 from typing import Literal, final
 
-from ._types import FuncSpaceDict
+from ._types import (
+    AstNodeDict,
+    FuncSpaceDict,
+    FunctionSpanDict,
+    OpsDict,
+    SuppressionMarkerDict,
+)
 
 __version__: str
 
@@ -178,6 +184,111 @@ class AnalysisFailure:
     # matching `object.__eq__`.
     def __eq__(self, value: object, /) -> bool: ...
     def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class Ast:
+    """A parsed source file: the AST plus its source bytes, from one parse.
+
+    Parse a file **once** and draw both metrics and the AST from the same
+    parse, instead of parsing twice (once in py-tree-sitter, once in
+    :func:`analyze`). Construct with :meth:`parse` (in-memory source) or
+    :meth:`from_path` (a file); the handle is immutable and thread-safe, so
+    it composes with ``ThreadPoolExecutor`` fan-out like :func:`analyze`.
+
+    Every accessor serializes through the same path the CLI / web surfaces
+    use, so :meth:`dump` node shapes are byte-for-byte identical to ``bca
+    dump`` / ``/ast`` and :meth:`metrics` matches :func:`analyze_source`.
+    """
+
+    # PyO3 `#[staticmethod]` — no `cls`/`self`. The signatures mirror the
+    # Rust `#[pyo3(signature = ...)]`; stubtest (#673) verifies the
+    # positional-only `/`, keyword-only `*`, and defaults stay in lockstep.
+    @staticmethod
+    def parse(
+        code: str | bytes | bytearray,
+        language: str,
+        /,
+        *,
+        name: str | None = None,
+    ) -> Ast:
+        """Parse in-memory ``code`` in ``language`` (case-insensitive).
+
+        ``name`` is an optional logical file name recorded on the top-level
+        space; it need not be a real path. Raises
+        :class:`UnsupportedLanguageError` when ``language`` is unknown or
+        disabled in this build, and :class:`ValueError` when ``code`` is not
+        ``str`` / ``bytes`` / ``bytearray``.
+        """
+
+    @staticmethod
+    def from_path(path: str | os.PathLike[str], /) -> Ast:
+        """Read, language-detect, and parse ``path`` in one call.
+
+        Reads through the same text reader :func:`analyze` uses (so EOL
+        normalization and metric values match), but is *no-magic*: it does
+        not skip generated files and does not run the C/C++ preprocessor.
+        Unlike :func:`analyze` it never silently returns nothing — it raises
+        :class:`OSError` (the file could not be read),
+        :class:`UnsupportedLanguageError` (no language registered for the
+        path), or :class:`ValueError` (a non-UTF-8 path, or an empty /
+        binary / non-UTF-8 file that cannot be parsed as text).
+        """
+
+    @property
+    def language(self) -> str:
+        """The canonical lowercase language slug that parsed this source."""
+
+    @property
+    def source(self) -> bytes:
+        """The parsed source bytes, after EOL normalization. ``dump()`` span
+        byte offsets index into exactly these bytes.
+        """
+
+    def metrics(
+        self,
+        *,
+        exclude_tests: bool = False,
+        metrics: Sequence[str] | None = None,
+    ) -> FuncSpaceDict:
+        """Compute metrics from the held parse (same shape as
+        :func:`analyze_source`). ``metrics`` selects which to compute (all
+        when omitted); two calls with different selections reuse the parse.
+        """
+
+    def dump(self, *, span: bool = True, comment: bool = False) -> AstNodeDict | None:
+        """Return the AST node tree as nested dicts — the ``root`` of the
+        tree ``bca dump`` / ``/ast`` emit. With ``span=True`` each node
+        carries ``{start_line, start_col, end_line, end_col, start_byte,
+        end_byte}`` (byte offsets index into :attr:`source`). ``comment``
+        follows the CLI / ``/ast`` convention: ``comment=False`` (the
+        default) keeps comment nodes, ``comment=True`` omits them. ``None``
+        only if the parse produced no root.
+        """
+
+    def functions(self) -> list[FunctionSpanDict]:
+        """Return each function's name and 1-based line range."""
+
+    def ops(self) -> OpsDict:
+        """Return the Halstead operator/operand tree (deduplicated
+        ``operators`` / ``operands`` per space).
+        """
+
+    def count(self, filters: Sequence[str], /) -> tuple[int, int]:
+        """Count nodes matching ``filters`` (tree-sitter kinds), returning
+        ``(matching, total)`` — the pair ``bca count`` reports.
+        """
+
+    def strip_comments(self) -> bytes | None:
+        """Return the source with comment nodes removed, or ``None`` when the
+        grammar defines no comment nodes.
+        """
+
+    def suppressions(self) -> list[SuppressionMarkerDict]:
+        """Return every in-source suppression marker with its location,
+        scope, dialect, and enclosing function.
+        """
+
     def __repr__(self) -> str: ...
 
 def analyze(
@@ -595,6 +706,23 @@ def supported_languages() -> list[str]:
 
 def language_extensions(language: str, /) -> list[str]:
     """Return the file extensions registered for ``language``.
+
+    Raises
+    ------
+    UnsupportedLanguageError
+        If ``language`` is not a known language name.
+    """
+
+def language_grammar_version(language: str, /) -> str:
+    """Return the pinned tree-sitter grammar crate version backing
+    ``language`` (e.g. ``"0.25.1"`` for ``"bash"``).
+
+    For languages backed by an upstream crates.io grammar this is the exact
+    upstream version, so a consumer migrating matchers off py-tree-sitter
+    can line node-kind vocabularies up against the same pin. For the
+    vendored big-code-analysis forks (``mozcpp``, ``mozjs``, ``tcl``,
+    ``kotlin``) it is the fork crate's version, not an upstream grammar
+    semver.
 
     Raises
     ------

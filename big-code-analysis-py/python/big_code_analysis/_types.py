@@ -17,6 +17,7 @@ from typing import Literal, NotRequired, TypedDict
 
 __all__ = [
     "AbcDict",
+    "AstNodeDict",
     "BusFactorDict",
     "CodeMetricsDict",
     "CognitiveDict",
@@ -24,6 +25,7 @@ __all__ = [
     "CyclomaticModifiedDict",
     "DirectoryBusFactorDict",
     "FuncSpaceDict",
+    "FunctionSpanDict",
     "GroupBusFactorDict",
     "HalsteadDict",
     "JitCommitDict",
@@ -44,6 +46,9 @@ __all__ = [
     "NomDict",
     "NpaDict",
     "NpmDict",
+    "OpsDict",
+    "SpanDict",
+    "SuppressionMarkerDict",
     "SuppressionScopeDict",
     "TokensDict",
     "VcsAggregateDict",
@@ -545,3 +550,68 @@ class FuncSpaceDict(TypedDict):
     spaces: list[FuncSpaceDict]
     metrics: CodeMetricsDict
     suppressed: NotRequired[SuppressionScopeDict]
+
+
+class SpanDict(TypedDict):
+    """A node's source span. `*_line` / `*_col` are 1-based; `start_byte` / `end_byte` are 0-based,
+    half-open byte offsets into `Ast.source` (#727).
+    """
+
+    start_line: int
+    start_col: int
+    end_line: int
+    end_col: int
+    start_byte: int
+    end_byte: int
+
+
+class AstNodeDict(TypedDict):
+    """One AST node returned by `Ast.dump()`: the same node shape the CLI `bca dump` and the web
+    `/ast` endpoint emit. `span` is `None` when span tracking is off; `field_name` is the
+    tree-sitter grammar field through which the parent reaches this node (`None` for the root
+    and anonymous tokens).
+    """
+
+    type: str
+    value: str
+    span: SpanDict | None
+    field_name: str | None
+    children: list[AstNodeDict]
+
+
+class FunctionSpanDict(TypedDict):
+    """A function's name and 1-based line range, as returned by `Ast.functions()` (mirrors the web
+    `/function` endpoint). `name` is `None` when it could not be resolved.
+    """
+
+    name: str | None
+    start_line: int
+    end_line: int
+
+
+class OpsDict(TypedDict):
+    """A Halstead operator/operand tree node returned by `Ast.ops()`: the deduplicated `operators`
+    (n1) and `operands` (n2) for a space, with nested `spaces`.
+    """
+
+    name: str | None
+    name_was_lossy: NotRequired[bool]
+    start_line: int
+    end_line: int
+    kind: str
+    spaces: list[OpsDict]
+    operands: list[str]
+    operators: list[str]
+
+
+class SuppressionMarkerDict(TypedDict):
+    """One in-source suppression marker returned by `Ast.suppressions()`: its 1-based `line`,
+    `target` (`function` / `file`), `scope`, `dialect` (`native` / `lizard`), and enclosing
+    `function` (`None` for file-scoped or out-of-function markers).
+    """
+
+    line: int
+    target: str
+    scope: SuppressionScopeDict
+    dialect: str
+    function: str | None

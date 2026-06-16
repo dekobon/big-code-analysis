@@ -20,6 +20,7 @@
 // by the PyO3 macro).
 
 mod analysis;
+mod ast;
 mod batch;
 // `codegen` exists only to render and drift-check the generated
 // `python/big_code_analysis/_enums.py`. It is exercised purely from
@@ -169,7 +170,7 @@ fn strip_os_error_suffix(message: &str) -> &str {
 /// Kept as a free function (rather than a `From<AnalysisError>` impl
 /// on `PyErr`) so the orphan rules let it live next to the exception
 /// types in this crate.
-fn analysis_error_to_py(err: AnalysisError) -> PyErr {
+pub(crate) fn analysis_error_to_py(err: AnalysisError) -> PyErr {
     match err {
         // CPython's `OSError(errno, msg, filename)` 3-tuple
         // constructor dispatches to the right subclass
@@ -402,7 +403,7 @@ fn analyze_source<'py>(
 ///
 /// `str` is encoded as UTF-8 — the same encoding tree-sitter expects
 /// from the upstream library when it accepts a `&[u8]`.
-fn extract_source_bytes(value: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
+pub(crate) fn extract_source_bytes(value: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     if let Ok(s) = value.cast::<PyString>() {
         return Ok(s.to_str()?.as_bytes().to_vec());
     }
@@ -831,6 +832,10 @@ fn vcs_score_diff<'py>(py: Python<'py>, diff: &str) -> PyResult<Bound<'py, PyAny
 /// the top-level package via the same re-export.
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Module manifest: one registration call per exported symbol. The ABC
+    // score counts those calls, not branching logic; splitting it would
+    // only scatter the export list.
+    // bca: suppress(abc)
     m.add("__version__", PACKAGE_VERSION)?;
     // `METRIC_NAMES` is a `tuple[str, ...]` (immutable) rather than a
     // list because it advertises a constant — callers should not be
@@ -859,6 +864,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<VcsEnvironmentError>(),
     )?;
     m.add_class::<PyAnalysisError>()?;
+    m.add_class::<crate::ast::PyAst>()?;
+    m.add_function(wrap_pyfunction!(crate::ast::language_grammar_version, m)?)?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_batch, m)?)?;

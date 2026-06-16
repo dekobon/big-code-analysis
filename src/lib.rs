@@ -222,7 +222,7 @@ pub mod vcs;
 
 // --- Errors ---
 mod error;
-pub use crate::error::MetricsError;
+pub use crate::error::{FromPathError, MetricsError};
 
 // --- Metric selection ---
 mod metric_set;
@@ -383,12 +383,13 @@ pub mod prelude {
         Ast,
         // Result types
         CodeMetrics,
+        // Errors and options
+        FromPathError,
         FuncSpace,
         // Language enum
         LANG,
         // Metric selection
         Metric,
-        // Errors and options
         MetricsError,
         MetricsOptions,
         Source,

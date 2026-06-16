@@ -64,6 +64,10 @@ enum FieldType {
     LitStr(&'static str),
     /// A reference to another generated `TypedDict` (by class name).
     Dict(&'static str),
+    /// An `Option<…>` reference to another generated `TypedDict` — the JSON
+    /// is the nested object or `null` (e.g. `AstNodeDict.span`, which is
+    /// `null` when span tracking is disabled). Emits `<TypedDict> | None`.
+    OptDict(&'static str),
     /// A `list[<TypedDict>]` of another generated class.
     ListDict(&'static str),
     /// `list[str]`.
@@ -91,6 +95,7 @@ impl FieldType {
             FieldType::Bool => "bool".to_owned(),
             FieldType::LitStr(value) => format!("Literal[\"{value}\"]"),
             FieldType::Dict(name) => name.to_owned(),
+            FieldType::OptDict(name) => format!("{name} | None"),
             FieldType::ListDict(name) => format!("list[{name}]"),
             FieldType::ListStr => "list[str]".to_owned(),
             FieldType::ListInt => "list[int]".to_owned(),
@@ -135,7 +140,8 @@ struct DictSpec {
 }
 
 use FieldType::{
-    Bool, Dict, Float, Int, ListDict, ListInt, ListStr, LitStr, OptStr, PointSeriesMap, Str,
+    Bool, Dict, Float, Int, ListDict, ListInt, ListStr, LitStr, OptDict, OptStr, PointSeriesMap,
+    Str,
 };
 
 /// The full spec, in dependency order (a class referencing another must
@@ -661,6 +667,78 @@ const SPECS: &[DictSpec] = &[
             opt("suppressed", Dict("SuppressionScopeDict")),
         ],
     },
+    // --- `Ast` parse-once seam (#727) ---
+    DictSpec {
+        class: "SpanDict",
+        doc: "A node's source span. `*_line` / `*_col` are 1-based; \
+              `start_byte` / `end_byte` are 0-based, half-open byte offsets \
+              into `Ast.source` (#727).",
+        fields: &[
+            req("start_line", Int),
+            req("start_col", Int),
+            req("end_line", Int),
+            req("end_col", Int),
+            req("start_byte", Int),
+            req("end_byte", Int),
+        ],
+    },
+    DictSpec {
+        class: "AstNodeDict",
+        doc: "One AST node returned by `Ast.dump()`: the same node shape \
+              the CLI `bca dump` and the web `/ast` endpoint emit. `span` is \
+              `None` when span tracking is off; `field_name` is the \
+              tree-sitter grammar field through which the parent reaches \
+              this node (`None` for the root and anonymous tokens).",
+        fields: &[
+            req("type", Str),
+            req("value", Str),
+            req("span", OptDict("SpanDict")),
+            req("field_name", OptStr),
+            req("children", ListDict("AstNodeDict")),
+        ],
+    },
+    DictSpec {
+        class: "FunctionSpanDict",
+        doc: "A function's name and 1-based line range, as returned by \
+              `Ast.functions()` (mirrors the web `/function` endpoint). \
+              `name` is `None` when it could not be resolved.",
+        fields: &[
+            req("name", OptStr),
+            req("start_line", Int),
+            req("end_line", Int),
+        ],
+    },
+    DictSpec {
+        class: "OpsDict",
+        doc: "A Halstead operator/operand tree node returned by \
+              `Ast.ops()`: the deduplicated `operators` (n1) and `operands` \
+              (n2) for a space, with nested `spaces`.",
+        fields: &[
+            req("name", OptStr),
+            opt("name_was_lossy", Bool),
+            req("start_line", Int),
+            req("end_line", Int),
+            req("kind", Str),
+            req("spaces", ListDict("OpsDict")),
+            req("operands", ListStr),
+            req("operators", ListStr),
+        ],
+    },
+    DictSpec {
+        class: "SuppressionMarkerDict",
+        doc: "One in-source suppression marker returned by \
+              `Ast.suppressions()`: its 1-based `line`, `target` \
+              (`function` / `file`), `scope`, `dialect` (`native` / \
+              `lizard`), and enclosing `function` (`None` for file-scoped \
+              or out-of-function markers).",
+        fields: &[
+            req("line", Int),
+            req("target", Str),
+            req("scope", Dict("SuppressionScopeDict")),
+            req("dialect", Str),
+            req("function", OptStr),
+        ],
+    },
 ];
 
 /// The `suppressed` field's wire shape is an internally-tagged enum
@@ -1025,6 +1103,61 @@ mod tests {
                 "VcsDict spec missing NotRequired field {optional}"
             );
         }
+    }
+
+    /// The `Ast` parse-once seam specs (#727) match the live serialized
+    /// wire JSON keys. Each dict is checked against the real output of the
+    /// upstream `Ast` accessor it documents — `dump()` for `AstNodeDict` /
+    /// `SpanDict`, `functions()` for `FunctionSpanDict`, `ops()` for
+    /// `OpsDict`, `suppressions()` for `SuppressionMarkerDict` — so a field
+    /// add / remove / rename on any of those wire structs shifts the JSON
+    /// keys and fails here, forcing the spec (and the regenerated
+    /// `_types.py`) to follow, exactly as `spec_matches_wire_json_keys`
+    /// does for the metric tree. Without this guard the seam's `TypedDict`s
+    /// could silently drift from the dicts Python actually receives.
+    #[test]
+    fn ast_seam_specs_match_wire_json_keys() {
+        use big_code_analysis::{Ast, AstCfg, LANG, Source};
+
+        // A function plus an in-body suppression marker, so functions(),
+        // ops(), and suppressions() all return a non-empty result.
+        let code = "fn f() {\n    // bca: suppress(cognitive)\n    let x = 1;\n}\n";
+        let ast = Ast::parse(Source::from_bytes(LANG::Rust, code.as_bytes().to_vec()))
+            .expect("parse rust fixture");
+
+        // AstNodeDict / SpanDict: the root node and the span it carries.
+        let cfg = AstCfg {
+            id: String::new(),
+            language: "rust".to_owned(),
+            comment: false,
+            span: true,
+        };
+        let root = ast.dump(cfg).root.expect("dump produces a root");
+        let root_value = serde_json::to_value(&root).expect("serialize AstNode");
+        assert_keys_match("AstNodeDict", &root_value);
+        let span_value = root_value
+            .get("span")
+            .filter(|s| s.is_object())
+            .expect("root node carries a span object when span tracking is on");
+        assert_keys_match("SpanDict", span_value);
+
+        // FunctionSpanDict: the wire projection of the one function span.
+        let functions = ast.functions();
+        let span = functions.first().expect("at least one function span");
+        let function_value = serde_json::to_value(span.to_wire()).expect("serialize FunctionSpan");
+        assert_keys_match("FunctionSpanDict", &function_value);
+
+        // OpsDict: the top-level operator/operand tree. `name_was_lossy` is
+        // NotRequired (skipped when false), so the required keys match.
+        let ops = ast.ops().expect("ops tree");
+        let ops_value = serde_json::to_value(ops.to_wire()).expect("serialize Ops");
+        assert_keys_match("OpsDict", &ops_value);
+
+        // SuppressionMarkerDict: the one in-body marker.
+        let markers = ast.suppressions();
+        let marker = markers.first().expect("at least one suppression marker");
+        let marker_value = serde_json::to_value(marker).expect("serialize SuppressionMarker");
+        assert_keys_match("SuppressionMarkerDict", &marker_value);
     }
 
     /// The VCS report / trend / JIT envelope specs (#664) match the live

@@ -104,11 +104,17 @@ async fn test_web_ast() {
     // field_name values mirror the C grammar: `declaration` names its
     // `type` and `declarator` fields, `init_declarator` names its
     // `declarator` and `value` fields. Anonymous tokens (`=`, `;`)
-    // carry no field name. Regression coverage for #244. Span is a
-    // flat named object `{start_line, start_col, end_line, end_col}`
-    // (#535); the four values preserve the former tuple order.
-    let span =
-        |sr, sc, er, ec| json!({"start_line": sr, "start_col": sc, "end_line": er, "end_col": ec});
+    // carry no field name. Regression coverage for #244. Span is a flat
+    // named object `{start_line, start_col, end_line, end_col, start_byte,
+    // end_byte}` (#535, byte offsets added in #727). The fixture is
+    // single-line ASCII, so a 1-based column maps directly to a 0-based
+    // byte offset: start_byte = start_col - 1, end_byte = end_col - 1.
+    let span = |sr, sc, er, ec| {
+        json!({
+            "start_line": sr, "start_col": sc, "end_line": er, "end_col": ec,
+            "start_byte": sc - 1, "end_byte": ec - 1,
+        })
+    };
     let expected = json!({
         "id": "1234",
         // The /ast envelope echoes the resolved language slug, matching the
@@ -204,9 +210,15 @@ async fn test_web_ast_string() {
     // field_name values mirror the JS grammar: `variable_declarator`
     // names its `name` and `value` children; `variable_declaration`
     // and its `var` keyword / `;` token are unnamed. Regression
-    // coverage for #244. Span is a flat named object (#535).
-    let span =
-        |sr, sc, er, ec| json!({"start_line": sr, "start_col": sc, "end_line": er, "end_col": ec});
+    // coverage for #244. Span is a flat named object (#535) with byte
+    // offsets (#727). The fixture is single-line ASCII, so a 1-based
+    // column maps directly to a 0-based byte offset.
+    let span = |sr, sc, er, ec| {
+        json!({
+            "start_line": sr, "start_col": sc, "end_line": er, "end_col": ec,
+            "start_byte": sc - 1, "end_byte": ec - 1,
+        })
+    };
     let expected = json!({
         "id": "1234",
         // /ast echoes the resolved language slug (#654); `foo.js` is

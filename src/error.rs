@@ -1,3 +1,11 @@
+// bca: suppress-file(halstead)
+// This module is nothing but error-enum definitions and their idiomatic
+// `Display`/`Error`/`From` impls. The file-level Halstead effort is the sum
+// over many individually-trivial `match` arms (one short string per
+// variant); no single function here is hard to follow. Splitting the error
+// types across files to dodge the aggregate would scatter the error taxonomy
+// for no reader benefit.
+
 //! Error type returned from the library's top-level entry points.
 //!
 //! Prior to this module, every entry point returned `Option<…>` and
@@ -109,3 +117,72 @@ impl std::fmt::Display for MetricsError {
 }
 
 impl std::error::Error for MetricsError {}
+
+/// Error returned by [`Ast::from_path`][crate::Ast::from_path].
+///
+/// `from_path` reads, language-detects, and parses a file in one call, so it
+/// can fail in more ways than the in-memory [`Ast::parse`][crate::Ast::parse]
+/// (which only reports [`MetricsError`]). Unlike [`analyze`][crate::analyze],
+/// `from_path` does not silently skip files: every reason it cannot produce a
+/// tree surfaces as a distinct variant so the caller — who asked for *this*
+/// file's tree — learns why.
+///
+/// The enum is `#[non_exhaustive]`; match with a trailing `_` arm to stay
+/// forward-compatible.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum FromPathError {
+    /// The file could not be read (a genuine I/O fault: missing file,
+    /// permission denied, hardware error). Carries the underlying
+    /// [`std::io::Error`].
+    Io(std::io::Error),
+    /// The path is not valid UTF-8. The path doubles as the resulting
+    /// [`FuncSpace`][crate::FuncSpace] name (an identifier used as a map key
+    /// and in JSON output), so a lossy conversion is rejected rather than
+    /// silently corrupting correlation — mirroring `analyze`'s strict
+    /// default.
+    NonUtf8Path,
+    /// The file is empty, too small, binary, or encoded in an unsupported
+    /// encoding (UTF-16, invalid UTF-8) — the same files
+    /// [`analyze`][crate::analyze] skips. `from_path` reuses the library's
+    /// text reader for byte-exact metric parity with `analyze`, so these
+    /// inputs cannot yield a tree.
+    Unreadable,
+    /// No language is registered for the path (unknown extension and no
+    /// recognizable shebang / mode line).
+    UnknownLanguage,
+    /// The detected language's per-language Cargo feature is not enabled in
+    /// this build (carries the [`MetricsError::LanguageDisabled`] raised by
+    /// [`Ast::parse`][crate::Ast::parse]).
+    Parse(MetricsError),
+}
+
+impl std::fmt::Display for FromPathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "could not read file: {e}"),
+            Self::NonUtf8Path => f.write_str("path is not valid UTF-8"),
+            Self::Unreadable => {
+                f.write_str("file is empty, binary, or not valid UTF-8 source text")
+            }
+            Self::UnknownLanguage => f.write_str("no language is registered for this path"),
+            Self::Parse(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for FromPathError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Parse(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<MetricsError> for FromPathError {
+    fn from(e: MetricsError) -> Self {
+        Self::Parse(e)
+    }
+}
