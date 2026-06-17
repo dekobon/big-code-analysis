@@ -141,8 +141,9 @@ impl BaselineDiff {
                 // Direction-aware bucketing: for the lower-is-worse
                 // `mi.*` family a value *drop* is the regression and a
                 // *rise* the improvement, so the Greater/Less mapping
-                // inverts. Reuse the central catalog predicate (the same
-                // one the threshold gate consults at `thresholds.rs:818`)
+                // inverts. Reuse the central catalog predicate
+                // (`metric_catalog::lower_is_worse`, the same one the
+                // threshold gate consults via `thresholds::breaches_limit`)
                 // rather than hard-coding the `mi.*` list here.
                 let (worse, better) =
                     if big_code_analysis::metric_catalog::lower_is_worse(&n.metric) {
