@@ -188,8 +188,8 @@ fn lookup_extractor(name: &str) -> Option<&'static MetricExtractor> {
 }
 
 /// Reject a metric-gate threshold that is not a finite, non-negative
-/// `f64`. NaN and infinities silently disable an `x >= threshold` gate
-/// (`x >= NaN`/`x >= inf` is always `false`), and a negative limit trips
+/// `f64`. NaN and infinities silently disable an `x > threshold` gate
+/// (`x > NaN`/`x > inf` is always `false`), and a negative limit trips
 /// on every non-negative score; both are user errors, not gates.
 pub(crate) fn validate_threshold_value(value: f64, name: &str) -> Result<(), String> {
     if !value.is_finite() || value < 0.0 {
