@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// DoA term assembly, the flat output DTOs, and the early-return guards
-// summed across a dozen small helpers — per-function nexits peaks at 2),
-// not per-function logic complexity (cognitive/cyclomatic stay enforced)
-// — mirrors the sibling `score.rs` / `jit.rs`.
-
 //! Directory- and repo-level **bus factor** (a.k.a. truck factor) over a
 //! change-history walk, via the Avelino *Degree-of-Authorship* (DoA)
 //! heuristic (issue #332).

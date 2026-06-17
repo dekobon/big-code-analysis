@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// format-dispatch `emit` match + the small write helpers), not
-// per-function logic complexity (cognitive/cyclomatic stay enforced) —
-// mirrors the sibling `vcs_command.rs`.
-
 //! `bca vcs commit` — score a single commit (or an arbitrary diff) for
 //! just-in-time (commit-level) defect-induction risk (issues #331 / #580).
 //!

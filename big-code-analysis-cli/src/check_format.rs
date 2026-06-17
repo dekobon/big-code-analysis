@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nexits, nom)
-// Check-result output writers (CI annotation / aggregated formats); the
-// offenders are mechanical-writer and many-fn aggregation artifacts, not
-// per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Aggregated violation-document output formats for `bca check`.
 //!
 //! `bca check` walks the source tree, collects [`Violation`] records,

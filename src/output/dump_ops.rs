@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// Terminal operator-dump serializer; the offenders are mechanical-writer
-// aggregation artifacts, not per-function logic complexity.
-
 use termcolor::{Color, StandardStream, WriteColor};
 
 use crate::ops::Ops;

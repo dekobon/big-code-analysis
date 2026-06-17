@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// Metrics HTTP handler glue; file-level halstead and summed nargs are many-fn
-// aggregation artifacts, not per-function logic complexity.
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

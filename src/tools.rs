@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// Misc tool helpers; the offenders are many-fn aggregation artifacts, not
-// per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of
@@ -73,6 +69,50 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 /// classifier tolerates only when more file follows (see `read_file_with_eol`).
 const UTF8_PROBE_BYTES: usize = 64;
 
+/// Decides whether a file's probe prefix is decodable UTF-8 and where its
+/// real content starts. Returns the post-BOM content slice when the probe
+/// is acceptable, or `None` when the file should be skipped.
+///
+/// A UTF-16 BE/LE BOM marks a file whose body is interleaved-NUL UTF-16,
+/// which the metric engine cannot parse: stripping the BOM and continuing
+/// would let the ASCII-dominant body pass the UTF-8 probe (each NUL is a
+/// valid single-byte UTF-8 scalar) and reach the parser as garbage (issue
+/// #803). Skip such files, mirroring `is_generated`'s documented stance
+/// that UTF-16 source is unsupported. A UTF-8 BOM, by contrast, prefixes
+/// genuine UTF-8 and is stripped so the body parses normally.
+/// `starts_with` is bounds-safe for a probe shorter than the BOM.
+///
+/// Validation is at the byte level rather than via a lossy string
+/// round-trip. The probe is only the first `UTF8_PROBE_BYTES`, so a file
+/// longer than the probe may legitimately have its last multibyte
+/// character split across the window boundary. `String::from_utf8_lossy`
+/// could not distinguish that benign truncation (issue #746) from a real
+/// encoding error, and its replacement character `U+FFFD` collided with
+/// the same scalar appearing legitimately in the source (issue #758).
+/// `probe_truncated` is true only when the file continues past the probe;
+/// when the probe is the whole file there is no more data to complete a
+/// trailing partial sequence, so such a sequence is genuine corruption.
+fn probe_decodable_prefix(start: &[u8], file_size: usize, probe_len: usize) -> Option<&[u8]> {
+    let start = if start.starts_with(b"\xFE\xFF") || start.starts_with(b"\xFF\xFE") {
+        return None;
+    } else if let Some(rest) = start.strip_prefix(b"\xEF\xBB\xBF") {
+        rest
+    } else {
+        start
+    };
+
+    let probe_truncated = file_size > probe_len;
+    match std::str::from_utf8(start) {
+        Ok(_) => {}
+        // Only a trailing incomplete multibyte sequence: the bytes before
+        // `valid_up_to()` are valid UTF-8 and the truncated tail is
+        // completed by data later in the file.
+        Err(e) if e.error_len().is_none() && probe_truncated => {}
+        Err(_) => return None,
+    }
+    Some(start)
+}
+
 /// Reads a file, normalising all CR-only and CRLF line endings to LF, and ensures
 /// the buffer ends with exactly one `\n`. Returns `None` for files ≤ 3 bytes or
 /// files that appear to be non-UTF-8.
@@ -120,44 +160,12 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
         Err(e) => return Err(e),
     }
 
-    // A UTF-16 BE/LE BOM marks a file whose body is interleaved-NUL UTF-16,
-    // which the metric engine cannot parse: stripping the BOM and continuing
-    // would let the ASCII-dominant body pass the UTF-8 probe (each NUL is a
-    // valid single-byte UTF-8 scalar) and reach the parser as garbage (issue
-    // #803). Skip such files, mirroring `is_generated`'s documented stance
-    // that UTF-16 source is unsupported. A UTF-8 BOM, by contrast, prefixes
-    // genuine UTF-8 and is stripped so the body parses normally. `starts_with`
-    // is bounds-safe for a probe shorter than the BOM (a file of 4..=64 bytes
-    // here, since file_size <= 3 already returned above).
-    let start = if start.starts_with(b"\xFE\xFF") || start.starts_with(b"\xFF\xFE") {
+    // Sniff the probe: reject UTF-16 / corrupt files, strip a UTF-8 BOM,
+    // and anchor the buffer at the post-BOM content. `None` means skip the
+    // file (see `probe_decodable_prefix`).
+    let Some(start) = probe_decodable_prefix(&start, file_size, probe_len) else {
         return Ok(None);
-    } else if let Some(rest) = start.strip_prefix(b"\xEF\xBB\xBF") {
-        rest
-    } else {
-        &start
     };
-
-    // Validate the probe as UTF-8 at the byte level rather than via a lossy
-    // string round-trip. The probe is only the first `UTF8_PROBE_BYTES`, so a
-    // file longer than the probe may legitimately have its last multibyte
-    // character split across the window boundary. `String::from_utf8_lossy`
-    // could not distinguish that benign truncation (issue #746) from a real
-    // encoding error, and its replacement character `U+FFFD` collided with the
-    // same scalar appearing legitimately in the source (issue #758).
-    //
-    // `probe_truncated` is true only when the file continues past the probe;
-    // when the probe is the whole file there is no more data to complete a
-    // trailing partial sequence, so such a sequence is genuine corruption.
-    let probe_truncated = file_size > probe_len;
-    match std::str::from_utf8(start) {
-        Ok(_) => {}
-        Err(e) if e.error_len().is_none() && probe_truncated => {
-            // Only a trailing incomplete multibyte sequence: the bytes before
-            // `valid_up_to()` are valid UTF-8 and the truncated tail is
-            // completed by data later in the file.
-        }
-        Err(_) => return Ok(None),
-    }
 
     let mut data = Vec::with_capacity(file_size + 2);
     data.extend_from_slice(start);

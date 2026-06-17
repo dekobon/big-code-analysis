@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// Mechanical baseline-vs-baseline diff + column-width formatting; the
-// offenders are many-fn / impl-aggregate artifacts, not per-function logic
-// complexity (cognitive/cyclomatic stay enforced).
-
 //! Structured diff between two baseline files for `bca diff-baseline`
 //! (issue #382). Replaces the in-the-reviewer's-head TOML diff parsing
 //! that `recipes/baselines.md` used to walk through: it pairs entries

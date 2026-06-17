@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// Terminal colored-tree writer: the offending sums (halstead.effort, nargs,
-// nexits) are many-function aggregation artifacts, and the per-function
-// nexits come from `?`-on-every-colored-write error propagation, not logic
-// complexity — the same archetype as the sibling output writers (formats.rs,
-// check_format.rs, dispatch.rs) which carry the identical marker.
-
 //! Terminal per-metric dump serializer.
 //!
 //! The dump tree is driven by [`wire::CodeMetrics`] — the serialized

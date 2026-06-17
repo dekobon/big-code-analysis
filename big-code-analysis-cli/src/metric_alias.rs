@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// Catalog-driven name mapping: the offenders are the doc-heavy module's
-// string-literal volume and the summed-arg count across the two small
-// normalize helpers, not per-function logic complexity (cognitive /
-// cyclomatic stay enforced).
-
 //! Shared metric-name aliasing between `bca check --threshold` and
 //! `bca diff --metric` (issue #514).
 //!

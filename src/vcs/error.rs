@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead)
-// File-level halstead is a many-arm aggregation artifact (the `Display`
-// match grows one arm per variant), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced) — mirrors the sibling vcs modules.
-
 //! Error type for the change-history (VCS) metrics pipeline.
 //!
 //! Generic over the backend: backend-specific failures (a `gix` open
@@ -127,6 +122,12 @@ impl Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // bca: suppress(cyclomatic)
+        // Exhaustive one-write-per-variant Display match: cyclomatic here
+        // is the variant count, not branching logic, and the arms mirror
+        // the compile-enforced `Error` enum one-to-one. Splitting it into
+        // sub-matches would be an arbitrary partition with no semantic
+        // boundary that would drift out of sync with the enum.
         match self {
             Self::NotARepository(path) => {
                 write!(

@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// serde event types + the directory/IO helpers, each with early-return
-// guards), not per-function logic complexity (cognitive/cyclomatic stay
-// enforced).
-
 //! Persistent change-history cache, keyed by `HEAD` SHA and repo identity
 //! (issue #334).
 //!

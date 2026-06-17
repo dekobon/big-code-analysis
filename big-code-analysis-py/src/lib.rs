@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// PyO3 module registration + thin analyze wrappers; `_native`'s nexits is one
-// `?` per `m.add(...)` registration line (boilerplate), and the rest are many-fn
-// aggregation artifacts, not per-function logic complexity.
-
 //! `PyO3` entry point for the `big_code_analysis._native` extension
 //! module.
 //!

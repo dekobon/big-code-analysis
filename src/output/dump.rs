@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// Terminal dump serializer; the offenders are mechanical-writer aggregation
-// artifacts, not per-function logic complexity.
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nexits, nom)
-// FuncSpace construction helpers plus the `CodeMetrics` serde / `Display`
-// impls; the offenders are mechanical-writer and many-fn aggregation
-// artifacts, not per-function logic complexity (cognitive/cyclomatic enforced).
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of
@@ -1158,7 +1153,7 @@ fn apply_comment_suppression<T: ParserTrait>(
 /// line-shared suppression attribution (issue #289). The `children`
 /// scratch buffer is drained empty here so callers can reuse its
 /// allocation across iterations.
-fn push_children<'a>(
+pub(crate) fn push_children<'a>(
     cursor: &mut Cursor<'a>,
     node: &Node<'a>,
     new_level: usize,
@@ -1184,6 +1179,12 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     name: Option<String>,
     options: MetricsOptions,
 ) -> Result<FuncSpace, MetricsError> {
+    // bca: suppress(cognitive, abc)
+    // The single AST-walk loop. Per-node work is already factored into
+    // push_synthetic_unit_root / finalize / compute_per_node /
+    // apply_comment_suppression / push_children; the residual branches
+    // each guard a distinct walk invariant (#182/#289/#522/#722). There
+    // is no cohesive sub-loop to lift without inventing a `walk_part2`.
     // The suppression-warning diagnostic uses the caller-supplied
     // name when present; otherwise we fall back to a placeholder so
     // the warning still locates the offending line. All path-based

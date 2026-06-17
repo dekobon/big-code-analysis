@@ -12,65 +12,436 @@ tier = "soft"
 headroom = 0.95
 
 [[entry]]
-path = "big-code-analysis-cli/src/baseline_diff.rs"
-qualified = "<file>"
-start_line = 1
-metric = "nom"
-value = 29.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/deprecations.rs"
-qualified = "<file>"
-start_line = 1
-metric = "halstead.effort"
-value = 110647.96133609534
-
-[[entry]]
-path = "big-code-analysis-cli/src/deprecations.rs"
-qualified = "<file>"
-start_line = 1
-metric = "nargs"
-value = 13.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/manifest.rs"
+path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 767.0
+value = 1080.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/baseline.rs"
+qualified = "Baseline::from_str"
+start_line = 380
+metric = "halstead.effort"
+value = 56942.06556051136
+
+[[entry]]
+path = "big-code-analysis-cli/src/baseline.rs"
+qualified = "Baseline::match_in_group"
+start_line = 581
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/baseline_diff.rs"
+qualified = "BaselineDiff::column_widths"
+start_line = 298
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/baseline_diff.rs"
+qualified = "BaselineDiff::compute"
+start_line = 109
+metric = "halstead.effort"
+value = 116932.193453204
+
+[[entry]]
+path = "big-code-analysis-cli/src/baseline_diff.rs"
+qualified = "BaselineDiff::compute"
+start_line = 109
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/check_format.rs"
+qualified = "AggregatedFormat::dump"
+start_line = 89
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/check_format.rs"
+qualified = "write_github_annotations"
+start_line = 173
+metric = "halstead.effort"
+value = 47834.17129195417
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2918.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "EffectiveConfig::from_resolved"
+start_line = 338
+metric = "nargs"
+value = 14.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "compute_since_diff"
+start_line = 2620
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "compute_since_diff"
+start_line = 2620
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "emit_check_results"
+start_line = 945
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "filter_by_baseline"
+start_line = 756
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "print_effective_config"
+start_line = 224
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "run"
+start_line = 1458
+metric = "halstead.effort"
+value = 136001.1105471366
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "run_check"
+start_line = 55
+metric = "halstead.effort"
+value = 66597.90133805902
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "run_command_init"
+start_line = 2446
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "run_command_metrics"
+start_line = 1776
+metric = "halstead.effort"
+value = 66645.11013574834
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "run_command_report"
+start_line = 2008
+metric = "halstead.effort"
+value = 62475.13739950393
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "scaffold_baseline"
+start_line = 2378
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "write_aggregate"
+start_line = 1899
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/diff.rs"
+qualified = "materialize_tree"
+start_line = 477
+metric = "halstead.effort"
+value = 60390.01093335322
+
+[[entry]]
+path = "big-code-analysis-cli/src/diff.rs"
+qualified = "materialize_tree"
+start_line = 477
+metric = "nargs"
+value = 10.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/diff.rs"
+qualified = "materialize_tree"
+start_line = 477
+metric = "nexits"
+value = 9.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/diff.rs"
+qualified = "parse_ls_tree_record"
+start_line = 568
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/dispatch.rs"
+qualified = "dispatch_exemptions"
+start_line = 536
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/dispatch.rs"
+qualified = "dispatch_metrics"
+start_line = 191
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/dispatch.rs"
+qualified = "dispatch_ops"
+start_line = 252
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 1418.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_language_section"
+start_line = 1345
+metric = "halstead.effort"
+value = 55025.638284623434
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_language_section"
+start_line = 1345
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_table_classed"
+start_line = 516
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_table_classed_with_tooltips"
+start_line = 556
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_table_core"
+start_line = 574
+metric = "halstead.effort"
+value = 91596.1159616176
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_table_core"
+start_line = 574
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report.rs"
+qualified = "write_table_with_tooltips"
+start_line = 543
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/lib.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 3324.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/lib.rs"
+qualified = "legacy_hint"
+start_line = 3221
+metric = "halstead.effort"
+value = 59351.805921378844
+
+[[entry]]
+path = "big-code-analysis-cli/src/markdown_report.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 853.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/markdown_report.rs"
+qualified = "write_language_section"
+start_line = 962
+metric = "halstead.effort"
+value = 52993.355167839094
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 993.0
+value = 987.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/metric_alias.rs"
+path = "big-code-analysis-cli/src/markdown_report/sections.rs"
+qualified = "emit_section_md"
+start_line = 68
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/metric_diff.rs"
+qualified = "MetricDiff::from_sets"
+start_line = 177
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/threshold_suggestion.rs"
+qualified = "closest_names"
+start_line = 77
+metric = "halstead.effort"
+value = 55785.628204736706
+
+[[entry]]
+path = "big-code-analysis-cli/src/threshold_suggestion.rs"
+qualified = "closest_names"
+start_line = 77
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/threshold_suggestion.rs"
+qualified = "edit_distance_with_cutoff"
+start_line = 28
+metric = "halstead.effort"
+value = 66737.04848699087
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 start_line = 1
-metric = "nexits"
-value = 5.0
+metric = "loc.sloc"
+value = 1015.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
+qualified = "ThresholdSet::evaluate_with_policy"
+start_line = 892
+metric = "halstead.effort"
+value = 73855.97988892866
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 820.0
+value = 815.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/vcs_jit.rs"
-qualified = "<file>"
-start_line = 1
+path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "build_options"
+start_line = 231
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "emit"
+start_line = 444
 metric = "nexits"
-value = 6.0
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "rank"
+start_line = 321
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "write_csv"
+start_line = 556
+metric = "halstead.effort"
+value = 50108.004893127785
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "write_table"
+start_line = 494
+metric = "nexits"
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_jit.rs"
 qualified = "emit"
-start_line = 119
+start_line = 113
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_report.rs"
+qualified = "write_html_body"
+start_line = 620
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-py/src/batch.rs"
+qualified = "PyAnalysisError::__repr__"
+start_line = 166
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-py/src/batch.rs"
+qualified = "analyze_batch"
+start_line = 369
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-py/src/batch.rs"
+qualified = "analyze_batch"
+start_line = 369
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-py/src/batch.rs"
+qualified = "analyze_paths"
+start_line = 622
+metric = "nargs"
+value = 12.0
+
+[[entry]]
+path = "big-code-analysis-py/src/batch.rs"
+qualified = "analyze_paths"
+start_line = 622
 metric = "nexits"
 value = 5.0
 
@@ -79,74 +450,886 @@ path = "big-code-analysis-py/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 918.0
+value = 913.0
+
+[[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "PyVcsOptions::py_new"
+start_line = 599
+metric = "nargs"
+value = 15.0
+
+[[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "_native"
+start_line = 830
+metric = "nexits"
+value = 35.0
+
+[[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "analyze"
+start_line = 284
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "extract_as_of"
+start_line = 532
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "register_vcs_submodule"
+start_line = 893
+metric = "nexits"
+value = 14.0
+
+[[entry]]
+path = "big-code-analysis-py/src/lib.rs"
+qualified = "vcs_trend"
+start_line = 746
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-py/src/node.rs"
+qualified = "PyNode"
+start_line = 135
+metric = "nom"
+value = 51.0
+
+[[entry]]
+path = "big-code-analysis-py/src/node.rs"
+qualified = "PyNode"
+start_line = 135
+metric = "wmc"
+value = 58.0
+
+[[entry]]
+path = "big-code-analysis-py/src/node.rs"
+qualified = "PyNode::span"
+start_line = 227
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-py/src/sarif.rs"
+qualified = "collect_offenders"
+start_line = 523
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "big-code-analysis-py/src/sarif.rs"
+qualified = "extract_line_number"
+start_line = 350
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-py/src/sarif.rs"
+qualified = "resolve_thresholds"
+start_line = 267
+metric = "nexits"
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 start_line = 1
-metric = "nargs"
+metric = "loc.sloc"
+value = 875.0
+
+[[entry]]
+path = "big-code-analysis-py/src/vcs.rs"
+qualified = "options_from"
+start_line = 80
+metric = "halstead.effort"
+value = 47661.70050580648
+
+[[entry]]
+path = "big-code-analysis-py/src/vcs.rs"
+qualified = "options_from"
+start_line = 80
+metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "big-code-analysis-py/src/walk.rs"
+path = "big-code-analysis-web/src/web/server.rs"
 qualified = "<file>"
 start_line = 1
-metric = "nexits"
-value = 5.0
+metric = "loc.sloc"
+value = 1677.0
 
 [[entry]]
-path = "big-code-analysis-web/src/web/negotiate.rs"
-qualified = "<file>"
-start_line = 1
+path = "big-code-analysis-web/src/web/server.rs"
+qualified = "register_endpoints"
+start_line = 1325
+metric = "abc"
+value = 91.0
+
+[[entry]]
+path = "big-code-analysis-web/src/web/server.rs"
+qualified = "run_parse"
+start_line = 157
 metric = "halstead.effort"
-value = 135040.16842105263
+value = 82478.1543040951
 
 [[entry]]
-path = "big-code-analysis-web/src/web/negotiate.rs"
-qualified = "<file>"
-start_line = 1
-metric = "nargs"
-value = 12.0
-
-[[entry]]
-path = "src/alterator.rs"
-qualified = "<file>"
-start_line = 1
-metric = "wmc"
-value = 66.0
-
-[[entry]]
-path = "src/count.rs"
-qualified = "<file>"
-start_line = 1
+path = "big-code-analysis-web/src/web/server.rs"
+qualified = "run_with_timeout"
+start_line = 1612
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/nargs.rs"
-qualified = "<file>"
-start_line = 1
-metric = "wmc"
-value = 70.0
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "<file>"
-start_line = 1
+path = "big-code-analysis-web/src/web/vcs.rs"
+qualified = "compute_vcs_jit"
+start_line = 539
 metric = "nexits"
 value = 5.0
 
 [[entry]]
-path = "src/vcs/bus_factor.rs"
-qualified = "<file>"
-start_line = 1
-metric = "nom"
-value = 29.0
+path = "big-code-analysis-web/src/web/vcs.rs"
+qualified = "options_from"
+start_line = 180
+metric = "halstead.effort"
+value = 51846.28098938873
 
 [[entry]]
-path = "src/vcs/error.rs"
-qualified = "Error::fmt"
-start_line = 129
+path = "big-code-analysis-web/src/web/vcs.rs"
+qualified = "options_from"
+start_line = 180
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "src/ast.rs"
+qualified = "build"
+start_line = 206
+metric = "halstead.effort"
+value = 72581.41181251501
+
+[[entry]]
+path = "src/c_macro.rs"
+qualified = "replace"
+start_line = 275
+metric = "halstead.effort"
+value = 82510.45138724327
+
+[[entry]]
+path = "src/c_macro.rs"
+qualified = "step_normal"
+start_line = 106
+metric = "halstead.effort"
+value = 67149.37366558494
+
+[[entry]]
+path = "src/c_macro.rs"
+qualified = "step_normal"
+start_line = 106
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/checker.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2038.0
+
+[[entry]]
+path = "src/concurrent_files.rs"
+qualified = "ConcurrentRunner<Config>::run"
+start_line = 360
+metric = "halstead.effort"
+value = 60410.49600898003
+
+[[entry]]
+path = "src/concurrent_files.rs"
+qualified = "ConcurrentRunner<Config>::run"
+start_line = 360
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2673.0
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "BashCode::get_op_type"
+start_line = 1714
+metric = "halstead.effort"
+value = 54681.01625588078
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "ElixirCode::get_op_type"
+start_line = 2360
+metric = "halstead.effort"
+value = 48241.44928566978
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "PerlCode::get_op_type"
+start_line = 1536
+metric = "halstead.effort"
+value = 65994.57830587434
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "PhpCode::get_op_type"
+start_line = 2100
+metric = "halstead.effort"
+value = 48279.902911067526
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "RubyCode::get_op_type"
+start_line = 2458
+metric = "halstead.effort"
+value = 72634.96827369716
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 4419.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "CCode::compute"
+start_line = 2478
 metric = "cyclomatic"
-value = 18.0
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "CppCode::compute"
+start_line = 2356
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "GoCode::compute"
+start_line = 2163
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "KotlinCode::compute"
+start_line = 1148
+metric = "cyclomatic"
+value = 16.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "MozcppCode::compute"
+start_line = 2659
+metric = "cyclomatic"
+value = 15.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "ObjcCode::compute"
+start_line = 2594
+metric = "cyclomatic"
+value = 16.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "PerlCode::compute"
+start_line = 3832
+metric = "halstead.effort"
+value = 67862.8313802447
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "RustCode::compute"
+start_line = 1962
+metric = "cyclomatic"
+value = 16.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+qualified = "perl_inspect_container"
+start_line = 3687
+metric = "halstead.effort"
+value = 53345.08959628053
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2043.0
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "RubyCode::compute"
+start_line = 1922
+metric = "halstead.effort"
+value = 53101.26216241871
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "tcl_switch_decision_arms"
+start_line = 1695
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "tcl_switch_decision_arms"
+start_line = 1695
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/metrics/cyclomatic.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 1226.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2066.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "CCode::compute"
+start_line = 1143
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "CppCode::compute"
+start_line = 1089
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "GroovyCode::compute"
+start_line = 1376
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "MozcppCode::compute"
+start_line = 1277
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "ObjcCode::compute"
+start_line = 1198
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/loc.rs"
+qualified = "PerlCode::compute"
+start_line = 1549
+metric = "halstead.effort"
+value = 47758.10174656215
+
+[[entry]]
+path = "src/metrics/npa.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2156.0
+
+[[entry]]
+path = "src/metrics/npa.rs"
+qualified = "PhpCode::compute"
+start_line = 638
+metric = "halstead.effort"
+value = 49615.191188139346
+
+[[entry]]
+path = "src/metrics/npa.rs"
+qualified = "PhpCode::compute"
+start_line = 638
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "src/metrics/npa.rs"
+qualified = "python_self_attr_name_bytes"
+start_line = 1691
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 1189.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "GoCode::compute"
+start_line = 580
+metric = "halstead.effort"
+value = 64139.86021318563
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "GoCode::compute"
+start_line = 580
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "PhpCode::compute"
+start_line = 415
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/node.rs"
+qualified = "Node<'a>"
+start_line = 75
+metric = "nom"
+value = 31.0
+
+[[entry]]
+path = "src/ops.rs"
+qualified = "ops_inner"
+start_line = 204
+metric = "halstead.effort"
+value = 56640.89870124066
+
+[[entry]]
+path = "src/output/checkstyle.rs"
+qualified = "write_checkstyle"
+start_line = 45
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "src/output/code_climate.rs"
+qualified = "write_code_climate"
+start_line = 73
+metric = "halstead.effort"
+value = 60471.77938561803
+
+[[entry]]
+path = "src/output/dump_metrics.rs"
+qualified = "dump_metrics"
+start_line = 138
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/output/dump_metrics.rs"
+qualified = "dump_space"
+start_line = 95
+metric = "nexits"
+value = 9.0
+
+[[entry]]
+path = "src/output/dump_metrics.rs"
+qualified = "dump_value"
+start_line = 217
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/output/dump_ops.rs"
+qualified = "dump_ops_values"
+start_line = 121
+metric = "nexits"
+value = 12.0
+
+[[entry]]
+path = "src/output/dump_ops.rs"
+qualified = "dump_space"
+start_line = 66
+metric = "nexits"
+value = 9.0
+
+[[entry]]
+path = "src/output/funcspace_row.rs"
+qualified = "metric_values"
+start_line = 34
+metric = "abc"
+value = 111.87939935484101
+
+[[entry]]
+path = "src/output/funcspace_row.rs"
+qualified = "metric_values"
+start_line = 34
+metric = "halstead.effort"
+value = 80351.11907066956
+
+[[entry]]
+path = "src/output/sarif.rs"
+qualified = "write_sarif_with_suppressed"
+start_line = 168
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/parser.rs"
+qualified = "Parser<T>::filters"
+start_line = 175
+metric = "halstead.effort"
+value = 50360.26160456827
+
+[[entry]]
+path = "src/spaces.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 2081.0
+
+[[entry]]
+path = "src/spaces.rs"
+qualified = "Ast::from_path"
+start_line = 764
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/spaces.rs"
+qualified = "CodeMetrics::fmt"
+start_line = 193
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "src/spaces.rs"
+qualified = "compute_per_node"
+start_line = 1033
+metric = "halstead.effort"
+value = 66012.71705067596
+
+[[entry]]
+path = "src/spaces.rs"
+qualified = "compute_per_node"
+start_line = 1033
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/spaces.rs"
+qualified = "metrics_inner"
+start_line = 1177
+metric = "halstead.effort"
+value = 109810.50849120741
+
+[[entry]]
+path = "src/suppression.rs"
+qualified = "parse_native"
+start_line = 380
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "src/tools.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 761.0
+
+[[entry]]
+path = "src/tools.rs"
+qualified = "read_file_with_eol"
+start_line = 140
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/bus_factor.rs"
+qualified = "authors_of_file"
+start_line = 322
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "src/vcs/bus_factor.rs"
+qualified = "compute"
+start_line = 192
+metric = "halstead.effort"
+value = 47694.803479864124
+
+[[entry]]
+path = "src/vcs/bus_factor.rs"
+qualified = "compute"
+start_line = 192
+metric = "nargs"
+value = 10.0
+
+[[entry]]
+path = "src/vcs/git/blame.rs"
+qualified = "PerFunctionBlame::open"
+start_line = 262
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/git/blame.rs"
+qualified = "PerFunctionBlame::resolve_commit"
+start_line = 438
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/git/cached.rs"
+qualified = "build_cached"
+start_line = 40
+metric = "halstead.effort"
+value = 76740.04063247392
+
+[[entry]]
+path = "src/vcs/git/cached.rs"
+qualified = "build_cached"
+start_line = 40
+metric = "nexits"
+value = 11.0
+
+[[entry]]
+path = "src/vcs/git/cached.rs"
+qualified = "incremental_events"
+start_line = 161
+metric = "nargs"
+value = 12.0
+
+[[entry]]
+path = "src/vcs/git/cached.rs"
+qualified = "load_candidates"
+start_line = 216
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/git/diff_parse.rs"
+qualified = "unquote_git_path"
+start_line = 401
+metric = "halstead.effort"
+value = 71494.28221151498
+
+[[entry]]
+path = "src/vcs/git/history.rs"
+qualified = "collect_events"
+start_line = 49
+metric = "halstead.effort"
+value = 48928.29416311421
+
+[[entry]]
+path = "src/vcs/git/history.rs"
+qualified = "collect_events"
+start_line = 49
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "src/vcs/git/history.rs"
+qualified = "diff_collect"
+start_line = 200
+metric = "nexits"
+value = 8.0
+
+[[entry]]
+path = "src/vcs/git/history.rs"
+qualified = "diff_collect::<anon@L217>"
+start_line = 217
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/git/history.rs"
+qualified = "process_commit"
+start_line = 128
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "src/vcs/git/history.rs"
+qualified = "process_commit"
+start_line = 128
+metric = "nexits"
+value = 9.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "collect_touched"
+start_line = 205
+metric = "nexits"
+value = 10.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "collect_touched::<anon@L224>"
+start_line = 224
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "compute_features"
+start_line = 161
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "compute_features"
+start_line = 161
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "experience_features"
+start_line = 475
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "experience_features"
+start_line = 475
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "history_features"
+start_line = 388
+metric = "halstead.effort"
+value = 52560.02538757721
+
+[[entry]]
+path = "src/vcs/git/jit.rs"
+qualified = "score_commit"
+start_line = 67
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/git/mod.rs"
+qualified = "build"
+start_line = 51
+metric = "nexits"
+value = 6.0
+
+[[entry]]
+path = "src/vcs/git/mod.rs"
+qualified = "resolve_anchor"
+start_line = 96
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/vcs/git/repo.rs"
+qualified = "enumerate_target_files"
+start_line = 127
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/git/trend.rs"
+qualified = "build_trend"
+start_line = 42
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/vcs/options.rs"
+qualified = "parse_iso8601"
+start_line = 393
+metric = "nexits"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/options.rs"
+qualified = "parse_window"
+start_line = 345
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "src/vcs/replay.rs"
+qualified = "fold_commit"
+start_line = 89
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/score.rs"
+qualified = "apply_percentile"
+start_line = 200
+metric = "halstead.effort"
+value = 68450.87280037583
+
+[[entry]]
+path = "src/vcs/score.rs"
+qualified = "apply_percentile"
+start_line = 200
+metric = "nargs"
+value = 13.0
+
+[[entry]]
+path = "src/vcs/stats.rs"
+qualified = "Accumulator::finalize"
+start_line = 238
+metric = "halstead.effort"
+value = 79569.58843331039
+
+[[entry]]
+path = "src/vcs/stats.rs"
+qualified = "Accumulator::finalize"
+start_line = 238
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/stats.rs"
+qualified = "Accumulator::record"
+start_line = 154
+metric = "halstead.effort"
+value = 56240.27018612609
+
+[[entry]]
+path = "src/wire.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 1360.0
+
+[[entry]]
+path = "src/wire.rs"
+qualified = "CodeMetrics::from"
+start_line = 1204
+metric = "halstead.effort"
+value = 49790.15156224738
+
+[[entry]]
+path = "src/wire.rs"
+qualified = "VcsTrend::from_trend"
+start_line = 915
+metric = "nargs"
+value = 8.0

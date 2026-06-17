@@ -1,8 +1,4 @@
 #!/bin/bash
-# bca: suppress-file(halstead)
-# Codegen-drift checker script; file-level halstead is script-length volume,
-# not per-function logic complexity.
-
 # check-enums-codegen-drift
 #
 # Runs the `enums/` codegen into a tempdir, formats the output,

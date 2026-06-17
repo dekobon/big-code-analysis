@@ -1,11 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// CORS policy + middleware glue. The file-aggregate halstead.effort is
-// inflated by the module's extensive rationale doc comments and the
-// header-name token vocabulary, and the file-aggregate nargs is the sum of
-// the small per-function arg lists (the 3-param `apply_cors_headers` and
-// `cors_middleware`) — both are many-fn aggregation artifacts, not
-// per-function logic complexity, mirroring the sibling `server.rs` marker.
-
 //! Opt-in Cross-Origin Resource Sharing (CORS) support (#694).
 //!
 //! CORS is **off by default**: a `bca-web` instance never emits

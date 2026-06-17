@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nexits, nom, wmc, abc)
-// Per-language Checker impls are flat node-kind `match` / `matches!`
-// predicates; the offenders are arm-count and many-fn aggregation
-// artifacts, not per-function logic complexity (cognitive stays enforced).
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

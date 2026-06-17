@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead)
-// Cohesive bag of small flag value-types + their parsers; the
-// file-level halstead.effort is a many-small-items aggregation
-// artifact (Halstead is non-linear over a shared vocabulary), not
-// per-function logic complexity — every function here clears the gate.
-
 //! Value types for `bca check`'s threshold-tier and CI-presentation
 //! flags (issues #385/#666/#683/#688). Split out of `lib.rs` so the
 //! parsing / resolution logic for `--tier`, `--exit-codes`,

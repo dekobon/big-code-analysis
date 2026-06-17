@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, abc, nom, loc)
-// Actix server setup + handlers; the file-aggregate halstead/nargs/exit/nom/loc and
-// the route-registration closure's abc (one `.service()`/`.route()` per endpoint)
-// are declarative many-fn aggregation artifacts, not per-function logic
-// complexity. The per-endpoint handlers plus the content-type guard helpers
-// (#515) push the file's method count past the per-file nom cap.
-
 use std::borrow::Cow;
 use std::fmt;
 use std::path::PathBuf;

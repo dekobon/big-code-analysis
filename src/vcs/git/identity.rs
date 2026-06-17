@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// mailmap + trailer-parsing plumbing), not per-function logic
-// complexity (cognitive/cyclomatic stay enforced).
-
 //! Resolve the participant identities of a git commit.
 //!
 //! "Participants" are the commit author plus any `Co-authored-by:`

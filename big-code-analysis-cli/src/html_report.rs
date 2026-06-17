@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nexits, nom)
-// HTML report templating; thin per-language orchestrators delegating to small
-// write_* helpers. File-level halstead/loc and summed nargs/nom/nexits are
-// string-formatting-volume / many-fn aggregation artifacts — the many tiny
-// early-returning write helpers (and the in-file test module) inflate the
-// file-level nexits sum the same way they inflate the others.
-
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
 // across the cyclomatic / MI / Halstead computations. The `usize as f64`

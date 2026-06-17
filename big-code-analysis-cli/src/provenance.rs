@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// Provenance-footer assembly plus a unit-test module: the file-level
-// halstead.effort is string-formatting volume and the file-level nargs sum is
-// the many small render/format helpers and the `Provenance` constructors in
-// the tests — the same many-fn aggregation artifact the sibling report
-// renderers suppress, not per-function logic complexity.
-
 //! Shared provenance footer for the AST report (issue #680).
 //!
 //! Both the Markdown and HTML AST reports close with one provenance line so

@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// HistoryIndex accessors + entry points), not per-function logic
-// complexity (cognitive/cyclomatic stay enforced).
-
 //! Change-history (VCS) metrics: per-file signals derived from version
 //! control history rather than the AST.
 //!

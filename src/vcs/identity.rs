@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the hashing
-// + canonicalisation helpers, plus the bot-filter ctor), not per-function
-// logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Canonical author identity and bot-author detection.
 //!
 //! Backend-agnostic: the git backend resolves a commit signature

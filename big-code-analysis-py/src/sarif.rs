@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nexits, nom)
-// SARIF rendering for the Python bindings; file-level halstead/loc and summed
-// nargs/exit/nom are mechanical-writer / many-fn aggregation artifacts.
-// cognitive is deliberately NOT suppressed — `collect_offenders`'s nested
-// tree-walk is genuine logic and stays baselined.
-
 //! SARIF 2.1.0 rendering for the Python bindings (phase 5/9, #269).
 //!
 //! `bca.to_sarif(result_or_iter, *, thresholds=None) -> str` walks the

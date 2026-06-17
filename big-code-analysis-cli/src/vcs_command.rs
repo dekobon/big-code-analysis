@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// File-level halstead/nargs/exit/nom are many-fn aggregation artifacts
-// (the options-builder + rank/emit/CSV plumbing), not per-function
-// logic complexity (cognitive/cyclomatic stay enforced).
-
 //! `bca vcs` — rank files by change-history (VCS) risk (issue #328).
 //!
 //! Unlike the AST commands, this runs **one** history walk over the

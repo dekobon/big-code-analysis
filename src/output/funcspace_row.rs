@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, abc)
-// `metric_values` is a flat array literal of metric accessor calls; the
-// halstead/abc offenders are call-count aggregation artifacts, not
-// per-function logic complexity.
-
 //! Row-shape helpers for the CSV output format.
 //!
 //! The CSV writer walks the FuncSpace tree and emits a flat per-space

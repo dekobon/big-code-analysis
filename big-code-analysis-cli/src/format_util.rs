@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead)
-// Numeric-display helpers plus a large unit-test module exercising every
-// formatting branch; the file-level halstead.effort is string-formatting /
-// many-tiny-fn aggregation volume (the same artifact the sibling report
-// renderers suppress), not per-function logic complexity.
-
 //! Shared formatting helpers for metric scalars across the CLI.
 //!
 //! Metric values are stored as `f64` even when conceptually integer

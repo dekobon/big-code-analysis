@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// Trend accessors + delta projection + validation, each with its own
-// early returns / `?`), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced) — mirrors the sibling vcs modules.
-
 //! Historical metric trend: the change-history (VCS) metrics computed at
 //! several points in time, so a consumer can see whether a file's risk is
 //! improving or degrading rather than only its risk *now* (issue #333).

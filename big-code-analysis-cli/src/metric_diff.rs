@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// Mechanical per-metric struct diff (`from_sets` builds it field by field);
-// the offenders are many-fn / impl-aggregate artifacts, not per-function
-// logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Per-metric structured diff between two `bca metrics -O json` runs
 //! (issue #487). Replaces the legacy grammar-bump glue chain — the
 //! external `json-minimal-tests` binary plus `split-minimal-tests.py` —
@@ -136,6 +131,28 @@ pub(crate) struct MetricDiff {
 /// top-level `metrics` object for that file.
 pub(crate) type MetricSet = BTreeMap<String, Value>;
 
+/// Sorted (added, removed) file-key sets between two metric sets: keys
+/// present only in `new` are additions, keys present only in `old` are
+/// removals. Split out of `from_sets` so the file-presence diff reads as
+/// one step, separate from the scalar-bucketing loop (#969).
+fn file_set_deltas(old: &MetricSet, new: &MetricSet) -> (Vec<String>, Vec<String>) {
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    for key in new.keys() {
+        if !old.contains_key(key) {
+            added.push(key.clone());
+        }
+    }
+    for key in old.keys() {
+        if !new.contains_key(key) {
+            removed.push(key.clone());
+        }
+    }
+    added.sort();
+    removed.sort();
+    (added, removed)
+}
+
 impl MetricDiff {
     /// Load both sides, then compute the bucketed diff. `min_change` is
     /// the inclusive absolute-delta threshold (`0.0` reports any
@@ -175,18 +192,7 @@ impl MetricDiff {
             .collect();
         let metric_filter = metric_filter.as_slice();
 
-        for key in new.keys() {
-            if !old.contains_key(key) {
-                diff.added_files.push(key.clone());
-            }
-        }
-        for key in old.keys() {
-            if !new.contains_key(key) {
-                diff.removed_files.push(key.clone());
-            }
-        }
-        diff.added_files.sort();
-        diff.removed_files.sort();
+        (diff.added_files, diff.removed_files) = file_set_deltas(old, new);
 
         // Files present on both sides: walk the metric tree and bucket
         // each scalar leaf whose value moved past the threshold.

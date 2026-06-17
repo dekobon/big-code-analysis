@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// gix open/resolve/diff plumbing with many `?` error maps), not
-// per-function logic complexity (cognitive/cyclomatic stay enforced) —
-// mirrors the sibling `git/` backend files.
-
 //! The `vcs-git` backend for just-in-time (commit-level) risk scoring
 //! (issue #331).
 //!

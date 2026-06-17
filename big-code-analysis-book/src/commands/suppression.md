@@ -78,6 +78,17 @@ function validate(input) { /* ... */ }
 // other metric is still enforced file-wide.
 ```
 
+> **Prefer a narrower tool first.** Since [threshold scope](./check.md#threshold-scope)
+> (#969), a metric's file-wide or `impl`-wide *aggregate* no longer fires
+> as a per-function limit, so the most common reason `suppress-file` was
+> reached for — muting a file-level `halstead` / `nargs` / `nexits` /
+> `nom` total — is gone. Reach for `suppress-file` only when you genuinely
+> want to silence a metric for *every* function in the file. To excuse one
+> irreducibly-complex function, use a function-scoped `bca: suppress(...)`
+> inside it; to grandfather existing offenders without blinding the gate
+> to future regressions, prefer a [baseline](./check.md) entry, which keeps
+> firing once a function gets *worse* than its recorded value.
+
 ## Lizard compatibility markers
 
 Two Lizard-style markers are recognized verbatim so existing

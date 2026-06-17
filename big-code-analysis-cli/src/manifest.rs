@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// bca.toml manifest load/merge; the offenders are many-fn / impl-aggregate
-// artifacts. `nom` counts the module's many small accessors / typed-table
-// helpers (one per manifest key family) — a flat config-merge surface, not a
-// hard-to-follow function. (`merge_check`'s cyclomatic — flat field-by-field
-// config merge — is suppressed per-function below; cognitive stays enforced.)
-
 //! `bca.toml` manifest discovery and merge (issue #374).
 //!
 //! Consolidates the flags every local-gate recipe used to thread

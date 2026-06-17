@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// open/resolve/load/splice/persist pipeline with many `?` error maps),
-// not per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Cache-aware history build: reuse a persisted event log, extend it by
 //! walking only new commits, or fall back to a fresh walk (issue #334).
 //!
@@ -47,6 +42,15 @@ pub(crate) fn build_cached(
     options: &Options,
     config: &CacheConfig,
 ) -> Result<HistoryIndex, Error> {
+    // bca: suppress(abc)
+    // Linear sequence over cache outcomes (disabled / pure hit / miss):
+    // each step is already comment-delimited and the per-step work
+    // (collect_events, incremental_events, assemble, persist) lives in its
+    // own helper. The ABC count is the call/assignment density of wiring
+    // those outcomes, not branching depth — cognitive is not flagged.
+    // Extracting the pure-hit arm would need ~9 cache-key params (tripping
+    // nargs), and a grouping struct introduced only to dodge that would be
+    // gaming, not clarity.
     let repo::OpenRepo {
         mut repo,
         workdir,

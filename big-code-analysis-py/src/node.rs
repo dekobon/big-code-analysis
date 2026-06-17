@@ -1,12 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom, wmc)
-// Thin PyO3 accessors over a single `tree_sitter::Node`: each method
-// forwards to one upstream tree-sitter call (or a short local walk). The
-// flagged scores are many-method aggregation artifacts (nom counts the
-// accessors; wmc sums their per-method cyclomatic; nargs/nexits sum over
-// them; Halstead effort sums over the impl block), not per-method
-// complexity — the same shape `ast.rs` / `lib.rs` suppress for the same
-// reason.
-
 //! Lazy `Node` handle over the tree retained by [`PyAst`] (#728).
 //!
 //! A [`PyNode`] is a py-tree-sitter-style cursor into the parsed tree: it

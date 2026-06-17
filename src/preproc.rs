@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// C/C++ preprocessor extraction; file-level halstead and summed nargs are
-// many-fn aggregation artifacts. cognitive is deliberately NOT suppressed —
-// the include-graph walk is genuine nested logic and stays baselined.
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// window parser's unit branches + the Options builder), not
-// per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Configuration for a change-history walk.
 //!
 //! [`Options`] is a plain data struct: the CLI / web / Python layers

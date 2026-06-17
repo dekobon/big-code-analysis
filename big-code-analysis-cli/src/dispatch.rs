@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// Per-subcommand dispatch fns; the offenders are many-fn / early-return
-// aggregation artifacts, not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
-
 //! Per-file dispatch for the `bca` walker.
 //!
 //! `act_on_file` is the entry point: it runs the shared pre-dispatch
@@ -202,6 +197,11 @@ fn dispatch_metrics(
     format: Option<&MetricsFormat>,
     pretty: bool,
 ) -> std::io::Result<()> {
+    // bca: suppress(cognitive)
+    // Output-mode dispatch: each nesting level is a real emit decision
+    // (format present? --vcs? per-function blame? aggregate vs per-file?
+    // Generic vs Csv?). Flattening would relocate the nesting, not remove
+    // it. Kept in lockstep with the sibling `dispatch_ops`.
     if let Some(fmt) = format {
         if let Ok(mut space) = analyze_file(language, source, &path, pr, cfg.metrics_options()) {
             // `bca metrics --vcs`: attach the file's change-history block

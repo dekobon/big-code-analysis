@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// timeline walk + per-point build loop with `?` error maps), not
-// per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! The `vcs-git` backend for the historical metric trend (issue #333).
 //!
 //! [`build_trend`] samples the change-history metrics at several points in

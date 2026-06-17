@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// CochangeGraph methods + the shannon/bump/node_entropy helpers summed
-// across the module), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
-
 //! Shannon-entropy machinery shared by the two process-entropy signals
 //! added in issue #330.
 //!

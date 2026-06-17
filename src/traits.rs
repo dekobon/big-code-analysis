@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead)
-// Core trait definitions; file-level halstead is a many-fn aggregation
-// artifact, not per-function logic complexity.
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

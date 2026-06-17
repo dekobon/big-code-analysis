@@ -1,11 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// Thin PyO3 delegations over `big_code_analysis::Ast`: each method forwards
-// to one upstream accessor and serializes the result. The flagged scores are
-// many-method aggregation artifacts (nom counts the wrappers; nargs/nexits
-// sum over them; Halstead effort sums over the impl block), not per-method
-// complexity — the same shape the sibling `lib.rs` suppresses for the same
-// reason.
-
 //! The `Ast` parse-once handle exposed to Python (#727).
 //!
 //! Binds the Rust [`big_code_analysis::Ast`] seam so a Python caller can
