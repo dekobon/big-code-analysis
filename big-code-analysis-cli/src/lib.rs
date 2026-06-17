@@ -47,6 +47,7 @@ mod metric_alias;
 mod metric_catalog;
 mod metric_diff;
 mod provenance;
+mod qualified_name;
 mod threshold_suggestion;
 mod thresholds;
 mod vcs_command;

@@ -35,7 +35,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/baseline_diff.rs"
 qualified = "BaselineDiff::column_widths"
-start_line = 298
+start_line = 299
 metric = "nargs"
 value = 8.0
 
@@ -275,12 +275,12 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 3324.0
+value = 3325.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 3221
+start_line = 3222
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -289,12 +289,12 @@ path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 853.0
+value = 883.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "write_language_section"
-start_line = 962
+start_line = 992
 metric = "halstead.effort"
 value = 52993.355167839094
 
@@ -345,12 +345,12 @@ path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 941.0
+value = 908.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
-start_line = 823
+start_line = 790
 metric = "halstead.effort"
 value = 56531.05676283881
 
@@ -518,21 +518,21 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "collect_offenders"
-start_line = 558
+start_line = 559
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "extract_line_number"
-start_line = 366
+start_line = 367
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "resolve_thresholds"
-start_line = 277
+start_line = 278
 metric = "nexits"
 value = 6.0
 
@@ -1003,40 +1003,40 @@ path = "src/spaces.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2113.0
+value = 2112.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "Ast::from_path"
-start_line = 793
+start_line = 792
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "CodeMetrics::fmt"
-start_line = 222
+start_line = 221
 metric = "nexits"
 value = 8.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "compute_per_node"
-start_line = 1062
+start_line = 1061
 metric = "halstead.effort"
 value = 66012.71705067596
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "compute_per_node"
-start_line = 1062
+start_line = 1061
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "metrics_inner"
-start_line = 1206
+start_line = 1205
 metric = "halstead.effort"
 value = 109810.50849120741
 
