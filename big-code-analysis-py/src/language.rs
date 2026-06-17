@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nom)
-// Language-name / enum mapping helpers; file-level halstead, summed
-// nargs, and method count (nom) are many-fn aggregation artifacts — the
-// module is a handful of tiny lookup helpers plus their regression
-// tests, none individually complex.
-
 //! Language detection helpers exposed to Python.
 //!
 //! These thin wrappers reuse the upstream `LANG` enum and its

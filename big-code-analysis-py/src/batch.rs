@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// PyO3 batch analysis + error type; nexits is never-raise error-folding /
-// FFI-repr boilerplate and the rest are many-fn aggregation artifacts, not
-// per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Batch entry point and the structured `AnalysisFailure` Python class.
 //!
 //! Where [`crate::analysis`] raises a Python exception per failing

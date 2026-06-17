@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nom)
-// Per-language operator-extraction dispatch; the offenders are arm-count
-// and many-fn aggregation artifacts, not per-function logic complexity.
-
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of
@@ -14,7 +10,7 @@ use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
 use crate::node::Node;
-use crate::spaces::SpaceKind;
+use crate::spaces::{SpaceKind, push_children};
 
 use crate::halstead::{Halstead, HalsteadMaps};
 
@@ -252,18 +248,13 @@ pub(crate) fn ops_inner<T: ParserTrait>(
             T::Halstead::compute(&node, code, &mut state.halstead_maps);
         }
 
-        cursor.reset(&node);
-        if cursor.goto_first_child() {
-            loop {
-                children.push((cursor.node(), new_level));
-                if !cursor.goto_next_sibling() {
-                    break;
-                }
-            }
-            for child in children.drain(..).rev() {
-                stack.push(child);
-            }
-        }
+        // Shared with `metrics_inner` (issue #969): `push_children` is
+        // State-independent — it only moves the cursor over child nodes —
+        // so unlike the local `finalize` / `push_synthetic_unit_root`
+        // mirrors (which differ by `State` payload) it is reused directly
+        // rather than duplicated. The `children.drain(..).rev()` ordering
+        // it encapsulates is load-bearing for suppression attribution.
+        push_children(&mut cursor, &node, new_level, &mut children, &mut stack);
     }
 
     finalize::<T>(&mut state_stack, usize::MAX);

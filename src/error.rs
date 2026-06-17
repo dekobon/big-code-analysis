@@ -1,11 +1,3 @@
-// bca: suppress-file(halstead)
-// This module is nothing but error-enum definitions and their idiomatic
-// `Display`/`Error`/`From` impls. The file-level Halstead effort is the sum
-// over many individually-trivial `match` arms (one short string per
-// variant); no single function here is hard to follow. Splitting the error
-// types across files to dodge the aggregate would scatter the error taxonomy
-// for no reader benefit.
-
 //! Error type returned from the library's top-level entry points.
 //!
 //! Prior to this module, every entry point returned `Option<…>` and

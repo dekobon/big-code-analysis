@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are aggregation artifacts: the glob-set
-// builders and the many `WalkBuilder` option-chain arguments across a
-// few small functions, not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
-
 //! Directory walker backing `analyze_paths` (issue #658).
 //!
 //! Reuses the gitignore-aware [`ignore`] crate (the same crate the `bca`

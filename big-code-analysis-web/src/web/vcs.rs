@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// option-builder + handler `?` error maps), not per-function logic
-// complexity (cognitive/cyclomatic stay enforced).
-
 //! `POST /vcs` — change-history (VCS) metrics over a server-side git
 //! working tree (issue #328).
 //!

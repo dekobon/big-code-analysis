@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the fold +
-// finalize + replay pipeline), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
-
 //! The per-commit fold shared by the live walk and the cache replay, plus
 //! the replay itself (issue #334).
 //!

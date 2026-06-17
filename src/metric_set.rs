@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// `Metric` enum + `MetricSet` bitfield; the offenders are many-fn
-// aggregation artifacts, not per-function logic complexity.
-
 //! Per-metric selection: the [`Metric`] enum and the
 //! [`MetricSet`] bitfield it gates.
 //!

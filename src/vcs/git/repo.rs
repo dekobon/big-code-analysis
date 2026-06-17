@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// gix open/diff plumbing with many `?` error maps), not per-function
-// logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Repository discovery and target-tree file enumeration.
 
 use std::collections::HashMap;

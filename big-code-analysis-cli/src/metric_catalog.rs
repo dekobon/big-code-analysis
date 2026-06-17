@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// `bca list-metrics` rendering over the derived catalog; file-level halstead
-// and summed nargs are table-size aggregation artifacts.
-
 //! `bca list-metrics` rendering.
 //!
 //! The catalog itself is no longer maintained here: rows are derived

@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nexits, nom)
-// CLI command orchestration: top-level subcommand dispatch plus many
-// config-passing / scaffolding fns. The offenders are many-fn / arg-passing /
-// aggregation artifacts. (`run`'s cyclomatic — flat subcommand dispatch — is
-// suppressed per-function below; cognitive stays enforced.)
-
 //! Top-level command dispatch for the `bca` CLI.
 //!
 //! Owns the public `run()` entry point (called by `bca`'s `main` and
@@ -64,6 +58,11 @@ fn run_check(
     manifest: Option<&Manifest>,
     preproc: Option<Arc<PreprocResults>>,
 ) {
+    // bca: suppress(abc)
+    // Linear check-pipeline orchestration: each stage (threshold resolve,
+    // walk, baseline filter, classify, emit) is already its own helper; the
+    // ABC count is the call/assignment density of wiring them together, not
+    // branching logic.
     // Merge the check-only manifest keys (baseline / headroom) under the
     // CLI flags, and take the `[thresholds]` table (hard + soft layers)
     // as the base for the resolver. `--config` merges on top of it;
@@ -2370,6 +2369,80 @@ version = {}
     )
 }
 
+/// Write the initial `.bca-baseline.toml` for `bca init`: an empty
+/// template when `no_baseline`, otherwise a populated one produced by the
+/// same `bca check --write-baseline` path so it is byte-identical to a
+/// manual bootstrap. Split out of `run_command_init` so scaffolding the
+/// config files and producing the baseline read as the two distinct steps
+/// they are (#969).
+fn scaffold_baseline(
+    globals: GlobalOpts,
+    target: &Path,
+    manifest_path: &Path,
+    baseline_path: &Path,
+    no_baseline: bool,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    if no_baseline {
+        write_atomic(baseline_path, init_empty_baseline_template().as_bytes())
+            .unwrap_or_else(|e| die_io("write", baseline_path, e));
+        eprintln!(
+            "bca init: wrote empty {} (populate via `bca check --write-baseline {}`)",
+            baseline_path.display(),
+            baseline_path.display(),
+        );
+        return;
+    }
+
+    // Reuse the same code path `bca check --write-baseline` uses so the
+    // produced baseline is byte-identical to one a manual bootstrap would
+    // write. The thresholds we just wrote are loaded from the scaffolded
+    // `bca.toml` to keep this consistent with what the user will use
+    // day-to-day.
+    let check_args = CheckArgs {
+        positional: crate::PositionalPaths::default(),
+        selection: crate::WalkSelectionArgs::default(),
+        tuning: crate::WalkTuningArgs::default(),
+        preproc: crate::PreprocConsumeArgs::default(),
+        thresholds: Vec::new(),
+        config: Some(manifest_path.to_path_buf()),
+        no_fail: false,
+        no_suppress: false,
+        report_suppressed: false,
+        output_format: None,
+        output: None,
+        baseline: None,
+        write_baseline: Some(Some(baseline_path.to_path_buf())),
+        no_summary: true,
+        since: None,
+        changed_only: false,
+        github_annotations: crate::CiDetect::Auto,
+        summary_file: None,
+        no_remediation: true,
+        print_effective_config: None,
+        headroom: None,
+        tier: TierSpec::Hard,
+        exit_codes: None,
+        strict_exit_codes: false,
+        baseline_line_tolerance: None,
+        baseline_fuzzy_match: None,
+        check_exclude: Vec::new(),
+        check_exclude_from: None,
+    };
+    // `run_check` early-exits after `write_check_baseline` runs, so it
+    // returns normally on success here.
+    let mut walk_globals = globals;
+    if walk_globals.paths.is_empty() {
+        walk_globals.paths.push(target.to_path_buf());
+    }
+    // `init` writes its baseline from the manifest it just scaffolded, so
+    // it deliberately bypasses manifest discovery (passing `None`) — the
+    // freshly-written `bca.toml` is the source of truth here, supplied
+    // directly via `--config`.
+    run_check(walk_globals, check_args, None, preproc);
+    eprintln!("bca init: wrote {}", baseline_path.display());
+}
+
 fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<PreprocResults>>) {
     let target = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
     if !target.exists() {
@@ -2415,63 +2488,16 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
         .unwrap_or_else(|e| die_io("write", &bcaignore_path, e));
     eprintln!("bca init: wrote {}", bcaignore_path.display());
 
-    if args.no_baseline {
-        write_atomic(&baseline_path, init_empty_baseline_template().as_bytes())
-            .unwrap_or_else(|e| die_io("write", &baseline_path, e));
-        eprintln!(
-            "bca init: wrote empty {} (populate via `bca check --write-baseline {}`)",
-            baseline_path.display(),
-            baseline_path.display(),
-        );
-    } else {
-        // Reuse the same code path `bca check --write-baseline` uses
-        // so the produced baseline is byte-identical to one a manual
-        // bootstrap would write. The thresholds we just wrote are
-        // loaded from the scaffolded `bca.toml` to keep this consistent
-        // with what the user will use day-to-day.
-        let check_args = CheckArgs {
-            positional: crate::PositionalPaths::default(),
-            selection: crate::WalkSelectionArgs::default(),
-            tuning: crate::WalkTuningArgs::default(),
-            preproc: crate::PreprocConsumeArgs::default(),
-            thresholds: Vec::new(),
-            config: Some(manifest_path.clone()),
-            no_fail: false,
-            no_suppress: false,
-            report_suppressed: false,
-            output_format: None,
-            output: None,
-            baseline: None,
-            write_baseline: Some(Some(baseline_path.clone())),
-            no_summary: true,
-            since: None,
-            changed_only: false,
-            github_annotations: crate::CiDetect::Auto,
-            summary_file: None,
-            no_remediation: true,
-            print_effective_config: None,
-            headroom: None,
-            tier: TierSpec::Hard,
-            exit_codes: None,
-            strict_exit_codes: false,
-            baseline_line_tolerance: None,
-            baseline_fuzzy_match: None,
-            check_exclude: Vec::new(),
-            check_exclude_from: None,
-        };
-        // `run_check` early-exits after `write_check_baseline` runs,
-        // so it returns normally on success here.
-        let mut walk_globals = globals;
-        if walk_globals.paths.is_empty() {
-            walk_globals.paths.push(target.clone());
-        }
-        // `init` writes its baseline from the manifest it just
-        // scaffolded, so it deliberately bypasses manifest discovery
-        // (passing `None`) — the freshly-written `bca.toml` is the
-        // source of truth here, supplied directly via `--config`.
-        run_check(walk_globals, check_args, None, preproc);
-        eprintln!("bca init: wrote {}", baseline_path.display());
-    }
+    // The config files exist; now produce the initial baseline (empty or
+    // populated from the freshly-scaffolded manifest).
+    scaffold_baseline(
+        globals,
+        &target,
+        &manifest_path,
+        &baseline_path,
+        args.no_baseline,
+        preproc,
+    );
 
     eprintln!(
         "bca init: done. Next steps:\n  \

@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// per-line classification plus the path-quoting decoders, each with its
-// own `?`/Option early-exits), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced) — mirrors the sibling `jit.rs`.
-
 //! Unified-diff parser backing [`score_diff`] (issue #580), split out of
 //! `jit.rs` (issue #585) once the parser plus its regression tests pushed
 //! that file past the self-scan limits.

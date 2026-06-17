@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// 20-field Stats assembly in `finalize`), not per-function logic
-// complexity (cognitive/cyclomatic stay enforced).
-
 //! Per-file change-history statistics: the public [`Stats`] output and
 //! the internal [`Accumulator`] that the backend feeds during a walk.
 

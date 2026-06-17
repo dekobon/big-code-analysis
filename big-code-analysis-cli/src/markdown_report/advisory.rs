@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead)
-// The manifest-key string literals and the BTreeMap-driven test fixtures
-// inflate the file-level Halstead effort (string-formatting / table-lookup
-// volume), the same artifact the sibling report renderers suppress — not
-// per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Resolved advisory cutoffs for the report's Actionable Summary, the CC
 //! note, and the Many-Parameters table (issue #630).
 //!

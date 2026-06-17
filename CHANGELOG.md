@@ -2460,6 +2460,24 @@ for historical reference.
 
 ### Fixed
 
+- `bca check`: threshold limits now apply only to the space kind each
+  metric actually measures, so a metric's whole-file or whole-`impl`
+  aggregate no longer fires as if it were a per-function limit (#969).
+  The subtree-summed and per-function metrics (`cognitive`, `cyclomatic`,
+  `cyclomatic.modified`, `halstead.*`, `mi.*`, `abc`, `nargs`, `nexits`,
+  `tokens`) gate individual functions; the object-oriented size metrics
+  (`nom`, `wmc`, `npm`, `npa`) gate container spaces (class / struct /
+  trait / impl / namespace / interface); and the `loc.*` size family
+  gates the file root. Previously every limit was checked against every
+  space, so a clean file or a multi-method `impl` tripped a per-function
+  limit purely from the summed total — which forced ~120 whole-file
+  `bca: suppress-file` markers across this repo that in turn blinded the
+  gate to genuine per-function regressions. This restores per-function
+  coverage without suppression. The scope is an intrinsic, per-metric
+  default; there is no new manifest or CLI syntax. Not a SemVer break —
+  the CLI grammar is unchanged and the file/container aggregate firing
+  was never a documented per-function limit; if you relied on it as a
+  crude whole-file budget, set an explicit `loc.*` threshold instead.
 - Web (`POST /vcs/trend`): the trend endpoint no longer advertises the
   `no_cache` / `cache_dir` cache controls it could never honor. Trend does
   not use the persistent change-history cache (each sampled point re-anchors

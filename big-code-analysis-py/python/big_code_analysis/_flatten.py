@@ -1,6 +1,3 @@
-# bca: suppress-file(halstead)
-# Flatten helper; file-level halstead is a many-fn aggregation artifact.
-
 """Flat-record iterator over the nested ``FuncSpace`` tree.
 
 The compiled ``_native`` extension returns analysis results as a

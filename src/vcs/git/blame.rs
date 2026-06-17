@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// File-level halstead/nargs/exit/nom are many-fn aggregation artifacts
-// (the gix `?`-heavy open/resolve plumbing, the blame→bucket→finalize
-// pipeline, and the many short iterator closures it counts as functions),
-// not per-function logic complexity (cognitive/cyclomatic stay enforced)
-// — mirrors the sibling `git/` backend files and `vcs_command.rs`.
-
 //! Per-function change-history attribution via `git blame` (issue #329).
 //!
 //! Where the file-level walk in [`super::history`] diffs each commit

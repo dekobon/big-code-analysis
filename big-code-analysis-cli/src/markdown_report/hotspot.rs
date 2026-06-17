@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nom)
-// The `SPECS` table is declarative data: ~70 capture-free cell-projector
-// closures inflate the file-level nom/nargs/halstead sums (each closure is a
-// one-arg "function"), the same string-formatting / many-fn aggregation
-// artifact the sibling report renderers suppress — not per-function logic.
-
 //! Format-neutral source of truth for the per-language hotspot sections
 //! shared by the Markdown (`super`) and HTML (`crate::html_report`)
 //! report renderers.

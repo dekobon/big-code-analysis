@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs, nom)
-// Code Climate JSON serializer; the offenders are mechanical-writer and
-// many-fn aggregation artifacts, not per-function logic complexity.
-
 //! GitLab Code Climate JSON writer for [`OffenderRecord`] batches.
 //!
 //! GitLab's merge-request *Code Quality* widget consumes a strict

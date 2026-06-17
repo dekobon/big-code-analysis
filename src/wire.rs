@@ -1,11 +1,3 @@
-// bca: suppress-file(halstead, loc, nargs, nom)
-// This file is a flat catalogue of plain DTO structs plus mechanical
-// `From<&Compute>` field-by-field projections — one struct and one
-// projection per metric and container. The offenders are volume /
-// field-count / many-fn aggregation artifacts (the same shape as `ops.rs`),
-// not per-function logic complexity; there are no conditionals or loops
-// here. cognitive / cyclomatic stay enforced (and do not fire).
-
 //! Plain, public data-transfer structs mirroring the serialized metric
 //! wire shape — the single source of truth for the JSON / YAML / TOML /
 //! CBOR output format and the only `Deserialize`-capable view of it.

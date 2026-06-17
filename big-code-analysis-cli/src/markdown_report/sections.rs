@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// Markdown report section builders; the offenders are string-formatting-volume
-// and many-fn aggregation artifacts, not per-function logic complexity.
-
 //! Per-section writers for [`super::write_language_section`].
 //!
 //! Each writer appends one Markdown section (heading + optional table)

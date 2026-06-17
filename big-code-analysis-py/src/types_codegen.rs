@@ -1,10 +1,3 @@
-// bca: suppress-file(halstead, loc, abc)
-// A flat catalogue of `DictSpec` / `Field` literals (one per metric and
-// container) plus the drift tests — the same volume / field-count shape
-// as `src/wire.rs`, which carries the same marker. File-level
-// halstead.effort / loc.sloc are volume artifacts, not per-function
-// logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Deterministic generator for the checked-in `_types.py` module —
 //! `TypedDict` mirrors of the analysis-result wire shapes (issue #623).
 //!

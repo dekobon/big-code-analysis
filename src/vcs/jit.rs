@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// many-term score formula plus the flat output DTOs), not per-function
-// logic complexity (cognitive/cyclomatic stay enforced) — mirrors the
-// sibling `score.rs`.
-
 //! Just-in-time (commit-level) defect-induction risk scoring (issue #331).
 //!
 //! Where [`score`](crate::vcs::score) ranks *files* at a ref, this module

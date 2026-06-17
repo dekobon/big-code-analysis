@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// gix rev-walk + per-commit diff plumbing, with many `?` error maps),
-// not per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! The commit-history walk: rev-walk the target ref within the long
 //! window, diff each commit against its first parent, and emit one raw
 //! [`CommitEvent`] per in-window commit.

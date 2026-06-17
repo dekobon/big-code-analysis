@@ -54,9 +54,16 @@ baseline = ".bca-baseline.toml"
 #         mi.original, mi.sei, mi.visual_studio,
 #         abc, wmc, npm, npa
 #   * Quote keys containing a dot (TOML requires it).
-#   * Values are per-function limits. A function whose metric exceeds the
-#     limit becomes an offender; the baseline file decides whether it
-#     fails CI.
+#   * Each limit is checked against the space kind the metric actually
+#     measures (#969): the complexity and per-function metrics
+#     (cognitive, cyclomatic, halstead.*, mi.*, abc, nargs, nexits,
+#     tokens) gate individual functions; the OO size metrics (nom, wmc,
+#     npm, npa) gate container spaces (impl / struct / trait / ...); and
+#     loc.* gates the whole-file root. A metric's file-wide or impl-wide
+#     aggregate is therefore never mistaken for a per-function limit, so
+#     whole-file `suppress-file` markers are no longer needed to mute it.
+#     A space whose metric exceeds the limit becomes an offender; the
+#     baseline file decides whether it fails CI.
 #   * Adding a metric is a tightening — regenerate `.bca-baseline.toml`
 #     in the same change so day-one CI does not flip red on offenders
 #     that were previously invisible to the gate.
@@ -82,10 +89,11 @@ cyclomatic = 15
 # report files), plus a few mid-size modules in the ~760-890 band
 # (alterator.rs, ops.rs, baseline.rs, ...). The soft tier scales this
 # limit to 760 (BCA_HEADROOM 0.95), so files between 760 and 800 are
-# baselined for the soft gate even though they clear the hard one. The
-# same limit also gates per-function SLOC, but that is redundant here:
-# cognitive / cyclomatic / nom / abc catch an oversized function long
-# before it nears 800 lines.
+# baselined for the soft gate even though they clear the hard one.
+# loc.sloc is File-scoped (#969): it gates the whole-file root only, not
+# each function — a per-function SLOC gate would be redundant here, since
+# cognitive / cyclomatic / abc catch an oversized function long before it
+# nears 800 lines.
 "loc.sloc" = 800
 nom = 30
 nargs = 7

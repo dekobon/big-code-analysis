@@ -1,11 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/nexits are aggregation artifacts: this
-// module is many small path-normalisation helpers (strip, anchor,
-// reanchor, match-form) whose early returns and parameters sum at the
-// file level without any one function being complex
-// (cognitive/cyclomatic stay enforced) — the same posture as
-// big-code-analysis-py/src/walk.rs.
-
 //! Walk-seed re-anchoring.
 //!
 //! Keeps the walker's emitted path form independent of how the user

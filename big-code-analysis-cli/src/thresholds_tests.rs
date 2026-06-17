@@ -526,6 +526,7 @@ fn tokens_threshold_never_suppressed() {
             extractor,
             limit: -0.5,
             lower_is_worse: false,
+            scope: extractor.scope,
         }],
     };
 
@@ -550,11 +551,13 @@ fn tokens_threshold_never_suppressed() {
 
 #[test]
 fn evaluate_stamps_qualified_symbols_through_container_chain() {
-    // Unit(file) -> Impl(MyStruct) -> Function(do_thing). With a
-    // cyclomatic limit of 0 every space's default complexity of 1 trips,
-    // so each emitted violation's function slot reveals its qualified
-    // symbol: the file collapses to `<file>`, the impl keeps its bare
-    // name, and the method is qualified by its container.
+    // Unit(file) -> Impl(MyStruct) -> Function(do_thing). cyclomatic is
+    // Function-scoped (#969), so with a cyclomatic limit of 0 only the
+    // `do_thing` leaf trips — and its violation's function slot reveals the
+    // full container-qualified symbol `MyStruct::do_thing`. The `Unit` root
+    // and the `MyStruct` impl are skipped by scope, so this asserts the
+    // qualified-symbol chain; the `<file>` collapse path is covered by
+    // `file_scoped_loc_fires_only_on_unit`.
     let mut unit = space("src/foo.rs", SpaceKind::Unit, SuppressionScope::default());
     let mut imp = space("MyStruct", SpaceKind::Impl, SuppressionScope::default());
     imp.spaces.push(space(
@@ -573,9 +576,11 @@ fn evaluate_stamps_qualified_symbols_through_container_chain() {
         &mut out,
     );
     let names: Vec<&str> = out.iter().map(|v| v.function.as_str()).collect();
-    assert!(names.contains(&"<file>"), "{names:?}");
-    assert!(names.contains(&"MyStruct"), "{names:?}");
-    assert!(names.contains(&"MyStruct::do_thing"), "{names:?}");
+    assert_eq!(
+        names,
+        ["MyStruct::do_thing"],
+        "only the leaf fires, stamped with its container chain: {names:?}"
+    );
 }
 
 #[test]
@@ -947,5 +952,217 @@ fn mi_ratio_inverts_so_lower_value_ranks_worse() {
         Violation::pick_worst(&[&mild, &severe])
             .is_some_and(|w| (w.value - 5.0).abs() < f64::EPSILON),
         "pick_worst must rank the lower MI as worse"
+    );
+}
+
+// --- Per-metric threshold scope (#969) ---------------------------------
+//
+// `bca check` walked every `FuncSpace`, so a subtree-sum metric read at
+// the file-level `Unit` root or a container (a sum across many functions)
+// tripped a per-function limit on any non-trivial file or `impl`. Scope
+// pins each metric to the kind it measures: `loc.*` to the `Unit` root,
+// the per-function metrics to `SpaceKind::Function` leaves, and the OO
+// size metrics (nom/wmc/npm/npa) to container spaces. These tests pin all
+// three directions.
+
+/// Parse a small multi-line Rust snippet into its full space tree: a
+/// `SpaceKind::Unit` root with a nested function child, both carrying real
+/// `loc.*` and `mi.*` values (neither has a public setter). Used by the
+/// scope tests that need a genuine file-aggregate-vs-per-function split.
+fn analyzed_tree() -> FuncSpace {
+    big_code_analysis::analyze(
+        big_code_analysis::Source::new(
+            big_code_analysis::LANG::Rust,
+            b"fn f(x: i32) -> i32 {\n    if x > 0 {\n        x + 1\n    } else {\n        x - 1\n    }\n}\n",
+        ),
+        big_code_analysis::MetricsOptions::default(),
+    )
+    .expect("snippet has a top-level FuncSpace")
+}
+
+/// Parse a Rust `struct` plus an `impl` of two methods. The `impl` space's
+/// `nom.total()` is 2 (its two methods), giving the Container-scope test a
+/// real container metric to gate (no public setter exists for `nom`).
+fn analyzed_impl_tree() -> FuncSpace {
+    big_code_analysis::analyze(
+        big_code_analysis::Source::new(
+            big_code_analysis::LANG::Rust,
+            b"struct S;\nimpl S {\n    fn a(&self) {}\n    fn b(&self) {}\n}\n",
+        ),
+        big_code_analysis::MetricsOptions::default(),
+    )
+    .expect("snippet has a top-level FuncSpace")
+}
+
+/// Attach `child` under a fresh `SpaceKind::Unit` root and return the root.
+/// The root keeps `CodeMetrics::default()` (cyclomatic `1.0`), so a
+/// `cyclomatic = 0` threshold fired on it under the pre-#969 file-aggregate
+/// behavior — letting the scope tests assert it no longer does.
+fn unit_with_child(child: FuncSpace) -> FuncSpace {
+    let mut root = space("<file>", SpaceKind::Unit, SuppressionScope::default());
+    root.spaces.push(child);
+    root
+}
+
+#[test]
+fn function_scoped_metric_skips_unit_root() {
+    // cyclomatic is Function-scoped: the file-level Unit root is never
+    // gated, even though its default cyclomatic of 1.0 exceeds a `0` limit.
+    // Pre-#969 this fired a spurious `<file>` violation.
+    let root = space("<file>", SpaceKind::Unit, SuppressionScope::default());
+    let mut out = Vec::new();
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert!(
+        out.is_empty(),
+        "Unit root must not be gated for a Function-scoped metric, got {out:?}"
+    );
+}
+
+#[test]
+fn function_scoped_metric_fires_on_nested_function() {
+    let child = space("inner", SpaceKind::Function, SuppressionScope::default());
+    let root = unit_with_child(child);
+    let mut out = Vec::new();
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert_eq!(
+        out.len(),
+        1,
+        "exactly the nested function fires, got {out:?}"
+    );
+    assert_eq!(out[0].function, "inner");
+    assert_eq!(out[0].metric, "cyclomatic");
+}
+
+#[test]
+fn function_scoped_metric_skips_container() {
+    // Function scope is `SpaceKind::Function` only: a container (impl /
+    // class) is never gated for a per-function metric, so an `impl`'s
+    // method-summed value cannot fire as if it were one function's.
+    let container = space("MyType", SpaceKind::Impl, SuppressionScope::default());
+    let root = unit_with_child(container);
+    let mut out = Vec::new();
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert!(
+        out.is_empty(),
+        "container must not be gated for a Function-scoped metric, got {out:?}"
+    );
+}
+
+#[test]
+fn container_scoped_metric_fires_on_container_only() {
+    // nom is Container-scoped: it gates the `impl` (methods-per-container),
+    // not the file root (a file-wide method sum) and not the leaf methods.
+    let root = analyzed_impl_tree();
+    let mut out = Vec::new();
+    // Limit 1 so the impl's `nom` of 2 trips while the leaf methods
+    // (`nom` 0/1) and the Unit root are not flagged.
+    threshold_set("nom", 1.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert_eq!(
+        out.len(),
+        1,
+        "only the impl container fires for nom, got {out:?}"
+    );
+    assert_ne!(out[0].function, "<file>", "the Unit root must not be gated");
+    assert_eq!(out[0].metric, "nom");
+}
+
+#[test]
+fn file_scoped_loc_fires_only_on_unit() {
+    // loc.sloc is File-scoped: it gates the whole-file Unit root, never the
+    // nested function — even though both spans exceed the limit.
+    let root = analyzed_tree();
+    let unit_sloc = root.metrics.loc.sloc();
+    assert!(
+        unit_sloc > 2,
+        "fixture Unit sloc must exceed the test limit, got {unit_sloc}"
+    );
+    let mut out = Vec::new();
+    threshold_set("loc.sloc", 2.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert_eq!(
+        out.len(),
+        1,
+        "only the Unit root fires for loc.sloc, got {out:?}"
+    );
+    assert_eq!(out[0].function, "<file>");
+    assert_eq!(out[0].metric, "loc.sloc");
+}
+
+#[test]
+fn scope_guard_runs_before_suppression() {
+    // The scope guard is independent of suppression: even under `Ignore`
+    // (which honors no markers) the Function-scoped metric does not fire on
+    // the Unit root, while the nested function still does.
+    let child = space("inner", SpaceKind::Function, SuppressionScope::All);
+    let mut root = space("<file>", SpaceKind::Unit, SuppressionScope::All);
+    root.spaces.push(child);
+    let mut out = Vec::new();
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Ignore,
+        false,
+        &mut out,
+    );
+    assert_eq!(
+        out.len(),
+        1,
+        "Unit skipped by scope; function fires under Ignore: {out:?}"
+    );
+    assert_eq!(out[0].function, "inner");
+}
+
+#[test]
+fn mi_lower_is_worse_skips_unit_root() {
+    // `mi.*` is lower-is-worse AND Function-scoped: a limit above the Unit's
+    // MI would breach it if the file root were gated, but the scope guard
+    // runs before the direction-aware breach test, so the `<file>` aggregate
+    // never appears.
+    let root = analyzed_tree();
+    let unit_mi = root.metrics.mi.original();
+    assert!(
+        unit_mi.is_finite(),
+        "fixture Unit MI must be finite, got {unit_mi}"
+    );
+    let mut out = Vec::new();
+    threshold_set("mi.original", unit_mi + 50.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &root,
+        SuppressionPolicy::Honor,
+        false,
+        &mut out,
+    );
+    assert!(
+        !out.iter().any(|v| v.function == "<file>"),
+        "the file aggregate must not be flagged for a Function-scoped mi.*: {out:?}"
     );
 }

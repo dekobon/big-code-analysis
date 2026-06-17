@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// format-dispatch `emit` match + the small write helpers), not
-// per-function logic complexity (cognitive/cyclomatic stay enforced) —
-// mirrors the sibling `vcs_jit.rs`.
-
 //! `bca vcs trend` — sample the change-history metrics at several points
 //! in time and emit a per-file time series (issue #333).
 //!

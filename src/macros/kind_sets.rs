@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead)
-// `macro_rules!` token-set bundles (one `|`-list per language); file-level
-// halstead is a macro-expansion aggregation artifact, not logic complexity.
-
 // Per-language `kind_id`-set and alias macros.
 //
 // Split out of `macros.rs` (now `macros/mod.rs`) so that file is no

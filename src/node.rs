@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom, wmc)
-// AST `Node` wrapper plus per-language node-kind dispatch helpers; the
-// offenders are arm-count and many-fn aggregation artifacts, not
-// per-function logic complexity.
-
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
 // across the cyclomatic / MI / Halstead computations. The `usize as f64`

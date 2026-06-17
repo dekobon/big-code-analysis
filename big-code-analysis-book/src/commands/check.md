@@ -109,6 +109,29 @@ form:
 An unknown threshold name is a tool error (exit `1`), not silently
 ignored.
 
+### Threshold scope
+
+A threshold is checked only against the space kind its metric actually
+measures, so a metric's whole-file or whole-`impl` aggregate is never
+mistaken for a per-function limit. Each metric has a fixed scope; there
+is nothing to configure.
+
+| Scope | Gated spaces | Metrics |
+|-------|--------------|---------|
+| File | the whole-file root only | `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank` |
+| Function | individual functions, methods, and closures | `cognitive`, `cyclomatic`, `cyclomatic.modified`, `halstead.*`, `mi.*`, `abc`, `nargs`, `nexits`, `tokens` |
+| Container | classes, structs, traits, impls, namespaces, interfaces | `nom`, `wmc`, `npm`, `npa` |
+
+The Function-scoped metrics include the subtree sums (`nargs`, `nexits`,
+`tokens`, `halstead.*`): these still roll a function's own nested closures
+into its figure, but they are no longer summed across an entire file or
+`impl`. The Container-scoped metrics describe a type's method set (methods
+per class, weighted methods, public members), so they gate the container
+rather than every leaf function. This means a clean file whose functions
+are individually fine no longer trips an additive limit purely from the
+file-wide total — the false positive that `bca: suppress-file` markers
+used to mask.
+
 The bare `bca diff --metric` spelling of a `loc` sub-metric is accepted
 as an alias for its dotted form (`sloc` is equivalent to `loc.sloc`, and
 so on for `ploc`/`lloc`/`cloc`/`blank`), so a name copied from a `diff`

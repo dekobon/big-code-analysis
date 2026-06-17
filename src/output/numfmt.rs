@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead)
-// Numeric-formatting helpers; file-level halstead is a many-fn aggregation
-// artifact, not per-function logic complexity.
-
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
 // across the cyclomatic / MI / Halstead computations. The `usize as f64`

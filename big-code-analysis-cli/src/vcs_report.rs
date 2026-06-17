@@ -1,11 +1,3 @@
-// bca: suppress-file(halstead, nargs, nom)
-// The `VCS_SPECS` table is declarative data: ~17 capture-free cell-projector
-// closures inflate the file-level nom/nargs/halstead sums (each closure is a
-// one-arg "function"), the same string-formatting / many-fn aggregation
-// artifact the sibling report renderers suppress (see
-// `markdown_report/hotspot.rs`) — not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
-
 //! Rendered change-history (VCS) report (issue #573).
 //!
 //! Produces the Markdown and HTML pages for `bca vcs --format

@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// File-level halstead/nargs are many-fn aggregation artifacts (the
-// formula's many log/weight terms + the percentile extractor table),
-// not per-function logic complexity (cognitive/cyclomatic stay enforced).
-
 //! Composite risk-score formulas.
 //!
 //! Two scores are offered. The default **weighted** score is a

@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// option-builder + report/inject `?` error maps and the many-field
-// report assembly), not per-function logic complexity
-// (cognitive/cyclomatic stay enforced).
-
 //! Bridge for the change-history (VCS) metrics surface exposed to
 //! Python under the `big_code_analysis.vcs` facade (issue #612).
 //!

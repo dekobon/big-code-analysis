@@ -1,7 +1,3 @@
-// bca: suppress-file(halstead, nargs)
-// PyO3 JSON -> Python object conversion plumbing; file-level halstead and
-// summed nargs are many-fn aggregation artifacts.
-
 //! JSON-string → Python object conversion.
 //!
 //! The Python bindings reuse the library's existing `Serialize`

@@ -1,9 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits, nom)
-// `bca diff` tree materialization + diffing; the offenders are many-fn /
-// early-return aggregation artifacts, not per-function logic complexity.
-// `nom` counts the many small, well-named helpers in this module — a
-// file-level extraction artifact, not a per-function complexity signal.
-
 //! Diff-aware filtering for `bca check`.
 //!
 //! Resolves the git ref to diff `HEAD` against (from the `--since`

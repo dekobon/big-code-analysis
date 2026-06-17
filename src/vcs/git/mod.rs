@@ -1,8 +1,3 @@
-// bca: suppress-file(halstead, nargs, nexits)
-// File-level halstead/nargs/exit are many-fn aggregation artifacts (the
-// open/resolve/enumerate/finalize pipeline), not per-function logic
-// complexity (cognitive/cyclomatic stay enforced).
-
 //! The `vcs-git` backend: a `gix`-powered history walk.
 //!
 //! `build` is the single entry point `build_history_index` delegates
