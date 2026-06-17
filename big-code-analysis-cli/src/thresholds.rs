@@ -26,6 +26,7 @@ use serde::Deserialize;
 
 use crate::baseline::Coverage;
 use crate::format_util::MetricScalar;
+use crate::qualified_name::qualified_symbol;
 
 /// The space kind each metric's threshold gates (issue #969) — owned by
 /// the library catalog so the CLI gate and the Python `to_sarif` binding
@@ -654,40 +655,6 @@ fn format_regressed_tag(recorded: f64, value: f64) -> String {
     // because the classifier only emits Regressed when
     // `value > recorded`.
     format!("[regr +{pct:.0}%]")
-}
-
-/// One `::`-segment for a space in the qualified-symbol chain.
-///
-/// The top-level (`Unit`) space is the file itself; it carries no
-/// symbol segment (its identity is the `path` key) so it never prefixes
-/// the functions inside it. Named spaces contribute their AST-derived
-/// name. Anonymous spaces — closures and lambdas, which every grammar
-/// surfaces as the literal `<anonymous>`, plus the `None`-name
-/// parse-failure case — collapse to `<anon@L{start_line}>` so they keep
-/// a stable-within-a-snapshot identity. Baking the line into the segment
-/// means an anonymous function re-keys when it moves (the documented
-/// degradation in `recipes/baselines.md`); named functions do not.
-fn space_segment(space: &FuncSpace) -> String {
-    const ANONYMOUS: &str = "<anonymous>";
-    match space.name.as_deref() {
-        Some(name) if name != ANONYMOUS => name.to_owned(),
-        _ => format!("<anon@L{}>", space.start_line),
-    }
-}
-
-/// The qualified symbol of `space`, given the `::`-joined symbol of its
-/// enclosing chain (`parent_prefix`, empty at file top level). `Unit`
-/// collapses to `<file>`; everything else appends its [`space_segment`].
-fn qualified_symbol(space: &FuncSpace, parent_prefix: &str) -> String {
-    if matches!(space.kind, SpaceKind::Unit) {
-        return "<file>".to_owned();
-    }
-    let segment = space_segment(space);
-    if parent_prefix.is_empty() {
-        segment
-    } else {
-        format!("{parent_prefix}::{segment}")
-    }
 }
 
 /// One resolved threshold: the registry extractor, the configured limit,

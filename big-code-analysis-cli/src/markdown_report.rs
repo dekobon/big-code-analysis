@@ -29,10 +29,12 @@ pub(crate) use sections::render_cell_md;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
+use std::rc::Rc;
 
 use big_code_analysis::{FuncSpace, LANG, Metric, SpaceKind, SuppressionPolicy, SuppressionScope};
 
 use crate::format_util::strip_path_prefix;
+use crate::qualified_name::space_segment;
 
 /// Compact per-function/class metric record for the markdown report pipeline.
 #[derive(Debug)]
@@ -129,6 +131,11 @@ fn extract_summaries_inner(
     language: LANG,
     out: &mut Vec<FunctionSummary>,
 ) {
+    // bca: suppress(halstead)
+    // halstead.effort here is the volume of the mechanical, field-by-field
+    // `CodeMetrics` -> `FunctionSummary` projection below (~30 accessor
+    // reads), not per-function logic complexity — the walk itself is a
+    // simple iterative pre-order traversal.
     // The root space IS the top-level `Unit`; its `suppressed` scope
     // carries any `bca: suppress-file` markers, which apply to every
     // function in the file. Capture it once so each summary's effective
@@ -136,18 +143,39 @@ fn extract_summaries_inner(
     // gate forms in `ThresholdSet::evaluate_with_policy` (issue #501).
     let file_scope = &space.suppressed;
 
-    // Iterative pre-order walk over the FuncSpace tree. Children are
-    // pushed in reverse so `pop()` visits them in source order — this
-    // produces the same FunctionSummary ordering as the prior recursive
-    // form, preserving snapshot stability.
-    let mut stack: Vec<&FuncSpace> = vec![space];
-    while let Some(current) = stack.pop() {
+    // Iterative pre-order walk over the FuncSpace tree. Each frame carries
+    // the segment of its *immediate* enclosing container so a nested
+    // function's `name` is `Container::function` (`RustCode::compute`) —
+    // disambiguating the per-language `impl Abc for <Lang>Code { compute }`
+    // family in `src/metrics/abc.rs` that otherwise collapses to ~20
+    // identical-looking bare `compute` rows. Only the immediate container
+    // is prefixed (not the full `bca check` chain) so the name stays O(1)
+    // per space — a pathologically deep AST therefore cannot blow report
+    // memory to O(depth²); for the shallow nesting real code produces the
+    // two agree. The `Unit` file row keeps the file path as its name (its
+    // identity, shown in the file-level tables). Children are pushed in
+    // reverse so `pop()` visits them in source order, matching the prior
+    // recursive form and preserving snapshot ordering.
+    let mut stack: Vec<(&FuncSpace, Rc<str>)> = vec![(space, Rc::from(""))];
+    while let Some((current, container)) = stack.pop() {
         let m = &current.metrics;
         let mut suppressed = file_scope.clone();
         suppressed.merge(&current.suppressed);
+        let is_unit = matches!(current.kind, SpaceKind::Unit);
+        let (name, child_container): (String, Rc<str>) = if is_unit {
+            (current.name.clone().unwrap_or_default(), Rc::from(""))
+        } else {
+            let segment = space_segment(current);
+            let name = if container.is_empty() {
+                segment.clone()
+            } else {
+                format!("{container}::{segment}")
+            };
+            (name, Rc::from(segment))
+        };
         out.push(FunctionSummary {
             file: display_file.to_string(),
-            name: current.name.clone().unwrap_or_default(),
+            name,
             kind: current.kind,
             language,
             suppressed,
@@ -177,7 +205,9 @@ fn extract_summaries_inner(
             npm: m.npm.total_npm() as f64,
         });
 
-        stack.extend(current.spaces.iter().rev());
+        for child in current.spaces.iter().rev() {
+            stack.push((child, Rc::clone(&child_container)));
+        }
     }
 }
 
@@ -1345,13 +1375,19 @@ mod tests {
         extract_summaries(&root, "src/root.rs", LANG::Rust, "", &mut out);
 
         assert_eq!(out.len(), 4);
+        // The `Unit` row keeps the file path as its name; nested spaces
+        // carry their container-qualified symbol so two methods sharing a
+        // bare name stay distinguishable (the abc.rs `compute` family).
         assert_eq!(out[0].kind, SpaceKind::Unit);
+        assert_eq!(out[0].name, "root.rs");
+        // Top-level spaces have no container prefix.
         assert_eq!(out[1].kind, SpaceKind::Function);
         assert_eq!(out[1].name, "func_a");
         assert_eq!(out[2].kind, SpaceKind::Class);
         assert_eq!(out[2].name, "ClassB");
+        // The method nested in `ClassB` is qualified by its container.
         assert_eq!(out[3].kind, SpaceKind::Function);
-        assert_eq!(out[3].name, "method_c");
+        assert_eq!(out[3].name, "ClassB::method_c");
         assert_eq!(out[3].start_line, 12);
         assert_eq!(out[3].end_line, 16);
     }
@@ -1438,10 +1474,14 @@ mod tests {
                 // DEPTH+1 because the chain has DEPTH wrappers plus
                 // the innermost `f_inner` leaf.
                 assert_eq!(out.len(), DEPTH + 1);
-                // Pre-order: root first, innermost last.
+                // Pre-order: root first, innermost last. The `Unit` row
+                // keeps the file path; the innermost is qualified by its
+                // immediate container (`f_{DEPTH-1}::f_inner`) — O(1) per
+                // name, so qualification does not turn this deep chain into
+                // O(depth²) memory.
                 assert_eq!(out[0].kind, SpaceKind::Unit);
                 assert_eq!(out[0].name, "root.rs");
-                assert_eq!(out[DEPTH].name, "f_inner");
+                assert_eq!(out[DEPTH].name, format!("f_{}::f_inner", DEPTH - 1));
 
                 // FuncSpace contains `spaces: Vec<FuncSpace>`, so
                 // letting the chained tree drop at scope exit walks
