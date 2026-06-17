@@ -23,6 +23,24 @@ for historical reference.
 
 ### Added
 
+- Lazy `Node` traversal handle for Python (`big_code_analysis.Node`) over
+  the tree retained by `Ast`, so a caller walks the AST py-tree-sitter-style
+  — `kind`, byte offsets, points, `children`, `child_by_field_name`,
+  `text()`, a lazy pre-order `walk()`, `descendants_by_kind()` — **without**
+  materialising the tree into dicts the way `dump()` does (#728). Reach one
+  through the new `Ast.root_node` property or `Ast.find(filters)`; the node
+  keeps its `Ast` alive, so it stays valid after every other reference to
+  the parse is dropped, and is safe to share across a `ThreadPoolExecutor`.
+  Kinds are the **raw** grammar kinds (not the `Alterator`-curated kinds
+  `dump()` emits — they intentionally disagree on altered nodes such as
+  string literals), and each node exposes its location in every vocabulary:
+  `start_byte`/`end_byte`, 0-based `start_point`/`end_point` (py-tree-sitter
+  parity), and 1-based `start_line`/`end_line` plus a `span` dict matching
+  `dump()`. Covered by the `make py-stubtest` gate.
+- `Node::preorder()` (a pre-order iterator) and
+  `Node::descendants_by_kind(kinds)` on the Rust `Node` surface — the
+  Rust counterparts the Python `walk()` / `descendants_by_kind()` mirror,
+  so Rust callers gain the same ergonomic traversal helpers (#728).
 - Python `Ast` parse-once handle (`big_code_analysis.Ast`) binds the Rust
   `Ast` seam, so a Python caller parses a source **once** and draws both
   metrics and the AST from the same parse instead of parsing twice — once

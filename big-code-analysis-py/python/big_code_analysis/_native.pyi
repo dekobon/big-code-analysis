@@ -15,7 +15,7 @@ carry their own inline type annotations.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Literal, final
 
 from ._types import (
@@ -23,6 +23,7 @@ from ._types import (
     FuncSpaceDict,
     FunctionSpanDict,
     OpsDict,
+    SpanDict,
     SuppressionMarkerDict,
 )
 
@@ -289,7 +290,190 @@ class Ast:
         scope, dialect, and enclosing function.
         """
 
+    @property
+    def root_node(self) -> Node:
+        """The root :class:`Node` of the held parse, for lazy
+        py-tree-sitter-style traversal without materialising the tree into
+        dicts the way :meth:`dump` does (#728). Node kinds are the **raw**
+        grammar kinds, not the ``Alterator``-curated kinds ``dump()`` emits.
+        """
+
+    def find(self, filters: Sequence[str], /) -> list[Node]:
+        """Return every node whose kind matches one of ``filters`` as lazy
+        :class:`Node` handles. ``filters`` accepts the same vocabulary as
+        :meth:`count` (``all`` / ``call`` / ``comment`` / ``error`` /
+        ``string`` / ``function`` / a numeric ``kind_id`` / an exact
+        ``node.kind()``).
+        """
+
     def __repr__(self) -> str: ...
+
+@final
+class Node:
+    """A lazy handle to one node of a parsed :class:`Ast` (#728).
+
+    A py-tree-sitter-style cursor into the parsed tree — ``kind``, byte
+    offsets, points, ``children``, ``child_by_field_name``, ``text``,
+    ``walk()`` — that does **not** materialise the tree into dicts the way
+    :meth:`Ast.dump` does, so a selective extractor pays only for the nodes
+    it visits. Reach one through :attr:`Ast.root_node` or :meth:`Ast.find`;
+    it keeps its ``Ast`` alive, so it stays valid after every other
+    reference to the parse is dropped.
+
+    **Raw kinds.** :attr:`kind` is the unaltered grammar kind, not the
+    ``Alterator``-curated kind ``dump()`` emits — the two intentionally
+    disagree on altered nodes (string literals, etc.).
+
+    **Coordinates.** Each node carries its location in every vocabulary:
+    :attr:`start_byte` / :attr:`end_byte` (offsets into :attr:`Ast.source`);
+    :attr:`start_point` / :attr:`end_point` (**0-based** ``(row, col)``,
+    py-tree-sitter parity); and :attr:`start_line` / :attr:`end_line` plus
+    :attr:`span` (**1-based**, matching ``dump()``). So ``start_line ==
+    start_point[0] + 1``.
+    """
+
+    @property
+    def kind(self) -> str:
+        """The raw grammar kind (e.g. ``"function_item"``)."""
+
+    @property
+    def kind_id(self) -> int:
+        """The numeric grammar id behind :attr:`kind`."""
+
+    @property
+    def is_named(self) -> bool:
+        """Whether this is a named production (vs. an anonymous token)."""
+
+    @property
+    def is_error(self) -> bool:
+        """Whether this is an ``ERROR`` node."""
+
+    @property
+    def is_missing(self) -> bool:
+        """Whether this is a zero-width ``MISSING`` recovery node."""
+
+    @property
+    def is_extra(self) -> bool:
+        """Whether this is an ``extra`` node (e.g. a comment)."""
+
+    @property
+    def has_error(self) -> bool:
+        """Whether this node or any descendant is an error/missing node."""
+
+    @property
+    def start_byte(self) -> int:
+        """Start byte offset (inclusive) into :attr:`Ast.source`."""
+
+    @property
+    def end_byte(self) -> int:
+        """End byte offset (exclusive) into :attr:`Ast.source`."""
+
+    @property
+    def start_point(self) -> tuple[int, int]:
+        """0-based ``(row, column)`` of the start (py-tree-sitter parity)."""
+
+    @property
+    def end_point(self) -> tuple[int, int]:
+        """0-based ``(row, column)`` of the end (py-tree-sitter parity)."""
+
+    @property
+    def start_line(self) -> int:
+        """1-based start line (``start_point[0] + 1``)."""
+
+    @property
+    def end_line(self) -> int:
+        """1-based end line (``end_point[0] + 1``)."""
+
+    @property
+    def span(self) -> SpanDict:
+        """The 1-based ``{start_line, start_col, end_line, end_col,
+        start_byte, end_byte}`` dict, identical to ``dump()``'s span.
+        """
+
+    @property
+    def field_name(self) -> str | None:
+        """The grammar field name the parent reaches this node through, or
+        ``None`` for the root and field-less children.
+        """
+
+    @property
+    def child_count(self) -> int:
+        """The number of direct children (named and anonymous)."""
+
+    @property
+    def named_child_count(self) -> int:
+        """The number of direct named children."""
+
+    @property
+    def children(self) -> list[Node]:
+        """All direct children (named and anonymous), in document order."""
+
+    @property
+    def named_children(self) -> list[Node]:
+        """The direct named children, in document order."""
+
+    @property
+    def parent(self) -> Node | None:
+        """This node's parent, or ``None`` at the root."""
+
+    @property
+    def next_sibling(self) -> Node | None:
+        """The next sibling (named or anonymous), or ``None``."""
+
+    @property
+    def prev_sibling(self) -> Node | None:
+        """The previous sibling (named or anonymous), or ``None``."""
+
+    @property
+    def next_named_sibling(self) -> Node | None:
+        """The next named sibling, or ``None``."""
+
+    @property
+    def prev_named_sibling(self) -> Node | None:
+        """The previous named sibling, or ``None``."""
+
+    def child(self, index: int, /) -> Node | None:
+        """The child at ``index`` (all children counted), or ``None``."""
+
+    def named_child(self, index: int, /) -> Node | None:
+        """The named child at ``index``, or ``None``."""
+
+    def child_by_field_name(self, name: str, /) -> Node | None:
+        """The first child reached through field ``name``, or ``None``."""
+
+    def children_by_field_name(self, name: str, /) -> list[Node]:
+        """Every child reached through field ``name``, in order."""
+
+    def field_name_for_child(self, index: int, /) -> str | None:
+        """The field name this node reaches its child ``index`` through."""
+
+    def text(self) -> bytes:
+        """This node's ``source[start_byte:end_byte]`` slice (raw bytes)."""
+
+    def walk(self) -> Iterator[Node]:
+        """A lazy pre-order iterator over this node and its descendants
+        (this node first), yielding handles one at a time.
+        """
+
+    def descendants_by_kind(self, kinds: Sequence[str], /) -> list[Node]:
+        """Every node in this subtree (this node included) whose
+        :attr:`kind` is in ``kinds``, in pre-order (exact raw-kind match).
+        """
+
+    # `value` is positional-only at runtime (the slot wrapper),
+    # matching `object.__eq__`.
+    def __eq__(self, value: object, /) -> bool: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class NodeWalk:
+    """Lazy pre-order iterator over a node and its descendants, returned by
+    :meth:`Node.walk`. Yields :class:`Node` handles one at a time.
+    """
+
+    def __iter__(self) -> NodeWalk: ...
+    def __next__(self) -> Node: ...
 
 def analyze(
     path: str | os.PathLike[str],

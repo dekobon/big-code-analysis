@@ -39,6 +39,7 @@
   - [Batch processing](python/batch.md)
   - [Flat-record iteration](python/flat-records.md)
   - [Metric selection](python/metrics.md)
+  - [AST traversal](python/traversal.md)
   - [SARIF output](python/sarif.md)
   - [Change-history (VCS) metrics](python/vcs.md)
   - [Error handling](python/errors.md)
