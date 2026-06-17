@@ -280,9 +280,9 @@ pub(crate) fn build_options(args: &VcsArgs) -> Options {
     options
 }
 
-/// Environment variable holding the author-hash key, preferred over the
-/// `--author-hash-key` flag so the secret stays off the process list and
-/// out of shell history (issue #956).
+/// Environment variable holding the author-hash key: the recommended,
+/// security-preferred channel (off the process list and shell history),
+/// though the `--author-hash-key` flag wins when both are set (#956).
 const AUTHOR_HASH_KEY_ENV: &str = "BCA_AUTHOR_HASH_KEY";
 
 /// Resolve the optional author-hash key (issue #956): the
