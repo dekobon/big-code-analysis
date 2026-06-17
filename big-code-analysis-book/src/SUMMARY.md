@@ -2,7 +2,7 @@
 
 - [big-code-analysis](./README.md)
   - [Supported Languages](./languages.md)
-  - [Supported Metrics](./metrics.md)
+  - [Supported Code Metrics](./metrics.md)
 - [CLI Migration Guide](./migration.md)
 - [Commands](commands/README.md)
   - [Metrics](commands/metrics.md)
