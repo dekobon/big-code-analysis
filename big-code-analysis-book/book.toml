@@ -1,7 +1,7 @@
 [book]
 title = "big-code-analysis Documentation"
 description = "This book documents big-code-analysis"
-authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
+authors = ["Calixte Denizet <cdenizet@mozilla.com>", "Elijah Zupancic <elijah@zupancic.name>"]
 language = "en"
 
 [output.html]
