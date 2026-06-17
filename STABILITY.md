@@ -548,8 +548,13 @@ reach the raw tree-sitter surface.
   pin in the same value-not-stable sense as the `tree_sitter`
   re-export. The rest of `Ast`'s API surface (`parse`,
   `from_tree_sitter`, `metrics`, `ops`, `strip_comments`, `functions`,
-  `dump`, `count`, `find`, `suppressions`, `language`, `source`,
-  `name`) is shape-stable. The language-dispatched `AstInner` enum and
+  `dump`, `count`, `find`, `root_node`, `suppressions`, `language`,
+  `source`, `name`) is shape-stable. `Ast::root_node` / `Ast::find`
+  return the public `Node` wrapper (#728), whose own `preorder()` /
+  `descendants_by_kind()` traversal helpers and `as_tree_sitter()` escape
+  hatch are shape-stable; the raw node *kinds* and `kind_id`s it surfaces
+  follow the `tree-sitter` pin in the same value-not-stable sense as the
+  re-export. The language-dispatched `AstInner` enum and
   the matching `ast_*_dispatch` helpers stay `pub(crate)`; only `Ast`
   is exposed. At `2.0` the path-positional `get_function_spaces*` /
   `metrics_from_tree` / `get_ops` shims, the parser-generic `metrics` /
@@ -931,7 +936,9 @@ The bound surface tracks the library: `analyze`, `analyze_source`,
 `analyze_batch`, `analyze_paths` (the directory-walk entry point, #658),
 `language_for_file` (with the filesystem-free `read=False` option, #682),
 `language_for_extension` (#682), `language_extensions`,
-`supported_languages`, `to_sarif`, `flatten_spaces`, the `AnalysisFailure`
+`supported_languages`, `to_sarif`, `flatten_spaces`, the `Ast` parse-once
+handle (#727) and the lazy `Node` traversal handle it hands out via
+`Ast.root_node` / `Ast.find` (#728), the `AnalysisFailure`
 value type (a per-file batch failure, **returned not raised** — renamed
 from `AnalysisError` at 2.0, #614), the `ParseError` /
 `UnsupportedLanguageError` exception types, the change-history exception

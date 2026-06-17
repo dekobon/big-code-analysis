@@ -31,6 +31,7 @@ mod batch;
 mod codegen;
 mod conversion;
 mod language;
+mod node;
 mod sarif;
 // `types_codegen` renders and drift-checks the generated `_types.py`
 // (#623). Like `codegen`, it is exercised only from the test harness, so
@@ -865,6 +866,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add_class::<PyAnalysisError>()?;
     m.add_class::<crate::ast::PyAst>()?;
+    m.add_class::<crate::node::PyNode>()?;
+    m.add_class::<crate::node::PyNodeWalk>()?;
     m.add_function(wrap_pyfunction!(crate::ast::language_grammar_version, m)?)?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;

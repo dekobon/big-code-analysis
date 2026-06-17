@@ -326,6 +326,67 @@ impl<'a> Node<'a> {
         };
         grand_pred(&grand)
     }
+
+    /// Returns a pre-order iterator over this node and all of its
+    /// descendants (this node first, then each child subtree left to
+    /// right).
+    ///
+    /// The traversal is allocation-light: it reuses one work stack and
+    /// visits each node exactly once, so a full walk is O(n) in the
+    /// subtree size. Every yielded [`Node`] carries the underlying tree
+    /// lifetime `'a`, so callers may collect or retain the handles.
+    ///
+    /// This is the Rust counterpart of the Python `Node.walk()` binding
+    /// (issue #728): the binding wraps each yielded node, so Rust and
+    /// Python share one traversal order.
+    #[must_use]
+    pub fn preorder(&self) -> Preorder<'a> {
+        Preorder { stack: vec![*self] }
+    }
+
+    /// Collects every node in this subtree (this node included) whose
+    /// [`kind`](tree_sitter::Node::kind) is listed in `kinds`, in
+    /// pre-order.
+    ///
+    /// Membership is an exact match against the raw grammar kind — the
+    /// same unaltered vocabulary [`crate::Ast::root_node`] exposes, not
+    /// the `Alterator`-curated kinds [`crate::Ast::dump`] emits. This is
+    /// the Rust counterpart of the Python `Node.descendants_by_kind()`
+    /// binding (issue #728).
+    #[must_use]
+    pub fn descendants_by_kind(&self, kinds: &[&str]) -> Vec<Node<'a>> {
+        self.preorder()
+            .filter(|node| kinds.contains(&node.kind()))
+            .collect()
+    }
+}
+
+/// Pre-order iterator over a node and its descendants, returned by
+/// [`Node::preorder`].
+///
+/// Holds a single work stack of not-yet-visited nodes. Each step pops the
+/// next node, pushes its children so the leftmost is visited first, and
+/// yields the popped node — so the sequence is the node, then each child
+/// subtree in order. The stack is reused across steps (children are pushed
+/// then the freshly-pushed slice is reversed in place), so the walk
+/// allocates only the stack's growth, not a fresh buffer per node.
+pub struct Preorder<'a> {
+    stack: Vec<Node<'a>>,
+}
+
+impl<'a> Iterator for Preorder<'a> {
+    type Item = Node<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.stack.pop()?;
+        // Push children in document order, then reverse just the slice we
+        // appended so the leftmost child ends up on top of the stack and
+        // is visited next — pre-order without a per-node temporary.
+        let first_child = self.stack.len();
+        self.stack.extend(node.children());
+        self.stack[first_child..].reverse();
+        Some(node)
+    }
 }
 
 /// An `AST` cursor.
@@ -676,5 +737,76 @@ mod tests {
         // the root has children.
         assert!(!ts_root.has_error());
         assert!(ts_root.child_count() > 0);
+    }
+
+    /// Ground-truth pre-order walk over the raw tree-sitter node, by
+    /// document order (`child(0..child_count)`). [`Node::preorder`] must
+    /// emit exactly this sequence of node ids — node first, then each
+    /// child subtree left to right.
+    fn ground_truth_preorder(node: OtherNode) -> Vec<usize> {
+        let mut out = vec![node.id()];
+        for i in 0..node.child_count() as u32 {
+            if let Some(child) = node.child(i) {
+                out.extend(ground_truth_preorder(child));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn preorder_matches_recursive_document_order() {
+        // A nested construct (function holding a declaration and a call)
+        // gives the walk real depth and sibling fan-out to order.
+        let code = b"int main() { int x = 1; foo(x); return 0; }";
+        let tree = Tree::new::<crate::langs::CppCode>(code);
+        let root = tree.get_root();
+
+        let actual: Vec<usize> = root.preorder().map(|n| n.id()).collect();
+        let expected = ground_truth_preorder(root.as_tree_sitter());
+
+        assert_eq!(
+            actual, expected,
+            "preorder diverged from recursive child(0..n) document order"
+        );
+        // Sanity: a non-trivial tree, and the root is visited first.
+        assert!(actual.len() > 5, "expected a multi-node tree");
+        assert_eq!(actual[0], root.id(), "root must be yielded first");
+    }
+
+    #[test]
+    fn descendants_by_kind_collects_matching_subtree_nodes() {
+        // `x` is declared once and used twice, so three `identifier`
+        // nodes exist under the function; `main` is an identifier too.
+        let code = b"int main() { int x = 1; return x + x; }";
+        let tree = Tree::new::<crate::langs::CppCode>(code);
+        let root = tree.get_root();
+
+        let found = root.descendants_by_kind(&["identifier"]);
+        // Cross-check against an independent pre-order count so the helper
+        // cannot pass by matching everything or nothing.
+        let expected: Vec<usize> = root
+            .preorder()
+            .filter(|n| n.kind() == "identifier")
+            .map(|n| n.id())
+            .collect();
+        let actual: Vec<usize> = found.iter().map(Node::id).collect();
+        assert_eq!(actual, expected);
+        assert!(
+            found.len() >= 3,
+            "expected at least the `main`, `x` decl, and `x` uses"
+        );
+        assert!(
+            found.iter().all(|n| n.kind() == "identifier"),
+            "every collected node must match the requested kind"
+        );
+
+        // An absent kind yields nothing; a multi-kind filter unions.
+        assert!(root.descendants_by_kind(&["no_such_kind"]).is_empty());
+        assert!(
+            root.descendants_by_kind(&["identifier", "number_literal"])
+                .len()
+                > found.len(),
+            "adding `number_literal` must widen the match set"
+        );
     }
 }

@@ -100,6 +100,15 @@ pub(crate) struct PyAst {
     inner: Ast,
 }
 
+impl PyAst {
+    /// Borrow the held [`Ast`] for crate-internal use (the lazy
+    /// [`PyNode`](crate::node::PyNode) reads `source()` for
+    /// [`text`](crate::node::PyNode::text) and re-roots traversal here).
+    pub(crate) fn ast_ref(&self) -> &Ast {
+        &self.inner
+    }
+}
+
 #[pymethods]
 impl PyAst {
     /// Parse in-memory `code` (`str` / `bytes` / `bytearray`) in `language`
@@ -276,6 +285,46 @@ impl PyAst {
         let markers = py.detach(|| self.inner.suppressions());
         let json = serde_json::to_string(&markers).map_err(serialize_error_to_py)?;
         conversion::json_string_to_py(py, &json)
+    }
+
+    /// Return the root [`Node`](crate::node::PyNode) of the held parse for
+    /// lazy, py-tree-sitter-style traversal — `kind`, byte offsets, points,
+    /// `children`, `walk()`, … — without materialising the tree into dicts
+    /// the way [`dump`](PyAst::dump) does (#728).
+    ///
+    /// Node kinds are the **raw** grammar kinds, not the `Alterator`-curated
+    /// kinds `dump()` emits, so they intentionally disagree on altered
+    /// nodes; the returned node and all its descendants keep this `Ast`
+    /// alive.
+    #[getter]
+    fn root_node(slf: &Bound<'_, Self>) -> crate::node::PyNode {
+        let root = slf.get().inner.root_node();
+        crate::node::PyNode::wrap(slf.clone().unbind(), root.as_tree_sitter())
+    }
+
+    /// Return every node in the held parse whose kind matches one of
+    /// `filters`, as lazy [`Node`](crate::node::PyNode) handles (#728).
+    ///
+    /// `filters` accepts the same vocabulary as [`count`](PyAst::count) —
+    /// `all`, `call`, `comment`, `error`, `string`, `function`, a numeric
+    /// `kind_id`, or an exact `node.kind()` — so a structural extractor can
+    /// jump straight to the nodes it cares about instead of walking the
+    /// whole tree from Python.
+    #[pyo3(signature = (filters, /))]
+    // PyO3 `FromPyObject` materializes an owned `Vec<String>` from the Python
+    // sequence; there is no borrowed `&[String]` to take instead (mirrors
+    // `count` / `from_path`).
+    #[allow(clippy::needless_pass_by_value)]
+    fn find(slf: &Bound<'_, Self>, filters: Vec<String>) -> PyResult<Vec<crate::node::PyNode>> {
+        let nodes = slf
+            .get()
+            .inner
+            .find(&filters)
+            .map_err(metrics_error_to_py)?;
+        Ok(nodes
+            .into_iter()
+            .map(|node| crate::node::PyNode::wrap(slf.clone().unbind(), node.as_tree_sitter()))
+            .collect())
     }
 
     fn __repr__(&self) -> String {
