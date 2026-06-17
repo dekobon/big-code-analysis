@@ -38,8 +38,12 @@
 //! # Interior-space emission
 //!
 //! The binding emits a finding wherever a space's **own** metric value
-//! breaches its limit — at every space level (unit, container, leaf)
-//! alike — matching the CLI's per-space accessors exactly.
+//! breaches its limit, at each space level the metric's
+//! [`MetricScope`](big_code_analysis::metric_catalog::MetricScope) admits
+//! — `loc.*` only at the file `unit`, the OO size metrics (`nom`, `wmc`,
+//! `npm`, `npa`) only at containers, every other metric only at leaf
+//! functions (#969) — matching the CLI's per-space accessors and scope
+//! gate exactly via the shared catalog.
 //!
 //! For most metrics the JSON's headline field at any space already IS
 //! that space's own value (e.g. `loc.sloc`, `wmc.total`, `mi.original`,
@@ -73,7 +77,8 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyAnyMethods, PyBool, PyDict, PyDictMethods, PyMapping, PyString};
 
-use big_code_analysis::{OffenderRecord, Severity, write_sarif};
+use big_code_analysis::metric_catalog::MetricScope;
+use big_code_analysis::{OffenderRecord, Severity, SpaceKind, write_sarif};
 
 use crate::batch::PyAnalysisError;
 
@@ -93,8 +98,9 @@ const FILE_SYMBOL: &str = "<file>";
 /// One metric entry in the threshold-name → JSON-path table.
 ///
 /// Every entry's `path` reaches that space's **own** per-space scalar —
-/// the value the CLI thresholds against — so a breach is emitted at
-/// every space level. For `cyclomatic`, `cyclomatic.modified`,
+/// the value the CLI thresholds against — so a breach is emitted at each
+/// space level the metric's scope admits (#969). For `cyclomatic`,
+/// `cyclomatic.modified`,
 /// `cognitive`, and `abc` that scalar is the `value` field the wire
 /// shape gained in #958 (the sibling `sum`/`magnitude` field is a
 /// subtree aggregate and is deliberately *not* used here); for every
@@ -248,6 +254,11 @@ struct Threshold {
     /// library metric catalog so it stays in lockstep with the CLI gate
     /// (#698).
     lower_is_worse: bool,
+    /// The space kind this metric gates (issue #969), sourced from the
+    /// same library catalog as the CLI gate so the binding skips the file
+    /// root / containers / leaf functions a metric does not measure
+    /// exactly as `bca check` does.
+    scope: MetricScope,
 }
 
 /// Builds the "unknown threshold metric" error for `name`, listing the
@@ -295,11 +306,17 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
             .find(|m| m.name == name)
             .ok_or_else(|| unknown_threshold_metric_err(&name))?;
         let lower_is_worse = big_code_analysis::metric_catalog::lower_is_worse(entry.name);
+        // Resolved from the catalog (infallible for a known entry); an
+        // unknown id defaults to the narrowest scope rather than gating an
+        // aggregate, mirroring the CLI's `metric_scope`.
+        let scope =
+            big_code_analysis::metric_catalog::scope(entry.name).unwrap_or(MetricScope::Function);
         out.push(Threshold {
             name: entry.name,
             path: entry.path,
             limit,
             lower_is_worse,
+            scope,
         });
     }
     Ok(out)
@@ -373,9 +390,10 @@ fn extract_line_number(
 /// in [`extract_space_fields`] so the threshold loop stays a thin
 /// compare-and-push.
 struct SpaceFields {
-    /// Whether the space is the file-level `unit` space (drives the
-    /// `<file>` function-name rule and the empty child prefix).
-    is_unit: bool,
+    /// This space's kind, parsed from the serialized `kind` field. Drives
+    /// the `<file>` function-name rule and the empty child prefix (for the
+    /// `unit` root) and the per-metric threshold scope gate (#969).
+    kind: SpaceKind,
     /// This space's own `::`-segment in the qualified-symbol chain (the
     /// CLI's `space_segment`): the AST-derived name for a named space, or
     /// `<anon@L{start_line}>` for anonymous / unnamed spaces. The unit
@@ -400,7 +418,7 @@ struct SpaceFields {
 fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
     let py = space.py();
 
-    let kind: Option<String> = space
+    let kind: SpaceKind = space
         .get_item(intern!(py, "kind"))?
         .and_then(|k| k.extract::<String>().ok())
         // Normalise case so an upstream rename or a hand-crafted dict
@@ -409,8 +427,11 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
         // prefix). Upstream serialises with
         // `#[serde(rename_all = "lowercase")]` today; this is a
         // defensive lowercase guard against future drift.
-        .map(|s| s.to_ascii_lowercase());
-    let is_unit = kind.as_deref() == Some("unit");
+        .map(|s| s.to_ascii_lowercase())
+        // Map the serialized string to the library `SpaceKind` so the
+        // per-metric threshold scope gate (#969) sees the same kinds the
+        // CLI does; an unrecognized kind degrades to `Unknown`.
+        .map_or(SpaceKind::Unknown, |s| SpaceKind::from_serialized(&s));
 
     let space_name: Option<String> = space
         .get_item(intern!(py, "name"))?
@@ -433,11 +454,19 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
     };
 
     Ok(SpaceFields {
-        is_unit,
+        kind,
         segment,
         start_line,
         end_line,
     })
+}
+
+impl SpaceFields {
+    /// Whether this is the file-level `unit` space — the `<file>`
+    /// function-name rule and the empty child prefix key off it.
+    fn is_unit(&self) -> bool {
+        matches!(self.kind, SpaceKind::Unit)
+    }
 }
 
 /// The qualified symbol of a space, given the `::`-joined symbol of its
@@ -446,7 +475,7 @@ fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
 /// `<file>`; every other space appends its own [`SpaceFields::segment`]
 /// to the parent prefix.
 fn qualified_symbol(fields: &SpaceFields, parent_prefix: &str) -> String {
-    if fields.is_unit {
+    if fields.is_unit() {
         return FILE_SYMBOL.to_string();
     }
     if parent_prefix.is_empty() {
@@ -469,6 +498,13 @@ fn record_threshold_breaches(
     out: &mut Vec<OffenderRecord>,
 ) {
     for threshold in thresholds {
+        // Per-metric threshold scope (#969): skip a space whose kind this
+        // metric does not measure (e.g. `wmc` on the file root, `nargs` on
+        // a container), matching the CLI gate via the shared catalog so the
+        // two front-ends emit the same offenders.
+        if !threshold.scope.admits(fields.kind) {
+            continue;
+        }
         let Some(value) = extract_metric(metrics, threshold.path) else {
             continue;
         };
@@ -553,7 +589,7 @@ fn collect_offenders(
         // Children inherit this space's qualified symbol as their prefix,
         // except the file root, which stays empty so a top-level function
         // is `foo`, not `<file>::foo` (matching the CLI walk).
-        let child_prefix = if fields.is_unit {
+        let child_prefix = if fields.is_unit() {
             String::new()
         } else {
             qualified

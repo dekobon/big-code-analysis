@@ -18,6 +18,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use big_code_analysis::metric_catalog::MetricScope;
 use big_code_analysis::{
     CodeMetrics, FuncSpace, SpaceKind, SuppressionPolicy, threshold_metric_for_name,
 };
@@ -26,57 +27,16 @@ use serde::Deserialize;
 use crate::baseline::Coverage;
 use crate::format_util::MetricScalar;
 
-/// Which space kinds a metric's threshold is meaningful on (issue #969).
-///
-/// `bca check` walks every [`FuncSpace`] — the file-level
-/// [`SpaceKind::Unit`] root, every container (class/impl/trait/...), and
-/// every individual function. Metrics fall into three natural units of
-/// measure, and gating a metric on the wrong kind manufactures false
-/// positives: the subtree accessors (`nargs.total()`, `nexits_sum()`, the
-/// rolled-up Halstead figures, ...) read a *sum* at any space that owns
-/// children, so a per-function limit (`nargs = 7`) trips on every
-/// non-trivial file *and* every multi-method `impl` — no matter how clean
-/// each individual function is. Scope lets each metric declare where its
-/// limit applies, so those aggregates stop firing without blanket
-/// whole-file suppression.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ThresholdScope {
-    /// Gate only the file-level [`SpaceKind::Unit`] root (whole-file
-    /// size). The `loc.*` family lives here: the limits are calibrated on
-    /// the file-level distribution and a per-function line count is
-    /// redundant with the complexity metrics.
-    File,
-    /// Gate only individual function spaces ([`SpaceKind::Function`] —
-    /// free functions, methods, and closures). The per-function metrics
-    /// live here: the complexity figures (cognitive, cyclomatic, abc,
-    /// mi.*) and the subtree sums that describe one function and its
-    /// nested closures (halstead.*, nargs, nexits, tokens). Their value on
-    /// a container or the file root is an aggregate across many functions,
-    /// not a per-function limit, so those kinds are skipped.
-    Function,
-    /// Gate only container spaces that own methods (class / struct / trait
-    /// / impl / namespace / interface), never the file root or a leaf
-    /// function. The object-oriented size metrics live here: `nom` (methods
-    /// per container), `wmc` (weighted methods), `npm` / `npa` (public
-    /// methods / attributes). These are meaningless on a leaf function and
-    /// a file-wide artifact on the `Unit` root.
-    Container,
-}
-
-/// True for the container kinds gated by [`ThresholdScope::Container`]:
-/// spaces that own methods. Deliberately excludes [`SpaceKind::Unit`] (the
-/// file root, gated by [`ThresholdScope::File`]), [`SpaceKind::Function`]
-/// (gated by [`ThresholdScope::Function`]), and [`SpaceKind::Unknown`].
-fn is_container_kind(kind: SpaceKind) -> bool {
-    matches!(
-        kind,
-        SpaceKind::Class
-            | SpaceKind::Struct
-            | SpaceKind::Trait
-            | SpaceKind::Impl
-            | SpaceKind::Namespace
-            | SpaceKind::Interface
-    )
+/// The space kind each metric's threshold gates (issue #969) — owned by
+/// the library catalog so the CLI gate and the Python `to_sarif` binding
+/// cannot drift on which kinds a metric measures, exactly as they share
+/// the lower-is-worse direction.
+fn metric_scope(name: &str) -> MetricScope {
+    // Every name reaching here has resolved to a catalog entry (pinned by
+    // `extractor_ids_match_library_catalog`), so the lookup is infallible;
+    // an unknown id defaults to the narrowest scope rather than ever
+    // gating a file/container aggregate.
+    big_code_analysis::metric_catalog::scope(name).unwrap_or(MetricScope::Function)
 }
 
 /// Static registry entry: stable threshold name -> scalar extractor.
@@ -88,8 +48,6 @@ struct MetricExtractor {
     /// loc.*, nargs, ...) round-trip exactly through `f64` for the ranges
     /// that occur in practice.
     extract: fn(&CodeMetrics) -> f64,
-    /// Which space kinds this metric's threshold gates (issue #969).
-    scope: ThresholdScope,
 }
 
 /// Source of truth for accepted threshold names. Order matters only for
@@ -113,134 +71,107 @@ struct MetricExtractor {
 /// extractor, pick the accessor that matches the metric's reported figure
 /// and note which side of this split it falls on.
 ///
-/// Each metric's `scope` (issue #969) places its limit on the kind it
-/// actually measures: `loc.*` is [`ThresholdScope::File`] (whole-file
-/// size); the per-function complexity figures (cognitive, cyclomatic,
-/// abc, mi.*) and the per-function subtree sums (halstead.*, nargs,
-/// nexits, tokens) are [`ThresholdScope::Function`]; and the
-/// object-oriented size metrics (nom, wmc, npm, npa) are
-/// [`ThresholdScope::Container`]. This keeps a metric's file-wide or
-/// `impl`-wide aggregate from firing as if it were a per-function limit.
+/// Each metric's threshold scope (issue #969) — the space kind it gates —
+/// lives in the library [`big_code_analysis::metric_catalog`] (read via
+/// [`metric_scope`]), the same single source of truth that owns the
+/// lower-is-worse direction, so the CLI gate and the Python `to_sarif`
+/// binding cannot disagree on which kinds a metric measures.
 const EXTRACTORS: &[MetricExtractor] = &[
     MetricExtractor {
         name: "cognitive",
         extract: |m| m.cognitive.cognitive() as f64,
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "cyclomatic",
         extract: |m| m.cyclomatic.cyclomatic() as f64,
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "cyclomatic.modified",
         extract: |m| m.cyclomatic.cyclomatic_modified() as f64,
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "halstead.volume",
         extract: |m| m.halstead.volume(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "halstead.difficulty",
         extract: |m| m.halstead.difficulty(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "halstead.effort",
         extract: |m| m.halstead.effort(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "halstead.time",
         extract: |m| m.halstead.time(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "halstead.bugs",
         extract: |m| m.halstead.bugs(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "loc.sloc",
         extract: |m| m.loc.sloc() as f64,
-        scope: ThresholdScope::File,
     },
     MetricExtractor {
         name: "loc.ploc",
         extract: |m| m.loc.ploc() as f64,
-        scope: ThresholdScope::File,
     },
     MetricExtractor {
         name: "loc.lloc",
         extract: |m| m.loc.lloc() as f64,
-        scope: ThresholdScope::File,
     },
     MetricExtractor {
         name: "loc.cloc",
         extract: |m| m.loc.cloc() as f64,
-        scope: ThresholdScope::File,
     },
     MetricExtractor {
         name: "loc.blank",
         extract: |m| m.loc.blank() as f64,
-        scope: ThresholdScope::File,
     },
     MetricExtractor {
         name: "nom",
         extract: |m| m.nom.total() as f64,
-        scope: ThresholdScope::Container,
     },
     MetricExtractor {
         name: "tokens",
         extract: |m| m.tokens.tokens_sum() as f64,
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "nexits",
         extract: |m| m.nexits.nexits_sum() as f64,
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "nargs",
         extract: |m| m.nargs.total() as f64,
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "mi.original",
         extract: |m| m.mi.original(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "mi.sei",
         extract: |m| m.mi.sei(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "mi.visual_studio",
         extract: |m| m.mi.visual_studio(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "abc",
         extract: |m| m.abc.magnitude(),
-        scope: ThresholdScope::Function,
     },
     MetricExtractor {
         name: "wmc",
         extract: |m| m.wmc.total_wmc() as f64,
-        scope: ThresholdScope::Container,
     },
     MetricExtractor {
         name: "npm",
         extract: |m| m.npm.total_npm() as f64,
-        scope: ThresholdScope::Container,
     },
     MetricExtractor {
         name: "npa",
         extract: |m| m.npa.total_npa() as f64,
-        scope: ThresholdScope::Container,
     },
 ];
 
@@ -772,10 +703,10 @@ struct ResolvedThreshold {
     /// limit is the violation, and the breach ratio inverts to
     /// `limit / value`.
     lower_is_worse: bool,
-    /// Which space kinds this threshold gates (issue #969), copied from
-    /// the extractor so the evaluation loop reads it without a registry
-    /// lookup.
-    scope: ThresholdScope,
+    /// Which space kind this threshold gates (issue #969), resolved once
+    /// from the library catalog at build time so the evaluation loop reads
+    /// it without a per-space lookup.
+    scope: MetricScope,
 }
 
 /// Whether the metric named `name` is lower-is-worse (the `mi.*`
@@ -835,7 +766,7 @@ impl ThresholdSet {
                 extractor,
                 limit: *limit,
                 lower_is_worse: metric_is_lower_is_worse(extractor.name),
-                scope: extractor.scope,
+                scope: metric_scope(extractor.name),
             });
         }
         Ok(Self { entries })
@@ -936,12 +867,7 @@ impl ThresholdSet {
                 // space kind. Runs before the breach/suppression logic, so
                 // an out-of-scope pair never produces a `Violation` and
                 // composes trivially with suppression and the baseline.
-                let in_scope = match scope {
-                    ThresholdScope::File => matches!(current.kind, SpaceKind::Unit),
-                    ThresholdScope::Function => matches!(current.kind, SpaceKind::Function),
-                    ThresholdScope::Container => is_container_kind(current.kind),
-                };
-                if !in_scope {
+                if !scope.admits(current.kind) {
                     continue;
                 }
                 let value = (extractor.extract)(&current.metrics);

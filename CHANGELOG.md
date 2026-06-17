@@ -23,6 +23,13 @@ for historical reference.
 
 ### Added
 
+- Public `metric_catalog::MetricScope` enum (`File` / `Function` /
+  `Container`) with `MetricScope::admits(SpaceKind)`, a
+  `metric_catalog::scope(id)` lookup, a `scope` field on the
+  `#[non_exhaustive]` `MetricInfo`, and `SpaceKind::from_serialized` —
+  the single source of truth for which space kind each threshold metric
+  gates (#969), shared by the CLI gate and the Python `to_sarif` binding
+  so they cannot drift.
 - Lazy `Node` traversal handle for Python (`big_code_analysis.Node`) over
   the tree retained by `Ast`, so a caller walks the AST py-tree-sitter-style
   — `kind`, byte offsets, points, `children`, `child_by_field_name`,
@@ -2477,7 +2484,12 @@ for historical reference.
   default; there is no new manifest or CLI syntax. Not a SemVer break —
   the CLI grammar is unchanged and the file/container aggregate firing
   was never a documented per-function limit; if you relied on it as a
-  crude whole-file budget, set an explicit `loc.*` threshold instead.
+  crude whole-file budget, set an explicit `loc.*` threshold instead. The
+  scope is owned by the shared `metric_catalog` (the new public
+  `MetricScope` enum, alongside the existing lower-is-worse direction), so
+  the Python `to_sarif` binding applies the identical gate and emits the
+  same offenders as `bca check` — e.g. `wmc` now emits per class, not at
+  the file unit, in both.
 - Web (`POST /vcs/trend`): the trend endpoint no longer advertises the
   `no_cache` / `cache_dir` cache controls it could never honor. Trend does
   not use the persistent change-history cache (each sampled point re-anchors

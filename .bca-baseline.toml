@@ -345,14 +345,14 @@ path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1015.0
+value = 941.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
-start_line = 892
+start_line = 823
 metric = "halstead.effort"
-value = 73855.97988892866
+value = 56531.05676283881
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -518,21 +518,21 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "collect_offenders"
-start_line = 523
+start_line = 558
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "extract_line_number"
-start_line = 350
+start_line = 366
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
 qualified = "resolve_thresholds"
-start_line = 267
+start_line = 277
 metric = "nexits"
 value = 6.0
 
@@ -1003,40 +1003,40 @@ path = "src/spaces.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2081.0
+value = 2113.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "Ast::from_path"
-start_line = 764
+start_line = 793
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "CodeMetrics::fmt"
-start_line = 193
+start_line = 222
 metric = "nexits"
 value = 8.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "compute_per_node"
-start_line = 1033
+start_line = 1062
 metric = "halstead.effort"
 value = 66012.71705067596
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "compute_per_node"
-start_line = 1033
+start_line = 1062
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/spaces.rs"
 qualified = "metrics_inner"
-start_line = 1177
+start_line = 1206
 metric = "halstead.effort"
 value = 109810.50849120741
 
