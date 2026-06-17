@@ -526,7 +526,7 @@ fn tokens_threshold_never_suppressed() {
             extractor,
             limit: -0.5,
             lower_is_worse: false,
-            scope: extractor.scope,
+            scope: metric_scope(extractor.name),
         }],
     };
 

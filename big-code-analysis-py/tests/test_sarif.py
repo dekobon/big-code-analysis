@@ -296,14 +296,15 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
         "fixture expected to produce at least one AnalysisFailure"
     )
     parsed = _parse(bca.to_sarif(results, thresholds={"cyclomatic": 0}))
-    # Both ok.py spaces have cyclomatic value = 1 > 0 → the file unit
-    # (`<file>`) and `f` each emit. Pins that AnalysisFailure entries are
-    # dropped while the successful dict is still walked at every space.
+    # cyclomatic is Function-scoped (#969), so only ok.py's function `f`
+    # (cyclomatic 1 > 0) emits — not the `<file>` unit. Pins that
+    # AnalysisFailure entries are dropped while the successful dict is
+    # still walked and its function gated.
     findings = parsed["runs"][0]["results"]
     fq_names = sorted(
         f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     )
-    assert fq_names == ["<file>", "f"], (
+    assert fq_names == ["f"], (
         f"expected findings from ok.py only (errors skipped, dict kept), got {findings!r}"
     )
     for finding in findings:
@@ -352,8 +353,9 @@ def test_to_sarif_filters_none_entries_silently(tmp_path: Path) -> None:
     fq_names = sorted(
         f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     )
-    # Both ok.py spaces (`<file>` and `f`) have cyclomatic value 1 > 0.
-    assert fq_names == ["<file>", "f"], (
+    # cyclomatic is Function-scoped (#969), so only ok.py's function `f`
+    # (cyclomatic 1 > 0) is gated — the `<file>` unit is not.
+    assert fq_names == ["f"], (
         f"expected findings from ok.py only (None skipped, dict kept), got {findings!r}"
     )
     for finding in findings:
@@ -510,18 +512,48 @@ def test_to_sarif_matches_cli_check_for_single_function(bca_binary: str, tmp_pat
         )
 
 
-def test_to_sarif_matches_cli_check_for_wmc_with_unit_emission(
+def _sarif_sort_key(r: dict[str, Any]) -> tuple[int, str]:
+    """Sort SARIF results by (startLine, fullyQualifiedName) so a walk-order
+    difference across the two sides doesn't masquerade as a real divergence —
+    semantic equality is what's under test."""
+    loc = r["locations"][0]
+    line = int(loc["physicalLocation"]["region"]["startLine"])
+    fq = loc.get("logicalLocations", [{}])[0].get("fullyQualifiedName", "")
+    return (line, fq)
+
+
+def _assert_sarif_results_match(
+    py_results: list[dict[str, Any]], cli_results: list[dict[str, Any]]
+) -> None:
+    """Assert two SARIF result lists are field-for-field equal after sorting."""
+    py_results.sort(key=_sarif_sort_key)
+    cli_results.sort(key=_sarif_sort_key)
+    for py_r, cli_r in zip(py_results, cli_results, strict=True):
+        assert py_r["ruleId"] == cli_r["ruleId"]
+        assert py_r["level"] == cli_r["level"]
+        assert py_r["message"]["text"] == cli_r["message"]["text"]
+        assert py_r["locations"][0]["logicalLocations"] == cli_r["locations"][0]["logicalLocations"]
+        assert (
+            py_r["locations"][0]["physicalLocation"]["region"]
+            == cli_r["locations"][0]["physicalLocation"]["region"]
+        )
+        assert (
+            py_r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            == cli_r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        )
+
+
+def test_to_sarif_matches_cli_check_for_wmc_container_scope(
     bca_binary: str, tmp_path: Path
 ) -> None:
-    """CLI parity for a metric that emits at the unit level.
+    """CLI parity for a Container-scoped metric (#969).
 
-    Complements ``test_to_sarif_matches_cli_check_for_single_function``
-    by exercising a metric (`wmc`) whose subtree total naturally breaches
-    at the file unit. A multi-class Python file produces one finding per
-    class plus one file-level finding; both sides must agree on count,
-    rule, level, message, physical region, logical location, and
-    artifact URI. Catches any regression in the unit-level `<file>`
-    placeholder or in walking the file unit at all.
+    `wmc` (weighted methods per class) gates container spaces, not the
+    file unit: its file-level total is an aggregate across every class,
+    not a per-class limit. A multi-class Python file therefore produces
+    exactly one finding per class and **no** `<file>` finding. Both sides
+    must agree — this catches a regression where one front-end forgets to
+    apply the per-metric scope gate and emits the file aggregate.
     """
     src = tmp_path / "classes.py"
     src.write_text(
@@ -541,34 +573,51 @@ def test_to_sarif_matches_cli_check_for_wmc_with_unit_emission(
     py_results = py_doc["runs"][0]["results"]
     cli_results = cli_doc["runs"][0]["results"]
 
-    # Sort by (startLine, fullyQualifiedName) so any difference in
-    # walk order across sides doesn't masquerade as a real divergence
-    # — semantic equality is what's under test.
-    def _sort_key(r: dict[str, Any]) -> tuple[int, str]:
-        loc = r["locations"][0]
-        line = int(loc["physicalLocation"]["region"]["startLine"])
-        fq = loc.get("logicalLocations", [{}])[0].get("fullyQualifiedName", "")
-        return (line, fq)
-
-    py_results.sort(key=_sort_key)
-    cli_results.sort(key=_sort_key)
-
-    assert len(py_results) == len(cli_results) == 3, (
-        f"expected 3 findings (file + 2 classes), got py={len(py_results)} cli={len(cli_results)}"
+    assert len(py_results) == len(cli_results) == 2, (
+        f"expected 2 findings (the 2 classes, no file unit), "
+        f"got py={len(py_results)} cli={len(cli_results)}"
     )
-    for py_r, cli_r in zip(py_results, cli_results, strict=True):
-        assert py_r["ruleId"] == cli_r["ruleId"] == "wmc"
-        assert py_r["level"] == cli_r["level"]
-        assert py_r["message"]["text"] == cli_r["message"]["text"]
-        assert py_r["locations"][0]["logicalLocations"] == cli_r["locations"][0]["logicalLocations"]
-        assert (
-            py_r["locations"][0]["physicalLocation"]["region"]
-            == cli_r["locations"][0]["physicalLocation"]["region"]
-        )
-        assert (
-            py_r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-            == cli_r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-        )
+    for results in (py_results, cli_results):
+        names = {r["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for r in results}
+        assert names == {"A", "B"}, f"wmc must gate the classes, not the file unit: {names}"
+        assert all(r["ruleId"] == "wmc" for r in results)
+    _assert_sarif_results_match(py_results, cli_results)
+
+
+def test_to_sarif_matches_cli_check_for_loc_unit_emission(bca_binary: str, tmp_path: Path) -> None:
+    """CLI parity for a File-scoped metric (#969).
+
+    `loc.sloc` gates the whole-file `unit` root only, never a class or
+    function. A multi-class file therefore produces exactly one finding,
+    the `<file>` unit. Complements the Container-scope case above and
+    guards the unit-level `<file>` placeholder and walking the file unit
+    at all.
+    """
+    src = tmp_path / "classes.py"
+    src.write_text(
+        "class A:\n"
+        "    def m1(self): pass\n"
+        "    def m2(self): pass\n"
+        "\n"
+        "class B:\n"
+        "    def n1(self): pass\n"
+    )
+
+    analyzed = bca.analyze(src)
+    assert analyzed is not None, "fixture must not be skipped"
+    py_doc = json.loads(bca.to_sarif(analyzed, thresholds={"loc.sloc": 0}))
+    cli_doc = _cli_check_sarif(bca_binary, src, threshold="loc.sloc=0")
+
+    py_results = py_doc["runs"][0]["results"]
+    cli_results = cli_doc["runs"][0]["results"]
+
+    assert len(py_results) == len(cli_results) == 1, (
+        f"expected 1 finding (the file unit only), got py={len(py_results)} cli={len(cli_results)}"
+    )
+    for results in (py_results, cli_results):
+        assert results[0]["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] == "<file>"
+        assert results[0]["ruleId"] == "loc.sloc"
+    _assert_sarif_results_match(py_results, cli_results)
 
 
 def test_to_sarif_qualified_symbol_matches_cli_for_nested_method(
@@ -753,12 +802,23 @@ def test_to_sarif_treats_unit_kind_case_insensitively() -> None:
     but defending against a future upstream rename (or a hand-crafted
     dict using ``Unit``) is cheap: the kind comparison normalises to
     ASCII-lowercase. The capitalised ``Unit`` must still resolve to the
-    file-level ``<file>`` symbol on the offender it emits. The unit's own
-    ``cyclomatic.value`` breaches the limit, so it emits; the point under
-    test is the kind-name normalisation driving the ``<file>`` symbol.
+    file-level ``<file>`` symbol on the offender it emits. A File-scoped
+    ``loc.sloc`` breaches at the unit, so it emits; the point under test
+    is the kind-name normalisation driving both the scope match and the
+    ``<file>`` symbol.
     """
-    fake = _fake_function_dict(kind="Unit", cyclomatic_value=999)
-    parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
+    # loc.sloc is File-scoped (#969), so it gates the unit root; the
+    # capitalised "Unit" must normalise to unit for both the scope match
+    # and the <file> symbol.
+    fake: dict[str, Any] = {
+        "name": "mod.py",
+        "kind": "Unit",  # capitalised on purpose
+        "start_line": 1,
+        "end_line": 5,
+        "spaces": [],
+        "metrics": {"loc": {"sloc": 999}},
+    }
+    parsed = _parse(bca.to_sarif(cast("FuncSpaceDict", fake), thresholds={"loc.sloc": 1}))
     findings = parsed["runs"][0]["results"]
     fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
     assert fq_names == ["<file>"], (
@@ -781,13 +841,12 @@ def test_to_sarif_rejects_mappingproxytype_with_clear_error() -> None:
         bca.to_sarif(proxy, thresholds={"cyclomatic": 0})  # type: ignore[arg-type]
 
 
-def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
-    """Unit-level findings are emitted whenever the file unit's own value
-    breaches the limit. Pinned with ``wmc`` because the multi-class
-    fixture cleanly distinguishes the file total from per-class values.
-    (Since #958 ``cyclomatic``/``cognitive``/``abc`` also emit at the unit
-    when their per-space ``value`` breaches — see
-    ``test_to_sarif_emits_interior_space_when_own_value_breaches``.)
+def test_to_sarif_emits_container_level_finding_for_oo_metrics() -> None:
+    """Container-scoped metrics (`nom`, `wmc`, `npm`, `npa`) emit one
+    finding per container (#969), never at the file unit — their file-level
+    total is an aggregate across every class, not a per-class limit. Pinned
+    with ``wmc`` because the multi-class fixture cleanly distinguishes the
+    per-class values from the file total.
     """
     code = (
         "class A:\n"
@@ -800,15 +859,13 @@ def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
     result = bca.analyze_source(code, "python")
     parsed = _parse(bca.to_sarif(result, thresholds={"wmc": 0}))
     findings = parsed["runs"][0]["results"]
-    # Expect: 1 finding per class (A, B) + 1 file-level (unit) finding.
-    fully_qualified = [
+    # Expect exactly one finding per class (A, B) and no file-level finding.
+    fully_qualified = sorted(
         f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
-    ]
-    assert "<file>" in fully_qualified, (
-        f"unit finding missing; logicalLocations seen: {fully_qualified!r}"
     )
-    assert "A" in fully_qualified
-    assert "B" in fully_qualified
+    assert fully_qualified == ["A", "B"], (
+        f"wmc must gate the classes, not the file unit: {fully_qualified!r}"
+    )
 
 
 def _own_value_block(metric_name: str, own: float) -> dict[str, Any]:
@@ -897,17 +954,17 @@ def test_to_sarif_nameless_space_emits_anon_line_placeholder() -> None:
 
 
 def test_to_sarif_unit_space_emits_file_placeholder() -> None:
-    """A unit-level finding (for a non-skip metric) emits
+    """A unit-level finding (for a File-scoped metric, #969) emits
     ``logicalLocations: [{fullyQualifiedName: '<file>'}]`` rather than
     duplicating the path that already appears in
     ``artifactLocation.uri``. Matches the CLI's ``function_token``.
     """
     code = "class A:\n    def m(self): pass\n"
     result = bca.analyze_source(code, "python")
-    parsed = _parse(bca.to_sarif(result, thresholds={"wmc": 0}))
+    parsed = _parse(bca.to_sarif(result, thresholds={"loc.sloc": 0}))
     findings = parsed["runs"][0]["results"]
     fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
-    assert "<file>" in fq_names, (
+    assert fq_names == ["<file>"], (
         f"unit-level finding must carry '<file>' placeholder, got {fq_names!r}"
     )
 
@@ -996,12 +1053,10 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     span. Guards the nested-space traversal feeding ``collect_offenders``'
     qualified-prefix threading.
 
-    Also the interior-emission regression test for #958: each space's
-    own ``cyclomatic.value`` drives emission independently, so an interior
-    container (``C``) whose own value breaches is reported *alongside* the
-    leaf method — while the file unit, whose own value stays below the
-    limit, is not. Pre-#958 the binding read only the subtree ``sum`` and
-    skipped every interior space, so ``C`` was silently dropped.
+    cyclomatic is Function-scoped (#969), so only the leaf method ``m``
+    (a function space) is gated — the enclosing class ``C`` and the file
+    unit are not, regardless of their own ``cyclomatic.value``. The
+    qualified ``C::m`` name still exercises the nested-prefix threading.
     """
     unit: dict[str, Any] = {
         "name": "mod.rs",
@@ -1016,9 +1071,9 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
                 "kind": "class",
                 "start_line": 2,
                 "end_line": 29,
-                # The class body itself owns enough complexity to breach
-                # (own value 5 > limit 3); pre-#958 this interior space was
-                # skipped, so its genuine breach went unreported.
+                # The class body's own cyclomatic (5) would breach the
+                # limit, but cyclomatic is Function-scoped (#969), so a
+                # class space is never gated — only the nested method is.
                 "metrics": {"cyclomatic": {"sum": 12.0, "value": 5.0}},
                 "spaces": [
                     {
@@ -1038,10 +1093,11 @@ def test_to_sarif_reports_deeply_nested_space_offender() -> None:
     fq_names = sorted(
         f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     )
-    # Both the interior class `C` (own value 5) and the leaf method `C::m`
-    # (own value 7) breach; the file unit (own value 1) does not.
-    assert fq_names == ["C", "C::m"], (
-        f"interior container and leaf method must both emit on own-value breach, got {fq_names!r}"
+    # Only the leaf method `C::m` (a function space) is gated; the
+    # enclosing class `C` and the file unit are not, as cyclomatic is
+    # Function-scoped (#969).
+    assert fq_names == ["C::m"], (
+        f"only the leaf method must emit for a Function-scoped metric, got {fq_names!r}"
     )
     method_finding = next(
         f

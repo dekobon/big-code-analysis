@@ -83,6 +83,34 @@ pub enum SpaceKind {
     Interface,
 }
 
+impl SpaceKind {
+    /// Parse a [`SpaceKind`] from its lowercase serialized form — the
+    /// `#[serde(rename_all = "lowercase")]` representation that appears in
+    /// the JSON / wire `kind` field. An unrecognized string maps to
+    /// [`SpaceKind::Unknown`] so a JSON-walking front-end degrades
+    /// gracefully on a future kind rather than erroring.
+    ///
+    /// This is the single source of truth for the string-to-kind mapping a
+    /// consumer needs when it reads a serialized `kind` (the Python
+    /// `to_sarif` binding uses it to apply per-metric threshold scope via
+    /// [`crate::metric_catalog::MetricScope::admits`]). A round-trip test
+    /// pins it against the serde representation so the two cannot drift.
+    #[must_use]
+    pub fn from_serialized(serialized: &str) -> Self {
+        match serialized {
+            "function" => Self::Function,
+            "class" => Self::Class,
+            "struct" => Self::Struct,
+            "trait" => Self::Trait,
+            "impl" => Self::Impl,
+            "unit" => Self::Unit,
+            "namespace" => Self::Namespace,
+            "interface" => Self::Interface,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 impl fmt::Display for SpaceKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match self {
@@ -1532,7 +1560,10 @@ mod tests {
     /// `SpaceKind` is `#[non_exhaustive]` (#551); the attribute is a
     /// compile-time forward-compat contract and must not change the
     /// serialized form. Every variant still round-trips through its
-    /// lowercase token, and `Display` agrees with serde.
+    /// lowercase token, `Display` agrees with serde, and
+    /// [`SpaceKind::from_serialized`] (the string-to-kind path the JSON
+    /// front-ends use for threshold scope, #969) agrees with serde
+    /// deserialization so the two cannot drift.
     #[test]
     fn space_kind_non_exhaustive_serde_roundtrip_unchanged() {
         for kind in [
@@ -1550,7 +1581,12 @@ mod tests {
             assert_eq!(json, format!("\"{kind}\""));
             let back: SpaceKind = serde_json::from_str(&json).unwrap();
             assert_eq!(back, kind);
+            // `from_serialized` consumes the bare token (no JSON quotes)
+            // and must match serde's mapping for every variant.
+            assert_eq!(SpaceKind::from_serialized(&kind.to_string()), kind);
         }
+        // An unrecognized token degrades to `Unknown` rather than panicking.
+        assert_eq!(SpaceKind::from_serialized("not_a_kind"), SpaceKind::Unknown);
     }
 
     /// Positive coverage for the C++ function-space predicates on the

@@ -25,6 +25,61 @@
 
 #![allow(clippy::doc_markdown)]
 
+use crate::spaces::SpaceKind;
+
+/// The space kind a metric's threshold is meaningful on (issue #969).
+///
+/// A threshold gate (`bca check`, the Python `to_sarif` binding) walks
+/// every [`crate::FuncSpace`] — the file-level [`SpaceKind::Unit`] root,
+/// every container (class / impl / ...), and every individual function.
+/// For the subtree-summed accessors a metric's value at any space that
+/// owns children is a *sum across many functions*, so a per-function
+/// limit would fire on every non-trivial file and multi-method `impl`.
+/// Scope records the kind each metric actually measures so the front-ends
+/// gate it there and nowhere else — keeping the CLI gate and the binding
+/// in lockstep, the same way [`Direction`] keeps their breach direction
+/// aligned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MetricScope {
+    /// Gate only the whole-file [`SpaceKind::Unit`] root — the `loc.*`
+    /// size family, whose limit is a per-file ceiling.
+    File,
+    /// Gate only individual function spaces ([`SpaceKind::Function`] —
+    /// free functions, methods, closures). The per-function complexity
+    /// metrics (cognitive, cyclomatic, abc, mi.*) and the subtree sums
+    /// that describe one function and its nested closures (halstead.*,
+    /// nargs, nexits, tokens) live here.
+    Function,
+    /// Gate only container spaces that own methods (class / struct /
+    /// trait / impl / namespace / interface) — the object-oriented size
+    /// metrics `nom`, `wmc`, `npm`, `npa`.
+    Container,
+}
+
+impl MetricScope {
+    /// Whether a threshold with this scope is evaluated against `kind`.
+    ///
+    /// The single source of truth for the kind-filtering both the CLI
+    /// gate and the Python binding apply, so the two cannot drift on
+    /// which space kinds a metric gates.
+    #[must_use]
+    pub fn admits(self, kind: SpaceKind) -> bool {
+        match self {
+            Self::File => matches!(kind, SpaceKind::Unit),
+            Self::Function => matches!(kind, SpaceKind::Function),
+            Self::Container => matches!(
+                kind,
+                SpaceKind::Class
+                    | SpaceKind::Struct
+                    | SpaceKind::Trait
+                    | SpaceKind::Impl
+                    | SpaceKind::Namespace
+                    | SpaceKind::Interface
+            ),
+        }
+    }
+}
+
 /// Which direction of a metric's value is unhealthy.
 ///
 /// Most metrics grow worse as they grow larger; the Maintainability
@@ -91,6 +146,12 @@ pub struct MetricInfo {
     /// which only this registry now records once for both front-ends to
     /// share (#442).
     pub skip_at_unit: bool,
+    /// The space kind this metric's threshold gates (issue #969). Both
+    /// the CLI threshold engine and the Python `to_sarif` binding read
+    /// this to skip spaces a metric does not measure, so a metric's
+    /// file-wide or `impl`-wide aggregate never fires as a per-function
+    /// limit. See [`MetricScope`].
+    pub scope: MetricScope,
 }
 
 /// A `bca list-metrics` row: the bare name printed in `names` mode and
@@ -137,30 +198,30 @@ pub struct MetricFamily {
 /// scannable; rustfmt would otherwise wrap each struct over many lines.
 #[rustfmt::skip]
 pub const METRICS: &[MetricInfo] = &[
-    MetricInfo { id: "cognitive",           family: "cognitive",  long_description: "Cognitive Complexity exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: true  },
-    MetricInfo { id: "cyclomatic",          family: "cyclomatic", long_description: "Cyclomatic Complexity exceeds the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: true  },
-    MetricInfo { id: "cyclomatic.modified", family: "cyclomatic", long_description: "Modified Cyclomatic Complexity exceeds the configured threshold.", direction: Direction::HigherIsWorse, skip_at_unit: true  },
-    MetricInfo { id: "halstead.volume",     family: "halstead",   long_description: "Halstead volume exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "halstead.difficulty", family: "halstead",   long_description: "Halstead difficulty exceeds the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "halstead.effort",     family: "halstead",   long_description: "Halstead effort exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "halstead.time",       family: "halstead",   long_description: "Halstead time-to-program exceeds the configured threshold.",      direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "halstead.bugs",       family: "halstead",   long_description: "Estimated Halstead bugs exceed the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "loc.sloc",            family: "loc",        long_description: "Source lines of code exceed the configured threshold.",            direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "loc.ploc",            family: "loc",        long_description: "Physical lines of code exceed the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "loc.lloc",            family: "loc",        long_description: "Logical lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "loc.cloc",            family: "loc",        long_description: "Comment lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "loc.blank",           family: "loc",        long_description: "Blank lines of code exceed the configured threshold.",             direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "nom",                 family: "nom",        long_description: "Number of methods/functions exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "tokens",              family: "tokens",     long_description: "Number of tokens exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "nexits",              family: "nexits",     long_description: "Number of exit points exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "nargs",               family: "nargs",      long_description: "Number of function arguments exceeds the configured threshold.",   direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "mi.original",         family: "mi",         long_description: "Maintainability Index falls below the configured threshold.",      direction: Direction::LowerIsWorse,  skip_at_unit: false },
-    MetricInfo { id: "mi.sei",              family: "mi",         long_description: "Maintainability Index (SEI) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false },
-    MetricInfo { id: "mi.visual_studio",    family: "mi",         long_description: "Maintainability Index (Visual Studio) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false },
-    MetricInfo { id: "abc",                 family: "abc",        long_description: "ABC magnitude exceeds the configured threshold.",                  direction: Direction::HigherIsWorse, skip_at_unit: true  },
-    MetricInfo { id: "wmc",                 family: "wmc",        long_description: "Weighted Methods per Class exceeds the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "npm",                 family: "npm",        long_description: "Number of public methods exceeds the configured threshold.",       direction: Direction::HigherIsWorse, skip_at_unit: false },
-    MetricInfo { id: "npa",                 family: "npa",        long_description: "Number of public attributes exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false },
+    MetricInfo { id: "cognitive",           family: "cognitive",  long_description: "Cognitive Complexity exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
+    MetricInfo { id: "cyclomatic",          family: "cyclomatic", long_description: "Cyclomatic Complexity exceeds the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
+    MetricInfo { id: "cyclomatic.modified", family: "cyclomatic", long_description: "Modified Cyclomatic Complexity exceeds the configured threshold.", direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
+    MetricInfo { id: "halstead.volume",     family: "halstead",   long_description: "Halstead volume exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "halstead.difficulty", family: "halstead",   long_description: "Halstead difficulty exceeds the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "halstead.effort",     family: "halstead",   long_description: "Halstead effort exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "halstead.time",       family: "halstead",   long_description: "Halstead time-to-program exceeds the configured threshold.",      direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "halstead.bugs",       family: "halstead",   long_description: "Estimated Halstead bugs exceed the configured threshold.",         direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "loc.sloc",            family: "loc",        long_description: "Source lines of code exceed the configured threshold.",            direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
+    MetricInfo { id: "loc.ploc",            family: "loc",        long_description: "Physical lines of code exceed the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
+    MetricInfo { id: "loc.lloc",            family: "loc",        long_description: "Logical lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
+    MetricInfo { id: "loc.cloc",            family: "loc",        long_description: "Comment lines of code exceed the configured threshold.",           direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
+    MetricInfo { id: "loc.blank",           family: "loc",        long_description: "Blank lines of code exceed the configured threshold.",             direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::File      },
+    MetricInfo { id: "nom",                 family: "nom",        long_description: "Number of methods/functions exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
+    MetricInfo { id: "tokens",              family: "tokens",     long_description: "Number of tokens exceeds the configured threshold.",               direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "nexits",              family: "nexits",     long_description: "Number of exit points exceeds the configured threshold.",          direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "nargs",               family: "nargs",      long_description: "Number of function arguments exceeds the configured threshold.",   direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "mi.original",         family: "mi",         long_description: "Maintainability Index falls below the configured threshold.",      direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "mi.sei",              family: "mi",         long_description: "Maintainability Index (SEI) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "mi.visual_studio",    family: "mi",         long_description: "Maintainability Index (Visual Studio) falls below the configured threshold.", direction: Direction::LowerIsWorse,  skip_at_unit: false, scope: MetricScope::Function  },
+    MetricInfo { id: "abc",                 family: "abc",        long_description: "ABC magnitude exceeds the configured threshold.",                  direction: Direction::HigherIsWorse, skip_at_unit: true,  scope: MetricScope::Function  },
+    MetricInfo { id: "wmc",                 family: "wmc",        long_description: "Weighted Methods per Class exceeds the configured threshold.",     direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
+    MetricInfo { id: "npm",                 family: "npm",        long_description: "Number of public methods exceeds the configured threshold.",       direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
+    MetricInfo { id: "npa",                 family: "npa",        long_description: "Number of public attributes exceeds the configured threshold.",    direction: Direction::HigherIsWorse, skip_at_unit: false, scope: MetricScope::Container },
 ];
 
 /// Canonical `bca list-metrics` view. Family summaries moved here
@@ -305,6 +366,15 @@ pub fn lower_is_worse(id: &str) -> bool {
     lookup(id).is_some_and(|m| matches!(m.direction, Direction::LowerIsWorse))
 }
 
+/// The [`MetricScope`] of metric `id` — the space kind its threshold
+/// gates (issue #969). `None` for an id the catalog does not know; both
+/// front-ends treat an unknown id as a usage error before reaching here,
+/// so the `None` arm is only a defensive fallback.
+#[must_use]
+pub fn scope(id: &str) -> Option<MetricScope> {
+    lookup(id).map(|m| m.scope)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,5 +509,99 @@ mod tests {
             "skip_at_unit set drifted from the JSON-aggregate-vs-CLI-accessor \
              property; review against the CLI EXTRACTORS accessors before editing",
         );
+    }
+
+    /// The per-metric [`MetricScope`] partition (#969): `loc.*` gates the
+    /// file root, the OO size metrics gate containers, everything else
+    /// gates leaf functions. Enumerated so a new metric must be placed
+    /// deliberately rather than defaulting silently — both the CLI gate
+    /// and the Python binding derive their kind-filtering from this.
+    #[test]
+    fn scope_partitions_metrics_by_measured_kind() {
+        let by_scope = |want: MetricScope| {
+            let mut ids: Vec<&str> = METRICS
+                .iter()
+                .filter(|m| m.scope == want)
+                .map(|m| m.id)
+                .collect();
+            ids.sort_unstable();
+            ids
+        };
+        assert_eq!(
+            by_scope(MetricScope::File),
+            ["loc.blank", "loc.cloc", "loc.lloc", "loc.ploc", "loc.sloc"],
+            "only the loc.* size family is File-scoped",
+        );
+        assert_eq!(
+            by_scope(MetricScope::Container),
+            ["nom", "npa", "npm", "wmc"],
+            "only the OO size metrics are Container-scoped",
+        );
+        // Everything else is per-function; spot-check the representatives
+        // and confirm the partition is total (no metric left unscoped).
+        for id in [
+            "cognitive",
+            "cyclomatic",
+            "halstead.effort",
+            "nargs",
+            "nexits",
+            "abc",
+            "mi.original",
+        ] {
+            assert_eq!(
+                scope(id),
+                Some(MetricScope::Function),
+                "{id} should be Function-scoped"
+            );
+        }
+        let counted = by_scope(MetricScope::File).len()
+            + by_scope(MetricScope::Function).len()
+            + by_scope(MetricScope::Container).len();
+        assert_eq!(
+            counted,
+            METRICS.len(),
+            "every metric must have exactly one scope"
+        );
+    }
+
+    /// [`MetricScope::admits`] gates exactly the intended kinds: File only
+    /// the `Unit` root, Function only `Function`, Container the
+    /// method-owning kinds — and nothing admits `Unknown`.
+    #[test]
+    fn scope_admits_only_its_kinds() {
+        assert!(MetricScope::File.admits(SpaceKind::Unit));
+        assert!(!MetricScope::File.admits(SpaceKind::Function));
+        assert!(!MetricScope::File.admits(SpaceKind::Class));
+
+        assert!(MetricScope::Function.admits(SpaceKind::Function));
+        assert!(!MetricScope::Function.admits(SpaceKind::Unit));
+        assert!(!MetricScope::Function.admits(SpaceKind::Impl));
+
+        for kind in [
+            SpaceKind::Class,
+            SpaceKind::Struct,
+            SpaceKind::Trait,
+            SpaceKind::Impl,
+            SpaceKind::Namespace,
+            SpaceKind::Interface,
+        ] {
+            assert!(
+                MetricScope::Container.admits(kind),
+                "{kind:?} is a container"
+            );
+        }
+        assert!(!MetricScope::Container.admits(SpaceKind::Unit));
+        assert!(!MetricScope::Container.admits(SpaceKind::Function));
+
+        for scope in [
+            MetricScope::File,
+            MetricScope::Function,
+            MetricScope::Container,
+        ] {
+            assert!(
+                !scope.admits(SpaceKind::Unknown),
+                "{scope:?} must not admit Unknown"
+            );
+        }
     }
 }
