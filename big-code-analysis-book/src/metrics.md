@@ -1,4 +1,4 @@
-# Supported Metrics
+# Supported Code Metrics
 
 This chapter is a guided tour of every metric that **big-code-analysis**
 computes. Each section starts from the original research paper, walks
