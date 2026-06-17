@@ -139,7 +139,17 @@ and `cargo run -p big-code-analysis-web --`.
 
 ## Rust conventions
 
-- No `unsafe` code anywhere in the workspace.
+- No `unsafe` code anywhere in the workspace, with one narrow,
+  documented exception: the PyO3 bindings (`big-code-analysis-py`)
+  erase the lifetime brand on a `Copy`, borrow-free `tree_sitter` FFI
+  value so a `#[pyclass]` (which cannot carry a lifetime) can hold it,
+  keeping the owning tree alive through a strong `Py<...>` handle. The
+  canonical soundness argument lives at
+  `big-code-analysis-py/src/node.rs` (the `# Safety` module doc and
+  `detach`). Any `unsafe` outside this exact pattern remains banned and
+  needs a deliberate amendment to this rule. (The PyO3-macro-generated
+  FFI shims under `#![allow(unsafe_op_in_unsafe_fn)]` in `src/lib.rs`
+  are source-level `unsafe`-free and not covered by this exception.)
 - No `unwrap()` / `expect()` / `panic!()` / `assert!()` in non-test code;
   propagate errors with `?`. `expect("reason")` and `assert!()` are
   acceptable in tests and may be acceptable in production for

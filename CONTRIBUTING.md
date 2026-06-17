@@ -189,7 +189,8 @@ for why this matters.
 ## Project conventions
 
 - **Rust style**: `cargo fmt`, clippy clean with
-  `--workspace --all-targets -- -D warnings`. No `unsafe` code. Avoid
+  `--workspace --all-targets -- -D warnings`. No `unsafe` code (one
+  narrow PyO3 FFI exception — see `AGENTS.md`). Avoid
   `unwrap` / `expect` / `panic!` / `assert!` in non-test code;
   propagate errors with `?`.
 - **Visibility**: prefer `pub(crate)` over `pub`; widen visibility
