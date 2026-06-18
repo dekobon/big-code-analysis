@@ -1,0 +1,279 @@
+//! The `bca init` config-scaffolding subcommand.
+
+use super::*;
+
+/// Canonical contents of a freshly-scaffolded `bca.toml` manifest.
+/// This is the consolidated config `bca` auto-discovers when climbing
+/// from the working directory to the repo root (#374, #483): a bare
+/// `bca check` (no flags) reproduces the gate once this file exists.
+/// The `[thresholds]` values mirror the project's own root `bca.toml`,
+/// so `bca init` hands adopters the same limits the project gates
+/// itself with. The two `[thresholds]` tables are kept in lock-step by
+/// the `init_template_thresholds_match_repo_root` drift test: retuning
+/// the root gate fails that test until this template is updated to
+/// match, and vice versa.
+///
+/// Only the surrounding prose differs by design — the root file
+/// carries the repo-specific rationale for each limit, while this
+/// template keeps the generic editing-rules header. Adopters typically
+/// run `--write-baseline` right after `init`, which pins today's
+/// offenders so subsequent runs fail only on regressions, then tighten
+/// limits over time.
+pub(crate) const INIT_MANIFEST_TEMPLATE: &str = "\
+# bca.toml — project manifest, auto-discovered by `bca` when climbing
+# from the working directory to the repo root. This is the single
+# source of truth for the metric gate: with this file present, a bare
+# `bca check` (no flags) reproduces the full gate, zero-config.
+
+# Scan the whole project, honouring the ignore file below.
+paths = [\".\"]
+exclude_from = \".bcaignore\"
+
+# Rust-only policy: treat `?` (the `try_expression` node) as linear
+# error propagation rather than a branch, so it does not contribute to
+# cyclomatic complexity. Equivalent to `--no-cyclomatic-try` on every
+# invocation (#409). Inert for non-Rust grammars (no other grammar
+# emits the node). Uncomment to opt in if your project is Rust.
+# cyclomatic_count_try = false
+
+# Gate-only options consumed by `bca check` (#599). The baseline pairs
+# with `.bca-baseline.toml` so existing offenders are absorbed; only
+# regressions and new offenders fail the gate. See the Baselines recipe
+# in the book for the bootstrap/refresh/retire flow.
+[check]
+baseline = \".bca-baseline.toml\"
+
+# bca per-function threshold configuration.
+#
+# Editing rules:
+#   * Each key is a stable metric name (or dotted sub-metric name) from
+#     `bca list-metrics` / `bca check --help`. Available names:
+#         cognitive, cyclomatic, cyclomatic.modified,
+#         halstead.volume, halstead.difficulty, halstead.effort,
+#         halstead.time, halstead.bugs,
+#         loc.sloc, loc.ploc, loc.lloc, loc.cloc, loc.blank,
+#         nom, tokens, nexits, nargs,
+#         mi.original, mi.sei, mi.visual_studio,
+#         abc, wmc, npm, npa
+#   * Quote keys containing a dot (TOML requires it).
+#   * Values are per-function limits. A function whose metric exceeds the
+#     limit becomes an offender; the baseline file decides whether it
+#     fails CI.
+#   * Adding a metric is a tightening — regenerate `.bca-baseline.toml`
+#     in the same change so day-one CI does not flip red on offenders
+#     that were previously invisible to the gate.
+#
+# Metrics intentionally NOT gated (yet):
+#   halstead.{volume,difficulty,time,bugs}, cyclomatic.modified, mi.*
+# They are still computed and visible in `bca report markdown|html`.
+[thresholds]
+cognitive = 25
+cyclomatic = 15
+\"halstead.effort\" = 50000
+\"loc.sloc\" = 800
+nom = 30
+nargs = 7
+nexits = 5
+abc = 50
+wmc = 60
+
+# Aggregated-report options for `bca report markdown|html` (#501). By
+# default the report honours in-source suppression markers
+# (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) and omits a
+# function from a metric's hotspot table when that metric is suppressed
+# for it — matching `bca check` and the SARIF emitter. Uncomment to opt
+# into the raw audit view that lists every offender (equivalent to
+# `bca report --no-suppress`).
+# [report]
+# no_suppress = true
+";
+
+/// Canonical contents of a freshly-scaffolded `.bcaignore`. The
+/// patterns are commented out so the file is a no-op until the
+/// adopter opts in — uncommenting per project. They mirror the
+/// patterns the self-scan workflow walks and the book's adoption
+/// recipe recommends.
+pub(crate) const INIT_BCAIGNORE_TEMPLATE: &str = "\
+# Shared exclude list for `bca --paths . --exclude-from .bcaignore ...`.
+# Patterns are `.gitignore`-style; blank lines and lines whose first
+# non-whitespace character is `#` are skipped.
+#
+# Uncomment any patterns that match generated / vendored / test code
+# you do not want included in the metric gate. The defaults below are
+# the common cases; tailor as needed.
+
+# ./target/**
+# ./dist/**
+# ./build/**
+# ./node_modules/**
+# ./**/*.generated.*
+# ./**/tests/**
+# ./**/*_tests.rs
+";
+
+/// Empty-but-valid baseline file written when the user passes
+/// `--no-baseline`. Matches the shape `baseline::render` would emit
+/// for an empty `BaselineFile`, including the `version` key the
+/// loader requires.
+/// Render the empty-baseline placeholder written by `bca init
+/// --no-baseline`. Built dynamically so the `version` line always
+/// tracks [`baseline::BASELINE_VERSION`] rather than drifting on a
+/// schema bump.
+pub(crate) fn init_empty_baseline_template() -> String {
+    format!(
+        "\
+# bca baseline file. Generated by `bca init --no-baseline`.
+# Populate via:
+#   bca check --write-baseline .bca-baseline.toml
+# A function whose metric value worsens vs. its baselined entry still
+# fails; new offenders also still fail. Refresh with `--write-baseline`
+# when entries become stale.
+version = {}
+",
+        baseline::BASELINE_VERSION
+    )
+}
+
+/// Write the initial `.bca-baseline.toml` for `bca init`: an empty
+/// template when `no_baseline`, otherwise a populated one produced by the
+/// same `bca check --write-baseline` path so it is byte-identical to a
+/// manual bootstrap. Split out of `run_command_init` so scaffolding the
+/// config files and producing the baseline read as the two distinct steps
+/// they are (#969).
+pub(crate) fn scaffold_baseline(
+    globals: GlobalOpts,
+    target: &Path,
+    manifest_path: &Path,
+    baseline_path: &Path,
+    no_baseline: bool,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    if no_baseline {
+        write_atomic(baseline_path, init_empty_baseline_template().as_bytes())
+            .unwrap_or_else(|e| die_io("write", baseline_path, e));
+        eprintln!(
+            "bca init: wrote empty {} (populate via `bca check --write-baseline {}`)",
+            baseline_path.display(),
+            baseline_path.display(),
+        );
+        return;
+    }
+
+    // Reuse the same code path `bca check --write-baseline` uses so the
+    // produced baseline is byte-identical to one a manual bootstrap would
+    // write. The thresholds we just wrote are loaded from the scaffolded
+    // `bca.toml` to keep this consistent with what the user will use
+    // day-to-day.
+    let check_args = CheckArgs {
+        positional: crate::PositionalPaths::default(),
+        selection: crate::WalkSelectionArgs::default(),
+        tuning: crate::WalkTuningArgs::default(),
+        preproc: crate::PreprocConsumeArgs::default(),
+        thresholds: Vec::new(),
+        config: Some(manifest_path.to_path_buf()),
+        no_fail: false,
+        no_suppress: false,
+        report_suppressed: false,
+        output_format: None,
+        output: None,
+        baseline: None,
+        write_baseline: Some(Some(baseline_path.to_path_buf())),
+        no_summary: true,
+        since: None,
+        changed_only: false,
+        github_annotations: crate::CiDetect::Auto,
+        summary_file: None,
+        no_remediation: true,
+        print_effective_config: None,
+        headroom: None,
+        tier: TierSpec::Hard,
+        exit_codes: None,
+        strict_exit_codes: false,
+        baseline_line_tolerance: None,
+        baseline_fuzzy_match: None,
+        check_exclude: Vec::new(),
+        check_exclude_from: None,
+    };
+    // `run_check` early-exits after `write_check_baseline` runs, so it
+    // returns normally on success here.
+    let mut walk_globals = globals;
+    if walk_globals.paths.is_empty() {
+        walk_globals.paths.push(target.to_path_buf());
+    }
+    // `init` writes its baseline from the manifest it just scaffolded, so
+    // it deliberately bypasses manifest discovery (passing `None`) — the
+    // freshly-written `bca.toml` is the source of truth here, supplied
+    // directly via `--config`.
+    run_check(walk_globals, check_args, None, preproc);
+    eprintln!("bca init: wrote {}", baseline_path.display());
+}
+
+pub(crate) fn run_command_init(
+    globals: GlobalOpts,
+    args: InitArgs,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    let target = args.dir.clone().unwrap_or_else(|| PathBuf::from("."));
+    if !target.exists() {
+        die(format_args!(
+            "bca init: target directory does not exist: {}",
+            target.display()
+        ));
+    }
+    if !target.is_dir() {
+        die(format_args!(
+            "bca init: target path is not a directory: {}",
+            target.display()
+        ));
+    }
+
+    let manifest_path = target.join("bca.toml");
+    let bcaignore_path = target.join(".bcaignore");
+    let baseline_path = target.join(".bca-baseline.toml");
+
+    // Refuse to clobber existing files unless --force. List every
+    // blocker in one shot so the user can decide whether to delete /
+    // back up before retrying, rather than fixing one and re-running
+    // to discover the next.
+    if !args.force {
+        let list = [&manifest_path, &bcaignore_path, &baseline_path]
+            .into_iter()
+            .filter(|p| p.exists())
+            .map(|p| format!("  {}", p.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !list.is_empty() {
+            die(format_args!(
+                "bca init: refusing to overwrite existing files (pass --force to clobber):\n{list}"
+            ));
+        }
+    }
+
+    write_atomic(&manifest_path, INIT_MANIFEST_TEMPLATE.as_bytes())
+        .unwrap_or_else(|e| die_io("write", &manifest_path, e));
+    eprintln!("bca init: wrote {}", manifest_path.display());
+
+    write_atomic(&bcaignore_path, INIT_BCAIGNORE_TEMPLATE.as_bytes())
+        .unwrap_or_else(|e| die_io("write", &bcaignore_path, e));
+    eprintln!("bca init: wrote {}", bcaignore_path.display());
+
+    // The config files exist; now produce the initial baseline (empty or
+    // populated from the freshly-scaffolded manifest).
+    scaffold_baseline(
+        globals,
+        &target,
+        &manifest_path,
+        &baseline_path,
+        args.no_baseline,
+        preproc,
+    );
+
+    eprintln!(
+        "bca init: done. Next steps:\n  \
+         1. Review {} and tighten/loosen thresholds for your codebase.\n  \
+         2. Uncomment relevant patterns in {}.\n  \
+         3. Run `bca check` to verify the gate (the manifest is auto-discovered).",
+        manifest_path.display(),
+        bcaignore_path.display(),
+    );
+}

@@ -69,101 +69,101 @@ value = 47834.17129195417
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 2918.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "EffectiveConfig::from_resolved"
-start_line = 338
-metric = "nargs"
-value = 14.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "compute_since_diff"
-start_line = 2620
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "compute_since_diff"
-start_line = 2620
-metric = "nexits"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "emit_check_results"
-start_line = 945
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "filter_by_baseline"
-start_line = 756
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "print_effective_config"
-start_line = 224
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 1458
+start_line = 94
 metric = "halstead.effort"
 value = 136001.1105471366
 
 [[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "run_check"
-start_line = 55
-metric = "halstead.effort"
-value = 66597.90133805902
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "run_command_init"
-start_line = 2446
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
+path = "big-code-analysis-cli/src/commands/analyze.rs"
 qualified = "run_command_metrics"
-start_line = 1776
+start_line = 88
 metric = "halstead.effort"
-value = 66645.11013574834
+value = 70299.5881450017
 
 [[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "run_command_report"
-start_line = 2008
-metric = "halstead.effort"
-value = 62475.13739950393
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
-qualified = "scaffold_baseline"
-start_line = 2378
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/commands.rs"
+path = "big-code-analysis-cli/src/commands/analyze.rs"
 qualified = "write_aggregate"
-start_line = 1899
+start_line = 211
+metric = "halstead.effort"
+value = 48544.21441032752
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/analyze.rs"
+qualified = "write_aggregate"
+start_line = 211
 metric = "nargs"
 value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check.rs"
+qualified = "emit_check_results"
+start_line = 510
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check.rs"
+qualified = "filter_by_baseline"
+start_line = 321
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check.rs"
+qualified = "run_check"
+start_line = 13
+metric = "halstead.effort"
+value = 69823.99851963262
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
+qualified = "EffectiveConfig::from_resolved"
+start_line = 136
+metric = "nargs"
+value = 14.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
+qualified = "print_effective_config"
+start_line = 22
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/diff_cmd.rs"
+qualified = "compute_since_diff"
+start_line = 113
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/diff_cmd.rs"
+qualified = "compute_since_diff"
+start_line = 113
+metric = "nexits"
+value = 5.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/init.rs"
+qualified = "run_command_init"
+start_line = 211
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/init.rs"
+qualified = "scaffold_baseline"
+start_line = 143
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/report.rs"
+qualified = "run_command_report"
+start_line = 5
+metric = "halstead.effort"
+value = 65869.50535980989
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
