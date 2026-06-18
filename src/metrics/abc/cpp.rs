@@ -222,3 +222,110 @@ impl Abc for CppCode {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod tests {
+    use super::{cpp_count_unary_conditions, cpp_inspect_container};
+    use crate::traits::ParserTrait;
+    use crate::{CppParser, Node};
+
+    // The three `pub(super)` helpers in this file are the shared C-family
+    // ABC condition walker: the `CCode`, `ObjcCode`, and `MozcppCode` ABC
+    // impls all import and route through them (`use super::cpp::{…}` in
+    // c.rs / objc.rs / mozcpp.rs). A regression here silently mis-counts
+    // the ABC `C` (conditions) component across four languages at once, so
+    // these tests exercise the helpers directly rather than only through
+    // the per-language `compute` paths — which also pins behaviour the
+    // whole-source integration tests reach only transitively.
+
+    fn parse(src: &str) -> CppParser {
+        CppParser::new(
+            src.as_bytes().to_vec(),
+            std::path::Path::new("seam.cpp"),
+            None,
+        )
+    }
+
+    // First node in pre-order (document order) whose kind name is `kind`.
+    fn first_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            if n.kind() == kind {
+                return Some(n);
+            }
+            for i in (0..n.child_count()).rev() {
+                if let Some(c) = n.child(i) {
+                    stack.push(c);
+                }
+            }
+        }
+        None
+    }
+
+    // `a && b`: `cpp_count_unary_conditions` walks the `binary_expression`
+    // and counts each boolean-terminal operand once. `a` and `b` are both
+    // `identifier`s (members of `cpp_bool_terminal_kinds!`) and the `&&`
+    // token is anonymous, so the count is exactly 2.
+    #[test]
+    fn count_unary_conditions_counts_each_boolean_operand() {
+        let p = parse("int f(int a, int b) { return a && b; }");
+        let bin = first_of_kind(p.root(), "binary_expression")
+            .expect("`a && b` parses to a binary_expression");
+        let mut conditions = 0.;
+        cpp_count_unary_conditions(&bin, &mut conditions);
+        assert_eq!(conditions, 2.);
+    }
+
+    // `if (a)`: the `condition_clause` wraps `( a )`. `cpp_inspect_container`
+    // seeds boolean context from the `if_statement` parent, unwraps the
+    // parens to the `a` identifier terminal, and counts it once.
+    #[test]
+    fn inspect_container_counts_parenthesized_condition() {
+        let p = parse("void f(int a) { if (a) {} }");
+        let cond = first_of_kind(p.root(), "condition_clause")
+            .expect("`if (...)` produces a condition_clause");
+        let mut conditions = 0.;
+        cpp_inspect_container(&cond, &mut conditions);
+        assert_eq!(conditions, 1.);
+    }
+
+    // `if (((a)))`: the unwrap loop strips every parenthesis layer and
+    // counts the single terminal `a` exactly once — not once per paren.
+    #[test]
+    fn inspect_container_unwraps_nested_parens_once() {
+        let p = parse("void f(int a) { if (((a))) {} }");
+        let cond = first_of_kind(p.root(), "condition_clause")
+            .expect("`if (...)` produces a condition_clause");
+        let mut conditions = 0.;
+        cpp_inspect_container(&cond, &mut conditions);
+        assert_eq!(conditions, 1.);
+    }
+
+    // `if (!a)`: the leading `!` drives the `is_not` branch, which marks the
+    // unwrap chain as boolean content before reaching the `a` terminal, so
+    // the negated operand is counted once.
+    #[test]
+    fn inspect_container_counts_negated_condition() {
+        let p = parse("void f(int a) { if (!a) {} }");
+        let cond = first_of_kind(p.root(), "condition_clause")
+            .expect("`if (...)` produces a condition_clause");
+        let mut conditions = 0.;
+        cpp_inspect_container(&cond, &mut conditions);
+        assert_eq!(conditions, 1.);
+    }
+
+    // `int x = (a);`: the `(a)` parenthesized_expression sits in an
+    // initializer, not a condition, so the `has_boolean_content` guard
+    // stays false and the unwrapped `a` terminal is NOT counted. This
+    // guard branch is awkward to reach through the full `compute` path.
+    #[test]
+    fn inspect_container_ignores_non_boolean_context() {
+        let p = parse("int g(int a) { int x = (a); return x; }");
+        let paren = first_of_kind(p.root(), "parenthesized_expression")
+            .expect("`(a)` parses to a parenthesized_expression");
+        let mut conditions = 0.;
+        cpp_inspect_container(&paren, &mut conditions);
+        assert_eq!(conditions, 0.);
+    }
+}
