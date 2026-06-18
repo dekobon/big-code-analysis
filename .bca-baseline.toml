@@ -741,85 +741,71 @@ value = 16.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 2043.0
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "RubyCode::compute"
-start_line = 1922
-metric = "halstead.effort"
-value = 53101.26216241871
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 1695
+start_line = 447
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 1695
+start_line = 447
 metric = "nexits"
 value = 6.0
 
 [[entry]]
-path = "src/metrics/cyclomatic.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1226.0
+path = "src/metrics/cognitive/ruby.rs"
+qualified = "RubyCode::compute"
+start_line = 29
+metric = "halstead.effort"
+value = 53101.26216241871
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2066.0
+value = 827.0
 
 [[entry]]
-path = "src/metrics/loc.rs"
+path = "src/metrics/loc/c.rs"
 qualified = "CCode::compute"
-start_line = 1143
+start_line = 17
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/loc.rs"
+path = "src/metrics/loc/cpp.rs"
 qualified = "CppCode::compute"
-start_line = 1089
+start_line = 17
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/loc.rs"
+path = "src/metrics/loc/groovy.rs"
 qualified = "GroovyCode::compute"
-start_line = 1376
+start_line = 17
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/loc.rs"
+path = "src/metrics/loc/mozcpp.rs"
 qualified = "MozcppCode::compute"
-start_line = 1277
+start_line = 17
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/loc.rs"
+path = "src/metrics/loc/objc.rs"
 qualified = "ObjcCode::compute"
-start_line = 1198
+start_line = 17
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/metrics/loc.rs"
+path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
-start_line = 1549
+start_line = 17
 metric = "halstead.effort"
 value = 47758.10174656215
 
@@ -828,54 +814,47 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2156.0
+value = 950.0
 
 [[entry]]
-path = "src/metrics/npa.rs"
+path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
-start_line = 638
+start_line = 12
 metric = "halstead.effort"
 value = 49615.191188139346
 
 [[entry]]
-path = "src/metrics/npa.rs"
+path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
-start_line = 638
+start_line = 12
 metric = "nargs"
 value = 9.0
 
 [[entry]]
-path = "src/metrics/npa.rs"
+path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 1691
+start_line = 297
 metric = "nexits"
 value = 6.0
 
 [[entry]]
-path = "src/metrics/npm.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1189.0
-
-[[entry]]
-path = "src/metrics/npm.rs"
+path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
-start_line = 580
+start_line = 12
 metric = "halstead.effort"
 value = 64139.86021318563
 
 [[entry]]
-path = "src/metrics/npm.rs"
+path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
-start_line = 580
+start_line = 12
 metric = "nargs"
 value = 9.0
 
 [[entry]]
-path = "src/metrics/npm.rs"
+path = "src/metrics/npm/php.rs"
 qualified = "PhpCode::compute"
-start_line = 415
+start_line = 12
 metric = "nargs"
 value = 7.0
 
