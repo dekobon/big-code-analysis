@@ -1,0 +1,330 @@
+#![allow(
+    clippy::enum_glob_use,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
+use super::{Abc, DeclKind, Stats};
+use crate::macros::java_bool_terminal_kinds;
+use crate::*;
+
+// Inspects the content of Java parenthesized expressions
+// and `Not` operators to find unary conditional expressions
+fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Java::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+
+    // Initializes the flag to true if the container is known to contain a boolean value
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = match parent.kind_id().into() {
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
+        TernaryExpression => node
+            .previous_sibling()
+            .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
+        _ => false,
+    };
+
+    // Looks inside parenthesized expressions and `Not` operators to find what they contain
+    loop {
+        // Checks if the node is a parenthesized expression or a `Not` operator
+        // The child node of index 0 contains the unary expression operator (we look for the `!` operator)
+        let is_parenthesised_exp = matches!(node_kind, ParenthesizedExpression);
+        let is_not_operator = matches!(node_kind, UnaryExpression)
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
+
+        // Stops the exploration if the node is neither
+        // a parenthesized expression nor a `Not` operator
+        if !is_parenthesised_exp && !is_not_operator {
+            break;
+        }
+
+        // Sets the flag to true if a `Not` operator is found
+        // This is used to prove if a variable or a value returned by a method is actually boolean
+        // e.g. `return (!x);`
+        if !has_boolean_content && is_not_operator {
+            has_boolean_content = true;
+        }
+
+        // Parenthesized expressions and `Not` operators nodes
+        // always store their expressions in the children nodes of index one
+        // https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2472
+        // https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2150
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        // Stops the exploration when the content is found. The terminal
+        // set includes `FieldAccess` (`obj.flag`), `CastExpression`
+        // (`(boolean)v`), `ArrayAccess` (`flags[0]`), and
+        // `InstanceofExpression` (`x instanceof Foo`) — every kind whose
+        // evaluated value is implicitly boolean in idiomatic Java, mirroring
+        // the C# fix in #372 (lesson #19).
+        if matches!(node_kind, java_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+// Inspects a list of elements and counts any unary conditional expression found
+fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Java::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    // Scans the immediate children nodes of the argument node
+    if cursor.goto_first_child() {
+        loop {
+            // Gets the current child node and its kind
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            // Checks if the node is a unary condition. The terminal set
+            // includes `FieldAccess`, `CastExpression`, `ArrayAccess`,
+            // and `InstanceofExpression` so that bool-evaluating
+            // operands of `&&` / `||` chains are not silently zeroed
+            // out (mirrors the C# fix in #372; lesson #19).
+            if matches!(node_kind, java_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                // Checks if the node is a unary condition container
+                java_inspect_container(&node, conditions);
+            }
+
+            // Moves the cursor to the next sibling node of the current node
+            // Exits the scan if there is no next sibling node
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+// ABC token-level helpers for Java. Each helper covers one of the four
+// categories ABC tracks (assignments / branches / conditions / walked
+// unary conditions). Each returns `true` when it owns the node so the
+// dispatcher in `impl Abc for JavaCode::compute` can short-circuit and
+// avoid re-matching the same kind across categories. The arms are
+// mutually exclusive in the source language so a short-circuit chain
+// reproduces the original `match` semantics bit-for-bit.
+
+// Shared helper: passes `node.child(idx)` to `java_inspect_container`.
+// The container helper is a no-op on kinds other than
+// `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`, so no
+// `matches!` guard is needed at the call site.
+fn java_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        java_inspect_container(&child, conditions);
+    }
+}
+
+// Counts assignment tokens and maintains the declaration-kind stack
+// used to suppress `=` inside `final`-marked declarations.
+fn java_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+    use Java::*;
+    match node.kind_id().into() {
+        STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
+        | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
+            stats.assignments += 1.;
+        }
+        FieldDeclaration | LocalVariableDeclaration => {
+            stats.declaration.push(DeclKind::Var);
+        }
+        Final => {
+            if let Some(DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.push(DeclKind::Const);
+            }
+        }
+        SEMI => {
+            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.clear();
+            }
+        }
+        // Excludes constant declarations (top of stack == Const).
+        EQ => {
+            if stats
+                .declaration
+                .last()
+                .is_none_or(|decl| matches!(decl, DeclKind::Var))
+            {
+                stats.assignments += 1.;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+// Counts branch tokens: every method call or `new` allocation.
+fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+    use Java::*;
+    if matches!(node.kind_id().into(), MethodInvocation | New) {
+        stats.branches += 1.;
+        return true;
+    }
+    false
+}
+
+// Counts condition tokens: comparison operators, control-flow keywords,
+// and `<` / `>` outside generic-type contexts. The `default` arm of a
+// `switch` is excluded: it is the unconditional fallthrough, so
+// cyclomatic counts only the `Case` arms (issue #469). Java's classic
+// statement switch (`default:`) and arrow switch (`default ->`) both
+// emit the same `Default` token under `switch_label`, so omitting it
+// here covers both forms.
+fn java_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+    use Java::*;
+    match node.kind_id().into() {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // Excludes `<` / `>` used for generic types (`Box<T>`).
+        GT | LT => {
+            if let Some(parent) = node.parent()
+                && !matches!(parent.kind_id().into(), TypeArguments)
+            {
+                stats.conditions += 1.;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn java_walk_for_conditions(node: &Node, stats: &mut Stats) {
+    use Java::*;
+    let conds = &mut stats.conditions;
+    match node.kind_id().into() {
+        // Unary conditions in elements separated by `&&` / `||`.
+        AMPAMP | PIPEPIPE => {
+            if let Some(parent) = node.parent() {
+                java_count_unary_conditions(&parent, conds);
+            }
+        }
+        // Unary conditions among method arguments.
+        ArgumentList => java_count_unary_conditions(node, conds),
+        // Child 1: `if (cond) ...`, `while (cond) ...`, `return value;`.
+        IfStatement | WhileStatement | ReturnStatement => java_inspect_child(node, 1, conds),
+        // Child 2: assignment / declarator RHS, lambda body
+        // (`params -> body`).
+        VariableDeclarator | AssignmentExpression | LambdaExpression => {
+            java_inspect_child(node, 2, conds);
+        }
+        // Child 3: the `while (cond)` condition of `do { ... } while (...);`.
+        DoStatement => java_inspect_child(node, 3, conds),
+        TernaryExpression => java_walk_ternary(node, stats),
+        ForStatement => java_walk_for_statement(node, stats),
+        _ => {}
+    }
+}
+
+fn java_walk_ternary(node: &Node, stats: &mut Stats) {
+    use Java::*;
+    let conds = &mut stats.conditions;
+    // Child 0: condition itself. The terminal set mirrors the one in
+    // `java_inspect_container` (issue #372 / lesson #19).
+    if let Some(condition) = node.child(0) {
+        match condition.kind_id().into() {
+            java_bool_terminal_kinds!() => *conds += 1.,
+            ParenthesizedExpression | UnaryExpression => {
+                java_inspect_container(&condition, conds);
+            }
+            _ => {}
+        }
+    }
+    // Children 2 and 4: the two branch expressions.
+    java_inspect_child(node, 2, conds);
+    java_inspect_child(node, 4, conds);
+}
+
+// Handles the `for (...)` multi-shape positional cascade: the loop
+// condition lives at child 3 when the initializer is a variable
+// declaration, otherwise at child 4 (split off by the `;` at child 3).
+fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
+    use Java::*;
+    let Some(condition) = node.child(3) else {
+        return;
+    };
+    // Terminal set mirrors `java_inspect_container` (issue #372 / lesson
+    // #19): FieldAccess / CastExpression / ArrayAccess /
+    // InstanceofExpression all evaluate to a boolean in idiomatic Java
+    // for-condition slots.
+    match condition.kind_id().into() {
+        // `for (i = 0; cond; ...)` — initializer is an expression, so
+        // the leading `;` sits at child 3 and the real condition at 4.
+        SEMI => {
+            if let Some(cond) = node.child(4) {
+                match cond.kind_id().into() {
+                    // The terminal set here is `java_bool_terminal_kinds!()`
+                    // augmented with `SEMI` / `RPAREN` to handle the
+                    // empty-condition `for (init; ; ...)` and `for (;;)`
+                    // forms: the trailing `;` or closing `)` lands at
+                    // child(4) and is treated as a vacuously-true
+                    // condition. The arm cannot be written as
+                    // `java_bool_terminal_kinds!() | SEMI | RPAREN`
+                    // because clippy's `unnested_or_patterns` forbids
+                    // mixing a macro-expanded OR with extra literal
+                    // patterns, and splitting into two arms with the
+                    // same body trips `match_same_arms`.
+                    MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
+                    | ArrayAccess | InstanceofExpression | SEMI | RPAREN => {
+                        stats.conditions += 1.;
+                    }
+                    ParenthesizedExpression | UnaryExpression => {
+                        java_inspect_container(&cond, &mut stats.conditions);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        java_bool_terminal_kinds!() => {
+            stats.conditions += 1.;
+        }
+        ParenthesizedExpression | UnaryExpression => {
+            java_inspect_container(&condition, &mut stats.conditions);
+        }
+        _ => {}
+    }
+}
+
+// Fitzpatrick, Jerry (1997). "Applying the ABC metric to C, C++ and Java". C++ Report.
+// Source: https://www.softwarerenovation.com/Articles.aspx
+// ABC Java rules: (page 8, figure 4)
+// ABC Java example: (page 15, listing 4)
+impl Abc for JavaCode {
+    // Short-circuit chain across four mutually-exclusive category
+    // helpers. Each helper returns `true` when it owns the node, so
+    // the dispatcher early-exits to avoid re-matching the same kind in
+    // a later helper. The original pre-refactor `match` enforced
+    // one-arm-per-kind by construction; this chain preserves the same
+    // semantics only as long as no node kind is matched by more than
+    // one helper. If you add a new arm covering a kind already matched
+    // by an earlier helper, the earlier helper's `return` will silently
+    // hide it — split the kinds across helpers explicitly instead.
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if java_count_token_assignment(node, stats) {
+            return;
+        }
+        if java_count_token_branch(node, stats) {
+            return;
+        }
+        if java_count_token_condition(node, stats) {
+            return;
+        }
+        java_walk_for_conditions(node, stats);
+    }
+}

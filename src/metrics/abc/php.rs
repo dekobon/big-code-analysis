@@ -1,0 +1,231 @@
+#![allow(
+    clippy::enum_glob_use,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
+use super::{Abc, Stats};
+use crate::macros::php_bool_terminal_kinds;
+use crate::*;
+
+// PHP ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
+// PHP's grammar uses `unary_op_expression` (not `unary_expression`) for
+// `!` and `~` prefix operators. Terminal-bool kinds: `Name` (function/
+// constant identifier — the bare-identifier kind in tree-sitter-php),
+// `VariableName` (`$x`), `Boolean` (the named `true` / `false` wrapper),
+// and every call / member-access / subscript form. `ParenthesizedExpression`
+// wraps `if (...)`-style condition slots.
+fn php_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Php::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let parent_kind = parent.kind_id().into();
+    let mut has_boolean_content = matches!(
+        parent_kind,
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
+    ) || (matches!(parent_kind, ConditionalExpression)
+        && node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
+
+    loop {
+        let is_parens = matches!(node_kind, ParenthesizedExpression);
+        let is_not = matches!(node_kind, UnaryOpExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(node_kind, php_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+// Phase-2B helper (issue #403): pass `node.child(idx)` through
+// `php_inspect_container`. PHP wraps `if (...)` / `while (...)` /
+// `do {…} while (...)` in `parenthesized_expression`, so the paren
+// unwrap handles the boolean-literal case (`if (true)` counts 1).
+fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        php_inspect_container(&child, conditions);
+    }
+}
+
+// Returns the value slot of a PHP `argument` wrapper node.
+// Positional argument `m(!$a)` has a single named child — the value.
+// Named argument `m(name: !$a)` has children `name`, `:`, value — the
+// last named child is the value. Returns the last named child for
+// both shapes; returns None only when the argument has no named
+// children (grammar-error case).
+fn php_argument_value<'a>(argument: &Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = argument.cursor();
+    let mut last_named = None;
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                last_named = Some(child);
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+    last_named
+}
+
+fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Php::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            // PHP wraps each call argument in an `argument` node;
+            // descend through that wrapper to the value slot. For
+            // named arguments `m(name: !$a)` the value is the LAST
+            // named child (`name`/`:`/`value`); for positional
+            // arguments `m(!$a)` the value is the only child. Use
+            // the last named child to handle both shapes — and skip
+            // the rare grammar-error case where Argument has no
+            // named children.
+            let inner = if matches!(node_kind, Argument) {
+                let Some(value) = php_argument_value(&node) else {
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                    continue;
+                };
+                value
+            } else {
+                node
+            };
+            let inner_kind = inner.kind_id().into();
+
+            if matches!(inner_kind, php_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else if inner.is_named() {
+                php_inspect_container(&inner, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+impl Abc for PhpCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Php::*;
+
+        match node.kind_id().into() {
+            // Assignments: explicit assignment expressions and augmented forms,
+            // plus pre/post increment and decrement. `const_declaration` and
+            // `enum_case` use their own `const_element` / value-assignment
+            // shapes, so they do not produce `AssignmentExpression` nodes —
+            // matching the assignment-expression kinds naturally excludes
+            // them.
+            AssignmentExpression
+            | AugmentedAssignmentExpression
+            | ReferenceAssignmentExpression
+            | PLUSPLUS
+            | DASHDASH => {
+                stats.assignments += 1.;
+            }
+            // Branches: every PHP call kind plus object construction.
+            FunctionCallExpression
+            | MemberCallExpression
+            | ScopedCallExpression
+            | NullsafeMemberCallExpression
+            | ObjectCreationExpression => {
+                stats.branches += 1.;
+            }
+            // Conditions: comparison and identity operators (anonymous tokens
+            // inside `binary_expression`), `instanceof`, ternary `?`, and
+            // control-flow arms.
+            EQEQ
+            | EQEQEQ
+            | BANGEQ
+            | BANGEQEQ
+            | LT
+            | GT
+            | LTEQ
+            | GTEQ
+            | LTEQGT
+            | LTGT
+            | Instanceof
+            | ConditionalExpression
+            | ElseClause
+            | ElseClause2
+            | ElseIfClause
+            | ElseIfClause2
+            // `case` arms and non-default `match` arms are conditions;
+            // the `default:` (`DefaultStatement`) and `default =>`
+            // (`MatchDefaultExpression`) arms are NOT — they are the
+            // unconditional fallthrough, which PHP's cyclomatic gate also
+            // excludes (it counts `CaseStatement | MatchConditionalExpression`
+            // only). Dropping both Default kinds keeps ABC conditions equal
+            // to the cyclomatic decision count (issue #473, mirroring the
+            // #469 C-family fix and #456 Kotlin/C# fixes).
+            | CaseStatement
+            | MatchConditionalExpression
+            | CatchClause => {
+                stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9: each operand of a `&&` / `||` / `and`
+            // / `or` / `xor` chain is one condition (issue #403). PHP
+            // exposes both the punctuation forms (`&&`, `||`) and the
+            // low-precedence keyword forms (`and`, `or`, `xor`) as
+            // distinct tokens inside `binary_expression`; both fire
+            // the walker so `connect() or die();`-style idiom counts
+            // the same as `connect() || die();`.
+            AMPAMP | PIPEPIPE | And | Or | Xor => {
+                if let Some(parent) = node.parent() {
+                    php_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
+            // Phase-2B (issue #403): condition slots. PHP wraps
+            // `if (...)` / `while (...)` in `parenthesized_expression`
+            // at child(1); `return value;` exposes the value at the
+            // same index. `do {…} while (...)` has the parenthesized
+            // condition at child(3).
+            IfStatement | WhileStatement | ReturnStatement => {
+                php_inspect_child(node, 1, &mut stats.conditions);
+            }
+            DoStatement => {
+                php_inspect_child(node, 3, &mut stats.conditions);
+            }
+            // `f(!$a, !$b)` — argument list walker.
+            Arguments => {
+                php_count_unary_conditions(node, &mut stats.conditions);
+            }
+            _ => {}
+        }
+    }
+}

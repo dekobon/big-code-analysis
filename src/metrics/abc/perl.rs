@@ -1,0 +1,307 @@
+#![allow(
+    clippy::enum_glob_use,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
+use super::{Abc, Stats};
+use crate::macros::perl_bool_terminal_kinds;
+use crate::*;
+
+// Fitzpatrick's ABC rules adapted for Perl.
+//
+// - Assignments: every assignment operator token — plain `=` plus the
+//   compound forms `+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `.=`, `x=`,
+//   `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`, `//=`, and the
+//   bitstring forms `&.=`, `|.=`, `^.=`. Each token fires exactly
+//   once per textual occurrence inside a `binary_expression`.
+// - Branches: every call expression dispatch — `call_expression_with_*`
+//   (bareword / spaced args / args-with-brackets / sub / variable /
+//   recursive) plus `method_invocation`. The grammar nests an inner
+//   `call_expression_with_bareword` (just the function name)
+//   underneath the wrapper kinds carrying argument lists, so we only
+//   count `CallExpressionWithBareword` when it stands on its own;
+//   when its parent is another call form, the outer wrapper has
+//   already contributed the branch.
+// - Conditions: numeric and string comparison operators (`==`, `!=`,
+//   `<`, `>`, `<=`, `>=`, `<=>`, `eq`, `ne`, `lt`, `gt`, `le`, `ge`,
+//   `cmp`, `=~`, `!~`), the ternary operator (`TernaryExpression`),
+//   and each `elsif` / `else` clause of an `if` / `unless`
+//   statement. Bare predicates that have no comparison (e.g.
+//   `if ($x)`) are not separately counted; we let the comparison
+//   tokens carry the metric, mirroring the Bash / Python token-
+//   level approach.
+//
+//   The short-circuit and low-precedence logical operators (`&&`,
+//   `||`, `//`, `and`, `or`, `xor`) are deliberately NOT counted.
+//   See the module-level `Stats` doc-comment for the cross-
+//   language policy (Fitzpatrick rules mapped from Figure 2 for C,
+//   the closest analogue since the paper does not define rules for
+//   Perl; issue #395, walker tracked in #403).
+// Perl ABC unary-conditional walker (Fitzpatrick Rule 9 mapped from
+// Figure 2 for C — the closest analogue, since the paper does not
+// define rules for Perl; issue #403). Logical-operator triggers cover
+// both the high-precedence punctuation (`&&`, `||`, `//`) and the
+// low-precedence keyword forms (`and`, `or`, `xor`). Terminal-bool
+// kinds: `Identifier`, `Boolean`, `True`, `False`, the call-expression
+// wrappers (every kind already counted as a branch), and the variable
+// wrappers (`ScalarVariable`, `ArrayVariable`, `HashVariable` plus the
+// access shapes).
+fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Perl as P;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let parent_kind = parent.kind_id().into();
+    let mut has_boolean_content = matches!(
+        parent_kind,
+        P::BinaryExpression
+            | P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+    ) || (matches!(parent_kind, P::TernaryExpression)
+        && node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), P::QMARK | P::COLON)));
+
+    loop {
+        // `Array` is tree-sitter-perl's name for the `(...)` shape
+        // used BOTH as the if/while/unless/until condition wrapper
+        // AND as list literals `(1, 2, 3)` (and `(x, y)` operand
+        // groupings). In Perl's scalar context — which every walker
+        // call site here operates in — a list expression evaluates
+        // to its LAST element, so descending via the last named
+        // child gives the semantically correct operand for both
+        // shapes: `($a)` → `$a`, `($x, $y)` → `$y`, `if ($a)` →
+        // `$a`. `ParenthesizedArgument` (the other paren-wrap kind)
+        // has only one inner expression, so child(1) and last-named
+        // are equivalent.
+        let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
+        let is_not = matches!(node_kind, P::UnaryExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == P::BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        // Descend through the wrapper to the value. Array uses
+        // last-named-child (Perl scalar-context value); other
+        // wrappers store their inner expression at child(1).
+        let next = if matches!(node_kind, P::Array) {
+            perl_last_named_child(&node)
+        } else {
+            node.child(1)
+        };
+        let Some(child) = next else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(node_kind, perl_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+// Phase-2B (issue #403): pass `node.child(idx)` through
+// `perl_inspect_container`. Perl wraps `if (cond)` / `while (cond)` /
+// `unless (cond)` / `until (cond)` conditions in a
+// `parenthesized_argument`, so the paren unwrap handles the
+// boolean-literal case.
+fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        perl_inspect_container(&child, conditions);
+    }
+}
+
+// Phase-2B helper (issue #403): Perl's `Array` node serves double
+// duty as the `(...)` wrapper around `if` / `while` / `unless` /
+// `until` conditions AND as the call-argument-list wrapper. The
+// dispatcher routes call-argument Arrays through
+// `perl_count_unary_conditions`; condition-slot Arrays are
+// already unwrapped by `perl_inspect_container`. This predicate
+// disambiguates by checking the parent kind.
+// Returns the last named child of a node, or None if there are no
+// named children. Used by `perl_inspect_container` to descend through
+// the `Array` `(...)` wrapper: for a single-element grouping
+// `($a)` the last named child is `$a`; for a multi-element list
+// literal `($x, $y)` the last named child is `$y` (the value the
+// expression evaluates to in Perl's scalar context, which is the
+// only context the walker operates in).
+fn perl_last_named_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = node.cursor();
+    let mut last_named = None;
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                last_named = Some(child);
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+    last_named
+}
+
+fn perl_is_call_argument_parent(parent: Node) -> bool {
+    use Perl as P;
+    matches!(
+        parent.kind_id().into(),
+        P::CallExpressionWithArgsWithBrackets
+            | P::CallExpressionWithSpacedArgs
+            | P::CallExpressionWithSub
+            | P::CallExpressionWithVariable
+            | P::CallExpressionRecursive
+            | P::MethodInvocation
+    )
+}
+
+fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Perl as P;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(node_kind, perl_bool_terminal_kinds!())
+                && matches!(list_kind, P::BinaryExpression)
+            {
+                *conditions += 1.;
+            } else if node.is_named() {
+                perl_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+impl Abc for PerlCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Perl as P;
+
+        match node.kind_id().into() {
+            // Plain `=` and every compound assignment operator. The
+            // grammar tokenises each operator separately, so one
+            // textual `+=` produces exactly one token and there is no
+            // double-counting via a wrapper.
+            P::EQ
+            | P::PLUSEQ
+            | P::DASHEQ
+            | P::STAREQ
+            | P::SLASHEQ
+            | P::PERCENTEQ
+            | P::STARSTAREQ
+            | P::DOTEQ
+            | P::XEQ
+            | P::AMPEQ
+            | P::PIPEEQ
+            | P::CARETEQ
+            | P::LTLTEQ
+            | P::GTGTEQ
+            | P::AMPAMPEQ
+            | P::PIPEPIPEEQ
+            | P::SLASHSLASHEQ
+            | P::AMPDOTEQ
+            | P::PIPEDOTEQ
+            | P::CARETDOTEQ => {
+                stats.assignments += 1.;
+            }
+            // Argument-bearing call wrappers always count.
+            P::CallExpressionWithSpacedArgs
+            | P::CallExpressionWithSub
+            | P::CallExpressionWithArgsWithBrackets
+            | P::CallExpressionWithVariable
+            | P::CallExpressionRecursive
+            | P::MethodInvocation => {
+                stats.branches += 1.;
+            }
+            // Bareword-only call (`shift`, `time`, …) — count only
+            // when this node is the outermost dispatch site. When the
+            // bareword sits inside one of the wrappers above, the
+            // outer node has already been counted and this child
+            // would double the branch tally.
+            P::CallExpressionWithBareword
+                if !node.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind_id().into(),
+                        P::CallExpressionWithSpacedArgs
+                            | P::CallExpressionWithSub
+                            | P::CallExpressionWithArgsWithBrackets
+                            | P::CallExpressionWithVariable
+                            | P::CallExpressionRecursive
+                    )
+                }) =>
+            {
+                stats.branches += 1.;
+            }
+            // Numeric, string, and pattern-match comparison operators
+            // plus the spaceship / `cmp` three-way comparisons.
+            P::EQEQ | P::BANGEQ | P::LT | P::GT | P::LTEQ | P::GTEQ | P::LTEQGT
+            | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
+            | P::EQTILDE | P::BANGTILDE
+            // Ternary `a ? b : c` and each `elsif` / `else` clause of
+            // an `if` / `unless` chain.
+            | P::TernaryExpression
+            | P::ElsifClause
+            | P::ElseClause => {
+                stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 walker: each operand of a Perl
+            // short-circuit / low-precedence logical chain is one
+            // condition (issue #403). Covers `&&`, `||`, `//`,
+            // `and`, `or`, `xor`.
+            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor => {
+                if let Some(parent) = node.parent() {
+                    perl_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
+            // Phase-2B (issue #403): condition slots. Perl wraps
+            // `if (cond)` / `while (cond)` / `unless (cond)` /
+            // `until (cond)` in the `Array` `(...)` shape (the
+            // grammar's name for parenthesized expressions in
+            // statement-modifier slots) — the paren unwrap handles
+            // boolean-literal cases. Condition sits at child(1)
+            // (child(0) is the `if` / `while` keyword).
+            // `return value`'s value also sits at child(1); merged
+            // into the same arm body to satisfy `match_same_arms`.
+            P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ReturnExpression => {
+                perl_inspect_child(node, 1, &mut stats.conditions);
+            }
+            // `call(!$a, !$b)` — argument list walker. Perl wraps
+            // call-argument lists in an `Array` node (same kind name
+            // as the `(...)` wrapper around `if` / `while`
+            // conditions). To avoid re-handling condition slots that
+            // were already walked through inspect_container, only
+            // dispatch when the parent is a call-expression form.
+            P::Array if node.parent().is_some_and(perl_is_call_argument_parent) => {
+                perl_count_unary_conditions(node, &mut stats.conditions);
+            }
+            _ => {}
+        }
+    }
+}
