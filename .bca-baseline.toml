@@ -698,74 +698,67 @@ metric = "halstead.effort"
 value = 72634.96827369716
 
 [[entry]]
-path = "src/metrics/abc.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 4419.0
-
-[[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/c.rs"
 qualified = "CCode::compute"
-start_line = 2478
+start_line = 18
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/cpp.rs"
 qualified = "CppCode::compute"
-start_line = 2356
+start_line = 106
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
-start_line = 2163
+start_line = 96
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
-start_line = 1148
+start_line = 155
 metric = "cyclomatic"
 value = 16.0
 
 [[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/mozcpp.rs"
 qualified = "MozcppCode::compute"
-start_line = 2659
+start_line = 18
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/objc.rs"
 qualified = "ObjcCode::compute"
-start_line = 2594
+start_line = 32
 metric = "cyclomatic"
 value = 16.0
 
 [[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/perl.rs"
 qualified = "PerlCode::compute"
-start_line = 3832
+start_line = 201
 metric = "halstead.effort"
 value = 67862.8313802447
 
 [[entry]]
-path = "src/metrics/abc.rs"
-qualified = "RustCode::compute"
-start_line = 1962
-metric = "cyclomatic"
-value = 16.0
-
-[[entry]]
-path = "src/metrics/abc.rs"
+path = "src/metrics/abc/perl.rs"
 qualified = "perl_inspect_container"
-start_line = 3687
+start_line = 56
 metric = "halstead.effort"
 value = 53345.08959628053
+
+[[entry]]
+path = "src/metrics/abc/rust.rs"
+qualified = "RustCode::compute"
+start_line = 129
+metric = "cyclomatic"
+value = 16.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"

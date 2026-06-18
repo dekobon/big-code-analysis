@@ -1,0 +1,328 @@
+#![allow(
+    clippy::enum_glob_use,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
+use super::{Abc, DeclKind, Stats};
+use crate::macros::{
+    csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
+};
+use crate::*;
+
+fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Csharp::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+
+    // Seed the boolean-context flag from the parent: known-boolean
+    // contexts (loop / if / binary expression) imply the contained
+    // expression evaluates as a condition.
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = match parent.kind_id().into() {
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
+        ConditionalExpression => node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)),
+        _ => false,
+    };
+
+    // Walk down through `(...)` and `!...` wrappers until we either hit
+    // the underlying operand or run out of nesting. The C# grammar
+    // aliases each of these kinds across multiple `kind_id`s
+    // (lesson #2): match every numbered variant.
+    loop {
+        let is_parens = matches!(node_kind, csharp_paren_expr_kinds!());
+        let is_not = matches!(node_kind, csharp_prefix_unary_expr_kinds!())
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
+
+        if !is_parens && !is_not {
+            break;
+        }
+
+        // A `!` wrapper proves the contained value is boolean even
+        // when the parent context didn't (e.g. `return !x;`).
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        // Both `parenthesized_expression` and `prefix_unary_expression`
+        // store their inner expression at child index 1.
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        // Found the innermost operand; count it if a boolean context
+        // was established up the chain. The `csharp_bool_terminal_kinds!()`
+        // set bundles invocation aliases, the `Identifier` /
+        // `BooleanLiteral` leaves, and the five bool-evaluating kinds
+        // restored by #372 (member access / await / cast / is-pattern /
+        // element access).
+        if matches!(node_kind, csharp_bool_terminal_kinds!()) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Csharp::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            // `csharp_bool_terminal_kinds!()` bundles invocation aliases,
+            // `Identifier`, `BooleanLiteral`, and the bool-evaluating
+            // expression kinds restored by #372 (member access / await /
+            // cast / is-pattern / element access).
+            if matches!(node_kind, csharp_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                csharp_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+// ABC token-level helpers for C#. Mirror of Java's helper layout with
+// C#-specific deltas: every aliased kind id is matched via the
+// `csharp_*_kinds!()` macros (lesson #2); `ObjectCreationExpression`
+// joins `InvocationExpression*` as a branch; the `<` / `>` parent
+// guard widens to `TypeArgumentList | TypeParameterList |
+// FunctionPointerType`; `ConditionalExpression` replaces Java's
+// `TernaryExpression`; `for_statement` exposes its condition via the
+// named `condition` field rather than positional index.
+
+fn csharp_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+    use Csharp::*;
+    match node.kind_id().into() {
+        STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPEQ
+        | PIPEEQ | CARETEQ | QMARKQMARKEQ | PLUSPLUS | DASHDASH => {
+            stats.assignments += 1.;
+        }
+        FieldDeclaration | LocalDeclarationStatement => {
+            stats.declaration.push(DeclKind::Var);
+        }
+        // C# `const` modifier marks a compile-time constant — exclude
+        // its initializer from the assignment count (matches Java's
+        // treatment of `final`).
+        Const => {
+            if let Some(DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.push(DeclKind::Const);
+            }
+        }
+        SEMI => {
+            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.clear();
+            }
+        }
+        // Count `=` unless it's the initializer of a `const` declaration.
+        // `None` (outside any declaration) still counts.
+        EQ => {
+            if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
+                stats.assignments += 1.;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+    use Csharp::*;
+    if matches!(
+        node.kind_id().into(),
+        crate::Csharp::InvocationExpression
+            | crate::Csharp::InvocationExpression2
+            | crate::Csharp::InvocationExpression3
+            | ObjectCreationExpression
+    ) {
+        stats.branches += 1.;
+        return true;
+    }
+    false
+}
+
+fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+    use Csharp::*;
+    match node.kind_id().into() {
+        // The statement `switch` counts its `Case` arms; the `default:`
+        // arm (token `Default`, shared by both classic `default:` and
+        // arrow `default ->` forms) is the unconditional fallthrough and
+        // is excluded, mirroring cyclomatic's `Case`-only count and the
+        // expression-arm discard rule below (issues #456, #469).
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // A `switch` *expression* arm (`x switch { 1 => …, _ => … }`) is a
+        // decision point. The statement `switch` counts via its `Case`
+        // tokens above; an expression arm carries none, so it scored zero
+        // conditions before #456 even though C# cyclomatic counts it. The
+        // bare-discard arm (`_ =>` / `var _ =>`, no `when` guard) is the
+        // `default:` analogue and is excluded — mirroring the cyclomatic
+        // gate (lesson 11).
+        SwitchExpressionArm
+            if !crate::metrics::cyclomatic::csharp_switch_expression_arm_is_bare_discard(node) =>
+        {
+            stats.conditions += 1.;
+        }
+        // Excludes `<` and `>` used as type-syntax delimiters: generic
+        // type arguments (`Dictionary<K, V>`), type parameter
+        // declarations (`class Foo<T> { }`), and the parameter-list
+        // delimiters of unsafe function-pointer types
+        // (`delegate*<int, int>`).
+        GT | LT => {
+            if let Some(parent) = node.parent()
+                && !matches!(
+                    parent.kind_id().into(),
+                    TypeArgumentList | TypeParameterList | FunctionPointerType
+                )
+            {
+                stats.conditions += 1.;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
+    use Csharp::*;
+    let conds = &mut stats.conditions;
+    match node.kind_id().into() {
+        AMPAMP | PIPEPIPE => {
+            if let Some(parent) = node.parent() {
+                csharp_count_unary_conditions(&parent, conds);
+            }
+        }
+        ArgumentList => csharp_count_unary_conditions(node, conds),
+        // tree-sitter-c-sharp `if_statement` / `while_statement` shape:
+        // [`if`/`while`, `(`, condition, `)`, body, …]. The parens are
+        // anonymous string children, NOT a wrapping
+        // `parenthesized_expression` as in tree-sitter-java — so the
+        // condition lives at child(2). Targeting child(1) (the literal
+        // `(` token) was the #370 bug: every unary / bare-identifier
+        // condition silently scored 0. See issue #370.
+        IfStatement | WhileStatement => {
+            if let Some(condition) = node.child(2) {
+                csharp_count_condition(&condition, conds);
+            }
+        }
+        // tree-sitter-c-sharp `do_statement` shape:
+        // [`do`, body, `while`, `(`, condition, `)`, `;`]. The
+        // condition lives at child(4), not child(3) (which is the
+        // literal `(` token). Targeting child(3) was the second half
+        // of the #370 bug.
+        DoStatement => {
+            if let Some(condition) = node.child(4) {
+                csharp_count_condition(&condition, conds);
+            }
+        }
+        // `return value;` — child(1) is the value expression.
+        ReturnStatement => csharp_inspect_child(node, 1, conds),
+        // Child 2: declarator / assignment RHS, lambda body
+        // (`params => body`).
+        crate::Csharp::VariableDeclarator
+        | crate::Csharp::VariableDeclarator2
+        | AssignmentExpression
+        | LambdaExpression => csharp_inspect_child(node, 2, conds),
+        ConditionalExpression => csharp_walk_conditional(node, stats),
+        ForStatement => csharp_walk_for_statement(node, stats),
+        _ => {}
+    }
+}
+
+// `cond ? a : b` — children are [cond, ?, a, :, b]. The cond-classifier
+// match is shared with `csharp_walk_for_conditions`'s `if`/`while`/`do`
+// arms via `csharp_count_condition`; the two branch slots delegate to
+// `csharp_inspect_container` via `csharp_inspect_child` so a parenthesised
+// or `!`-prefixed branch contributes one condition just like a bare
+// invocation/identifier/boolean would.
+fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
+    let conds = &mut stats.conditions;
+    if let Some(condition) = node.child(0) {
+        csharp_count_condition(&condition, conds);
+    }
+    csharp_inspect_child(node, 2, conds);
+    csharp_inspect_child(node, 4, conds);
+}
+
+// Counts unary / single-token conditions inside `for` statements. The
+// C# grammar exposes the loop condition via the named `condition` field
+// on `for_statement`, so we look it up by name rather than positional
+// index. Comparison-operator conditions like `i < n` are still counted
+// by the standard `GT | LT | ...` arms — this only fires when the
+// condition is a bare identifier, invocation, boolean literal,
+// parenthesised expression, or `!`-prefixed unary expression.
+fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
+    let Some(condition) = node.child_by_field_name("condition") else {
+        return;
+    };
+    let kind = condition.kind_id().into();
+    if matches!(kind, csharp_bool_terminal_kinds!()) {
+        stats.conditions += 1.;
+    } else if matches!(kind, csharp_paren_expr_kinds!())
+        || matches!(kind, csharp_prefix_unary_expr_kinds!())
+    {
+        csharp_inspect_container(&condition, &mut stats.conditions);
+    }
+}
+
+impl Abc for CsharpCode {
+    // See `impl Abc for JavaCode` for the short-circuit-chain rationale
+    // and the cross-helper-exclusivity invariant.
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if csharp_count_token_assignment(node, stats) {
+            return;
+        }
+        if csharp_count_token_branch(node, stats) {
+            return;
+        }
+        if csharp_count_token_condition(node, stats) {
+            return;
+        }
+        csharp_walk_for_conditions(node, stats);
+    }
+}
+
+// C# mirror of `java_inspect_child` / `groovy_inspect_child`: passes
+// `node.child(idx)` to `csharp_inspect_container`, which is a no-op on
+// kinds other than `csharp_paren_expr_kinds!()` / `!`-prefixed
+// `csharp_prefix_unary_expr_kinds!()`.
+fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        csharp_inspect_container(&child, conditions);
+    }
+}
+
+fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
+    let kind = condition.kind_id().into();
+    if matches!(kind, csharp_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, csharp_paren_expr_kinds!())
+        || matches!(kind, csharp_prefix_unary_expr_kinds!())
+    {
+        csharp_inspect_container(condition, conditions);
+    }
+}
