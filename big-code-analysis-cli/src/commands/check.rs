@@ -1,0 +1,613 @@
+//! The `bca check` threshold-gate pipeline and its stage helpers.
+
+use super::*;
+
+mod effective_config;
+mod footer;
+mod outcome;
+mod remediation;
+mod thresholds;
+
+pub(crate) use {effective_config::*, footer::*, outcome::*, remediation::*, thresholds::*};
+
+pub(crate) fn run_check(
+    globals: GlobalOpts,
+    mut args: CheckArgs,
+    manifest: Option<&Manifest>,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    // bca: suppress(abc)
+    // Linear check-pipeline orchestration: each stage (threshold resolve,
+    // walk, baseline filter, classify, emit) is already its own helper; the
+    // ABC count is the call/assignment density of wiring them together, not
+    // branching logic.
+    // Merge the check-only manifest keys (baseline / headroom) under the
+    // CLI flags, and take the `[thresholds]` table (hard + soft layers)
+    // as the base for the resolver. `--config` merges on top of it;
+    // `--threshold` overrides win last (see
+    // `validate_and_build_thresholds`).
+    let base_thresholds = match manifest {
+        Some(m) => {
+            m.merge_check(&mut args);
+            m.thresholds()
+        }
+        None => ParsedThresholds::default(),
+    };
+    // Resolve the deprecated `--headroom` / `--strict-exit-codes` aliases
+    // once (issues #688/#666). The manifest merge above has already
+    // folded `[check] exit_codes` into `args.exit_codes` when the CLI
+    // left it unset, so `resolved_exit_codes` reflects both sources with
+    // the CLI value winning in either direction.
+    let tier = args.resolved_tier();
+    let tiered_exit_codes = args.resolved_exit_codes() == Some(crate::ExitCodes::Tiered);
+    let ResolvedThresholds {
+        set,
+        hard_limits,
+        provenance,
+    } = validate_and_build_thresholds(&mut args, base_thresholds, tier);
+    // `--print-effective-config` is a read-only debug aid: print the
+    // resolved configuration and exit 0 before the walk. clap already
+    // rejects pairing with `--write-baseline` (conflicts_with), so by
+    // the time we get here the flag is unambiguous.
+    if let Some(format) = args.print_effective_config {
+        print_effective_config(
+            &globals,
+            &args,
+            &set,
+            manifest,
+            format,
+            tier,
+            tiered_exit_codes,
+        );
+        return;
+    }
+    let scope = resolve_diff_scope(&args);
+    // Clone globals for the remediation builder: `run_check_walk`
+    // consumes `globals` by value (it passes through to `run_walk`
+    // which spawns worker threads with ownership), but
+    // `format_remediation_block` needs the resolved `--paths` /
+    // `--exclude` set to compose a copy-paste-safe refresh command.
+    let globals_for_remediation = globals.clone();
+    let (violations, files_dispatched) = run_check_walk(globals, &args, preproc, set);
+
+    if files_dispatched.load(Ordering::Relaxed) == 0 {
+        // No files survived `--paths` expansion + `--include`/`--exclude`
+        // filtering. Treat this as a tool error (exit 1), not a clean
+        // pass (exit 0): a typo in `--paths` would otherwise silently
+        // green-light CI.
+        die("bca check: no input files matched; check --paths, --include, --exclude");
+    }
+
+    // Drop offenders from `[check.exclude]` files (#378) before *any*
+    // downstream consumer sees them — so `--write-baseline` never
+    // records the structural exemptions and the gate never fails on
+    // them. Applied after the empty-input guard above: exempt files are
+    // still walked and counted, only their violations are dropped.
+    let violations = apply_check_exclude(
+        violations,
+        &args,
+        &globals_for_remediation.paths,
+        globals_for_remediation.paths_from.as_deref(),
+    );
+
+    // `--write-baseline <path>` writes there; a bare `--write-baseline`
+    // is resolved to the manifest `baseline` by `merge_check` (#496), so
+    // a remaining `Some(None)` means no path was given and no manifest
+    // `baseline` exists — a hard error rather than a silent no-write.
+    if let Some(target) = args.write_baseline.as_ref() {
+        let path = target.clone().unwrap_or_else(|| {
+            die(
+                "--write-baseline needs a path: pass one (`--write-baseline <file>`) \
+                 or set a `baseline` key in bca.toml",
+            )
+        });
+        write_check_baseline(violations, &path, provenance);
+        return;
+    }
+
+    let pairs = filter_by_baseline(
+        violations,
+        args.baseline.as_deref(),
+        args.baseline_line_tolerance
+            .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
+        args.baseline_fuzzy_match.unwrap_or(false),
+        provenance,
+        args.report_suppressed,
+    );
+    // Apply `--changed-only` diff-scope filtering to ALL offenders before
+    // splitting, so the suppressed set surfaced in the report respects the
+    // touched-file scope exactly as the active set does — otherwise
+    // `--changed-only --report-suppressed` would leak suppressed debt from
+    // files outside the diff. With `--report-suppressed` off this is the
+    // original pre-feature ordering (filter, then everything is active).
+    let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
+    // Split the report-only suppressed debt — in-source markers
+    // (`v.suppressed`) plus baseline-covered offenders
+    // (`Coverage::Covered`), present only under `--report-suppressed` — from
+    // the active offenders. Suppressed debt is surfaced in the code-scan
+    // document but never reaches the gate: exit code, stderr stream, and
+    // remediation are all driven by `active` alone. The default path leaves
+    // `suppressed` empty, so behaviour is byte-for-byte unchanged.
+    let (suppressed, active): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|(v, coverage)| {
+        v.suppressed || matches!(coverage, Some(Coverage::Covered { .. }))
+    });
+    let any_violations = !active.is_empty();
+    // Categorise the active violations for the exit-code contract (#385)
+    // before `emit_check_results` consumes them.
+    let outcome = classify_check_outcome(&active, tier.tier(), &hard_limits);
+    // Build the remediation block ONLY when we have something to
+    // remediate. Empty active set (clean run) gets no trailing block —
+    // there is no baseline to refresh and no artifact worth pointing
+    // at. Suppressed debt is informational and never remediated here.
+    let remediation = if any_violations {
+        format_remediation_block(&globals_for_remediation, &args)
+    } else {
+        None
+    };
+    emit_check_results(
+        active,
+        suppressed,
+        &args,
+        scope.as_ref(),
+        remediation.as_deref(),
+    );
+
+    // `--no-fail` always forces exit 0; otherwise map the outcome to the
+    // process exit code (tiered when `--strict-exit-codes` is set, the
+    // stable 0/1/2 contract otherwise). A clean run returns `None` and
+    // the process exits 0 implicitly.
+    if !args.no_fail
+        && let Some(code) = outcome.exit_code(tiered_exit_codes)
+    {
+        process::exit(code);
+    }
+}
+
+/// Run the parallel walker with a check-flavoured `Config`, collect
+/// every emitted `Violation`, and sort them by `(path, start_line,
+/// metric)` so CI diff tooling sees identical output across runs over
+/// the same tree. Returns the sorted vector plus the
+/// `files_dispatched` counter so the caller can detect the "no inputs
+/// matched" case.
+pub(crate) fn run_check_walk(
+    globals: GlobalOpts,
+    args: &CheckArgs,
+    preproc: Option<Arc<PreprocResults>>,
+    set: Arc<ThresholdSet>,
+) -> (Vec<Violation>, Arc<AtomicUsize>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let files_dispatched = Arc::new(AtomicUsize::new(0));
+    let cfg = Config {
+        threshold_set: Some(set),
+        check_tx: Some(Mutex::new(tx)),
+        files_dispatched: Some(Arc::clone(&files_dispatched)),
+        suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
+        report_suppressed: args.report_suppressed,
+        // Compute body hashes during the walk only when fuzzy matching
+        // is requested — whether for a `--baseline` read or to populate
+        // `body_hash` in a `--write-baseline` write.
+        fuzzy_baseline: args.baseline_fuzzy_match.unwrap_or(false),
+        ..Config::new(Action::Check, &globals, preproc)
+    };
+    run_walk(globals, cfg);
+
+    // Workers have all joined by the time `run_walk` returns, so the
+    // sender side is dropped and `rx.into_iter()` terminates cleanly.
+    let mut violations: Vec<Violation> = rx.into_iter().collect();
+    // Stable, deterministic stderr output: by path, then start line, then
+    // metric name. Different runs over the same tree produce identical
+    // output, which CI diff tooling relies on.
+    violations.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(a.start_line.cmp(&b.start_line))
+            .then(a.metric.cmp(b.metric))
+    });
+
+    (violations, files_dispatched)
+}
+
+/// Serialize and write the collected violations as a baseline TOML
+/// file. Used by the `--write-baseline` early-exit branch. The
+/// baseline-file directory becomes the *anchor* — every entry's path
+/// is keyed relative to it, so a subsequent `--baseline` invocation
+/// from any `--paths` form (`.`, `src/`, `$PWD`) still matches.
+pub(crate) fn write_check_baseline(
+    violations: Vec<Violation>,
+    path: &Path,
+    provenance: baseline::Provenance,
+) {
+    let anchor = baseline::anchor_for(path);
+    let file = baseline::from_violations(violations, &anchor, provenance);
+    let entry_count = file.entries.len();
+    let text =
+        baseline::render(&file).unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
+    write_atomic(path, text.as_bytes()).unwrap_or_else(|e| die_io("write baseline", path, e));
+    eprintln!(
+        "bca: wrote {entry_count} baseline entries to {}",
+        path.display()
+    );
+}
+
+pub(crate) fn apply_check_exclude(
+    violations: Vec<Violation>,
+    args: &CheckArgs,
+    paths: &[PathBuf],
+    paths_from: Option<&Path>,
+) -> Vec<Violation> {
+    // Fast path: nothing configured (the common case) skips the
+    // glob-set build, the `--paths-from` re-read, and the file read
+    // entirely.
+    if args.check_exclude.is_empty() && args.check_exclude_from.is_none() {
+        return violations;
+    }
+    let globset = crate::build_exclude_globset(
+        args.check_exclude.clone(),
+        args.check_exclude_from.as_deref(),
+        "--check-exclude-from",
+    );
+    // Anchor each violation's emitted path to the walk-root `./`-form
+    // before matching, mirroring the global `--exclude`/`--include`
+    // anchoring (#489), so a `./`-anchored `[check.exclude]` pattern
+    // exempts the same files regardless of how the seed resolved
+    // (absolute, `$PWD`, or a manifest root above the CWD).
+    //
+    // The seeds must be the *full* set the walk anchored against —
+    // `--paths` AND any `--paths-from` entries — reanchored exactly as
+    // [`expand_seed_paths`] did. Threading only `--paths` left a
+    // violation from a `--paths-from`-sourced (e.g. absolute) seed
+    // matched unanchored, so a `[check.exclude]` glob silently failed to
+    // exempt it (#497). Re-reading `--paths-from` here (rather than
+    // plumbing the resolved list back from the walk) keeps the hot
+    // no-exclude path above allocation-free; this branch is the rare
+    // configured case.
+    let mut seeds: Vec<PathBuf> = paths.to_vec();
+    if let Some(src) = paths_from {
+        seeds.extend(crate::read_paths_from(src).unwrap_or_else(|e| die(e)));
+    }
+    let seeds: Vec<PathBuf> = seeds
+        .into_iter()
+        .map(crate::walk_seed::reanchor_seed)
+        .collect();
+    let before = violations.len();
+    let kept: Vec<Violation> = violations
+        .into_iter()
+        .filter(|v| {
+            // Anchor to the `./`-relative walk-root form, then strip the
+            // leading `./` so bare-relative `[check.exclude]` patterns match
+            // it just like `./`-prefixed ones (#726).
+            let anchored = crate::walk_seed::anchor_against_seeds(&seeds, &v.path);
+            !globset.is_match(crate::walk_seed::strip_cur_dir(&anchored))
+        })
+        .collect();
+    let skipped = before - kept.len();
+    if skipped > 0 {
+        eprintln!("bca: skipped {skipped} violations via [check.exclude]");
+    }
+    kept
+}
+
+/// Classify each violation against the optional `--baseline` file.
+/// The kept list carries `(Violation, Option<Coverage>)` so the
+/// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
+/// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
+/// the exact pre-tag line format byte-identically.
+/// Compose the stderr warning (issue #486) when the current run is
+/// stricter than the baseline was written against, or `None` when the
+/// comparison is safe (see [`baseline::check_provenance`] for the
+/// directional rule). Split out from [`filter_by_baseline`] so a test
+/// can pin the exact message and the silent cases without a baseline
+/// file on disk.
+pub(crate) fn provenance_warning(
+    current: baseline::Provenance,
+    baseline: Option<baseline::Provenance>,
+) -> Option<String> {
+    match baseline::check_provenance(current, baseline) {
+        baseline::ProvenanceCheck::Ok => None,
+        baseline::ProvenanceCheck::StricterThanBaseline {
+            current: cur,
+            baseline: base,
+        } => Some(format!(
+            "this check's effective limits (strictness {cur}) are \
+             stricter than the baseline was written against (strictness \
+             {base}); the baseline may under-cover and the gate can fire on \
+             untouched files. Refresh it at the matching tier, e.g. \
+             `bca check --tier=soft={cur} --write-baseline \
+             <file>` (or `--write-baseline <file>` for the hard tier)."
+        )),
+    }
+}
+
+pub(crate) fn filter_by_baseline(
+    violations: Vec<Violation>,
+    baseline_path: Option<&Path>,
+    tolerance: usize,
+    fuzzy: bool,
+    provenance: baseline::Provenance,
+    keep_covered: bool,
+) -> Vec<(Violation, Option<Coverage>)> {
+    let Some(path) = baseline_path else {
+        return violations.into_iter().map(|v| (v, None)).collect();
+    };
+    let baseline = load_baseline(path, tolerance, fuzzy);
+    // Issue #486: warn when this run's effective limits are stricter than
+    // the baseline was written against (the baseline may under-cover and
+    // the gate can fire on untouched files). Silent in the safe
+    // directions (hard reading soft, equal, absent provenance).
+    if let Some(msg) = provenance_warning(provenance, baseline.provenance()) {
+        warn(msg);
+    }
+    let before = violations.len();
+    let kept: Vec<_> = violations
+        .into_iter()
+        .filter_map(|v| match baseline.classify(&v) {
+            // `--report-suppressed` keeps baseline-covered offenders (tagged
+            // `Covered`) so they can be surfaced as `external` suppressions
+            // in the document; the split in `run_check` keeps them out of the
+            // gate. The default path still drops them entirely.
+            Coverage::Covered { .. } if !keep_covered => None,
+            c => Some((v, Some(c))),
+        })
+        .collect();
+    let filtered = before - kept.len();
+    if filtered > 0 {
+        eprintln!("bca: filtered {filtered} violations via baseline");
+    }
+    kept
+}
+
+/// Resolve the diff scope for `--since` / `--changed-only` /
+/// auto-detected env vars. Behaviour:
+///
+/// - No flag, no env signal → `None`. The footer prints today's
+///   single-section listing; `--changed-only` is rejected at the
+///   top of the helper because it requires a scope.
+/// - Resolved scope (`ResolveOutcome::Ok`) → `Some(scope)`, surfaced
+///   in the footer banner and used to bucket touched-in-range rows.
+/// - Resolver hit an error (`ResolveOutcome::Failed`) → fatal when
+///   `--changed-only` is passed (otherwise the gate would silently
+///   suppress nothing), warning-only otherwise (the developer still
+///   sees the offender list, just without the touched-in-range
+///   partition).
+pub(crate) fn resolve_diff_scope(args: &CheckArgs) -> Option<diff::DiffScope> {
+    let outcome = diff::resolve_scope(args.since.as_deref());
+    match outcome {
+        diff::ResolveOutcome::Ok(scope) => Some(scope),
+        diff::ResolveOutcome::Disabled => {
+            if args.changed_only {
+                die("--changed-only requires --since <ref> or one of \
+                     BCA_DIFF_BASE / GITHUB_BASE_REF / GITHUB_EVENT_BEFORE \
+                     in the environment");
+            }
+            None
+        }
+        diff::ResolveOutcome::Failed { reason, source } => {
+            if args.changed_only {
+                die(format_args!(
+                    "--changed-only: failed to resolve diff base via {}: {reason}",
+                    source.label(),
+                ));
+            }
+            eprintln!(
+                "bca: --since/auto-detect via {} failed ({reason}); proceeding without diff scope",
+                source.label(),
+            );
+            None
+        }
+    }
+}
+
+pub(crate) fn apply_changed_only(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    scope: Option<&diff::DiffScope>,
+    changed_only: bool,
+) -> Vec<(Violation, Option<Coverage>)> {
+    let outcome = apply_changed_only_inner(pairs, scope, changed_only);
+    if let Some(diag) = outcome.diagnostic {
+        eprintln!("{diag}");
+    }
+    outcome.kept
+}
+
+/// Result of [`apply_changed_only_inner`]: the filtered pairs plus
+/// an optional diagnostic string for the caller to surface. Extracted
+/// from the outer `apply_changed_only` so tests can pin the
+/// diagnostic shape (the "silent regression" guard the audit-tests
+/// pass would otherwise miss).
+pub(crate) struct ChangedOnlyOutcome {
+    pub(crate) kept: Vec<(Violation, Option<Coverage>)>,
+    pub(crate) diagnostic: Option<String>,
+}
+
+pub(crate) fn apply_changed_only_inner(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    scope: Option<&diff::DiffScope>,
+    changed_only: bool,
+) -> ChangedOnlyOutcome {
+    if !changed_only {
+        return ChangedOnlyOutcome {
+            kept: pairs,
+            diagnostic: None,
+        };
+    }
+    let Some(scope) = scope else {
+        // `resolve_diff_scope` fatal-errors when `--changed-only` is
+        // set without a resolvable scope, so this branch is
+        // unreachable from the production `run_check` pipeline. It
+        // exists for tests and to defend against a future refactor
+        // that bypasses that gate — degrade to a no-op rather than
+        // silently emit the empty set (which would green-light the
+        // gate on a misconfigured CI), but log so the operator
+        // notices.
+        return ChangedOnlyOutcome {
+            kept: pairs,
+            diagnostic: Some(
+                "bca: --changed-only requested but no diff scope is available; \
+                 skipping filter (would-be programmer error — \
+                 resolve_diff_scope should have fatal-errored)"
+                    .to_string(),
+            ),
+        };
+    };
+    if scope.changed.is_empty() {
+        // A resolved-but-empty scope (e.g. running `--since main` from
+        // a branch that has been merged/squashed into main locally, or
+        // a force-pushed branch where the diff base now equals HEAD)
+        // would otherwise silently drop every violation and exit 0,
+        // which is exactly the "silent green-light" failure mode #359
+        // was meant to prevent. Surface it explicitly so CI logs make
+        // it obvious the gate ran but had nothing to check. Branch on
+        // `pairs.is_empty()` so the wording matches reality: "dropping
+        // 0 violations" would suggest the gate suppressed something
+        // it did not, confusing a developer reading a clean PR log.
+        let diag = if pairs.is_empty() {
+            format!(
+                "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
+                 no violations to check and no files in diff scope",
+                scope.base,
+            )
+        } else {
+            format!(
+                "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
+                 dropping {} violations and exiting clean",
+                scope.base,
+                pairs.len()
+            )
+        };
+        return ChangedOnlyOutcome {
+            kept: Vec::new(),
+            diagnostic: Some(diag),
+        };
+    }
+    // Memoize `scope.contains` (which canonicalizes internally) by
+    // raw `v.path`. Real-world inputs cluster heavily per file
+    // (a 50-violation run typically touches 5-10 files), so this
+    // turns O(violations) realpath(2) calls into O(unique raw
+    // paths). Precondition: the walker must emit violation paths in
+    // a canonical-form-consistent style across one check run (it
+    // does — paths are always rooted at the same `--paths` seed
+    // and don't mix `./X` with `X`). If a future change introduces
+    // alias paths in a single run, two violations of the same file
+    // would each pay a separate canonicalize call — the cache would
+    // still be correct, just not optimal.
+    let mut in_scope: HashMap<PathBuf, bool> = HashMap::new();
+    let before = pairs.len();
+    let kept: Vec<_> = pairs
+        .into_iter()
+        .filter(|(v, _)| {
+            *in_scope
+                .entry(v.path.clone())
+                .or_insert_with(|| scope.contains(&v.path))
+        })
+        .collect();
+    let dropped = before - kept.len();
+    let diagnostic = (dropped > 0).then(|| {
+        format!("bca: --changed-only dropped {dropped} violations from files outside diff scope")
+    });
+    ChangedOnlyOutcome { kept, diagnostic }
+}
+
+pub(crate) fn emit_check_results(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    suppressed: Vec<(Violation, Option<Coverage>)>,
+    args: &CheckArgs,
+    scope: Option<&diff::DiffScope>,
+    remediation: Option<&str>,
+) {
+    // BrokenPipe on stderr (e.g. when piped to `head`) is the only
+    // realistic write failure here; swallow it rather than die so the
+    // exit-code contract is honored.
+    let mut stderr = std::io::stderr().lock();
+    for (v, tag) in &pairs {
+        let _ = writeln!(stderr, "{}", render_violation_line(v, tag.as_ref()));
+    }
+    if !args.no_summary && !pairs.is_empty() {
+        let _ = write_summary_footer(&mut stderr, &pairs, scope);
+    }
+    if github_annotations_enabled(args) && !pairs.is_empty() {
+        // Emit annotations *after* the human stream + summary footer
+        // so a reader tailing the CI log sees the contiguous
+        // human-readable block first. The GHA log viewer scrapes
+        // `::error…` lines wherever they appear and renders them as
+        // inline annotations on the file-diff view regardless of
+        // position.
+        let _ = check_format::write_github_annotations(
+            &mut stderr,
+            pairs.iter().map(|(v, _)| v),
+            check_format::DEFAULT_GITHUB_ANNOTATION_CAP,
+        );
+    }
+    // The remediation block is the final thing on stderr — a reader
+    // skimming a CI log sees it as the natural "what now?" answer
+    // immediately after the failure evidence. Skipped when the
+    // caller passed `None` (clean run, or `--no-remediation`).
+    if let Some(block) = remediation {
+        let _ = write!(stderr, "{block}");
+    }
+    drop(stderr);
+
+    // Append the markdown digest to `$GITHUB_STEP_SUMMARY` (or the
+    // user-supplied `--summary-file`). Writes are bracketed by the
+    // bca-step-summary markers so a retried GHA step replaces
+    // (instead of stacks) the previous block. Failures here are
+    // logged but never affect the exit-code contract — the
+    // step-summary panel is informational.
+    if let Some(path) = step_summary_path(args)
+        && let Err(e) = check_format::write_step_summary(&path, &pairs, remediation)
+    {
+        eprintln!(
+            "bca: failed to append step summary to {}: {e}",
+            path.display()
+        );
+    }
+
+    // Emit the aggregated CI/IDE document if requested. Empty input
+    // produces a well-formed but offender-free document, which CI
+    // consumers can ingest unchanged on clean runs. The exit-code
+    // contract is unaffected by this branch.
+    if let Some(fmt) = args.output_format {
+        let offenders: Vec<_> = pairs
+            .into_iter()
+            .map(|(v, _)| violation_to_offender(v))
+            .collect();
+        // Only the SARIF format can represent suppression, so route active +
+        // suppressed offenders through the suppression-aware writer there. For
+        // every other format (and the default no-suppressed case) fall back to
+        // the plain dump so output is byte-for-byte unchanged.
+        let written = if !suppressed.is_empty()
+            && matches!(fmt, check_format::AggregatedFormat::Sarif)
+        {
+            check_format::dump_sarif_with_suppressed(&offenders, suppressed, args.output.as_deref())
+        } else {
+            fmt.dump(&offenders, args.output.as_deref())
+        };
+        written.unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
+    }
+}
+
+/// Decide whether GitHub Actions `::error` annotations should be
+/// emitted (issue #683). The tri-state `--github-annotations
+/// <auto|always|never>` flag resolves like `--color`: `always` forces
+/// them on, `never` suppresses them even inside a workflow step, and
+/// `auto` (the default) falls back to `$GITHUB_ACTIONS == "true"`, the
+/// signal GHA sets inside every step.
+pub(crate) fn github_annotations_enabled(args: &CheckArgs) -> bool {
+    let in_gha = std::env::var(check_format::GITHUB_ACTIONS_ENV).as_deref() == Ok("true");
+    args.github_annotations.enabled_with(in_gha)
+}
+
+/// Resolve the path to append the step-summary digest to (issue #683).
+/// `--summary-file <path>` appends there unconditionally; `--summary-file
+/// never` suppresses the digest even inside a GHA step; `auto` (the
+/// default when the flag is omitted) defers to `$GITHUB_STEP_SUMMARY`.
+/// Returns `None` when no path is in effect and the digest is skipped.
+pub(crate) fn step_summary_path(args: &CheckArgs) -> Option<PathBuf> {
+    match &args.summary_file {
+        Some(SummaryFile::Path(p)) => Some(p.clone()),
+        Some(SummaryFile::Never) => None,
+        // `auto` (explicit) and the unset default both detect the env var.
+        Some(SummaryFile::Auto) | None => {
+            std::env::var_os(check_format::GITHUB_STEP_SUMMARY_ENV).map(PathBuf::from)
+        }
+    }
+}
