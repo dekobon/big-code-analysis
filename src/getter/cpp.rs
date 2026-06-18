@@ -1,0 +1,122 @@
+//! `Getter` implementation for C++.
+#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+
+use super::*;
+
+impl Getter for CppCode {
+    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+        // Issue #285 contract: every `Cpp::FunctionDefinition*` alias
+        // must be enumerated here AND in `get_space_kind` below AND
+        // in `is_func` / `is_func_space` (see `src/checker.rs`).
+        // The aliased kind_ids 489/491/494 are not emitted by the
+        // currently pinned `tree-sitter-cpp` parse tables, so a
+        // dropped variant would silently fall through to the
+        // `_ => name-field` arm and yield the wrong name (or `None`).
+        match node.kind_id().into() {
+            Cpp::FunctionDefinition
+            | Cpp::FunctionDefinition2
+            | Cpp::FunctionDefinition3
+            | Cpp::FunctionDefinition4 => {
+                if let Some(op_cast) = node.first_child(|id| Cpp::OperatorCast == id) {
+                    return node_text(code, &op_cast);
+                }
+                // we're in a function_definition so need to get the declarator
+                if let Some(declarator) = node.child_by_field_name("declarator") {
+                    let declarator_node = declarator;
+                    if let Some(fd) = declarator_node.first_occurrence(|id| {
+                        Cpp::FunctionDeclarator == id
+                            || Cpp::FunctionDeclarator2 == id
+                            || Cpp::FunctionDeclarator3 == id
+                    }) && let Some(first) = fd.child(0)
+                    {
+                        match first.kind_id().into() {
+                            Cpp::TypeIdentifier
+                            | Cpp::Identifier
+                            | Cpp::FieldIdentifier
+                            | Cpp::DestructorName
+                            | Cpp::OperatorName
+                            | Cpp::QualifiedIdentifier
+                            | Cpp::QualifiedIdentifier2
+                            | Cpp::QualifiedIdentifier3
+                            | Cpp::QualifiedIdentifier4
+                            | Cpp::TemplateFunction
+                            | Cpp::TemplateMethod => {
+                                return node_text(code, &first);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    return node_text(code, &name);
+                }
+            }
+        }
+        None
+    }
+
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        use Cpp::*;
+
+        // Issue #285 contract: keep every `FunctionDefinition*` alias
+        // listed here — see the comment above `get_func_space_name`.
+        match node.kind_id().into() {
+            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
+            | FunctionDefinition4 => SpaceKind::Function,
+            StructSpecifier => SpaceKind::Struct,
+            ClassSpecifier => SpaceKind::Class,
+            NamespaceDefinition => SpaceKind::Namespace,
+            TranslationUnit => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Cpp::*;
+
+        // `LPAREN2` here (and the `LBRACK2`/`LBRACK3` aliases in the
+        // Elixir/Ruby impls) is a defensive arm, not an active one: every
+        // grammar's `public_symbol_map` collapses the second-alias opener
+        // to its base before `Node::kind_id()` (`ts_node_symbol`) returns,
+        // so `kind_id()` never yields the alias id and the arm cannot fire
+        // for real source. It guards against a future grammar bump that
+        // drops that collapse — at which point the alias would also need
+        // folding to its pair glyph in `get_operator_id_as_str`. The
+        // invariant is pinned by `second_alias_opener_collapses_to_base_kind_id`
+        // in `metrics/halstead.rs` (issue #768).
+        match node.kind_id().into() {
+            DOT | DOTSTAR | LPAREN | LPAREN2 | COMMA | STAR | GTGT | COLON | SEMI | Return
+            | Break | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do
+            | Delete | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH
+            | DASHDASH | DASHGT | DASHGTSTAR | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP
+            | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ
+            | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | PrimitiveType
+            | TypeSpecifier | Sizeof
+            // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
+            // `short` modifiers as bare keyword tokens, not as `primitive_type`
+            // children (`unsigned int` is `unsigned` + `primitive_type int`;
+            // `signed long` and `long long` have no `primitive_type` at all).
+            // Without these arms the modifiers fell into `Unknown` and were
+            // dropped, so `unsigned int` collapsed to just `int` and a standalone
+            // `signed long` contributed nothing to n1/N1 (issue #466). Each
+            // modifier has a distinct kind_id, so keying by kind_id (the default
+            // `operators` store) keeps them distinct in n1 while `long long`'s
+            // two `long` tokens correctly fold to one n1 entry but two N1 hits.
+            | Signed | Unsigned | Long | Short => HalsteadType::Operator,
+            Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
+            | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
+            NamespaceIdentifier => match node.parent() {
+                Some(parent) if matches!(parent.kind_id().into(), NamespaceDefinition) => {
+                    HalsteadType::Operand
+                }
+                _ => HalsteadType::Unknown,
+            },
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Cpp);
+}
