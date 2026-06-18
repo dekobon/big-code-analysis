@@ -1,0 +1,112 @@
+//! `Getter` implementation for Tcl.
+#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+
+use super::*;
+
+impl Getter for TclCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        match node.kind_id().into() {
+            Tcl::Procedure => SpaceKind::Function,
+            Tcl::SourceFile => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        match node.kind_id().into() {
+            // Anonymous keyword tokens (control-flow and declaration keywords).
+            Tcl::Proc
+            | Tcl::If2
+            | Tcl::Elseif2
+            | Tcl::Else2
+            | Tcl::While2
+            | Tcl::Foreach2
+            | Tcl::Set2
+            | Tcl::Global2
+            | Tcl::Namespace2
+            | Tcl::Try2
+            | Tcl::Catch2
+            | Tcl::Finally2
+            | Tcl::Regexp2
+            | Tcl::Expr2
+            // String comparison operators.
+            | Tcl::Eq
+            | Tcl::Ne
+            | Tcl::In
+            | Tcl::Ni
+            // Structural punctuation. Only the *opening* delimiter is an
+            // operator (the pair folds to one glyph in
+            // `get_operator_id_as_str`); counting the matching closer too
+            // (former `RBRACE`/`RBRACK`/`RPAREN` arms) double-counted every
+            // balanced pair, inflating n1/N1 (#695).
+            // `LPAREN2` is defensive — the runtime collapses it to `LPAREN`
+            // before `kind_id()`, so it never fires (#768; see the Cpp note).
+            | Tcl::LBRACE
+            | Tcl::LBRACK
+            | Tcl::LPAREN
+            | Tcl::LPAREN2
+            | Tcl::SEMI
+            | Tcl::COLON
+            | Tcl::COLONCOLON
+            | Tcl::COLONCOLON2
+            // Arithmetic / exponent operators.
+            | Tcl::PLUS
+            | Tcl::DASH
+            | Tcl::STAR
+            | Tcl::SLASH
+            | Tcl::PERCENT
+            | Tcl::STARSTAR
+            // Bitwise operators.
+            | Tcl::AMP
+            | Tcl::PIPE
+            | Tcl::CARET
+            | Tcl::TILDE
+            | Tcl::LTLT
+            | Tcl::GTGT
+            // Comparison operators.
+            | Tcl::EQEQ
+            | Tcl::BANGEQ
+            | Tcl::LT
+            | Tcl::GT
+            | Tcl::LTEQ
+            | Tcl::GTEQ
+            // Logical operators.
+            | Tcl::BANG
+            | Tcl::AMPAMP
+            | Tcl::PIPEPIPE
+            // Ternary conditional operator.
+            | Tcl::QMARK => HalsteadType::Operator,
+
+            // Operands: identifiers and literals.
+            // Id2 (anonymous "id" token, kind_id=85) is intentionally excluded: it only
+            // appears as a leaf child of VariableSubstitution ($varname syntax), which is
+            // already counted as an operand. Including Id2 would double-count each bare
+            // variable reference.
+            Tcl::Id
+            | Tcl::SimpleWord
+            | Tcl::Number
+            | Tcl::BracedWord
+            | Tcl::BracedWordSimple
+            | Tcl::VariableSubstitution => HalsteadType::Operand,
+
+            // Double-quoted strings count as a single operand when inert
+            // (`"hello world"`). When they carry a `$var` or `[cmd]`
+            // interpolation child, the inner `variable_substitution` /
+            // `command_substitution` nodes are walked separately and
+            // contribute their own operands; counting the wrapping
+            // `QuotedWord` too would double-count `N2` (issue #277, same
+            // pattern as #180/#183/#184 for Bash/C#/PHP).
+            Tcl::QuotedWord => Self::string_operand_type(
+                node,
+                &[
+                    Tcl::VariableSubstitution as u16,
+                    Tcl::CommandSubstitution as u16,
+                ],
+            ),
+
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Tcl);
+}

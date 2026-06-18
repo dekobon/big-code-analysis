@@ -642,44 +642,37 @@ metric = "nexits"
 value = 6.0
 
 [[entry]]
-path = "src/getter.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 2673.0
-
-[[entry]]
-path = "src/getter.rs"
+path = "src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
-start_line = 1714
+start_line = 31
 metric = "halstead.effort"
 value = 54681.01625588078
 
 [[entry]]
-path = "src/getter.rs"
+path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
-start_line = 2360
+start_line = 123
 metric = "halstead.effort"
 value = 48241.44928566978
 
 [[entry]]
-path = "src/getter.rs"
+path = "src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
-start_line = 1536
+start_line = 17
 metric = "halstead.effort"
 value = 65994.57830587434
 
 [[entry]]
-path = "src/getter.rs"
+path = "src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
-start_line = 2100
+start_line = 31
 metric = "halstead.effort"
 value = 48279.902911067526
 
 [[entry]]
-path = "src/getter.rs"
+path = "src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
-start_line = 2458
+start_line = 21
 metric = "halstead.effort"
 value = 72634.96827369716
 
