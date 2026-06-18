@@ -70,7 +70,7 @@ value = 47834.17129195417
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 94
+start_line = 99
 metric = "halstead.effort"
 value = 136001.1105471366
 
@@ -216,59 +216,52 @@ value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1418.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "write_language_section"
-start_line = 1345
-metric = "halstead.effort"
-value = 55025.638284623434
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-qualified = "write_language_section"
-start_line = 1345
-metric = "nargs"
-value = 7.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_classed"
-start_line = 516
+start_line = 86
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_classed_with_tooltips"
-start_line = 556
+start_line = 126
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_core"
-start_line = 574
+start_line = 144
 metric = "halstead.effort"
 value = 91596.1159616176
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_core"
-start_line = 574
+start_line = 144
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 qualified = "write_table_with_tooltips"
-start_line = 543
+start_line = 113
 metric = "nargs"
 value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report/sections.rs"
+qualified = "write_language_section"
+start_line = 664
+metric = "halstead.effort"
+value = 58205.59941550624
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report/sections.rs"
+qualified = "write_language_section"
+start_line = 664
+metric = "nargs"
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
