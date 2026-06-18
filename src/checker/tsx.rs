@@ -1,0 +1,51 @@
+//! `Checker` implementation for TSX.
+#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+
+use super::*;
+
+impl Checker for TsxCode {
+    fn is_comment(node: &Node) -> bool {
+        // See MozjsCode::is_comment — `html_comment` (Annex-B `<!-- -->`)
+        // is a comment kind for loc/tokens/find parity (#697).
+        matches!(node.kind_id().into(), Tsx::Comment | Tsx::HtmlComment)
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Tsx::Program
+                | Tsx::FunctionExpression
+                | Tsx::Class
+                | Tsx::GeneratorFunction
+                | Tsx::FunctionDeclaration
+                | Tsx::MethodDefinition
+                | Tsx::GeneratorFunctionDeclaration
+                | Tsx::ClassDeclaration
+                | Tsx::AbstractClassDeclaration
+                | Tsx::InterfaceDeclaration
+                | Tsx::ArrowFunction
+        )
+    }
+
+    is_js_func_and_closure_checker!(Tsx);
+
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Tsx::CallExpression
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Tsx::LPAREN | Tsx::COMMA | Tsx::RPAREN
+        )
+    }
+
+    impl_js_family_is_string!(Tsx, String3);
+
+    impl_is_else_if_parent_clause!(Tsx, IfStatement, ElseClause);
+
+    #[inline]
+    fn is_primitive(node: &Node) -> bool {
+        node.kind_id() == Tsx::PredefinedType
+    }
+}

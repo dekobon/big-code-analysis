@@ -621,13 +621,6 @@ metric = "nexits"
 value = 6.0
 
 [[entry]]
-path = "src/checker.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 2038.0
-
-[[entry]]
 path = "src/concurrent_files.rs"
 qualified = "ConcurrentRunner<Config>::run"
 start_line = 360
