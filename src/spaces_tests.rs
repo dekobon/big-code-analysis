@@ -1714,6 +1714,11 @@ fn code_metrics_display_concatenates_reported_submetrics_in_order() {
 /// `name` via `finish_non_exhaustive` (the held tree-sitter tree and
 /// raw source have no meaningful `Debug` projection), without panicking
 /// or leaking the opaque internals.
+// `Ast` is uninhabited when no language grammar is compiled in, so this
+// test (which builds an `Ast` via `Ast::parse`) is gated on a concrete
+// language feature — `cpp`, the language it parses — mirroring the
+// `#[cfg(feature = "rust")]` gate on the `from_path_tests` module below.
+#[cfg(feature = "cpp")]
 #[test]
 fn ast_debug_reports_language_and_name_non_exhaustively() {
     use crate::{Ast, Source};
