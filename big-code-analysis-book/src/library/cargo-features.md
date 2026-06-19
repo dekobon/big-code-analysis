@@ -111,11 +111,12 @@ whose language is not enabled in the current build.
 
 ## Stability
 
-Per-language features are themselves stable. Adding or removing a
-language feature in the future is a minor-bump break (it changes
-which `LANG` variants the default build covers); changes to the
-default feature set will be flagged in the changelog under
-**(breaking)**.
+Per-language features are themselves part of the contract. Adding a
+new language feature is an additive minor-bump change; removing one
+is a major-bump (`3.0`) break. The `all-languages` default is
+permanent within `2.x`, so the variants a default build covers do not
+shrink before `3.0`. Any such change will be flagged in the changelog
+under **(breaking)**.
 
 [`analyze`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.analyze.html
 [`LANG::tree_sitter_language`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/enum.LANG.html#method.tree_sitter_language

@@ -1,9 +1,9 @@
 # Stability and versioning
 
-`big-code-analysis` is on the `1.x` line. The full stability
-contract lives in [`STABILITY.md`][stability] at the root of the
-repository — that file is the source of truth and is updated
-alongside the changelog at every release.
+`big-code-analysis` is on the `2.x` line (currently `2.0.0-rc1`). The
+full stability contract lives in [`STABILITY.md`][stability] at the
+root of the repository — that file is the source of truth and is
+updated alongside the changelog at every release.
 
 [stability]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md
 
@@ -12,13 +12,13 @@ The headlines for library consumers:
 - **Shape stability across patch and minor bumps.** Every public
   type and function signature listed in
   [STABILITY.md § "What is stable in shape"][stability-shape]
-  is held across the `1.x` line. Additive changes (new items, new
+  is held across the `2.x` line. Additive changes (new items, new
   `LANG` variants, new `MetricsError` variants, new language
   features) are allowed in minor bumps. Breaking shape changes are
   reserved for the next major bump and will appear in the
-  [changelog][changelog] under **(breaking)** in the `2.0.0`
+  [changelog][changelog] under **(breaking)** in the `3.0.0`
   section.
-- **No value stability guarantee within `1.x`.** A grammar pin
+- **No value stability guarantee within `2.x`.** A grammar pin
   bump or a bug fix in a metric definition can shift any metric
   value on any file in any direction, even across a patch bump.
   Each such drift is flagged in the changelog. Pin to an exact
@@ -41,30 +41,32 @@ The headlines for library consumers:
 [Node]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Node.html
 [SemVer]: https://semver.org/
 
-## On the `2.0` horizon
+## On the `3.0` horizon
 
-A small number of loose ends are deferred to `2.0`; they are
-listed in [STABILITY.md § "On the `2.0` horizon"][stability-2x].
-The headline items are:
-
-- The per-metric `Stats` structs gain `#[non_exhaustive]`, so
-  field additions stop being a shape break in the strict SemVer
-  sense.
-- The accumulated metric-definition fixes that have shifted values
-  across `1.x` get a clean re-baseline note.
-
-The path-positional callback dispatch (`action` / the `Callback`
-trait), the free `metrics` / `metrics_with_options` /
-`get_function_spaces` / `metrics_from_tree` / `get_ops` functions,
-and the generic `Parser<T>` / `ParserTrait` plumbing have already
-been removed from the public surface — [`analyze`] and [`Ast`] are
+The breaking changes once staged for `2.0` have shipped in `2.0.0`:
+the `#[non_exhaustive]` markers on the open public enums, the
+serialized-key normalization, the integer-metric `u64` shift, the
+language-dispatch and grammar defaults, the Python and REST surface
+changes, and a consolidated metric-value re-baseline folding in the
+drift accumulated since `1.0`. The path-positional callback dispatch
+(`action` / the `Callback` trait), the free `metrics` /
+`metrics_with_options` / `get_function_spaces` / `metrics_from_tree` /
+`get_ops` functions, and the generic `Parser<T>` / `ParserTrait`
+plumbing were removed at the same time — [`analyze`] and [`Ast`] are
 now the single analysis seam, with `Parser` and the per-language
 parser/tag types demoted to `pub(crate)`.
 
+One loose end is deferred to the next major: the per-metric `Stats`
+structs are not yet `#[non_exhaustive]`, so adding a field is a shape
+break in the strict SemVer sense. In practice field additions are
+treated as additive in minor bumps and flagged in the changelog;
+marking the structs `#[non_exhaustive]` is on the
+[`3.0` roadmap][stability-3x] so that carve-out can be retired.
+
+No `3.0` is scheduled. The `#[non_exhaustive]` markers added at `2.0`
+keep most future additions (new enum variants, new fields)
+non-breaking, so `2.x` is the surface you should depend on.
+
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [`Ast`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html
-
-`2.0` is not scheduled. Until then, `1.x` is the surface you should
-depend on.
-
-[stability-2x]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#on-the-20-horizon
+[stability-3x]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#on-the-30-horizon
