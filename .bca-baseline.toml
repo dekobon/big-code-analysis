@@ -545,31 +545,24 @@ value = 8.0
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1677.0
-
-[[entry]]
-path = "big-code-analysis-web/src/web/server.rs"
-qualified = "register_endpoints"
-start_line = 1325
-metric = "abc"
-value = 91.0
-
-[[entry]]
-path = "big-code-analysis-web/src/web/server.rs"
 qualified = "run_parse"
-start_line = 157
+start_line = 91
 metric = "halstead.effort"
 value = 82478.1543040951
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
 qualified = "run_with_timeout"
-start_line = 1612
+start_line = 244
 metric = "nargs"
 value = 7.0
+
+[[entry]]
+path = "big-code-analysis-web/src/web/server/routing.rs"
+qualified = "register_endpoints"
+start_line = 101
+metric = "abc"
+value = 91.0
 
 [[entry]]
 path = "big-code-analysis-web/src/web/vcs.rs"
