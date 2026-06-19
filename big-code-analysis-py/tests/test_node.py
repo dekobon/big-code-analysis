@@ -96,7 +96,7 @@ def test_byte_offsets_and_text_round_trip_source() -> None:
     source = ast.source
     for node in ast.root_node.walk():
         # Every node's text is exactly its byte slice of the source.
-        assert node.text() == source[node.start_byte : node.end_byte]
+        assert node.text == source[node.start_byte : node.end_byte]
 
 
 # ----- raw vs. altered taxonomy (the documented divergence) ----------------
@@ -163,7 +163,9 @@ def test_field_name_and_child_by_field_name() -> None:
     name = fn.child_by_field_name("name")
     assert name is not None
     assert name.kind == "identifier"
-    assert name.text() == b"main"
+    # `type` is the py-tree-sitter-compatible alias for `kind` (#975).
+    assert name.type == name.kind == "identifier"
+    assert name.text == b"main"
     # The reached child knows the field it was reached through.
     assert name.field_name == "name"
     # And the parent can name the field for that child index.
@@ -220,7 +222,7 @@ def test_descendants_by_kind_matches_find_for_exact_kind() -> None:
     # `main`, the `x` binding, the two `x` uses (+ `foo`) are identifiers.
     by_descendants = ast.root_node.descendants_by_kind(["identifier"])
     by_find = ast.find(["identifier"])
-    assert [n.text() for n in by_descendants] == [b"main", b"x", b"foo", b"x"]
+    assert [n.text for n in by_descendants] == [b"main", b"x", b"foo", b"x"]
     # The whole-tree find and the root-subtree walk see the same set.
     assert len(by_descendants) == len(by_find)
 
@@ -239,7 +241,7 @@ def test_find_accepts_the_count_filter_vocabulary() -> None:
     funcs = ast.find(["function"])
     assert funcs
     calls = ast.find(["call"])
-    assert any(n.text().startswith(b"foo") for n in calls)
+    assert any(n.text.startswith(b"foo") for n in calls)
 
 
 # ----- identity / equality / hash -----------------------------------------
@@ -284,7 +286,7 @@ def test_traversal_dispatches_non_rust_language() -> None:
     assert len(funcs) == 1
     name = funcs[0].child_by_field_name("name")
     assert name is not None
-    assert name.text() == b"greet"
+    assert name.text == b"greet"
 
 
 # ----- memory safety: keep-alive + threading -------------------------------
@@ -300,7 +302,7 @@ def test_node_keeps_ast_alive_after_gc() -> None:
     assert node.kind == "source_file"
     # text() reads the retained source bytes — they must still be alive.
     idents = node.descendants_by_kind(["identifier"])
-    assert [n.text() for n in idents] == [b"main", b"x", b"foo", b"x"]
+    assert [n.text for n in idents] == [b"main", b"x", b"foo", b"x"]
 
 
 def test_deep_child_outlives_dropped_root() -> None:
@@ -311,7 +313,7 @@ def test_deep_child_outlives_dropped_root() -> None:
     del ast
     gc.collect()
     assert child.kind == "identifier"
-    assert child.text() == b"main"
+    assert child.text == b"main"
     # Navigation back up the tree still resolves.
     assert child.parent is not None
     assert child.parent.kind == "function_item"

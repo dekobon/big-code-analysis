@@ -337,6 +337,10 @@ class Node:
         """The raw grammar kind (e.g. ``"function_item"``)."""
 
     @property
+    def type(self) -> str:
+        """py-tree-sitter-compatible alias for :attr:`kind`."""
+
+    @property
     def kind_id(self) -> int:
         """The numeric grammar id behind :attr:`kind`."""
 
@@ -447,6 +451,7 @@ class Node:
     def field_name_for_child(self, index: int, /) -> str | None:
         """The field name this node reaches its child ``index`` through."""
 
+    @property
     def text(self) -> bytes:
         """This node's ``source[start_byte:end_byte]`` slice (raw bytes)."""
 
