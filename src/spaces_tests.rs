@@ -1741,3 +1741,58 @@ fn ast_debug_reports_language_and_name_non_exhaustively() {
         "finish_non_exhaustive must mark the elided tree/source fields: {shown:?}"
     );
 }
+
+/// ObjC FuncSpace naming + kind. The per-type getter split isolated
+/// `ObjcCode::get_func_space_name` / `get_space_kind`, and the existing
+/// ObjC `check_func_space` test asserts only a metric sum — which
+/// passes even if a container's name resolves to `None`. Pin the
+/// names *and* kinds for an `@interface`, an `@implementation` + its
+/// method, and a free function, so an ObjC naming regression cannot
+/// hide behind a vacuous metric assertion (#724; lessons 2 & 31).
+#[test]
+fn objc_func_space_tree_carries_names_and_kinds() {
+    use crate::ObjcParser;
+
+    let src = "\
+@interface Greeter : NSObject
+- (int)compute:(int)x;
+@end
+
+@implementation Greeter
+- (int)compute:(int)x {
+    return x + 1;
+}
+@end
+
+int helper(int y) {
+    return y * 2;
+}
+";
+    check_func_space::<ObjcParser, _>(src, "greeter.m", |root| {
+        assert_eq!(root.kind, SpaceKind::Unit, "root is the translation unit");
+        let top: Vec<(SpaceKind, Option<&str>)> = root
+            .spaces
+            .iter()
+            .map(|s| (s.kind, s.name.as_deref()))
+            .collect();
+        assert_eq!(
+            top,
+            vec![
+                (SpaceKind::Interface, Some("Greeter")),
+                (SpaceKind::Class, Some("Greeter")),
+                (SpaceKind::Function, Some("helper")),
+            ],
+            "ObjC top-level spaces (kind, name) in source order; got {top:?}"
+        );
+        let impl_methods: Vec<Option<&str>> = root.spaces[1]
+            .spaces
+            .iter()
+            .map(|s| s.name.as_deref())
+            .collect();
+        assert_eq!(
+            impl_methods,
+            vec![Some("compute")],
+            "the @implementation's method is a named nested Function space"
+        );
+    });
+}
