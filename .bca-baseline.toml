@@ -747,13 +747,6 @@ metric = "halstead.effort"
 value = 53101.26216241871
 
 [[entry]]
-path = "src/metrics/loc.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 827.0
-
-[[entry]]
 path = "src/metrics/loc/c.rs"
 qualified = "CCode::compute"
 start_line = 17
@@ -794,13 +787,6 @@ qualified = "PerlCode::compute"
 start_line = 17
 metric = "halstead.effort"
 value = 47758.10174656215
-
-[[entry]]
-path = "src/metrics/npa.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 950.0
 
 [[entry]]
 path = "src/metrics/npa/php.rs"
