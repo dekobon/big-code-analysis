@@ -3,6 +3,7 @@
 - [big-code-analysis](./README.md)
   - [Supported Languages](./languages.md)
   - [Supported Code Metrics](./metrics.md)
+  - [Supported Change-history (VCS) metrics](./metrics-vcs.md)
 - [CLI Migration Guide](./migration.md)
 - [Commands](commands/README.md)
   - [Metrics](commands/metrics.md)

@@ -946,6 +946,10 @@ gargantuan methods (split the methods, not the class). A class with
   metrics fire for which languages — language coverage varies
   because some metric definitions (`NPA`, `NPM`, `WMC`) only make
   sense in languages with classes.
+- The [Supported Change-history (VCS) Metrics](./metrics-vcs.md)
+  chapter covers the complementary family derived from version-control
+  history — commit frequency, churn, ownership, and the composite risk
+  and hotspot scores — rather than from the source AST.
 - The [Commands → Metrics](./commands/metrics.md) page documents
   how to invoke `bca metrics` to produce the JSON / YAML / TOML /
   CBOR output for any of these numbers.

@@ -123,8 +123,9 @@ Two process-entropy signals (added in `risk_score_version` 2) capture
   spreading churn evenly across *n* files approaches log₂(*n*). Each file
   is then credited its churn share `pᵢ·H` of every commit it took part in
   (Hassan's History Complexity Metric). Higher = the file is repeatedly
-  caught up in diffuse, cross-cutting changes. File-level change entropy
-  reaches Pearson 0.54 with defects on Apache projects.
+  caught up in diffuse, cross-cutting changes. Later work (arXiv
+  2504.18511, below) measured file-level change entropy at a Pearson
+  correlation up to 0.54 with defect counts on eight Apache projects.
 - **Co-change graph entropy** (arXiv 2504.18511, 2025). Files that change
   in the same commit are joined by a weighted edge (weight = number of
   shared commits). A file's co-change entropy is the Shannon entropy of
@@ -152,7 +153,7 @@ long_churn     = ln(1 + churn_long)
 author_factor  = ln(1 + authors_long)
 dilution       = (1 - ownership_top_share).clamp(0, 1)
 fix_factor     = ln(1 + bug_fix_commits + 2 * security_fix_commits)
-size_factor    = ln(1 + sloc)^2 / 100              // tiny tie-breaker
+size_factor    = ln(1 + sloc)^2 / 100              // full coefficient, not a tie-breaker
 entropy_factor = 0.10 * change_entropy_recent + 0.05 * cochange_entropy_recent
 new_file_bonus = 0.15 if age_days < recent_window_days else 0
 dev_bonus      = 0.35 if authors_long >= 9 else 0.15 if authors_long >= 6 else 0
