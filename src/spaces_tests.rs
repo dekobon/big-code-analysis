@@ -1724,21 +1724,26 @@ fn ast_debug_reports_language_and_name_non_exhaustively() {
     .expect("parse of a trivial C++ snippet must succeed");
     let shown = format!("{ast:?}");
 
+    // `debug_struct` renders `Ast { language: <lang>, name: <name>, .. }`.
+    // Assert the field *values* — not just the labels — so a wrong
+    // `language()` or a dropped name is caught, and that
+    // `finish_non_exhaustive` elides the opaque tree/source (the trailing
+    // `..`) rather than printing them.
     assert!(
-        shown.contains("Ast"),
-        "Debug must name the struct: {shown:?}"
+        shown.starts_with("Ast {"),
+        "Debug must render the struct by name: {shown:?}"
     );
     assert!(
-        shown.contains("language"),
-        "Debug must report the language field: {shown:?}"
+        shown.contains("language: Cpp"),
+        "Debug must report the resolved language value, not merely the label: {shown:?}"
     );
     assert!(
-        shown.contains("dbg.cpp"),
-        "Debug must report the caller-supplied name: {shown:?}"
+        shown.contains("name: Some(\"dbg.cpp\")"),
+        "Debug must report the caller-supplied name value: {shown:?}"
     );
     assert!(
-        shown.contains(".."),
-        "finish_non_exhaustive must mark the elided tree/source fields: {shown:?}"
+        shown.trim_end().ends_with(".. }"),
+        "finish_non_exhaustive must elide the tree/source as a trailing `..`: {shown:?}"
     );
 }
 
