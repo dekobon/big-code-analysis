@@ -195,7 +195,7 @@ cross-project robustness.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--long-window <DUR>` | `12mo` | Long window (`12mo`, `2y`, `8w`, `365d`, ISO 8601 `P1Y`) |
+| `--long-window <DUR>` | `12mo` | Long window (`12mo`, `2y`, `8w`, `365d`, [ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html) `P1Y`) |
 | `--recent-window <DUR>` | `90d` | Recent window |
 | `--top <N>` | `50` | Show only the top N (`0` = all) |
 | `--file-types <SCOPE>` | `metrics` | Files to rank: `metrics`, `all`, or an extension list (`rs,py`) |

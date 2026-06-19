@@ -441,7 +441,9 @@ that.
 
 The **Halstead suite** is the oldest size-and-effort metric family on
 this page. Maurice H. Halstead introduced it in his 1977 book
-*Elements of Software Science* (Elsevier, ISBN 0-444-00205-7); the
+[*Elements of Software
+Science*](https://openlibrary.org/books/OL4535482M/Elements_of_software_science)
+(Elsevier, ISBN 0-444-00205-7); the
 Wikipedia page on [Halstead complexity
 measures](https://en.wikipedia.org/wiki/Halstead_complexity_measures)
 summarises the formulas. Halstead's project was strikingly ambitious:
@@ -534,7 +536,8 @@ This section covers the five LOC variants — SLOC, PLOC, LLOC, CLOC,
 and BLANK. "Counting lines" sounds trivial until you have to define exactly
 what counts. The five variants below are the de-facto standard
 breakdown, going back to Samuel Conte, Hubert Dunsmore and Vincent
-Shen's 1986 textbook *Software Engineering Metrics and Models*
+Shen's 1986 textbook [*Software Engineering Metrics and
+Models*](https://books.google.com/books/about/Software_Engineering_Metrics_and_Models.html?id=PKlQAAAAMAAJ)
 (Benjamin/Cummings, ISBN 0-8053-2162-4), which codified the
 distinction between physical and logical lines. The OpenStaticAnalyzer
 project maintains a [readable summary of the modern
@@ -671,10 +674,12 @@ the absolute number is noisy.
 
 **NArgs** counts the number of arguments declared by a function,
 method, or closure. The metric does not have a famous origin paper —
-it is folk wisdom dating to at least Kernighan and Plauger's *The
-Elements of Programming Style* (1974) and prominently re-stated in
-Robert C. Martin's *Clean Code* (2008), which suggests three
-arguments as a soft ceiling.
+it is folk wisdom dating to at least Kernighan and Plauger's [*The
+Elements of Programming
+Style*](https://en.wikipedia.org/wiki/The_Elements_of_Programming_Style)
+(1974) and prominently re-stated in Robert C. Martin's [*Clean
+Code*](https://www.pearson.com/en-us/subject-catalog/p/clean-code-a-handbook-of-agile-software-craftsmanship/P200000009044/9780136083252)
+(2008), which suggests three arguments as a soft ceiling.
 
 big-code-analysis splits the count by callable kind: every aggregate
 is reported separately for *functions* and *closures* so a Rust file
@@ -713,7 +718,8 @@ The metric goes back to the structured-programming literature of the
 1970s, where Edsger Dijkstra and others argued that functions should
 have **a single entry and a single exit point** (the "SESE" rule).
 Modern thinking is much more nuanced — see Steve McConnell's
-*Code Complete*, 2nd edition (Microsoft Press, 2004), which
+[*Code Complete*](https://www.microsoftpressstore.com/store/code-complete-9780735619678),
+2nd edition (Microsoft Press, 2004), which
 explicitly recommends *early returns* as a clarity-improving pattern
 when they reduce nesting.
 
@@ -725,8 +731,8 @@ field name is `nexits`, matching the prose acronym used here.
 
 ### How to read it
 
-Strict SESE coding standards (DO-178C for avionics, MISRA C for
-embedded automotive — see [MISRA's official
+Strict SESE coding standards ([DO-178C](https://en.wikipedia.org/wiki/DO-178C)
+for avionics, MISRA C for embedded automotive — see [MISRA's official
 site](https://misra.org.uk/)) still require an NExits of 1 per
 function, because multiple exit points complicate certified
 control-flow analysis. Outside those domains, an NExits of `2-4` is
@@ -744,9 +750,10 @@ functions, with each "successful branch" becoming its own helper.
 method, and closure defined inside a given scope (file, class, or
 namespace). For object-oriented codebases it is one of the first
 metrics introduced by Mark Lorenz and Jeff Kidd in their 1994 book
-*Object-Oriented Software Metrics* (Prentice Hall, ISBN
-0-13-179292-X), where it is treated as the primary class-size
-indicator.
+[*Object-Oriented Software
+Metrics*](https://books.google.com/books/about/Object_oriented_Software_Metrics.html?id=lsJnQgAACAAJ)
+(Prentice Hall, ISBN 0-13-179292-X), where it is treated as the
+primary class-size indicator.
 
 big-code-analysis reports the count split by callable kind in
 `src/metrics/nom.rs`. The serialised fields are `functions`,
@@ -801,8 +808,10 @@ is a piece of internal state that callers can read or write without
 going through a method, which means it is a piece of internal state
 the class cannot validate or evolve without breaking callers. The
 canonical guidance — first explicitly stated in Bertrand Meyer's
-*Object-Oriented Software Construction* (Prentice Hall, 1988) and
-known as the *Uniform Access Principle* — is to keep NPA at or near
+[*Object-Oriented Software
+Construction*](https://en.wikipedia.org/wiki/Object-Oriented_Software_Construction)
+(Prentice Hall, 1988) and known as the *Uniform Access Principle* — is
+to keep NPA at or near
 zero and to expose state through public methods instead.
 
 The emergent use is **API-stability auditing**: a public library

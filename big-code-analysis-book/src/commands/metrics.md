@@ -119,7 +119,8 @@ so a single column name addresses the metric in both CSV and JSON.
 
 Empty cells (no value, not `0`) signal "not applicable for this
 space" — for example, the OOP-only metrics (`wmc.*`, `npm.*`,
-`npa.*`) appear empty for procedural code. RFC 4180 quoting is
+`npa.*`) appear empty for procedural code. [RFC
+4180](https://www.rfc-editor.org/rfc/rfc4180) quoting is
 delegated to the [`csv`] crate, so paths and names containing commas,
 quotes, or newlines round-trip cleanly.
 

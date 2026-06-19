@@ -31,7 +31,7 @@ The headlines for library consumers:
   `tree_sitter::Node` through `.0`, and the `tree_sitter` crate is
   re-exported as `big_code_analysis::tree_sitter`. Anything reached
   through those seams follows the pinned `tree-sitter` version, not
-  our own SemVer. See [STABILITY.md § Escape hatches][stability-escape]
+  our own [SemVer]. See [STABILITY.md § Escape hatches][stability-escape]
   before depending on them.
 
 [stability-shape]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#what-is-stable-in-shape
@@ -39,6 +39,7 @@ The headlines for library consumers:
 [stability-escape]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches
 [changelog]: https://github.com/dekobon/big-code-analysis/blob/main/CHANGELOG.md
 [Node]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Node.html
+[SemVer]: https://semver.org/
 
 ## On the `2.0` horizon
 
