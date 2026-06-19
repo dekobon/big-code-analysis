@@ -6105,6 +6105,70 @@ f() {
     }
 
     #[test]
+    fn ruby_case_match_default_only_arm_not_counted() {
+        // Regression for #977: a `case … in` whose only arm is the bare
+        // wildcard `in _` (no guard) is a default-only match and must add
+        // NO standard decision — mirroring Rust's bare-`_` `MatchArm` and
+        // Python's `case _:` filters. The `case_match` container still
+        // contributes one modified decision.
+        // expected per function: standard = 1 (base) + 0 = 1;
+        // modified = 1 (base) + 1 (case_match) = 2.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  in _ then :default\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_case_match_in_arms_and_guard_counted() {
+        // Regression for #977: a non-wildcard `in 1` arm and a guarded
+        // wildcard `in _ if x > 0` arm each add one standard decision,
+        // while the trailing bare `in _` default arm adds none. The
+        // `case_match` container stays a modified-only decision.
+        // expected per function: standard = 1 (base) + `in 1` + `in _ if`
+        // = 3; modified = 1 (base) + 1 (case_match) = 2.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  in 1 then :one\n  in _ if x > 0 then :positive\n  in _ then :default\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2);
+            },
+        );
+    }
+
+    /// Cross-language parity for default-arm filtering (#977): a
+    /// match/switch whose single arm is the bare wildcard must score the
+    /// same per-function cyclomatic across Ruby `case … in`, Rust `match`,
+    /// and Python `match`. Each language's catch-all arm is its
+    /// `default:`-equivalent and adds no standard decision, so every
+    /// function is just its base 1. Per-language snapshot suites pin each
+    /// history but cannot catch the cross-language disagreement this
+    /// guards (lesson 11; #106 was exactly a wildcard-counting drift).
+    #[test]
+    fn cyclomatic_bare_wildcard_default_arm_cross_language() {
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  in _ then :default\n  end\nend\n",
+            "foo.rb",
+            |m| assert_eq!(m.cyclomatic.cyclomatic_max(), 1, "ruby"),
+        );
+        check_metrics::<RustParser>(
+            "fn f(x: i32) -> i32 {\n    match x {\n        _ => 0,\n    }\n}\n",
+            "foo.rs",
+            |m| assert_eq!(m.cyclomatic.cyclomatic_max(), 1, "rust"),
+        );
+        check_metrics::<PythonParser>(
+            "def f(x):\n    match x:\n        case _:\n            return 0\n",
+            "foo.py",
+            |m| assert_eq!(m.cyclomatic.cyclomatic_max(), 1, "python"),
+        );
+    }
+
+    #[test]
     fn ruby_ternary_conditional() {
         // Ruby's `cond ? a : b` parses as `Conditional` and counts as a
         // branch in both standard and modified CCN.

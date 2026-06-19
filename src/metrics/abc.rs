@@ -4428,6 +4428,55 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn ruby_case_match_in_arms_are_conditions() {
+        // Regression for #977: each non-wildcard `case … in` arm is one
+        // ABC condition, matching Python's `case_clause` handling. Using
+        // literal patterns (no comparison operators) isolates the
+        // `in_clause` contribution from any operand tokens.
+        // expected: 2 conditions — one per `in 1` / `in 2` arm.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  in 1 then :one\n  in 2 then :two\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_case_match_guarded_wildcard_is_a_condition() {
+        // Regression for #977: a guarded wildcard arm `in _ if x` is not a
+        // bare default and counts as one ABC condition, while the trailing
+        // bare `in _` adds none. The guard predicate here is a bare
+        // identifier (no comparison operator), so the single counted
+        // condition is the guarded `in_clause` itself.
+        // expected: 1 condition — the guarded `in _ if x` arm only.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  in _ if x then :y\n  in _ then :default\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_case_match_bare_wildcard_is_not_a_condition() {
+        // Regression for #977: a `case … in` whose only arm is the bare
+        // wildcard `in _` (no guard) is the default arm and contributes no
+        // ABC condition, keeping ABC and cyclomatic in lockstep on the
+        // same construct.
+        // expected: 0 conditions.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  in _ then :default\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0);
+            },
+        );
+    }
+
+    #[test]
     fn ruby_bare_predicate_control_flow_counts_one_condition() {
         // Regression for #696: idiomatic Ruby bare predicates
         // (`if flag` / `while flag` / `unless flag` / `until flag`) each

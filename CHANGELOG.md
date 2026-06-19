@@ -2475,6 +2475,15 @@ for historical reference.
 
 ### Fixed
 
+- Ruby `case … in` pattern matching now follows the project-wide
+  match/switch default-arm policy in both cyclomatic and ABC. The bare
+  wildcard arm `in _` (no guard) no longer adds a standard cyclomatic
+  decision — it is the `case_match` default arm, matching Rust's bare-`_`
+  `MatchArm` and Python's `case _:` filters. Conversely, non-wildcard
+  `in` arms and guarded wildcard arms (`in _ if g`) now count as ABC
+  conditions, which they previously did not, restoring parity with
+  Python `case_clause` handling. `case_match` remains a modified-only
+  container decision (#977).
 - `bca check`: threshold limits now apply only to the space kind each
   metric actually measures, so a metric's whole-file or whole-`impl`
   aggregate no longer fires as if it were a per-function limit (#969).
