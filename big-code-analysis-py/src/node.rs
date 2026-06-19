@@ -143,6 +143,16 @@ impl PyNode {
         self.node.kind()
     }
 
+    /// py-tree-sitter-compatible alias for [`kind`](PyNode::kind).
+    ///
+    /// `kind` stays the canonical bca-vocabulary name (it matches the Rust
+    /// `Node::kind()` and the CLI `count` / `dump` vocabulary); `type` is the
+    /// py-tree-sitter spelling so an existing matcher ports over unchanged.
+    #[getter]
+    fn r#type(&self) -> &'static str {
+        self.node.kind()
+    }
+
     /// The numeric grammar id behind [`kind`](PyNode::kind).
     #[getter]
     fn kind_id(&self) -> u16 {
@@ -368,7 +378,11 @@ impl PyNode {
 
     /// This node's source text, the `source[start_byte:end_byte]` slice of
     /// [`PyAst::source`] (raw bytes, exactly like py-tree-sitter's
-    /// `node.text`).
+    /// `node.text` property).
+    ///
+    /// This re-slices the source bytes on each read; cache the result if it
+    /// is hot.
+    #[getter]
     fn text<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         let source = self.ast.bind(py).get().ast_ref().source();
         // Tree-sitter guarantees the span lies within the source, but slice

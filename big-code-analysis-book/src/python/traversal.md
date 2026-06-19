@@ -37,9 +37,10 @@ nodes it visits.
 ```python
 root = ast.root_node
 root.kind                       # "source_file"
+root.type                       # "source_file" (py-tree-sitter alias for kind)
 root.children                   # list[Node], direct children
 root.child_by_field_name("…")   # a field child, or None
-node.text()                     # the node's source bytes
+node.text                       # the node's source bytes
 ```
 
 Traversal mirrors py-tree-sitter: `children` / `named_children`,
@@ -60,7 +61,7 @@ same vocabulary as [`bca count`](../commands/count.md) (`function`,
 # Every function name in the file, the lazy way.
 for fn in ast.find(["function_item"]):
     name = fn.child_by_field_name("name")
-    print(name.text().decode())
+    print(name.text.decode())
 
 # Or filter a subtree by raw grammar kind.
 idents = root.descendants_by_kind(["identifier"])
@@ -82,7 +83,11 @@ to be converted by hand:
 | `span` | the 1-based `{start_line, start_col, …, start_byte, end_byte}` dict `dump()` emits |
 
 So `node.start_line == node.start_point[0] + 1`, and
-`ast.source[node.start_byte:node.end_byte] == node.text()`.
+`ast.source[node.start_byte:node.end_byte] == node.text`.
+
+`node.type` is a py-tree-sitter-compatible alias for `node.kind`, so a
+matcher written against py-tree-sitter's `node.type` ports over
+unchanged; `kind` stays the canonical bca spelling.
 
 ## Lazy nodes vs. `dump()`
 

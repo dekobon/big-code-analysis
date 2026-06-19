@@ -23,6 +23,13 @@ for historical reference.
 
 ### Added
 
+- Python `Node` is now a closer py-tree-sitter drop-in: a `type` property
+  aliases `kind` (the py-tree-sitter spelling — `kind` stays the canonical
+  bca name), and `text` is now a property rather than a method, matching
+  py-tree-sitter's `node.text`. Together these erase the two most-common
+  mechanical edits when porting a py-tree-sitter walker. The `text`
+  method→property shape change is part of the still-unreleased #728 surface,
+  so it lands free before 2.0. Covered by the `make py-stubtest` gate (#975).
 - Public `metric_catalog::MetricScope` enum (`File` / `Function` /
   `Container`) with `MetricScope::admits(SpaceKind)`, a
   `metric_catalog::scope(id)` lookup, a `scope` field on the
@@ -32,8 +39,9 @@ for historical reference.
   so they cannot drift.
 - Lazy `Node` traversal handle for Python (`big_code_analysis.Node`) over
   the tree retained by `Ast`, so a caller walks the AST py-tree-sitter-style
-  — `kind`, byte offsets, points, `children`, `child_by_field_name`,
-  `text()`, a lazy pre-order `walk()`, `descendants_by_kind()` — **without**
+  — `kind` (with the py-tree-sitter-compatible `type` alias), byte offsets,
+  points, `children`, `child_by_field_name`, the `text` property, a lazy
+  pre-order `walk()`, `descendants_by_kind()` — **without**
   materialising the tree into dicts the way `dump()` does (#728). Reach one
   through the new `Ast.root_node` property or `Ast.find(filters)`; the node
   keeps its `Ast` alive, so it stays valid after every other reference to
