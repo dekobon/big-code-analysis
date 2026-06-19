@@ -300,7 +300,7 @@ def test_node_keeps_ast_alive_after_gc() -> None:
     node = bca.Ast.parse(RUST_SRC, "rust").root_node
     gc.collect()
     assert node.kind == "source_file"
-    # text() reads the retained source bytes — they must still be alive.
+    # `text` reads the retained source bytes — they must still be alive.
     idents = node.descendants_by_kind(["identifier"])
     assert [n.text for n in idents] == [b"main", b"x", b"foo", b"x"]
 
