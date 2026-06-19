@@ -6,12 +6,15 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 from the fork onwards.
 
-Stability note: the crate is on the `1.x` line. The public Rust
+Stability note: the crate is on the `2.x` line. The public Rust
 API surface (`big-code-analysis` library re-exports, the `bca` CLI
 argument grammar, and the `bca-web` REST schema) is held stable
 across patch and minor bumps; breaking shape changes are reserved
-for the next major bump and will appear under **(breaking)** in
-the `2.0.0` section. Metric *values* may still drift across minor
+for the next major bump and appear under **(breaking)**. The
+`2.0.0` release is the first major break since the `1.x` line — its
+section below opens with consolidated migration notes (a serialized
+key map and the metric-value re-baseline) ahead of the detailed
+**(breaking)** entries. Metric *values* may still drift across minor
 bumps when a grammar pin moves or a metric definition is fixed —
 each drift is called out in the entry that introduces it.
 
@@ -20,6 +23,106 @@ in `0.x` sections below describe pre-policy behaviour and are kept
 for historical reference.
 
 ## [Unreleased]
+
+## [2.0.0-rc1] - 2026-06-19
+
+First release candidate for `2.0.0` — the project's first major
+version bump since `1.0`, and the first release on the `2.x` line.
+It collects every breaking change staged across the `1.x` cycle
+behind a single major boundary. The detailed **(breaking)** entries
+are listed under the headings below; the migration notes here
+summarise the surface and consolidate the serialized key map and the
+metric-value re-baseline that the contract promised the `2.0.0`
+entry would carry.
+
+### Migration from 1.x
+
+The breaking changes fall into a few groups, each detailed under its
+own **(breaking)** entry below:
+
+- **Library `Stats` accessors and metric naming** — Halstead,
+  `NArgs`, and MI accessors were renamed to a uniform wire
+  vocabulary, the `exit` metric module was renamed to `nexits`, and
+  the `Metric::NArgs` / `Metric::Exit` variants became
+  `Metric::Nargs` / `Metric::Nexits`.
+- **Serialized output shape** — metric keys were normalised
+  (#510, #511), integer-valued metrics now serialize as integers and
+  their accessors return `u64` (#530), non-finite floats serialize as
+  a uniform `null` (#531), and several wire keys were renamed (see the
+  key map below).
+- **CLI grammar** — flags renamed (`--language-type` → `--language`,
+  `--num-jobs` → `--jobs`, `--warning` → `--warnings`), exit codes
+  restructured (argv errors exit 1; 2–5 reserved for metric gates),
+  and several argument-parsing behaviours tightened.
+- **REST schema** — uniform `{error, error_kind, id}` error and
+  `{id, language}` analysis envelopes, stricter unknown-field
+  rejection, a nested per-file `vcs` object, and removal of the
+  unprefixed route aliases.
+- **Default grammars** — `.js` / `.jsx` now parse through upstream
+  `tree-sitter-javascript` (the Mozilla fork is demoted to the opt-in
+  `mozjs`, owning only `.jsm`), `.cpp` / `.h` through upstream
+  `tree-sitter-cpp` (Mozilla fork demoted to opt-in `mozcpp`), `.c`
+  through a new `LANG::C`, and `.m` through a new `LANG::Objc`.
+- **Python bindings** — the typed surface tightened and
+  `analyze_batch`'s `skip_generated` default flipped from `False` to
+  `True`.
+
+#### Metric-value re-baseline
+
+`2.0.0` is a one-time metric-value re-baseline boundary. Values
+shifted across the `1.x` cycle from metric-definition fixes
+(divide-by-zero guards across the suite, the per-function
+`cyclomatic` average) and, at `2.0`, from the default-grammar flips:
+`.c` files now parse through `tree-sitter-c`, `.m` through
+`tree-sitter-objc`, and the Mozilla C++ overlay was swapped for
+upstream `tree-sitter-cpp` — each moves the affected files' numbers.
+The integration snapshots were re-baselined in lockstep. Consumers
+comparing across the `1.x` → `2.0` boundary should treat it as a
+single re-baseline rather than reconciling the union of every
+patch-level drift; pin an exact version and store it alongside your
+results if you need bit-for-bit reproducibility.
+
+#### Serialized key & accessor renames
+
+Library `Stats` accessor renames — **serialized output keys are
+unchanged** (these are Rust method names only):
+
+| Metric            | Old accessor                          | New accessor                                    |
+| ----------------- | ------------------------------------- | ----------------------------------------------- |
+| Halstead          | `u_operators`                         | `unique_operators`                              |
+| Halstead          | `operators`                           | `total_operators`                               |
+| Halstead          | `u_operands`                          | `unique_operands`                               |
+| Halstead          | `operands`                            | `total_operands`                                |
+| NArgs             | `fn_args` (+ `_sum`/`_average`/`_min`/`_max`) | `function_args` (+ `_sum`/`_average`/`_min`/`_max`) |
+| NArgs             | `nargs_total` / `nargs_average`       | `total` / `average`                             |
+| MI                | `mi_original` / `mi_sei` / `mi_visual_studio` | `original` / `sei` / `visual_studio`    |
+| Nexits (was `exit`) | `exit` (+ `_sum`/`_average`/`_min`/`_max`)  | `nexits` (+ `_sum`/`_average`/`_min`/`_max`) |
+
+Module / variant renames: the `exit` metric module became `nexits`
+(`crate::exit` → `crate::nexits`), `Metric::Exit` → `Metric::Nexits`,
+`Metric::NArgs` → `Metric::Nargs`. The retired `"exit"` metric parse
+alias no longer resolves — only `"nexits"` parses.
+
+Serialized **wire-key** renames (JSON / YAML / TOML / CBOR, and the
+matching CSV columns):
+
+| Block    | Old key                                      | New key                                  |
+| -------- | -------------------------------------------- | ---------------------------------------- |
+| `npm`    | `classes` / `interfaces`                     | `class_npm_sum` / `interface_npm_sum`    |
+| `npa`    | `classes` / `interfaces`                     | `class_npa_sum` / `interface_npa_sum`    |
+| `wmc`    | `classes` / `interfaces`                     | `class_wmc_sum` / `interface_wmc_sum`    |
+| `tokens` | `tokens_average` / `tokens_min` / `tokens_max` | `average` / `min` / `max`              |
+
+The bare-sum `tokens` leaf is kept, and the terminal dump's
+tokens-sum label changed `sum` → `tokens`. The truthful sibling keys
+on `npm` / `npa` / `wmc` (`class_methods`, `total`, `coa`, `cda`, …)
+are unchanged.
+
+Type / shape: integer-valued metrics (every count, sum, and min/max,
+plus Halstead `length` / `vocabulary` and all WMC values) now
+serialize as integers and their `Stats` accessors return `u64`
+instead of `f64`; ratios, averages, ABC `magnitude`, the derived
+Halstead scores, and MI stay `f64`. No value changes — only the type.
 
 ### Added
 

@@ -76,10 +76,17 @@ CI_RECIPE_FILES = ("big-code-analysis-book/src/recipes/ci.md",)
 #   * `cargo (b)install … --version X.Y.Z`
 #   * `tool: big-code-analysis-cli@X.Y.Z` (taiki-e/install-action)
 #   * `BCA_VERSION: "X.Y.Z"` (workflow env var)
+# The optional `-<suffix>` tail captures a pre-release version
+# (`2.0.0-rc1`) whole, so a pre-release cut's CI pins are checked
+# against the canonical pre-release version rather than silently
+# matching only the `X.Y.Z` core and tripping on the suffix. The
+# bare-string Cargo-snippet form (DOC_PIN_RE) already handled this via
+# its `[^"]+?` capture; this keeps the install-action / binstall /
+# env-var forms in step.
 CI_PIN_RE = re.compile(
-    r"--version\s+(\d+\.\d+(?:\.\d+)?)"
-    r"|big-code-analysis-cli@(\d+\.\d+(?:\.\d+)?)"
-    r'|BCA_VERSION:\s*"(\d+\.\d+(?:\.\d+)?)"'
+    r"--version\s+(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?)"
+    r"|big-code-analysis-cli@(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?)"
+    r'|BCA_VERSION:\s*"(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?)"'
 )
 
 WORKSPACE_VERSION_RE = re.compile(

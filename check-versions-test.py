@@ -136,6 +136,24 @@ class CiRecipePinTest(unittest.TestCase):
         # stale.
         self.assertEqual(self._stale_lines(text, "1.2.0"), ["1.1.0"] * 3)
 
+    def test_prerelease_install_forms_match(self) -> None:
+        # A pre-release cut (e.g. 2.0.0-rc1) pins the CI recipe at the
+        # full pre-release version; CI_PIN_RE must capture the `-rc1`
+        # suffix whole so the pin matches canonical instead of matching
+        # only the bare `2.0.0` core and tripping on the suffix.
+        text = (
+            'BCA_VERSION: "2.0.0-rc1"\n'
+            "tool: big-code-analysis-cli@2.0.0-rc1\n"
+            "cargo binstall big-code-analysis-cli --version 2.0.0-rc1\n"
+        )
+        self.assertEqual(self._stale_lines(text, "2.0.0-rc1"), [])
+        # The bare X.Y.Z core is the wrong pin while canonical is a
+        # pre-release, and is still flagged stale.
+        self.assertEqual(
+            self._stale_lines(text.replace("-rc1", ""), "2.0.0-rc1"),
+            ["2.0.0"] * 3,
+        )
+
     def test_cache_key_form_is_not_matched(self) -> None:
         # The `key: bca-…-X.Y.Z` GitHub Actions cache key is
         # deliberately exempt — a stale cache key is only a cache miss.

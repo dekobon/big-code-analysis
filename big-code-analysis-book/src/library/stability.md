@@ -22,7 +22,7 @@ The headlines for library consumers:
   bump or a bug fix in a metric definition can shift any metric
   value on any file in any direction, even across a patch bump.
   Each such drift is flagged in the changelog. Pin to an exact
-  version (`big-code-analysis = "= 1.1.0"`) if you need bit-for-bit
+  version (`big-code-analysis = "= 2.0.0-rc1"`) if you need bit-for-bit
   reproducibility across runs.
 - **MSRV is `1.94`.** Bumping the MSRV is treated as a minor-bump
   event and is flagged in the changelog under **(breaking)** —
