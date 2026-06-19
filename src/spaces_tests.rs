@@ -1676,3 +1676,68 @@ mod from_path_tests {
         ));
     }
 }
+
+/// `CodeMetrics`'s `Display` (extracted to `spaces/code_metrics.rs` in
+/// the per-type split) was exercised by no test. It must concatenate
+/// the nine reported sub-metrics in a fixed order — nargs, nexits,
+/// cognitive, cyclomatic, halstead, loc, nom, tokens, mi — each
+/// `writeln!`-separated, with `mi` last and no trailing newline. Pin
+/// that contract so a future reorder or stray newline is caught.
+#[test]
+fn code_metrics_display_concatenates_reported_submetrics_in_order() {
+    use crate::{Source, analyze};
+
+    let space = analyze(
+        Source::new(crate::LANG::Cpp, b"int add(int a, int b) { return a + b; }"),
+        MetricsOptions::default(),
+    )
+    .expect("analyze must yield a top-level space");
+    let m = &space.metrics;
+
+    let shown = format!("{m}");
+    let expected = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        m.nargs, m.nexits, m.cognitive, m.cyclomatic, m.halstead, m.loc, m.nom, m.tokens, m.mi
+    );
+    assert_eq!(
+        shown, expected,
+        "CodeMetrics Display must be the nine sub-metric Displays in order, newline-joined"
+    );
+    assert!(
+        !shown.ends_with('\n'),
+        "mi is the final block, so Display must not end with a trailing newline: {shown:?}"
+    );
+}
+
+/// `Ast`'s `Debug` (extracted to `spaces/ast.rs`) was untested. It must
+/// honor the public `Ast: Debug` promise by reporting `language` and
+/// `name` via `finish_non_exhaustive` (the held tree-sitter tree and
+/// raw source have no meaningful `Debug` projection), without panicking
+/// or leaking the opaque internals.
+#[test]
+fn ast_debug_reports_language_and_name_non_exhaustively() {
+    use crate::{Ast, Source};
+
+    let ast = Ast::parse(
+        Source::new(crate::LANG::Cpp, b"int a = 42;").with_name(Some("dbg.cpp".to_owned())),
+    )
+    .expect("parse of a trivial C++ snippet must succeed");
+    let shown = format!("{ast:?}");
+
+    assert!(
+        shown.contains("Ast"),
+        "Debug must name the struct: {shown:?}"
+    );
+    assert!(
+        shown.contains("language"),
+        "Debug must report the language field: {shown:?}"
+    );
+    assert!(
+        shown.contains("dbg.cpp"),
+        "Debug must report the caller-supplied name: {shown:?}"
+    );
+    assert!(
+        shown.contains(".."),
+        "finish_non_exhaustive must mark the elided tree/source fields: {shown:?}"
+    );
+}
