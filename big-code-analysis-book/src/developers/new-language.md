@@ -148,8 +148,8 @@ for the failure modes.
 ### Tests
 
 Add per-language tests under each `src/metrics/*.rs` test module —
-aim for parity with the Rust coverage (≥ 34 tests total across the
-metric files). Every `insta::assert_json_snapshot!` call MUST be
+aim for parity with the existing Rust coverage across the metric
+files. Every `insta::assert_json_snapshot!` call MUST be
 anchored: either with an inline expected block, a positive
 `assert_eq!` on the headline integer accessor above it, or an
 explanatory `// expected:` comment. `make snapshot-anchors` (run as

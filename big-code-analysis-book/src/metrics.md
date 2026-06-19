@@ -543,9 +543,10 @@ breakdown, going back to Samuel Conte, Hubert Dunsmore and Vincent
 Shen's 1986 textbook [*Software Engineering Metrics and
 Models*](https://books.google.com/books/about/Software_Engineering_Metrics_and_Models.html?id=PKlQAAAAMAAJ)
 (Benjamin/Cummings, ISBN 0-8053-2162-4), which codified the
-distinction between physical and logical lines. The OpenStaticAnalyzer
-project maintains a [readable summary of the modern
-definitions](https://github.com/sed-inf-u-szeged/OpenStaticAnalyzer/blob/master/doc/usersguide/md/SourceCodeMetricsRef.md).
+distinction between physical and logical lines. The Wikipedia entry on
+[source lines of
+code](https://en.wikipedia.org/wiki/Source_lines_of_code) is a
+readable summary of that physical-versus-logical distinction.
 
 | Variant | Counts |
 |---------|--------|

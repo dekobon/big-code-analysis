@@ -54,16 +54,16 @@ the [`bca` CLI](../commands/index.html) is faster to wire up.
 - [Error handling](error-handling.md) — what `Result<FuncSpace, MetricsError>`
   means today and how to turn it into a useful diagnostic.
 - [Stability and versioning](stability.md) — what you can and
-  cannot rely on across the `1.x` line.
+  cannot rely on across the `2.x` line.
 
 ## A note on API stability
 
-The library is on the `1.x` line and ships under a written
+The library is on the `2.x` line and ships under a written
 [stability contract](stability.md): the shape of the public API
 is held stable across patch and minor bumps, and breaking changes
 are reserved for the next major bump. Every example in this
 section compiles against the current published crate and is
-expected to keep compiling across `1.x` without edits.
+expected to keep compiling across `2.x` without edits.
 
 Metric *values* may still drift across minor bumps when a grammar
 pin moves or a metric definition is fixed — see
