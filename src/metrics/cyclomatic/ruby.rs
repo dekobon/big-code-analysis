@@ -9,12 +9,19 @@
 use super::*;
 
 impl Cyclomatic for RubyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use Ruby as R;
 
         match node.kind_id().into() {
-            // Standard-only: individual when/in arms inside a case construct.
-            R::When | R::InClause => {
+            // Standard-only: each `when` arm of an ordinary `case … when`.
+            R::When => {
+                stats.cyclomatic += 1.;
+            }
+            // Standard-only: a `case … in` pattern-match arm, but only when
+            // it is a real decision — the bare wildcard `in _` (no guard)
+            // is the default arm and adds nothing, matching Rust's `_`
+            // `MatchArm` and Python's `case _:` filters (#977).
+            R::InClause if crate::metrics::npa::ruby_in_clause_counts(node, code) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: each case container collapses its arms.

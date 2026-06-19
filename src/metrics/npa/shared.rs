@@ -335,6 +335,35 @@ pub(crate) fn python_case_clause_counts(node: &Node, underscore_id: u16) -> bool
     !bare_underscore
 }
 
+// Returns `true` iff a Ruby `in_clause` pattern-match arm (`case … in`)
+// counts as a non-trivial decision: either its pattern is not a bare
+// `_`, or the arm carries an `if` / `unless` guard. A bare wildcard
+// `in _` with no guard is Ruby's `case … in` default arm and is
+// filtered out, mirroring Rust's bare-`_` `MatchArm` rule and Python's
+// `case _:` rule (#977).
+//
+// Shared between the `Cyclomatic` and `Abc` implementations for
+// `RubyCode`. Ruby surfaces the wildcard as an `identifier` whose
+// source text is `_` (there is no dedicated underscore token, unlike
+// Rust / Python), so the pattern check reads the byte slice rather than
+// matching a kind id. The pattern is the first *named* child — the `in`
+// keyword token is anonymous and the guard / body follow the pattern.
+pub(crate) fn ruby_in_clause_counts(in_clause: &Node, source: &[u8]) -> bool {
+    let mut pattern: Option<Node> = None;
+    for child in in_clause.children() {
+        match child.kind_id().into() {
+            // `_guard` is the hidden supertype; `if_guard` / `unless_guard`
+            // are the concrete nodes the grammar emits (lesson #34).
+            Ruby::Guard | Ruby::IfGuard | Ruby::UnlessGuard => return true,
+            _ if pattern.is_none() && child.is_named() => pattern = Some(child),
+            _ => {}
+        }
+    }
+    pattern.is_none_or(|pat| {
+        !(matches!(pat.kind_id().into(), Ruby::Identifier) && pat.utf8_text(source) == Some("_"))
+    })
+}
+
 // A `visibility_modifier` node counts as public unless it has a direct
 // `Zelf` child — the structural signature of `pub(self)` / `pub(in self)`,
 // which restrict visibility to the current module (semantically private,

@@ -143,7 +143,7 @@ fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
 }
 
 impl Abc for RubyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use Ruby::*;
 
         match node.kind_id().into() {
@@ -166,6 +166,14 @@ impl Abc for RubyCode {
             EQEQ | BANGEQ | EQEQEQ | LT | GT | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE
             | Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
             | RescueModifier3 => {
+                stats.conditions += 1.;
+            }
+            // A `case … in` pattern-match arm is a branch condition exactly
+            // when it counts toward cyclomatic — a non-wildcard pattern or
+            // a guarded arm. The bare `in _` default arm is filtered out,
+            // keeping ABC and cyclomatic in lockstep on the same construct
+            // and matching the Python `case_clause` policy (#977).
+            InClause if crate::metrics::npa::ruby_in_clause_counts(node, code) => {
                 stats.conditions += 1.;
             }
             // Fitzpatrick Rule 9 walker: each non-comparison operand of a
