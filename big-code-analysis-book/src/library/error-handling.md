@@ -35,15 +35,18 @@ fn main() {
 
 ### What each variant means
 
-- **`EmptyRoot`** — The walker reached the end of the AST without
-  producing a top-level [`FuncSpace`]. The most common cause is empty
-  input or input whose only content is comments. Defensive failures
-  (the traversal produced no `Unit` space for any supported
-  language) also surface here; if you hit one on real-world source,
-  please file an issue.
-- **`LanguageDisabled(LANG)`** — Reserved for upcoming per-language
-  Cargo features. The current build enables every supported
-  language, so this variant is never produced today.
+- **`EmptyRoot`** — Reserved; not produced today. `metrics_with_options`
+  always pushes a synthetic top-level `Unit` [`FuncSpace`] before
+  walking the AST, so every parse — including empty, whitespace-only,
+  and comment-only input — returns `Ok(FuncSpace { kind: Unit, .. })`.
+  The variant is kept for a future walker change that could let the
+  state stack legitimately drain to empty.
+- **`LanguageDisabled(LANG)`** — The requested `LANG` is not enabled
+  in this build. Every dispatch entry point produces it when the
+  caller selects a `LANG` whose per-language Cargo feature is off. The
+  default feature set (`all-languages`) compiles every grammar in, so
+  you only see this variant after opting into a narrower set
+  (`--no-default-features --features rust,…`).
 
 `MetricsError` has no `ParseHasErrors` or `NonUtf8Path` variant;
 since it stays `#[non_exhaustive]`, a future strict-parsing or

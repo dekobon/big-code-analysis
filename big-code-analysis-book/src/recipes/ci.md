@@ -565,13 +565,13 @@ when the count grows:
     git worktree add /tmp/base "$BASE"
 
     bca check --paths /tmp/base \
-        --format checkstyle \
+        --report-format checkstyle \
         --output /tmp/base.xml \
         --no-fail
     BASE_COUNT=$(grep -c "<error" /tmp/base.xml || true)
 
     bca check --paths "$PWD" \
-        --format checkstyle \
+        --report-format checkstyle \
         --output /tmp/head.xml \
         --no-fail
     HEAD_COUNT=$(grep -c "<error" /tmp/head.xml || true)
@@ -698,13 +698,13 @@ bca-quality:
     - bca
         check
         --paths "$PWD"
-        --format code-climate
+        --report-format code-climate
         --output gl-code-quality-report.json
         --no-fail
     - bca
         check
         --paths "$PWD"
-        --format checkstyle
+        --report-format checkstyle
         --output bca-checkstyle.xml
         --no-fail
     - bca
@@ -745,7 +745,7 @@ A few notes about the example:
 GitLab's first-class Code Quality experience (inline complaints on
 the MR diff, summary on the MR overview page) consumes
 [Code Climate JSON](https://docs.gitlab.com/ci/testing/code_quality/).
-`bca check` emits this natively via `--format code-climate`,
+`bca check` emits this natively via `--report-format code-climate`,
 so the integration is a one-liner:
 
 ```yaml
@@ -753,7 +753,7 @@ code_quality:
   stage: quality
   script:
     - bca check --paths "$CI_PROJECT_DIR"
-          --format code-climate
+          --report-format code-climate
           --output gl-code-quality-report.json
           --no-fail
   artifacts:
@@ -822,7 +822,7 @@ XML directly. The same invocation feeds both:
 
 ```bash
 bca check --paths src/ \
-    --format checkstyle \
+    --report-format checkstyle \
     --output report.checkstyle.xml
 ```
 

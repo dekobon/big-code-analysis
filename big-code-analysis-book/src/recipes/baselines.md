@@ -35,6 +35,8 @@ distribution.
 ```toml
 # bca.toml — dropped at the repo root, auto-discovered by `bca check`.
 paths = ["src"]
+
+[check]
 baseline = ".bca-baseline.toml"
 
 [thresholds]

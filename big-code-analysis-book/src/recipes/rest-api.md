@@ -8,7 +8,7 @@ spawning the CLI per file.
 For the full endpoint reference, see [Rest API](../commands/rest.md).
 The recipes below show practical end-to-end calls with `curl`. Every
 endpoint is mounted under the `/v1` prefix; the old unprefixed paths
-still work as deprecated aliases for one release cycle.
+were removed at the 2.0 release (#637) and now return `404`.
 
 ## Start the server
 

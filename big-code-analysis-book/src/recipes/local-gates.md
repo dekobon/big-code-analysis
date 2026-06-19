@@ -582,8 +582,9 @@ ordering still applies:
    legitimately moved (someone *did* pay down debt), regenerate
    the baseline and review the diff.
 4. **Retire when empty.** When `.bca-baseline.toml` shrinks to
-   just `version = 2`, drop the `--baseline` flag and delete the
-   file. The thresholds now stand on their own.
+   just `version = 5` (the bare schema stamp with no offender entries),
+   drop the `--baseline` flag and delete the file. The thresholds now
+   stand on their own.
 
 The local tiers shorten the feedback loop on steps 2 and 3 from
 "red CI on a pull request" to "red Make recipe before
