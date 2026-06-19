@@ -936,44 +936,37 @@ metric = "halstead.effort"
 value = 50360.26160456827
 
 [[entry]]
-path = "src/spaces.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 2112.0
-
-[[entry]]
-path = "src/spaces.rs"
+path = "src/spaces/ast.rs"
 qualified = "Ast::from_path"
-start_line = 792
+start_line = 97
 metric = "nexits"
 value = 5.0
 
 [[entry]]
-path = "src/spaces.rs"
+path = "src/spaces/code_metrics.rs"
 qualified = "CodeMetrics::fmt"
-start_line = 221
+start_line = 33
 metric = "nexits"
 value = 8.0
 
 [[entry]]
-path = "src/spaces.rs"
+path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 1061
+start_line = 202
 metric = "halstead.effort"
 value = 66012.71705067596
 
 [[entry]]
-path = "src/spaces.rs"
+path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 1061
+start_line = 202
 metric = "nargs"
 value = 7.0
 
 [[entry]]
-path = "src/spaces.rs"
+path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 1205
+start_line = 346
 metric = "halstead.effort"
 value = 109810.50849120741
 
