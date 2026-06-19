@@ -1259,21 +1259,14 @@ value = 56240.27018612609
 
 [[entry]]
 path = "src/wire.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1360.0
-
-[[entry]]
-path = "src/wire.rs"
 qualified = "CodeMetrics::from"
-start_line = 1204
+start_line = 330
 metric = "halstead.effort"
 value = 49790.15156224738
 
 [[entry]]
-path = "src/wire.rs"
+path = "src/wire/vcs.rs"
 qualified = "VcsTrend::from_trend"
-start_line = 915
+start_line = 255
 metric = "nargs"
 value = 8.0
