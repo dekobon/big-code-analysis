@@ -60,7 +60,9 @@ three-dimensional vector. Each component counts one kind of operation:
   where control branches out to other code.
 - **C**onditions — boolean tests: comparison operators (`==`, `!=`,
   `<=`, `>=`, `<`, `>`), ternary operators (`?`), and the fixed
-  keyword set (`else`, `case`, `default`, `try`, `catch`). The
+  keyword set (`else`, `case`, `try`, `catch`). The `default` /
+  wildcard arm is **not** counted in any language (see the
+  per-language deviations below). The
   short-circuit logical operators `&&` and `||` are **not**
   counted on their own — instead, each non-comparison operand of
   a `&&` / `||` chain contributes one condition via Fitzpatrick's
@@ -108,7 +110,7 @@ each row attributed to the figure that introduces it.
 |------|----------------|------------------|
 | Comparison operator (`==`, `!=`, `<=`, `>=`, `<`, `>`) | one per occurrence | Figure 2, Rule 5 |
 | Ternary `? :` | one per occurrence | Figure 2, Rule 5 |
-| `else`, `case`, `default` | one per occurrence | Figure 2, Rule 5 |
+| `else`, `case` | one per occurrence | Figure 2, Rule 5 |
 | Preprocessor `#else`, `#elif` | one per occurrence | Figure 2, Rule 5 |
 | `try`, `catch` | one per occurrence | Figure 3 (C++) / Figure 4 (Java) |
 | Unary conditional expression | one per non-comparison operand of `&&` / `\|\|` (and per `!`-wrapped or bare-truthy condition in `if` / `while` / argument / `return` slots) | Figure 3, Rule 7 / Figure 4, Rule 9 |
@@ -141,8 +143,8 @@ application would over-count.
 |----------|-----------|--------|
 | C, Go, Rust | `try` / `catch` omitted | No `try`/`catch` keyword in the grammar; error-handling uses `errno` / `Result` / `Result`-like sums. |
 | Ruby | `Rescue` substitutes for `catch` | Ruby's exception-handling keyword is `rescue`; the AST node `Rescue` plays the role of Java's `catch`. |
-| C++, Go, Python, Rust | `default` excluded from the condition set | Falls through unconditionally to the default arm — counting it inflates `C` on every `switch` / `match` regardless of body. Aligns with the Rust `_ =>` and existing Java `default:` precedent. |
-| Tcl | Unary-conditional walker not yet wired | Phase 2 walker is deferred pending an audit of Tcl's `expr {…}` / command-substitution grammar. `if {$a && $b}` reports zero conditions today; a follow-up will close this. |
+| All languages | `default` / `_` wildcard arm excluded from the condition set | Fitzpatrick's Figure 2 lists `default`, but it falls through unconditionally — counting it would inflate `C` on every `switch` / `match` regardless of body. big-code-analysis omits it for every language (the Rust `_ =>` and Java `default:` arms included). |
+| Tcl | Chain-operand unary conditions wired; bare-truthy / argument / `return` slots are not | Each operand of a `&&` / `\|\|` chain inside `expr {…}` counts as one condition, so `if {$a && $b}` reports two. The broader Phase 2B slot routing is not wired, so a bare-truthy `if {$a}` still reports zero. |
 | iRules | Chain-operand unary conditions wired (unlike its Tcl sibling); bare-truthy / argument / `return` slots are not | Each operand of a `&&` / `\|\|` / `and` / `or` chain counts as one condition (Rule 9), so `if {!$a && !$b}` reports two. iRules also recognises the word-form string-match comparators (`contains`, `starts_with`, `ends_with`, `equals`, `matches`, …) that Tcl lacks (Tcl's `eq` / `ne` / `in` / `ni` are shared). The broader Phase 2B slot routing is not wired, so a bare-truthy `if {$a}` still reports zero. |
 | All Phase 2 languages (Java, Groovy, C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl, Lua) | `if (true) {}`, `m(!a, !b)`, `return !x` count their operand(s) | Phase 2B routes `if` / `while` / `do-while` / argument-list / `return` / ternary slots through the same walker, so the rule applies uniformly across decision-bearing positions. A bare `return x` continues to report zero — Fitzpatrick treats an identifier in a return slot as a value, not a unary conditional. |
 | Ruby | Bare-predicate `if` / `unless` / `while` / `until` (block and modifier forms) count one condition | Idiomatic Ruby favours bare predicates (`if flag`, `x if flag`); counting the condition slot keeps ABC conditions at or above Ruby's cyclomatic decision count (the alignment enforced across the other languages). A comparison (`if a == b`) or `&&` / `\|\|` chain in the predicate is counted by its own operator / walker arm and is not double-counted. |
@@ -220,10 +222,12 @@ four headline values are:
   Fitzpatrick recommends summarising the vector as a single number.
 
 The full serialised output (`src/metrics/abc.rs`) emits these four
-together with the per-component averages (`assignments_average`,
-`branches_average`, `conditions_average`) and per-component
-`*_min` / `*_max` at the file scope, for thirteen fields total. The
-metric is specialised per language in `src/languages/language_*.rs`.
+together with `value` (the per-space magnitude the CLI thresholds
+against, which equals `magnitude` at a leaf space), the per-component
+averages (`assignments_average`, `branches_average`,
+`conditions_average`), and per-component `*_min` / `*_max` at the file
+scope, for fourteen fields total. The metric is specialised per
+language in `src/languages/language_*.rs`.
 
 ### How to read it
 
@@ -711,8 +715,10 @@ ones that have accreted "just one more parameter" feature flags.
 ## NExits
 
 **NExits** counts the number of distinct exit points from a
-function — every `return`, every `throw` / `raise`, and the implicit
-fall-through return at the end of a void function.
+function — every explicit `return`, every `throw` / `raise`, and
+(in Rust) every `?` early-return. The implicit fall-through return at
+the end of a function is **not** counted; only explicit exits are
+(see issue #243).
 
 The metric goes back to the structured-programming literature of the
 1970s, where Edsger Dijkstra and others argued that functions should
@@ -725,7 +731,7 @@ when they reduce nesting.
 
 big-code-analysis walks each function's syntax tree, identifies the
 language-specific exit nodes (see the per-language `Exit` trait in
-`src/metrics/exit.rs`), and reports per-function counts plus
+`src/metrics/nexits.rs`), and reports per-function counts plus
 file-level `sum`, `average`, `min`, and `max`. The serialised
 field name is `nexits`, matching the prose acronym used here.
 

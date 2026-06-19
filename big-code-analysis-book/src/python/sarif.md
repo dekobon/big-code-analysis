@@ -72,7 +72,7 @@ the upload to the repository's Code Scanning alerts.
 
 `to_sarif` emits a finding at every space — the file unit, each
 container, and each leaf function or closure — whose **own** value
-breaches its limit, exactly matching `bca check -O sarif`. For most
+breaches its limit, exactly matching `bca check --report-format sarif`. For most
 metrics the JSON headline at a space already is that space's own value.
 The four subtree-aggregate metrics — `cyclomatic`,
 `cyclomatic.modified`, `cognitive`, and `abc` — additionally expose a

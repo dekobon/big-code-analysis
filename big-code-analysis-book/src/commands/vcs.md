@@ -256,12 +256,12 @@ bca vcs --clear-cache --paths .   # rebuild from scratch
 bca vcs --cache-dir /tmp/bca-cache --paths .
 ```
 
-The REST (`POST /vcs`) and Python ([`vcs.rank`](../python/vcs.md))
+The REST (`POST /v1/vcs`) and Python ([`vcs.rank`](../python/vcs.md))
 surfaces expose the same behaviour through optional `no_cache` /
 `cache_dir` parameters.
 
 The cache is specific to the file ranking. The `trend` and `commit`
-subcommands — and the `/vcs/trend` and `/vcs/jit` endpoints — do not use
+subcommands — and the `/v1/vcs/trend` and `/v1/vcs/jit` endpoints — do not use
 it, so the cache flags do not apply there: passing `--no-cache` /
 `--cache-dir` alongside a subcommand is a usage error, and the trend
 endpoint rejects a `no_cache` / `cache_dir` field rather than silently
@@ -461,7 +461,7 @@ its decoded path in the diffusion features, not the raw quoted string.
 
 The JIT score is also available off the CLI:
 
-- **REST:** `POST /vcs/jit` with `{ "id", "repo_path", "commit" }` returns
+- **REST:** `POST /v1/vcs/jit` with `{ "id", "repo_path", "commit" }` returns
   the commit `JitReport` JSON, or `{ "id", "diff" }` returns the partial
   diff report. See [Driving the REST API](../recipes/rest-api.md).
 - **Python:** `vcs.commit(repo_path, commit=...)` returns the commit
@@ -668,8 +668,8 @@ for tooling.
 
 ## REST and Python
 
-- **REST:** `POST /vcs` with a JSON body `{ "id": "...", "repo_path":
-  "/path/to/repo", ... }` returns the ranked report, and `POST /vcs/trend`
+- **REST:** `POST /v1/vcs` with a JSON body `{ "id": "...", "repo_path":
+  "/path/to/repo", ... }` returns the ranked report, and `POST /v1/vcs/trend`
   (same fields plus `points` / `span` / `top_deltas`) returns the
   historical time series. See [Driving the REST API](../recipes/rest-api.md).
 - **Python:** [`big_code_analysis.vcs.rank(repo_path, …)`](../python/vcs.md)
@@ -677,7 +677,7 @@ for tooling.
   span=…, …)` returns the time series, and `analyze(path, vcs=True)`
   attaches a `vcs` block to a single file's metrics.
 
-Both `POST /vcs` and `vcs.rank()` (through `vcs.Options`) accept an
+Both `POST /v1/vcs` and `vcs.rank()` (through `vcs.Options`) accept an
 optional `file_types` (`"metrics"` / `"all"` / `"rs,py"`) to scope which
 files are ranked, mirroring the CLI `--file-types`.
 

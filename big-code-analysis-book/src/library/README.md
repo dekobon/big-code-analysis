@@ -46,7 +46,9 @@ the [`bca` CLI](../commands/index.html) is faster to wire up.
 - [Walking the AST directly](ast-traversal.md) — count syntactic
   constructs, find nodes by kind, detect parse errors, or build a
   symbol table alongside the metrics walk.
-- [Selecting metrics](selecting-metrics.md) — *(stub — planned)*.
+- [Selecting metrics](selecting-metrics.md) — compute only the
+  metrics you need with `MetricsOptions::with_only`, including how
+  dependent metrics pull in their inputs.
 - [Walking `FuncSpace` results](walking-funcspace.md) — recurse
   into nested function / class / impl spaces.
 - [Error handling](error-handling.md) — what `Result<FuncSpace, MetricsError>`

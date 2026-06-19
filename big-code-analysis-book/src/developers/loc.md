@@ -64,5 +64,5 @@ implement the `Loc` trait for the language you want to support.
 
 This requires implementing the `compute` function.
 See
-[/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/master/src/metrics/loc.rs)
+[/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/metrics/loc.rs)
 for where to implement, as well as examples from other languages.

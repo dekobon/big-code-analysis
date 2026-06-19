@@ -7,7 +7,7 @@ fails the pipeline before the change lands.
 
 > **Looking for full CI recipes?** The
 > [CI integration recipe](../recipes/ci.md) consolidates the
-> `--format` matrix, runnable GitHub Actions and `.gitlab-ci.yml`
+> `--report-format` matrix, runnable GitHub Actions and `.gitlab-ci.yml`
 > examples, the baseline / ratchet pattern, and the GitLab Code Quality
 > path. This page documents the command itself; the recipe documents
 > how to wire it into a pipeline.
@@ -335,7 +335,8 @@ excluded. Pass `--no-suppress` together with `--write-baseline` to
 record every violation (CI-auditor flow).
 
 `--write-baseline` cannot be combined with `--baseline`,
-`--format`, or `--output` — the baseline file *is* the output.
+`--report-format`, `--output`, `--since`, or `--changed-only` — the
+baseline file *is* the output.
 
 ### Reading a baseline
 
@@ -464,20 +465,20 @@ annotation while you reduce the count, swap in `--no-fail`:
 ## Exporting offender records
 
 `bca check` also emits a single CI/IDE document covering every
-offender in the walk. Pass `--format <fmt>` (short `-O`) to pick the
+offender in the walk. Pass `--report-format <fmt>` to pick the
 shape and `--output <file>` to write it to disk (stdout if omitted).
-`--output-format` is accepted as a deprecated alias and will be removed
-in 2.0. The
+The `--format`, `-O`, and `--output-format` spellings are accepted as
+deprecated aliases and will be removed in a future release. The
 exit-code contract is unaffected by these flags: 0 clean, 2 on any
 violation (unless `--no-fail`), 1 on tool error.
 
-When `--output` is given without `--format`, the format is **inferred
-from the output extension**: `.sarif` selects `sarif` and `.xml`
-selects `checkstyle`. An extension with no unique format (notably
-`.json`, which both `sarif` and `code-climate` produce) or no extension
-at all is a usage error (exit `1`) naming `--format` — an explicit
-`--output` is never silently ignored. An explicit `--format` always
-wins over the extension.
+When `--output` is given without `--report-format`, the format is
+**inferred from the output extension**: `.sarif` selects `sarif` and
+`.xml` selects `checkstyle`. An extension with no unique format
+(notably `.json`, which both `sarif` and `code-climate` produce) or no
+extension at all is a usage error (exit `1`) naming `--report-format` —
+an explicit `--output` is never silently ignored. An explicit
+`--report-format` always wins over the extension.
 
 | Format          | Audience                                                |
 | --------------- | ------------------------------------------------------- |
@@ -499,7 +500,7 @@ unchanged.
 ```bash
 bca check --paths src/ \
     --threshold cyclomatic=15 \
-    --format checkstyle \
+    --report-format checkstyle \
     --output report.checkstyle.xml
 ```
 
@@ -514,7 +515,7 @@ Generation" / "Generic Issue" importers consume directly.
 ```bash
 bca check --paths src/ \
     --threshold cyclomatic=15 \
-    --format sarif \
+    --report-format sarif \
     --output report.sarif.json
 ```
 
@@ -539,7 +540,7 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca check --paths . \
-              --format sarif \
+              --report-format sarif \
               --output report.sarif.json \
               --no-fail
       - name: Upload SARIF
@@ -557,7 +558,7 @@ fail the workflow.
 ```bash
 bca check --paths src/ \
     --threshold cyclomatic=15 \
-    --format code-climate \
+    --report-format code-climate \
     --output gl-code-quality-report.json
 ```
 
@@ -583,7 +584,7 @@ code_quality:
   stage: quality
   script:
     - bca check --paths "$CI_PROJECT_DIR"
-          --format code-climate
+          --report-format code-climate
           --output gl-code-quality-report.json
           --no-fail
   artifacts:
@@ -608,7 +609,7 @@ regression to fail the pipeline.
 ```bash
 bca check --paths src/ \
     --threshold cyclomatic=15 \
-    --format clang-warning \
+    --report-format clang-warning \
     --output report.txt
 ```
 
@@ -640,7 +641,7 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca check --paths . \
-              --format clang-warning \
+              --report-format clang-warning \
               --no-fail
 ```
 
@@ -653,7 +654,7 @@ workflow commands.
 ```bash
 bca check --paths src/ \
     --threshold cyclomatic=15 \
-    --format msvc-warning \
+    --report-format msvc-warning \
     --output report.txt
 ```
 
