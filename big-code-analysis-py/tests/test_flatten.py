@@ -160,7 +160,11 @@ def test_iterator_is_lazy_and_single_use() -> None:
     gen = bca.flatten_spaces(result)
 
     assert inspect.isgenerator(gen)
-    first_pass = list(gen)
+    # `inspect.isgenerator` is typed `TypeIs[GeneratorType[Any, Any, Any]]`,
+    # which narrows `gen` to `Never` (the ABC `Generator` and concrete
+    # `GeneratorType` are treated as disjoint), losing the element type.
+    # Annotate to restore the true element type for the type checkers.
+    first_pass: list[dict[str, Any]] = list(gen)
     assert first_pass, "generator must yield at least the unit record"
     # Second consumption is empty (single-use semantics).
     assert list(gen) == []
