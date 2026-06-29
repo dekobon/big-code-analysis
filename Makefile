@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -114,6 +114,9 @@ help:
 	@echo "  py-typecheck                         Type-check with mypy --strict + pyright"
 	@echo "  py-test                              maturin develop + pytest (needs active venv)"
 	@echo "  py-stubtest                          maturin develop + mypy stubtest of _native.pyi (needs venv)"
+	@echo "  smoke                                Run the release/wheel smoke scripts locally (smoke-cli + smoke-lib)"
+	@echo "  smoke-cli                            CLI smoke (scripts/smoke/cli_wheel_smoke.sh) against a debug bca"
+	@echo "  smoke-lib                            Library smoke (scripts/smoke/lib_wheel_smoke.py) via maturin develop"
 	@echo "  (first-time setup: 'make py-bootstrap' — installs uv-managed venv from uv.lock)"
 	@echo ""
 	@echo "Maintenance:"
@@ -677,6 +680,42 @@ py-stubtest:
 	      --allowlist stubtest-allowlist.txt) || \
 	    { echo "stubtest found stub/runtime drift"; exit 1; }; \
 	else echo "maturin or mypy stubtest not found; skipping py-stubtest"; fi
+
+# ---------------------------------------------------------------------------
+# Release/wheel smoke harnesses (#995)
+# ---------------------------------------------------------------------------
+# The wheel workflows (python-wheels.yml, python-cli-wheels.yml) and the
+# per-PR smoke-dryrun.yml all invoke the *same* checked-in scripts under
+# scripts/smoke/. These targets run them locally against a dev build so a
+# stale assertion (the #530 integer-metric / #614 AnalysisFailure drift that
+# blocked v2.0.0) surfaces before a tag, not at release time.
+smoke: smoke-cli smoke-lib
+
+# Build a debug `bca` and run the CLI smoke against it — mirrors the
+# python-cli-wheels.yml smoke step, which runs the identical script against
+# the packaged console binary.
+smoke-cli:
+	@echo "Building bca + running CLI smoke..."
+	@cargo build -q -p big-code-analysis-cli
+	@BCA="$(BASE_DIR)target/debug/bca" bash "$(BASE_DIR)scripts/smoke/cli_wheel_smoke.sh"
+
+# Build the bindings via `maturin develop` and run the library smoke —
+# mirrors the python-wheels.yml smoke step (packaged abi3 wheel) and carries
+# the same 0-byte-.so pre-build cleanups as py-test.
+smoke-lib:
+	@find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true
+	@rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
+	  echo "Building extension + running library smoke (venv)..."; \
+	  (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet) && \
+	    "$(BCA_PY_DIR)/.venv/bin/python" "$(BASE_DIR)scripts/smoke/lib_wheel_smoke.py" || \
+	    { echo "smoke-lib failed"; exit 1; }; \
+	elif command -v maturin >/dev/null 2>&1; then \
+	  echo "Building extension + running library smoke..."; \
+	  (cd "$(BCA_PY_DIR)" && maturin develop --quiet) && \
+	    python "$(BASE_DIR)scripts/smoke/lib_wheel_smoke.py" || \
+	    { echo "smoke-lib failed"; exit 1; }; \
+	else echo "maturin not found; skipping smoke-lib"; fi
 
 # ---------------------------------------------------------------------------
 # Lint aggregate

@@ -310,6 +310,55 @@ fn cli_check_code_climate_output_matches_gitlab_shape() {
     );
 }
 
+/// #995 / #530: integer-valued metrics (counts, sums, min/max) must
+/// serialize as JSON *integers* (`3`), never floats (`3.0`). This is the
+/// exact invariant the `python-cli-wheels.yml` wheel smoke asserts against
+/// the packaged binary — and the one that silently rotted (the smoke still
+/// expected the pre-2.0 `"3.0"`) until the `v2.0.0` tag forced the smoke to
+/// run (#995). Pinning it in a per-PR test means a regression of the `u64`
+/// wire fields (a serde rename, a field-type flip back to `f64`) reds a PR
+/// check instead of a release.
+///
+/// The round-trip tests below coerce every metric through `as_f64()`, so
+/// they pass for both `3` and `3.0` and cannot catch this. The
+/// distinguishing check is `is_u64()`: `serde_json` parses `3` as an integer
+/// (`is_u64() == true`) but `3.0` as a float (`is_u64() == false`).
+#[test]
+fn cli_metrics_json_serializes_integer_metrics_as_integers() {
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+    let out = run_metrics(&dir, "json", &fixture);
+    let doc: serde_json::Value = serde_json::from_str(&out).expect("metrics JSON parses");
+
+    // expected: the fixture's unit-level cyclomatic.sum is 3 (function
+    // entry + `if` + `else`) and loc.sloc is 1 — both integral, so both
+    // must serialize as JSON integers, not floats.
+    let cyclomatic_sum = &doc["metrics"]["cyclomatic"]["sum"];
+    assert!(
+        cyclomatic_sum.is_u64(),
+        "cyclomatic.sum must serialize as a JSON integer (#530), got {cyclomatic_sum} in:\n{out}",
+    );
+    assert_eq!(cyclomatic_sum.as_u64(), Some(3), "cyclomatic.sum value");
+
+    let sloc = &doc["metrics"]["loc"]["sloc"];
+    assert!(
+        sloc.is_u64(),
+        "loc.sloc must serialize as a JSON integer (#530), got {sloc} in:\n{out}",
+    );
+
+    // Negative control: a genuinely fractional metric (`halstead.volume`,
+    // ~58.81 for this fixture) is an `f64` wire field and MUST stay a JSON
+    // float. This proves `is_u64()` above actually discriminates integers
+    // from floats rather than passing vacuously — if every metric
+    // serialized as a float (the pre-#530 regression), this assertion would
+    // still hold while the integer checks above failed, and vice versa.
+    let volume = &doc["metrics"]["halstead"]["volume"];
+    assert!(
+        volume.is_f64() && !volume.is_u64(),
+        "halstead.volume must serialize as a JSON float, got {volume} in:\n{out}",
+    );
+}
+
 // --- TOML / YAML / CBOR round-trip smoke tests (issue #543) ---------------
 //
 // These three formats had no validity / round-trip coverage, so a shape
