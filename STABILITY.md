@@ -1,6 +1,6 @@
 # Stability policy
 
-`big-code-analysis` is on the `2.x` line (currently `2.0.0-rc1`). The
+`big-code-analysis` is on the `2.x` line (currently `2.0.0`). The
 crate graduated from the rapid-iteration `0.x` window into a written
 stability contract and has now made its first major (`2.0`) break:
 callers can pin a minor version and expect a working tree against any
@@ -31,7 +31,7 @@ pin bump (any `tree-sitter-*` crate in the root `Cargo.toml`) or a
 regression fix in a metric definition is by definition a value
 change but does not break the API surface. Callers who need
 bit-for-bit reproducibility should pin to an exact version
-(`big-code-analysis = "= 2.0.0-rc1"`) and store that version alongside
+(`big-code-analysis = "= 2.0.0"`) and store that version alongside
 their results — see [What is stable in value](#what-is-stable-in-value)
 below.
 
@@ -162,16 +162,13 @@ section.
 - **Per-metric `Stats`** — one `Stats` struct under each
   `src/metrics/<metric>.rs` (`abc`, `cognitive`, `cyclomatic`,
   `halstead`, `loc`, `mi`, `nargs`, `nexits`, `nom`, `npa`, `npm`,
-  `wmc`, plus `tokens`). These structs are **not**
-  `#[non_exhaustive]`, so adding a public field is a shape break in
-  the strict SemVer sense. In practice we treat field additions as
-  additive in minor bumps (they have always been so historically,
-  and downstream consumers rely on the JSON / YAML projection
-  rather than struct-literal construction), but we flag each
-  addition in the changelog. Removing or renaming a field is a
-  `3.0` break. Marking these `#[non_exhaustive]` is on the `3.0`
-  roadmap so the "additive in minor bumps" carve-out can be
-  retired.
+  `wmc`, plus `tokens`). These structs carry `#[non_exhaustive]`
+  (as of `2.0`), so adding a public field is additive: every field
+  is already private and read through accessors, and the marker
+  makes the "no external struct-literal construction, no exhaustive
+  match" guarantee explicit and future-proof against a field ever
+  being made public. We still flag each field addition in the
+  changelog. Removing or renaming a field is a `3.0` break.
 
   To stay forward-compatible within `2.x`, callers should treat
   `Stats` as the typed projection of the serialized JSON / YAML
@@ -402,7 +399,7 @@ versions, even within `2.x`.** Concretely:
 This is the one deliberate carve-out in the `2.x` contract. The
 *shape* of the data is stable; the *numbers in the cells* are not.
 If you need to compare metric runs across time, pin to an exact
-version (`big-code-analysis = "= 2.0.0-rc1"`) and store the version
+version (`big-code-analysis = "= 2.0.0"`) and store the version
 alongside the results.
 
 ### Float precision and non-finite values
@@ -1183,9 +1180,10 @@ bug — please open an issue.
 ## On the `3.0` horizon
 
 The breaking changes that were once on the `2.0` horizon have now
-shipped in `2.0.0`. See the `[2.0.0-rc1]` entry in
+shipped in `2.0.0`. See the `[2.0.0]` entry in
 [`CHANGELOG.md`][changelog] for the full list — the
-`#[non_exhaustive]` markers on the open public enums, the
+`#[non_exhaustive]` markers on the open public enums and the
+per-metric `Stats` structs, the
 serialized-key normalization, the
 integer-metric `u64` shift, the language-dispatch and grammar
 defaults, the Python and REST surface changes — and for the

@@ -41,6 +41,7 @@ use crate::*;
 
 /// The `Cognitive Complexity` metric.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     structural: usize,
     structural_sum: usize,

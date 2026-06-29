@@ -10,7 +10,7 @@ expression: out
       "tool": {
         "driver": {
           "name": "big-code-analysis",
-          "version": "2.0.0-rc1",
+          "version": "2.0.0",
           "rules": []
         }
       },

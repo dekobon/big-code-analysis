@@ -26,6 +26,7 @@ use crate::*;
 
 /// The `Nom` metric suite.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     functions: usize,
     closures: usize,

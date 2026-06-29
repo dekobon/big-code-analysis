@@ -25,6 +25,7 @@ use crate::*;
 
 /// The `Cyclomatic` metric.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     cyclomatic_sum: f64,
     cyclomatic: f64,

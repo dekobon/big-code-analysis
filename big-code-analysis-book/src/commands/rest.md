@@ -514,8 +514,8 @@ GET http://127.0.0.1:8080/v1/version
 
 ```json
 {
-  "server": "2.0.0-rc1",
-  "library": "2.0.0-rc1"
+  "server": "2.0.0",
+  "library": "2.0.0"
 }
 ```
 
@@ -565,7 +565,7 @@ GET http://127.0.0.1:8080/v1
 ```json
 {
   "service": "bca-web",
-  "version": "2.0.0-rc1",
+  "version": "2.0.0",
   "routes": [
     { "path": "/v1", "methods": ["GET", "HEAD"], "description": "This route index." },
     { "path": "/v1/metrics", "methods": ["POST"], "description": "Compute maintainability metrics for the source." }

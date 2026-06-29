@@ -36,6 +36,7 @@ use crate::*;
 
 /// The `Halstead` metric suite.
 #[derive(Default, Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     u_operators: u64,
     operators: u64,

@@ -34,6 +34,7 @@ use crate::*;
 /// (parentheses, semicolons, separators) does contribute, so
 /// `tokens` ≠ Halstead `N1 + N2`.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     tokens: usize,
     tokens_sum: usize,

@@ -23,6 +23,7 @@ use crate::*;
 
 /// The `Mi` metric.
 #[derive(Default, Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     halstead_length: f64,
     halstead_vocabulary: f64,

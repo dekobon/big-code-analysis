@@ -115,6 +115,7 @@ mod tcl;
 /// fan-out, #404 for the Phase-3 book documentation, and #557
 /// for the Kotlin / Ruby / Elixir walker wiring.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     pub(super) assignments: f64,
     assignments_sum: f64,

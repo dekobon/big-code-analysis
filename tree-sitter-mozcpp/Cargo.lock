@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "bca-tree-sitter-mozcpp"
-version = "2.0.0-rc1"
+version = "2.0.0"
 dependencies = [
  "cc",
  "tree-sitter",

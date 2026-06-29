@@ -386,6 +386,7 @@ impl Lloc {
 
 /// The `Loc` metric suite.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     sloc: Sloc,
     ploc: Ploc,

@@ -28,6 +28,7 @@ use crate::*;
 /// This metric counts the number of arguments
 /// of functions/closures.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Stats {
     fn_nargs: usize,
     closure_nargs: usize,

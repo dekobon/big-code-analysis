@@ -24,16 +24,17 @@ for historical reference.
 
 ## [Unreleased]
 
-## [2.0.0-rc1] - 2026-06-19
+## [2.0.0] - 2026-06-29
 
-First release candidate for `2.0.0` — the project's first major
-version bump since `1.0`, and the first release on the `2.x` line.
-It collects every breaking change staged across the `1.x` cycle
-behind a single major boundary. The detailed **(breaking)** entries
-are listed under the headings below; the migration notes here
-summarise the surface and consolidate the serialized key map and the
-metric-value re-baseline that the contract promised the `2.0.0`
-entry would carry.
+The project's first major version bump since `1.0`, and the first
+stable release on the `2.x` line. It collects every breaking change
+staged across the `1.x` cycle behind a single major boundary. The
+detailed **(breaking)** entries are listed under the headings below;
+the migration notes here summarise the surface and consolidate the
+serialized key map and the metric-value re-baseline that the
+contract promised the `2.0.0` entry would carry. (The `2.0.0-rc1`
+release candidate, tagged 2026-06-19, carried the same change set
+ahead of this stable cut.)
 
 ### Migration from 1.x
 
@@ -1478,6 +1479,14 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
   `#[non_exhaustive]` (`Severity`, `SpaceKind`, `SuppressionDialect`);
   documented the deliberately-closed suppression enums (`SuppressionPolicy`,
   `SuppressionScope`, `SuppressionTarget`) (#551).
+- **(breaking)** Marked every per-metric compute-side `Stats` struct
+  (`abc`, `cognitive`, `cyclomatic`, `halstead`, `loc`, `mi`, `nargs`,
+  `nexits`, `nom`, `npa`, `npm`, `wmc`, `tokens`) `#[non_exhaustive]`.
+  Their fields were already private and read through accessors, so the
+  marker is observationally invisible to existing callers; it makes the
+  "no external struct-literal construction, no exhaustive match"
+  guarantee explicit and keeps a future field addition additive within
+  `2.x` rather than a shape break deferred to `3.0`.
 - **(breaking, deferred to 2.0)** `ConcurrentErrors` is now
   `#[non_exhaustive]` and its `Sender` / `Thread` variants carry a boxed
   `std::error::Error + Send + Sync` source instead of a `String` (so
@@ -5923,6 +5932,7 @@ Halstead scores, and MI stay `f64`. No value changes — only the type.
 [Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
 pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/dekobon/big-code-analysis/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/dekobon/big-code-analysis/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dekobon/big-code-analysis/compare/007ee15...v1.0.0
