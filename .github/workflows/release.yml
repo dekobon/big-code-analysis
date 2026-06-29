@@ -764,6 +764,15 @@ jobs:
               # literal string `"*.apk"` to find, which then matched
               # nothing and silently left /out empty.
               find /home/builder/packages -name "*.apk" -exec cp {} /out/ \;
+              # abuild names the package `<pkg>-<ver>-r<rel>.apk` with no
+              # arch in the filename, so x86_64 and aarch64 both emit
+              # `big-code-analysis-<ver>-r0.apk`. The sign+attest flatten
+              # step keys release assets by basename and aborts on the
+              # collision (#364-class). Embed the arch so both arches land
+              # as distinct release assets; `apk add` reads the arch from
+              # the package metadata, not the filename, so installs (and
+              # the smoke-apk *.apk glob) are unaffected.
+              for apk in /out/*.apk; do mv "$apk" "${apk%.apk}-${APK_ARCH}.apk"; done
               cp /home/builder/big-code-analysis/APKBUILD /out/APKBUILD.${APK_ARCH}
             '
 

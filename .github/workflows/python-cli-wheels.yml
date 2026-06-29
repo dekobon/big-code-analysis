@@ -356,8 +356,10 @@ jobs:
           printf 'fn main() { if true { println!("x"); } }\n' > smoke.rs
           py_cc=$(bca metrics --paths smoke.py -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
           rs_cc=$(bca metrics --paths smoke.rs -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
-          test "$py_cc" = "3.0" || { echo "::error::python cyclomatic.sum=$py_cc, expected 3.0"; exit 1; }
-          test "$rs_cc" = "3.0" || { echo "::error::rust cyclomatic.sum=$rs_cc, expected 3.0"; exit 1; }
+          # 2.0 serializes integer-valued metrics as integers (#530),
+          # so cyclomatic.sum prints as `3`, not the pre-2.0 `3.0`.
+          test "$py_cc" = "3" || { echo "::error::python cyclomatic.sum=$py_cc, expected 3"; exit 1; }
+          test "$rs_cc" = "3" || { echo "::error::rust cyclomatic.sum=$rs_cc, expected 3"; exit 1; }
           echo "smoke OK"
 
   # Aggregate gate so branch protection can require a single check name.

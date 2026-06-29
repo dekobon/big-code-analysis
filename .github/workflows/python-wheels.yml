@@ -360,7 +360,7 @@ jobs:
           assert driver.get("name"), f"SARIF run missing tool.driver.name: {driver}"
 
           # analyze_batch's never-raise contract: a missing path in
-          # the batch must be returned as an AnalysisError instance
+          # the batch must be returned as an AnalysisFailure instance
           # interleaved with the successful dicts, never as an
           # exception. A binding regression that switched batch back
           # to raising would crash here; one that dropped error
@@ -374,9 +374,10 @@ jobs:
               assert len(batch) == 2, f"expected 2 batch results, got {len(batch)}"
               # Good path → dict.
               assert isinstance(batch[0], dict), type(batch[0])
-              # Missing path → AnalysisError with `error_kind == "IoError"`.
+              # Missing path → AnalysisFailure with `error_kind == "IoError"`
+              # (the type was renamed from AnalysisError at 2.0, #614).
               err = batch[1]
-              assert isinstance(err, bca.AnalysisError), type(err)
+              assert isinstance(err, bca.AnalysisFailure), type(err)
               assert err.error_kind == "IoError", err.error_kind
               assert str(missing) in err.path, (err.path, str(missing))
 
