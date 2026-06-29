@@ -308,6 +308,16 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 15
     steps:
+      # Sparse, submodule-free checkout of just the smoke harness so the
+      # step below can run `scripts/smoke/cli_wheel_smoke.sh` against the
+      # downloaded wheel (#995 — extracted from the former inline `run:`
+      # block so the assertions are shellcheck-lintable and also run
+      # per-PR via smoke-dryrun.yml).
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: scripts/smoke
+          submodules: false
+
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION_HOST }}
@@ -334,33 +344,13 @@ jobs:
           # rather than silently installing a stale published version.
           python -m pip install --no-index --find-links=dist big-code-analysis-cli
           # The console script lands in the setup-python interpreter's
-          # scripts dir, which is on PATH. Capture the version rather than
-          # piping to `head` (a `| head -n1` would SIGPIPE the producer
-          # under pipefail — see release.yml's note).
-          ver_out=$(bca --version)
-          echo "$ver_out"
-          # On a tag build, prove the binary reports the lockstep release
-          # version (maturin reads `version.workspace = true`, so the
-          # wheel version must equal the tag minus its leading `v`).
-          if [[ -n "$EXPECTED_TAG" ]]; then
-            want="${EXPECTED_TAG#v}"
-            case "$ver_out" in
-              *"$want"*) : ;;
-              *) echo "::error::bca --version '$ver_out' does not contain tag version $want"; exit 1 ;;
-            esac
-          fi
-          bca list-metrics names >/dev/null
-          # Parse two unrelated languages to prove the all-languages
-          # grammar set is compiled in, not just the host language.
-          printf 'def add(a, b):\n    if a > b:\n        return a\n    return b\n' > smoke.py
-          printf 'fn main() { if true { println!("x"); } }\n' > smoke.rs
-          py_cc=$(bca metrics --paths smoke.py -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
-          rs_cc=$(bca metrics --paths smoke.rs -O json | python -c "import sys,json; print(json.load(sys.stdin)['metrics']['cyclomatic']['sum'])")
-          # 2.0 serializes integer-valued metrics as integers (#530),
-          # so cyclomatic.sum prints as `3`, not the pre-2.0 `3.0`.
-          test "$py_cc" = "3" || { echo "::error::python cyclomatic.sum=$py_cc, expected 3"; exit 1; }
-          test "$rs_cc" = "3" || { echo "::error::rust cyclomatic.sum=$rs_cc, expected 3"; exit 1; }
-          echo "smoke OK"
+          # scripts dir, which is on PATH. The assertions (version
+          # lockstep against EXPECTED_TAG, the all-languages grammar set,
+          # and the #530 integer-metric serialization) live in the
+          # checked-in smoke harness so they also run per-PR via
+          # smoke-dryrun.yml (#995). Invoke via `bash` so the Windows
+          # matrix leg (Git Bash, no executable bit) runs it too.
+          bash scripts/smoke/cli_wheel_smoke.sh
 
   # Aggregate gate so branch protection can require a single check name.
   # Every dependency is label-gated at PR time, so on an unlabelled PR all

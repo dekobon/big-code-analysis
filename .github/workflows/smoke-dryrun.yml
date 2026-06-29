@@ -1,0 +1,97 @@
+name: Smoke dry-run
+
+# Per-PR drift gate for the release/wheel smoke harnesses (#995).
+#
+# The wheel + release smoke scripts only ran on a `v*` tag push (or via an
+# opt-in `python-*-wheels` PR label), so an assertion that fell out of step
+# with a breaking change rotted silently until release day. Three did,
+# blocking the `v2.0.0` cut: the #530 integer-metric serialization (CLI
+# smoke still expected `"3.0"`) and the #614 `AnalysisError` ->
+# `AnalysisFailure` rename (library smoke still referenced the old name).
+#
+# This job runs the *same* checked-in smoke scripts the wheel workflows now
+# invoke (scripts/smoke/*), but against a cheap local dev build instead of a
+# packaged wheel — `cargo build` for the CLI and `maturin develop` for the
+# bindings. It fires only when the release/wheel plumbing or the smoke
+# scripts themselves change, so the common case pays nothing. A future
+# rename or serialization change to a metric/API now reds *this* PR check
+# rather than a tag.
+#
+# Scope note: this validates smoke-script-vs-code drift (the recurring
+# failure mode — bugs #2 and #3 of #995), not OS-package *packaging* (the
+# `.apk` basename collision of bug #1). Building a signed multi-arch `.apk`
+# needs the Alpine/abuild toolchain release.yml carries and is too heavy for
+# a per-PR job; that path stays tag-gated, with the arch-qualified asset
+# name (c53e504b) guarding the specific regression.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/python-wheels.yml'
+      - '.github/workflows/python-cli-wheels.yml'
+      - '.github/workflows/smoke-dryrun.yml'
+      - 'scripts/smoke/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  PYTHON_VERSION_HOST: "3.12"
+
+jobs:
+  smoke:
+    name: smoke (dev build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # `submodules: false` — the smoke fixtures are synthesised in-process
+      # (scripts/smoke/*); the test-repository submodules are not needed and
+      # are the slow part of a full clone.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: false
+
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION_HOST }}
+
+      # CLI smoke against a debug `bca` (the wheel workflow runs the same
+      # script against the packaged console binary). Runs before the venv
+      # below so `python` resolves to the setup-python interpreter.
+      - name: CLI smoke (cargo build)
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          cargo build -p big-code-analysis-cli
+          BCA="$PWD/target/debug/bca" bash scripts/smoke/cli_wheel_smoke.sh
+
+      # Library smoke against a `maturin develop` build of the bindings (the
+      # wheel workflow runs the same script against the packaged abi3 wheel).
+      - name: Library smoke (maturin develop)
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          # shellcheck disable=SC1091  # venv activate script is created above
+          . .venv/bin/activate
+          python -m pip install --upgrade pip maturin
+          maturin develop --manifest-path big-code-analysis-py/Cargo.toml
+          python scripts/smoke/lib_wheel_smoke.py

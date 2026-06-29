@@ -24,6 +24,25 @@ for historical reference.
 
 ## [Unreleased]
 
+### Added
+
+- Per-PR coverage for the release/wheel smoke harnesses, closing the
+  drift gap that let three stale assertions block the `v2.0.0` cut
+  (#995). The integer-valued-metric JSON serialization (#530) is now
+  pinned by a CLI integration test
+  (`cli_metrics_json_serializes_integer_metrics_as_integers`) that
+  asserts `cyclomatic.sum` serializes as a JSON integer (`is_u64()`),
+  which the existing `as_f64()`-coercing round-trip tests could not
+  catch. The previously-inline library and CLI wheel smokes were
+  extracted into checked-in, lint-gated scripts under
+  [`scripts/smoke/`](scripts/smoke/) (mypy `--strict` / ruff for the
+  Python script, shellcheck for the shell script), referenced by both
+  wheel workflows and runnable locally via `make smoke`. A new
+  path-filtered [`smoke-dryrun.yml`](.github/workflows/smoke-dryrun.yml)
+  workflow runs those scripts against a cheap dev build on any PR that
+  touches the release/wheel plumbing, so a future metric rename or
+  serialization change reds a PR check instead of a release.
+
 ## [2.0.0] - 2026-06-29
 
 The project's first major version bump since `1.0`, and the first
