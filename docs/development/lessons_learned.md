@@ -4105,3 +4105,58 @@ the cache stays key-agnostic, while the outer digest *includes* it so the
 emitted value is hardened.
 
 ---
+
+## 80. An assertion that only runs at release time rots silently — mirror it into a per-PR test that actually discriminates
+
+CI smoke / packaging checks that fire only on a rare trigger (a `v*` tag
+push, an opt-in PR label, a scheduled cron) are invisible to the per-PR
+`cargo test` / `pytest` suites and to any refactor that updates the real
+API. A breaking change lands, its per-PR tests stay green, and the
+rarely-run assertion silently rots until the trigger finally fires — at
+which point it blocks the very release it was meant to protect. Mirroring
+the invariant into the per-PR suite closes the gap only if the mirror
+actually *discriminates* the regression: a test that coerces both the old
+and the new representation to a common type guards nothing.
+
+**Three `v2.0.0` smoke assertions rotted between rc1 and the stable tag**
+(#995, `6e23d46e`; hot-fixed in `c53e504b`). The wheel / release workflows
+(`python-wheels.yml`, `python-cli-wheels.yml`, `release.yml`) only run their
+build / smoke matrices on a `v*` tag or an opt-in label, and the assertions
+lived as inline shell / Python heredocs inside the workflow YAML — invisible
+to `cargo test` / `pytest`. So the #530 integer-serialization change
+(`cyclomatic.sum` now emits `3`, not `3.0`) and the #614
+`AnalysisError` → `AnalysisFailure` rename left the smokes asserting the
+pre-2.0 strings; both stayed green on every PR and only failed when the
+`v2.0.0` tag forced the matrix to run, blocking publication (recovery needed
+a force-moved tag + `gh run rerun --failed`). The fix extracts the smokes
+into checked-in, lint-gated `scripts/smoke/*` referenced by the workflows,
+mirrors the invariants into per-PR tests, and adds a path-filtered
+`smoke-dryrun.yml` that runs those scripts against a cheap dev build whenever
+the plumbing changes.
+
+**The per-PR test that should have caught #530 coerced the regression
+away** (#995). `format_smoke.rs` already round-tripped `cyclomatic.sum`
+across JSON / YAML / TOML / CBOR — but every extractor read the value via
+`as_f64()`, which yields `3.0` for both the integer `3` and the float `3.0`.
+The round-trip passed identically before and after #530, so it could never
+have flagged a `u64` → `f64` wire regression. The discriminating check is
+`serde_json::Value::is_u64()` (true for `3`, false for `3.0`), now pinned in
+`cli_metrics_json_serializes_integer_metrics_as_integers` with
+`halstead.volume` (genuinely fractional) as a negative control proving the
+assertion distinguishes integers from floats rather than passing vacuously.
+
+**Lesson:** A check that runs only on a rare trigger is not a per-PR gate —
+treat its load-bearing assertions as *untested* until they are mirrored into
+the suite that runs on every PR, and extract embedded-in-YAML scripts so they
+are lintable and locally runnable (`make smoke`). The mirror counts only if
+it discriminates the regression: when an invariant is about a value's
+*representation* (integer vs float, one error type vs another), assert the
+property that distinguishes them and prove the discriminating power with a
+negative control — coercing both sides to a common type guards nothing.
+Related to lesson #15 (code outside the workspace-scoped gates drifts
+silently; here it is assertions outside the per-PR-scoped gates) and to
+lesson #75 (an assertion that passes under the wrong condition verifies
+nothing; here the masking mechanism is type coercion, not grammar
+error-recovery).
+
+---
