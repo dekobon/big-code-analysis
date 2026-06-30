@@ -330,8 +330,9 @@ fn cli_metrics_json_serializes_integer_metrics_as_integers() {
     let out = run_metrics(&dir, "json", &fixture);
     let doc: serde_json::Value = serde_json::from_str(&out).expect("metrics JSON parses");
 
-    // expected: the fixture's unit-level cyclomatic.sum is 3 (function
-    // entry + `if` + `else`) and loc.sloc is 1 — both integral, so both
+    // expected: the fixture's unit-level cyclomatic.sum is 3 — the unit's
+    // own base (1) plus function `f`'s value (entry + `if` = 2); the `else`
+    // adds nothing under McCabe. loc.sloc is 1. Both are integral, so both
     // must serialize as JSON integers, not floats.
     let cyclomatic_sum = &doc["metrics"]["cyclomatic"]["sum"];
     assert!(

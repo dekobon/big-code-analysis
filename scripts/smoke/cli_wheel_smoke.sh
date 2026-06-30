@@ -33,6 +33,12 @@ echo "$ver_out"
 # On a tag build, prove the binary reports the lockstep release version
 # (maturin reads `version.workspace = true`, so the wheel version must equal
 # the tag minus its leading `v`).
+#
+# The match is a deliberate SUBSTRING, not an exact compare: a git tag and
+# the Cargo version can differ in pre-release punctuation (tag `v2.0.0-rc1`
+# vs Cargo `2.0.0-rc.1`), and tightening this to `=` would red a legitimate
+# rc cut. The lockstep contract only needs the tag's version to *appear* in
+# `bca --version` output (`bca <version>`). Keep it lenient.
 if [[ -n "${EXPECTED_TAG:-}" ]]; then
 	want="${EXPECTED_TAG#v}"
 	case "$ver_out" in
@@ -47,7 +53,13 @@ fi
 "$bca" list-metrics names >/dev/null
 
 # Work in a scratch dir so the fixtures never collide with the caller's cwd.
-workdir="$(mktemp -d)"
+# The template is *relative* (`./...`) on purpose: the python-cli-wheels.yml
+# smoke runs on the windows-latest leg under Git Bash, where `bca.exe` is a
+# native Windows binary. An absolute MSYS path (`mktemp -d` with no template,
+# e.g. `/tmp/tmp.XXXX`) would be handed to that binary unmangled and fail to
+# open; a relative path under cwd needs no POSIX->Windows translation. macOS
+# and GNU `mktemp` both accept a positional template.
+workdir="$(mktemp -d ./bca-smoke.XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT
 
 # Parse two unrelated languages to prove the all-languages grammar set is
