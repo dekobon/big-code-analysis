@@ -178,3 +178,78 @@ impl From<MetricsError> for FromPathError {
         Self::Parse(e)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error as _;
+    use std::io::{Error as IoError, ErrorKind};
+
+    // `FromPathError`'s `Display` / `source` impls and its `From`
+    // conversion are part of the stable error surface but are only
+    // reached on `from_path` failure paths that no other test drives.
+    // Pin the message shape (substring, not exact wording) and the
+    // `source` chaining contract, which is what `?`-propagating callers
+    // and `anyhow`-style reporters rely on.
+
+    #[test]
+    fn from_path_error_display_covers_every_variant() {
+        let io = FromPathError::Io(IoError::new(ErrorKind::PermissionDenied, "denied"));
+        assert!(io.to_string().contains("could not read file"));
+        assert!(io.to_string().contains("denied"));
+
+        assert!(
+            FromPathError::NonUtf8Path
+                .to_string()
+                .contains("not valid UTF-8")
+        );
+        assert!(
+            FromPathError::Unreadable
+                .to_string()
+                .contains("empty, binary")
+        );
+        assert!(
+            FromPathError::UnknownLanguage
+                .to_string()
+                .contains("no language is registered")
+        );
+
+        // `Parse` delegates to the wrapped `MetricsError`'s `Display`.
+        let parse = FromPathError::Parse(MetricsError::LanguageDisabled(LANG::Rust));
+        assert_eq!(
+            parse.to_string(),
+            MetricsError::LanguageDisabled(LANG::Rust).to_string()
+        );
+    }
+
+    #[test]
+    fn from_path_error_source_chains_only_for_wrapping_variants() {
+        // `Io` and `Parse` wrap an underlying error and must expose it;
+        // the leaf variants must report no source.
+        let io = FromPathError::Io(IoError::new(ErrorKind::NotFound, "missing"));
+        assert!(io.source().is_some(), "Io must chain to the io::Error");
+
+        let parse = FromPathError::Parse(MetricsError::EmptyRoot);
+        assert!(parse.source().is_some(), "Parse must chain to MetricsError");
+
+        for leaf in [
+            FromPathError::NonUtf8Path,
+            FromPathError::Unreadable,
+            FromPathError::UnknownLanguage,
+        ] {
+            assert!(leaf.source().is_none(), "{leaf:?} must report no source");
+        }
+    }
+
+    #[test]
+    fn metrics_error_converts_into_parse_variant() {
+        let converted: FromPathError = MetricsError::LanguageDisabled(LANG::Cpp).into();
+        assert!(
+            matches!(
+                converted,
+                FromPathError::Parse(MetricsError::LanguageDisabled(LANG::Cpp))
+            ),
+            "From<MetricsError> must wrap into Parse"
+        );
+    }
+}
