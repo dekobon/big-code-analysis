@@ -728,14 +728,14 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 447
+start_line = 448
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 447
+start_line = 448
 metric = "nexits"
 value = 6.0
 
@@ -968,7 +968,7 @@ path = "src/tools.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 761.0
+value = 767.0
 
 [[entry]]
 path = "src/tools.rs"

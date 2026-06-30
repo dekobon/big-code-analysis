@@ -550,7 +550,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics};
+    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics, child_space};
 
     use super::*;
 
@@ -4010,5 +4010,47 @@ mod tests {
         };
         check_metrics::<JavaParser>("interface Foo {}", "foo.java", assert_zero);
         check_metrics::<CsharpParser>("interface Foo {}", "foo.cs", assert_zero);
+    }
+
+    // Rounds out `npa`'s public surface — the `Display` impl and the
+    // per-space `class_npa` / `class_na` / `interface_*` accessors —
+    // mirroring the `Display` tests the sibling metrics carry.
+    #[test]
+    fn stats_display_and_per_space_accessors() {
+        check_func_space::<JavaParser, _>(
+            "public interface I {\n    int K = 1;\n}\n\
+             public class C {\n    public int a;\n    private int b;\n}\n",
+            "X.java",
+            |unit| {
+                // Class C: a public, b private → 1 public of 2 attributes.
+                // Interface I: one constant K.
+                assert_eq!(unit.metrics.npa.class_npa_sum(), 1);
+                assert_eq!(unit.metrics.npa.class_na_sum(), 2);
+                let rendered = unit.metrics.npa.to_string();
+                for fragment in [
+                    "classes: 1, interfaces: 1",
+                    "class_attributes: 2",
+                    "interface_attributes: 1",
+                    "total: 2, total_attributes: 3",
+                ] {
+                    assert!(
+                        rendered.contains(fragment),
+                        "missing {fragment:?} in {rendered}"
+                    );
+                }
+                // Singular accessors populate only on the owning class /
+                // interface space (0 on the file-unit root); assert them where
+                // they are nonzero so an always-zero or wrong-field accessor
+                // would fail.
+                let class = child_space(&unit, "C");
+                assert_eq!(class.kind, SpaceKind::Class);
+                assert_eq!(class.metrics.npa.class_npa(), 1);
+                assert_eq!(class.metrics.npa.class_na(), 2);
+                let iface = child_space(&unit, "I");
+                assert_eq!(iface.kind, SpaceKind::Interface);
+                assert_eq!(iface.metrics.npa.interface_npa(), 1);
+                assert_eq!(iface.metrics.npa.interface_na(), 1);
+            },
+        );
     }
 }
