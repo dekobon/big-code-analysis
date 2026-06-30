@@ -5,6 +5,7 @@
 [![CI](https://github.com/dekobon/big-code-analysis/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/dekobon/big-code-analysis/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![codecov](https://codecov.io/gh/dekobon/big-code-analysis/graph/badge.svg)](https://codecov.io/gh/dekobon/big-code-analysis)
 [![CodeQL](https://github.com/dekobon/big-code-analysis/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/dekobon/big-code-analysis/actions/workflows/codeql.yml?query=branch%3Amain)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dekobon/big-code-analysis/badge)](https://scorecard.dev/viewer/?uri=github.com/dekobon/big-code-analysis)
 [![docs.rs](https://docs.rs/big-code-analysis/badge.svg)](https://docs.rs/big-code-analysis)
 [![License](https://img.shields.io/crates/l/big-code-analysis.svg)](LICENSE)
 
