@@ -800,6 +800,22 @@ pub(crate) fn assert_child_space_kind(
     );
 }
 
+/// Returns the direct child [`FuncSpace`][crate::FuncSpace] named `name`,
+/// panicking if absent. Lets per-space-metric tests assert accessors on the
+/// owning class / interface space (where the value is nonzero) rather than on
+/// the always-zero file-unit root.
+#[cfg(test)]
+pub(crate) fn child_space<'a>(
+    func_space: &'a crate::FuncSpace,
+    name: &str,
+) -> &'a crate::FuncSpace {
+    func_space
+        .spaces
+        .iter()
+        .find(|s| s.name.as_deref() == Some(name))
+        .unwrap_or_else(|| panic!("expected a child FuncSpace named {name:?}"))
+}
+
 #[cfg(test)]
 #[path = "tools_tests.rs"]
 mod tests;

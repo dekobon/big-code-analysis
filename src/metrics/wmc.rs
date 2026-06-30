@@ -440,7 +440,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics};
+    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics, child_space};
 
     use super::*;
 
@@ -3733,6 +3733,37 @@ mod tests {
             |metric| {
                 let total = metric.wmc.class_wmc_sum();
                 assert_eq!(total, 2, "Outer.m (1) + Inner.n (1) with no double-count");
+            },
+        );
+    }
+
+    // Rounds out `wmc`'s public surface — the `Display` impl and the
+    // per-space `class_wmc` / `interface_wmc` accessors — mirroring the
+    // `Display` tests the sibling metrics (nom, nargs, halstead) carry.
+    #[test]
+    fn stats_display_and_per_space_accessors() {
+        check_func_space::<JavaParser, _>(
+            "public interface I {\n    void p();\n}\n\
+             public class C {\n    public void m() {}\n    private void n() {}\n}\n",
+            "X.java",
+            |unit| {
+                // Root rollup: class C contributes WMC 2, interface I contributes 1.
+                assert_eq!(unit.metrics.wmc.class_wmc_sum(), 2);
+                assert_eq!(unit.metrics.wmc.interface_wmc_sum(), 1);
+                assert_eq!(
+                    unit.metrics.wmc.to_string(),
+                    "classes: 2, interfaces: 1, total: 3"
+                );
+                // The singular accessors are per-space and populate only on the
+                // owning class / interface space (0 on the file-unit root), so
+                // assert them where they are nonzero — an accessor that always
+                // returned 0 or read the wrong field would fail here.
+                let class = child_space(&unit, "C");
+                assert_eq!(class.kind, SpaceKind::Class);
+                assert_eq!(class.metrics.wmc.class_wmc(), 2);
+                let iface = child_space(&unit, "I");
+                assert_eq!(iface.kind, SpaceKind::Interface);
+                assert_eq!(iface.metrics.wmc.interface_wmc(), 1);
             },
         );
     }
