@@ -122,6 +122,8 @@ mod c_macro;
 mod cfg_predicate;
 mod checker;
 mod getter;
+#[cfg(test)]
+mod language_enum_roundtrip;
 mod languages;
 mod macros;
 
