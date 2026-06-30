@@ -12,22 +12,33 @@ name: Smoke dry-run
 # This job runs the *same* checked-in smoke scripts the wheel workflows now
 # invoke (scripts/smoke/*), but against a cheap local dev build instead of a
 # packaged wheel — `cargo build` for the CLI and `maturin develop` for the
-# bindings. It fires only when the release/wheel plumbing or the smoke
-# scripts themselves change, so the common case pays nothing. A future
-# rename or serialization change to a metric/API now reds *this* PR check
-# rather than a tag.
+# bindings. It fires only when the wheel-smoke plumbing or the smoke scripts
+# themselves change, so the common case pays nothing.
 #
-# Scope note: this validates smoke-script-vs-code drift (the recurring
-# failure mode — bugs #2 and #3 of #995), not OS-package *packaging* (the
-# `.apk` basename collision of bug #1). Building a signed multi-arch `.apk`
-# needs the Alpine/abuild toolchain release.yml carries and is too heavy for
-# a per-PR job; that path stays tag-gated, with the arch-qualified asset
-# name (c53e504b) guarding the specific regression.
+# What this gate catches: drift between the extracted smoke scripts and the
+# code they assert against, on a PR that edits the scripts or the wheel
+# workflows that invoke them. It is the script/plumbing half of #995's fix.
+# The *other* half — a src-side metric rename or serialization change (the
+# #530 / #614 class) — is caught on every PR by the per-PR unit/integration
+# tests (`cli_metrics_json_serializes_integer_metrics_as_integers` in
+# big-code-analysis-cli/tests/format_smoke.rs and the `AnalysisFailure`
+# assertions in big-code-analysis-py/tests/test_batch.py), which run under
+# normal CI whenever src/** changes. This job does not trigger on src/**,
+# by design: those tests already guard that surface, and widening the filter
+# would rebuild a wheel on nearly every PR.
+#
+# Scope note: this validates smoke-script-vs-code drift, not OS-package
+# *packaging* (the `.apk` basename collision of bug #1). `release.yml` is
+# deliberately NOT a trigger here — its deb/rpm/apk smoke is package-manager-
+# specific, not extracted into scripts/smoke/*, so a dev-build run would
+# validate nothing in it and produce a hollow green check. Building a signed
+# multi-arch `.apk` needs the Alpine/abuild toolchain release.yml carries and
+# is too heavy for a per-PR job; that path stays tag-gated, with the arch-
+# qualified asset name (c53e504b) guarding the specific regression.
 
 on:
   pull_request:
     paths:
-      - '.github/workflows/release.yml'
       - '.github/workflows/python-wheels.yml'
       - '.github/workflows/python-cli-wheels.yml'
       - '.github/workflows/smoke-dryrun.yml'

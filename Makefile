@@ -23,6 +23,15 @@ BASE_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # read it).
 BCA_PY_DIR     := $(BASE_DIR)big-code-analysis-py
 
+# The release/wheel smoke harness lives outside the bindings package, so the
+# package-scoped py-* gates below pull it in explicitly (#995). Linting it
+# with the bindings' ruff/mypy config — rather than letting it drift outside
+# every per-PR gate — is the whole point of extracting it from workflow YAML
+# (lesson #80). `--config` forces the bindings config since there is no
+# config to discover from scripts/smoke upward.
+SMOKE_PY_DIR   := $(BASE_DIR)scripts/smoke
+SMOKE_LIB_PY   := $(SMOKE_PY_DIR)/lib_wheel_smoke.py
+
 # Directories excluded from linting and file-search operations.
 # `tests/repositories` holds vendored fixtures (incl. the
 # big-code-analysis-output submodule); `tree-sitter-*` are vendored
@@ -557,23 +566,33 @@ py-relock:
 	  exit 1; }
 	@cd "$(BCA_PY_DIR)" && uv lock
 
+# `scripts/smoke` is a second, separate ruff invocation rather than an extra
+# path on the bindings call: `--config` would otherwise re-root the bindings
+# dir's own `extend-exclude` (e.g. `_native.pyi`) against the wrong base and
+# spuriously flag excluded files. The smoke dir has nothing to exclude, so
+# pointing `--config` at the bindings pyproject just gives it the same
+# ruleset (line-length 100, the extend-select set) (#995).
 py-fmt:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Formatting Python sources..."; \
 	  ruff format "$(BCA_PY_DIR)"; \
+	  ruff format --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)"; \
 	else echo "ruff not found; skipping py-fmt"; fi
 
 py-fmt-check:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Checking Python formatting..."; \
-	  ruff format --check "$(BCA_PY_DIR)" || \
+	  ruff format --check "$(BCA_PY_DIR)" && \
+	  ruff format --check --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
 	    { echo "Python files not formatted (run 'make py-fmt')"; exit 1; }; \
 	else echo "ruff not found; skipping py-fmt-check"; fi
 
 py-lint:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Linting Python sources..."; \
-	  ruff check "$(BCA_PY_DIR)" || { echo "ruff lint found issues"; exit 1; }; \
+	  ruff check "$(BCA_PY_DIR)" && \
+	  ruff check --config "$(BCA_PY_DIR)/pyproject.toml" "$(SMOKE_PY_DIR)" || \
+	    { echo "ruff lint found issues"; exit 1; }; \
 	else echo "ruff not found; skipping py-lint"; fi
 
 py-typecheck:
@@ -584,13 +603,17 @@ py-typecheck:
 	@# host's PATH when the venv hasn't been provisioned (CI sets
 	@# `VIRTUAL_ENV` and uses PATH-resolved binaries). A pipx-isolated
 	@# system `mypy` can't see the bindings dir's pytest stubs.
+	@# The smoke harness (`$(SMOKE_LIB_PY)`) is appended to the checked
+	@# paths so it is type-gated under the same `--strict` posture (#995);
+	@# mypy with cwd=$(BCA_PY_DIR) discovers the bindings `[tool.mypy]`
+	@# config and resolves `import big_code_analysis` from the venv.
 	@if [ -x "$(BCA_PY_DIR)/.venv/bin/mypy" ]; then \
 	  echo "Type-checking with mypy --strict (venv)..."; \
-	  (cd "$(BCA_PY_DIR)" && .venv/bin/mypy --strict python tests examples) || \
+	  (cd "$(BCA_PY_DIR)" && .venv/bin/mypy --strict python tests examples "$(SMOKE_LIB_PY)") || \
 	    { echo "mypy --strict found issues"; exit 1; }; \
 	elif command -v mypy >/dev/null 2>&1; then \
 	  echo "Type-checking with mypy --strict..."; \
-	  (cd "$(BCA_PY_DIR)" && mypy --strict python tests examples) || \
+	  (cd "$(BCA_PY_DIR)" && mypy --strict python tests examples "$(SMOKE_LIB_PY)") || \
 	    { echo "mypy --strict found issues"; exit 1; }; \
 	else echo "mypy not found; skipping mypy stage of py-typecheck"; fi
 	@if [ -x "$(BCA_PY_DIR)/.venv/bin/pyright" ]; then \
@@ -628,12 +651,16 @@ py-typecheck:
 # checkout (target/ is restored from cache but the .so is rebuilt on
 # every job invocation, not repeated within a single job), and the
 # editable install dir is never populated before the build step.
+#
+# Both guards live in one variable, invoked as `@$(PY_EXT_CLEAN)` by every
+# maturin-develop target (py-test, py-stubtest, smoke-lib), so a fix really
+# does land in one place — the #995 review caught a third copy drifting from
+# the "hoisted to one place" promise this comment once made per-target.
+PY_EXT_CLEAN := find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+
 py-test:
-	@# Pre-build cleanups (see header comment) are hoisted before the
-	@# if/elif so a future fix to either guard lands in one place; the
-	@# rm/find are safe no-ops on missing files.
-	@find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true
-	@rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	@# Pre-build cleanups (see header comment); safe no-ops on missing files.
+	@$(PY_EXT_CLEAN)
 	@# Prefer the bindings dir's `.venv/bin/{maturin,python}` over the
 	@# host's PATH for the same reason `py-typecheck` does: the venv
 	@# has pytest (declared as a dev-dependency in
@@ -663,8 +690,7 @@ py-test:
 # deliberate facade differences (the `vcs` submodule, runtime
 # `__all__`); see `big-code-analysis-py/stubtest-allowlist.txt`.
 py-stubtest:
-	@find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true
-	@rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	@$(PY_EXT_CLEAN)
 	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
 	  if "$(BCA_PY_DIR)/.venv/bin/python" -c "import mypy.stubtest" >/dev/null 2>&1; then \
 	    echo "Building extension + running mypy stubtest (venv)..."; \
@@ -703,8 +729,7 @@ smoke-cli:
 # mirrors the python-wheels.yml smoke step (packaged abi3 wheel) and carries
 # the same 0-byte-.so pre-build cleanups as py-test.
 smoke-lib:
-	@find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true
-	@rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	@$(PY_EXT_CLEAN)
 	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
 	  echo "Building extension + running library smoke (venv)..."; \
 	  (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet) && \
