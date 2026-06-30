@@ -92,7 +92,7 @@ Every tree-sitter grammar is gated behind a per-language Cargo
 feature. The default feature set is `all-languages`, so a bare
 
 ```toml
-big-code-analysis = "2.0.0"
+big-code-analysis = "2.0.1"
 ```
 
 pulls every grammar in (matching the library's historical behaviour
@@ -101,7 +101,7 @@ only need a subset of languages can opt out of the defaults and
 re-enable just the grammars they want:
 
 ```toml
-big-code-analysis = { version = "2.0.0", default-features = false, features = ["rust", "typescript"] }
+big-code-analysis = { version = "2.0.1", default-features = false, features = ["rust", "typescript"] }
 ```
 
 Supported language features: `bash`, `c`, `cpp`, `csharp`, `elixir`,
