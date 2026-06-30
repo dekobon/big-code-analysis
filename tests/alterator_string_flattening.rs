@@ -52,66 +52,31 @@ fn assert_flattened(lang: LANG, code: &str, file_name: &str, literal: &str) {
     );
 }
 
-#[test]
-fn objc_flattens_string_literal() {
-    assert_flattened(
-        LANG::Objc,
-        "int f(void) { const char *s = \"hi\"; return 0; }",
-        "f.m",
-        "\"hi\"",
-    );
+/// Emits one `#[test]` per `name: lang, code, file, literal;` case, each
+/// asserting the literal survives `alterate` as a single verbatim leaf.
+/// Mirrors the `roundtrip_tests!` pattern in `src/language_enum_roundtrip.rs`.
+macro_rules! flatten_cases {
+    ($($name:ident: $lang:expr, $code:expr, $file:expr, $lit:expr;)*) => {
+        $(
+            #[test]
+            fn $name() {
+                assert_flattened($lang, $code, $file, $lit);
+            }
+        )*
+    };
 }
 
-#[test]
-fn mozcpp_flattens_string_literal() {
-    assert_flattened(
-        LANG::Mozcpp,
-        "int f() { const char *s = \"hi\"; return 0; }",
-        "f.cpp",
-        "\"hi\"",
-    );
-}
-
-#[test]
-fn csharp_flattens_string_literal() {
-    assert_flattened(
-        LANG::Csharp,
-        "class C { void M() { string s = \"hi\"; } }",
-        "f.cs",
-        "\"hi\"",
-    );
-}
-
-#[test]
-fn lua_flattens_string_literal() {
-    assert_flattened(LANG::Lua, "local s = \"hi\"", "f.lua", "\"hi\"");
-}
-
-#[test]
-fn tcl_flattens_quoted_word() {
-    assert_flattened(LANG::Tcl, "set s \"hi\"", "f.tcl", "\"hi\"");
-}
-
-#[test]
-fn irules_flattens_braced_word() {
+flatten_cases! {
+    objc_flattens_string_literal: LANG::Objc, "int f(void) { const char *s = \"hi\"; return 0; }", "f.m", "\"hi\"";
+    mozcpp_flattens_string_literal: LANG::Mozcpp, "int f() { const char *s = \"hi\"; return 0; }", "f.cpp", "\"hi\"";
+    csharp_flattens_string_literal: LANG::Csharp, "class C { void M() { string s = \"hi\"; } }", "f.cs", "\"hi\"";
+    lua_flattens_string_literal: LANG::Lua, "local s = \"hi\"", "f.lua", "\"hi\"";
+    tcl_flattens_quoted_word: LANG::Tcl, "set s \"hi\"", "f.tcl", "\"hi\"";
     // In valid iRules a quoted word only appears inside an event handler's
-    // `{ … }` body, which `alterate` flattens as a single `braced_word`
-    // leaf (the same match arm that handles `quoted_word`), so the verbatim
-    // text to look for is the whole brace block.
-    assert_flattened(
-        LANG::Irules,
-        "when HTTP_REQUEST { set s \"hi\" }",
-        "f.irul",
-        "{ set s \"hi\" }",
-    );
-}
-
-#[test]
-fn ruby_flattens_string_literal() {
-    assert_flattened(LANG::Ruby, "s = \"hi\"\n", "f.rb", "\"hi\"");
-}
-
-#[test]
-fn elixir_flattens_string_literal() {
-    assert_flattened(LANG::Elixir, "s = \"hi\"\n", "f.ex", "\"hi\"");
+    // `{ … }` body, which `alterate` flattens as a single `braced_word` leaf
+    // (the same match arm that handles `quoted_word`), so the verbatim text
+    // to look for is the whole brace block.
+    irules_flattens_braced_word: LANG::Irules, "when HTTP_REQUEST { set s \"hi\" }", "f.irul", "{ set s \"hi\" }";
+    ruby_flattens_string_literal: LANG::Ruby, "s = \"hi\"\n", "f.rb", "\"hi\"";
+    elixir_flattens_string_literal: LANG::Elixir, "s = \"hi\"\n", "f.ex", "\"hi\"";
 }
