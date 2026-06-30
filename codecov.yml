@@ -27,6 +27,17 @@ comment:
 # always runs) and `python` (pytest-cov, only on PRs that touch the
 # bindings). carryforward keeps the python number from vanishing on
 # Rust-only PRs, where the python-test job is skipped.
+#
+# Measurement gap (intentional): the `python` flag measures only the pure-
+# Python surface via pytest-cov. The PyO3 *Rust* layer in
+# big-code-analysis-py/src/ (lib.rs, vcs.rs, node.rs, ast.rs, sarif.rs) is
+# exercised by those same pytest suites, but the crate has no `#[test]`s, so
+# `cargo llvm-cov nextest` (which only runs cargo tests) never instruments
+# it. Its standalone Rust-line coverage therefore reads far lower than it is
+# actually tested — do not "fix" that number by adding redundant cargo tests
+# that re-cover behaviour pytest already drives. Closing it for real means
+# instrumenting the maturin/pytest run and merging that profdata, tracked
+# separately.
 flag_management:
   default_rules:
     carryforward: true
