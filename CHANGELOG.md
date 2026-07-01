@@ -43,6 +43,18 @@ for historical reference.
   touches the release/wheel plumbing, so a future metric rename or
   serialization change reds a PR check instead of a release.
 
+### Fixed
+
+- docs.rs now publishes the **complete** API reference. The published
+  build previously used default features only, silently dropping the
+  entire feature-gated `vcs` module (change-history metrics, #328) from
+  the reference. A `[package.metadata.docs.rs]` section
+  (`all-features = true`, `--cfg docsrs`) restores it and enables
+  per-item "Available on crate feature …" badges via `doc(cfg)`. A new
+  `make doc-check-docsrs` target reproduces the docs.rs build locally on
+  nightly (`--cfg docsrs`), so the published rendering can be verified
+  before a release rather than discovered broken after publish.
+
 ## [2.0.0] - 2026-06-29
 
 The project's first major version bump since `1.0`, and the first
