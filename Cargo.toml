@@ -127,6 +127,16 @@ include = [
   "/CHANGELOG.md",
 ]
 
+# docs.rs otherwise builds with default features only, and `vcs` is NOT
+# in `default` (default = ["all-languages"]), so the published reference
+# would silently drop the entire `pub mod vcs` surface. Build every
+# feature and pass `--cfg docsrs` so the `doc(cfg(...))` feature badges in
+# `src/lib.rs` render. docs.rs builds on nightly, where `feature(doc_cfg)`
+# is available.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 aho-corasick = "^1.0"
 # `bstr` carries the raw, possibly-non-UTF-8 bytes git stores for paths

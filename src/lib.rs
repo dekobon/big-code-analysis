@@ -17,6 +17,10 @@
 // dead code is caught there. Fixes the long-red `features
 // (no-default-features / minimal-langs (lib))` CI legs.
 #![cfg_attr(not(feature = "all-languages"), allow(dead_code))]
+// docs.rs (and the local `doc-check-docsrs` gate) build with `--cfg docsrs`
+// on nightly, enabling per-item "Available on crate feature …" badges for
+// non-default surfaces such as `vcs`. Guarded so stable builds are unaffected.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! big-code-analysis is a library to analyze and extract information
 //! from source codes written in many different programming languages.
@@ -219,7 +223,11 @@ pub mod wire;
 /// churn, commit frequency, author count / ownership dilution, bug- and
 /// security-fix history, and an ordinal composite risk score. See
 /// [`vcs::build_history_index`].
+///
+/// Enable with the `vcs` Cargo feature (the umbrella over the current
+/// `vcs-git` backend, which is what the availability badge names).
 #[cfg(feature = "vcs-git")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vcs-git")))]
 pub mod vcs;
 
 // --- Errors ---
