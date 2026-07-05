@@ -92,7 +92,7 @@ jobs:
           persist-credentials: false
           ref: ${{ steps.tag.outputs.tag }}
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
@@ -253,19 +253,19 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.ref }}
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - name: Install cross (Linux cross-compile)
         if: matrix.cross
-        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2.82.5
+        uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
         with:
           tool: cross@${{ env.CROSS_VERSION }}
 
       - name: Install cargo-about
-        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2.82.5
+        uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
         with:
           tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
 
@@ -494,12 +494,12 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.ref }}
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2.82.5
+      - uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
         with:
           tool: cargo-deb@${{ env.CARGO_DEB_VERSION }}
 
@@ -579,12 +579,12 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.ref }}
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2.82.5
+      - uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
         with:
           tool: cargo-generate-rpm@${{ env.CARGO_GENERATE_RPM_VERSION }}
 
@@ -704,7 +704,7 @@ jobs:
       # cross-arch builds (aarch64 on an x86_64 runner), run the Alpine
       # container under qemu for the target architecture so abuild's
       # CARCH matches.
-      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         if: matrix.apk_arch != 'x86_64'
 
       - name: Build .apk inside alpine:3.20 container
@@ -800,7 +800,7 @@ jobs:
         image: [ubuntu:22.04, ubuntu:24.04, debian:12]
         arch: [amd64, arm64]
     steps:
-      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         if: matrix.arch == 'arm64'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -857,7 +857,7 @@ jobs:
         image: [rockylinux:9, fedora:latest, amazonlinux:2023]
         arch: [x86_64, aarch64]
     steps:
-      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         if: matrix.arch == 'aarch64'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -908,7 +908,7 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
     steps:
-      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         if: matrix.arch == 'aarch64'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1121,10 +1121,10 @@ jobs:
           fi
           ls -la release/
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2.82.5
+      - uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
         with:
           tool: cargo-cyclonedx@${{ env.CARGO_CYCLONEDX_VERSION }}
 
@@ -1418,7 +1418,7 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.preflight.outputs.ref }}
 
-      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable tip
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
