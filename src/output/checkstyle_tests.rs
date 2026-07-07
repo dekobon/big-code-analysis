@@ -203,7 +203,7 @@ fn whitespace_in_attribute_round_trips_via_numeric_refs() {
                 for attr in start.attributes().with_checks(false).flatten() {
                     if attr.key.as_ref() == b"name" {
                         roundtripped = Some(
-                            attr.unescape_value()
+                            attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                 .expect("attribute value decodes")
                                 .into_owned(),
                         );

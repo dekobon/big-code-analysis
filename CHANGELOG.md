@@ -55,6 +55,19 @@ for historical reference.
   nightly (`--cfg docsrs`), so the published rendering can be verified
   before a release rather than discovered broken after publish.
 
+### Security
+
+- Cleared three RUSTSEC advisories flagged by the `cargo-deny` gate.
+  `crossbeam-epoch` (a shipped transitive dependency via `crossbeam`)
+  moves `0.9.18` → `0.9.20` for the invalid-pointer-dereference in its
+  `fmt::Pointer` impl (RUSTSEC-2026-0204). The dev-only `quick-xml`
+  test dependency moves `0.39` → `0.41` for the quadratic
+  duplicate-attribute check (RUSTSEC-2026-0194) and the unbounded
+  namespace-declaration allocation in `NsReader` (RUSTSEC-2026-0195);
+  the XML-validation test helpers migrate from the now-deprecated
+  `Attribute::unescape_value()` to `normalized_value(XmlVersion::Implicit1_0)`,
+  which is its exact behavioral equivalent.
+
 ## [2.0.0] - 2026-06-29
 
 The project's first major version bump since `1.0`, and the first

@@ -48,7 +48,7 @@ csv.workspace = true
 insta = "1.29.0"
 jsonschema = "^0.46"
 predicates = "^3.0"
-quick-xml = "^0.39"
+quick-xml = "^0.41"
 
 # Debian/Ubuntu packaging — consumed by `cargo deb` in release CI.
 # The binary asset path `target/release/bca` is rewritten by cargo-deb
