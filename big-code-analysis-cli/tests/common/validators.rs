@@ -230,10 +230,13 @@ fn attr_value(start: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<S
     use std::borrow::Cow;
     for attr in start.attributes().with_checks(false).flatten() {
         if attr.key.as_ref() == name.as_bytes() {
-            return Some(attr.unescape_value().map_or_else(
-                |_| String::from_utf8_lossy(&attr.value).into_owned(),
-                Cow::into_owned,
-            ));
+            return Some(
+                attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                    .map_or_else(
+                        |_| String::from_utf8_lossy(&attr.value).into_owned(),
+                        Cow::into_owned,
+                    ),
+            );
         }
     }
     None
