@@ -59,7 +59,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -154,6 +154,12 @@ help:
 	@echo "  verify-changelog                     Verify CHANGELOG.md has section for VERSION=x.y.z"
 	@echo "  pkg-deb-local                        Build .deb locally (host target, no CI matrix)"
 	@echo "  pkg-rpm-local                        Build .rpm locally (host target, no CI matrix)"
+	@echo ""
+	@echo "Dev container (Claude Code + MCP servers):"
+	@echo "  dev-env-build                        Build the dev image (Rust/Python/Node + MCP servers)"
+	@echo "  dev-env-run                          Start the dev container (detached, repo mounted)"
+	@echo "  dev-env-shell                        Open a shell in the running dev container"
+	@echo "  dev-env-rm                           Stop and remove the dev container"
 
 # ---------------------------------------------------------------------------
 # Prerequisites
@@ -1305,3 +1311,41 @@ pkg-rpm-local:
 	cargo generate-rpm -p big-code-analysis-cli --payload-compress zstd --output out/
 	cargo generate-rpm -p big-code-analysis-web --payload-compress zstd --output out/
 	@ls -lh out/*.rpm
+
+# ---------------------------------------------------------------------------
+# Dev container
+#
+# A self-contained image with every runtime and tool needed to run Claude
+# Code plus the project's MCP servers (Context7, codegraph, Serena) and the
+# full validation gate against a mounted checkout. See docker/README.md.
+#
+# Plain `docker build` / `docker run` — no docker-compose. The build args
+# pass the caller's UID/GID so the bind-mounted repo stays writable; the
+# container mounts this repo at $(DEV_MOUNT) and Claude launches the MCP
+# servers itself (they are registered into its user scope at image build).
+# ---------------------------------------------------------------------------
+DEV_IMAGE      := big-code-analysis-dev:latest
+DEV_CONTAINER  := big-code-analysis-dev
+DEV_MOUNT      := /home/dev/source/big-code-analysis
+
+dev-env-build:
+	docker build \
+	  --build-arg USER_UID=$(shell id -u) \
+	  --build-arg USER_GID=$(shell id -g) \
+	  --tag $(DEV_IMAGE) \
+	  --file $(BASE_DIR)Dockerfile "$(BASE_DIR)"
+
+dev-env-run:
+	docker run --detach --init \
+	  --name $(DEV_CONTAINER) \
+	  --volume "$(BASE_DIR):$(DEV_MOUNT)" \
+	  --env ANTHROPIC_API_KEY \
+	  --env CODEGRAPH_LLM_API_KEY \
+	  $(DEV_IMAGE) sleep infinity
+	@echo "Started $(DEV_CONTAINER). Open a shell with: make dev-env-shell"
+
+dev-env-shell:
+	docker exec --interactive --tty --workdir $(DEV_MOUNT) $(DEV_CONTAINER) bash
+
+dev-env-rm:
+	docker rm --force $(DEV_CONTAINER)

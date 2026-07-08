@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "context7-mcp",
+      "args": []
+    },
+    "codegraph": {
+      "command": "codegraph",
+      "args": ["mcp"]
+    },
+    "serena": {
+      "command": "serena",
+      "args": [
+        "start-mcp-server",
+        "--context",
+        "ide-assistant",
+        "--project",
+        "/home/dev/source/big-code-analysis"
+      ]
+    }
+  }
+}

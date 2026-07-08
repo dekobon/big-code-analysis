@@ -23,6 +23,11 @@ big-code-analysis-py/python/big_code_analysis/_native*.so
 *.pyc
 abuild-keys/
 
+# Dev-container corporate/proxy CA certs — dropped in per-environment to
+# build behind a TLS-intercepting proxy; never commit them (see
+# docker/README.md). The .gitkeep placeholder keeps the dir tracked.
+docker/certs/*.crt
+
 # CLI pip-wheel build artefacts. `python-cli-wheels.yml` stages the
 # generated TPL, a copy of the workspace LICENSE, and the `man/` pages
 # into the CLI crate directory and builds wheels under `dist/` there;
