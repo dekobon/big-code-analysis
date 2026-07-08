@@ -6,13 +6,14 @@ description: Audit naming quality in a crate or directory for misleading, incons
 # Audit Naming Quality
 
 Audit naming quality in `$ARGUMENTS` for misleading, inconsistent, or unclear
-names across the Rust source under audit. Distinct from `audit` (logic,
-security, complexity) -- this focuses exclusively on whether names tell the
-truth.
+names across the Rust source under audit. Distinct from `audit-crate` /
+`audit-file` (logic, security, complexity) -- this focuses exclusively on
+whether names tell the truth.
 
 If `$ARGUMENTS` is empty, default to `big-code-analysis` — the root library
-crate. Other crates in this workspace are `big-code-analysis-cli` and
-`big-code-analysis-web`. `$ARGUMENTS` may also be a directory path; in that
+crate. Other crates in this workspace are `big-code-analysis-cli`,
+`big-code-analysis-web`, `big-code-analysis-py`, `xtask`, and `enums`.
+`$ARGUMENTS` may also be a directory path; in that
 case the audit is scoped to that directory.
 
 **Resolve `$ARGUMENTS` once at the very start of the run** and use the
@@ -277,14 +278,14 @@ Severity definitions:
 | ID | Check |
 |----|-------|
 | P1 | Cross-language naming parity: when `language_rust.rs`, `language_python.rs`, etc. expose the same concept, the names match (no `is_func` in one and `is_function` in another) |
-| P2 | Metric names follow the canonical metric vocabulary (`abc`, `cognitive`, `cyclomatic`, `halstead`, `loc`, `mi`, `nargs`, `nom`, `npa`, `npm`, `wmc`) — abbreviations are standard, expanded forms or alternates are inconsistent |
+| P2 | Metric names follow the canonical metric vocabulary (`abc`, `cognitive`, `cyclomatic`, `halstead`, `loc`, `mi`, `nargs`, `nexits`, `nom`, `npa`, `npm`, `tokens`, `wmc`) — abbreviations are standard, expanded forms or alternates (e.g. `exit` for `nexits`) are inconsistent |
 | P3 | Tree-sitter node-type strings used as identifiers match the upstream grammar's exact spelling (deviations are bugs, not style) |
 
 ---
 
 ## Step 4: Group findings into issues
 
-**Key difference from `audit`**: Group findings into coherent tickets:
+**Key difference from `audit-crate` / `audit-file`**: Group findings into coherent tickets:
 
 1. Group by **file** if multiple findings in the same file
 2. Group by **theme** if the same naming pattern repeats across files

@@ -9,9 +9,9 @@ Audit the Rust crate `$ARGUMENTS` for logic errors, unnecessary complexity,
 bugs, security issues, incorrect comments, and code smells.
 
 If `$ARGUMENTS` is empty, default to `big-code-analysis` — the root library
-crate. The other crates in this workspace are `big-code-analysis-cli` and
-`big-code-analysis-web`. The crate root is the directory containing the
-crate's `Cargo.toml`.
+crate. The other crates in this workspace are `big-code-analysis-cli`,
+`big-code-analysis-web`, `big-code-analysis-py`, `xtask`, and `enums`.
+The crate root is the directory containing the crate's `Cargo.toml`.
 
 **Resolve `$ARGUMENTS` once at the very start of the run** and use the
 resolved value for every subsequent reference (memory keys, `cargo -p`, issue
@@ -204,7 +204,7 @@ CRATE_DIR=$(cargo metadata --format-version 1 --no-deps \
 
 # Self-host: use this project's own CLI to measure the crate under audit.
 if cargo build -p big-code-analysis-cli >/dev/null 2>&1; then
-  ./target/debug/big-code-analysis-cli -m -O json -p "$CRATE_DIR" > /tmp/audit-metrics.json || true
+  ./target/debug/bca metrics -O json "$CRATE_DIR" > /tmp/audit-metrics.json || true
 fi
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: scan-project
-description: Workspace-wide scan for logic errors, security issues, and metrics calculation bugs across all crates and all language modules. Runs 6 parallel sub-agents, one per scope partition, and applies a 50-question checklist that encodes every lesson in docs/development/lessons_learned.md. Files GitHub issues with fix plans. READ-ONLY — no commits, no file modifications.
+description: Scan of the core library, CLI, and web crates for logic errors, security issues, and metrics calculation bugs across all language modules. Runs 6 parallel sub-agents, one per scope partition, and applies a 50-question checklist distilled from the highest-recurrence lessons in docs/development/lessons_learned.md. Files GitHub issues with fix plans. READ-ONLY — no commits, no file modifications.
 ---
 
 # Scan Project
@@ -11,11 +11,16 @@ issues, and metrics calculation bugs.
 Unlike `audit-crate` (which audits one crate at a time with a general
 checklist), this skill:
 
-- **Covers the whole workspace** in one invocation.
+- **Covers the core library plus the CLI and web crates** in one
+  invocation (`big-code-analysis-py`, `xtask`, `enums`, and the vendored
+  `tree-sitter-*` grammar crates are out of scope — audit those with
+  `audit-crate`).
 - **Runs 6 sub-agents in parallel**, one per scope partition.
-- **Applies a 50-question checklist** that encodes every lesson documented in
-  `docs/development/lessons_learned.md`, with 20 questions dedicated to
-  metrics calculation bugs that the general checklist does not cover.
+- **Applies a 50-question checklist** distilled from the highest-recurrence
+  lessons in `docs/development/lessons_learned.md`, with 20 questions
+  dedicated to metrics calculation bugs that the general checklist does not
+  cover. (The lessons file keeps growing; when revising this checklist,
+  sweep lessons added since the last revision for new question material.)
 
 ## ABSOLUTE CONSTRAINTS
 
@@ -171,7 +176,7 @@ The CLI binary is `bca` (declared as `[[bin]] name = "bca"` in
 
 ```bash
 if cargo build -p big-code-analysis-cli 2>/tmp/scan-cli-build.log; then
-  ./target/debug/bca -m -O json -p src/ \
+  ./target/debug/bca metrics -O json src/ \
     > /tmp/scan-metrics.json 2>/tmp/scan-metrics.err || true
 fi
 ```
@@ -234,7 +239,7 @@ Files:
 - `src/metrics/abc.rs`
 - `src/metrics/cognitive.rs`
 - `src/metrics/cyclomatic.rs`
-- `src/metrics/exit.rs`
+- `src/metrics/nexits.rs`
 - `src/metrics/halstead.rs`
 - `src/metrics/loc.rs`
 - `src/metrics/mi.rs`
@@ -276,7 +281,9 @@ Report any discrepancy as a separate FINDING.
 ### Partition C — C-family language modules
 
 Files:
+- `src/languages/language_c.rs`
 - `src/languages/language_cpp.rs`
+- `src/languages/language_mozcpp.rs`
 - `src/languages/language_csharp.rs`
 - `src/languages/language_java.rs`
 - `src/languages/language_kotlin.rs`
@@ -285,9 +292,8 @@ Checklist focus: all 50 questions. Special attention to Q32, Q37–Q42
 (grammar root, else-if structural model, cross-language parity, dispatch gaps).
 
 Build the same sibling-parity audit table as Partition B for this language
-family. The parity table covers the C/C++ side (`cpp` only — there is no
-`language_c.rs` or `language_mozcpp.rs` in this workspace) and the JVM/
-managed side (`csharp`, `java`, `kotlin`).
+family. The parity table covers the C/C++ side (`c`, `cpp`, `mozcpp`) and
+the JVM/managed side (`csharp`, `java`, `kotlin`).
 
 ### Partition D — Other language modules
 
@@ -303,6 +309,8 @@ Files (every `src/languages/language_*.rs` not in B or C):
 - `src/languages/language_tcl.rs`
 - `src/languages/language_elixir.rs`
 - `src/languages/language_groovy.rs`
+- `src/languages/language_objc.rs`
+- `src/languages/language_irules.rs`
 - `src/languages/language_ccomment.rs`
 - `src/languages/language_preproc.rs`
 
@@ -321,7 +329,7 @@ Files:
 - `src/node.rs`
 - `src/parser.rs`
 - `src/traits.rs`
-- `src/macros.rs`
+- `src/macros/` (all files)
 - `src/c_macro.rs`
 - `src/lib.rs`
 
@@ -442,8 +450,9 @@ Track depth per file: `full` | `partial` | `skimmed`.
 
 ### Section G — Metrics Calculation Bugs (Q31–Q50)
 
-These questions encode every lesson in `docs/development/lessons_learned.md`.
-Apply them to every file in Partitions A–D.
+These questions distill the highest-recurrence metrics lessons from
+`docs/development/lessons_learned.md`. Apply them to every file in
+Partitions A–D.
 
 #### No-op trait implementations (Lesson 1)
 
@@ -486,7 +495,7 @@ Apply them to every file in Partitions A–D.
 #### `_min` sentinel leak (Lesson 3 — extended)
 
 34. For every `_min()` accessor across all metric files (`cognitive_min`,
-    `cyclomatic_min`, `exit_min`, `abc_min`, `nom_min`, `nargs_min`, and any
+    `cyclomatic_min`, `nexits_min`, `abc_min`, `nom_min`, `nargs_min`, and any
     others): is the `usize::MAX → 0.0` collapse applied (as in
     `src/metrics/tokens.rs:115-127` and `src/metrics/loc.rs`)? Any accessor
     that returns `usize::MAX as f64` or `f64::MAX` to callers (including JSON

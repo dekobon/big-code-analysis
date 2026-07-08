@@ -6,7 +6,7 @@ description: >
   and better type-system modeling including newtypes, enums, and trait design.
   Use when asked to simplify, shorten, optimize, clean up, or modernize Rust code.
 argument-hint: "[file-or-crate] [--dry-run]"
-allowed-tools: Read, Grep, Glob, Bash(cargo:*), Bash(rustc:*), Bash(rustfmt:*), Bash(clippy:*)
+allowed-tools: Read, Grep, Glob, Bash(cargo:*), Bash(rustc:*)
 ---
 
 # Rust Code Optimizer
@@ -27,7 +27,7 @@ Parse `$ARGUMENTS` as: `[target] [--dry-run]`
 |----------|-------|
 | *(empty)* | Unstaged + staged changes (`git diff HEAD`) |
 | `staged` | Staged changes only (`git diff --cached`) |
-| `branch` | All commits on current branch vs `master` (`git diff master...HEAD`) |
+| `branch` | All commits on current branch vs `main` (`git diff main...HEAD`) |
 | *crate name* | All `.rs` files in the crate (e.g. `big-code-analysis`, `big-code-analysis-cli`, `big-code-analysis-web`) |
 | *file or directory path* | Specific file or directory |
 | `--dry-run` | Stop after presenting the plan — do not apply changes |
@@ -44,7 +44,7 @@ Parse `$ARGUMENTS` as: `[target] [--dry-run]`
 3. **Create a working branch** when the target is a crate or directory:
 
    ```bash
-   git checkout -b optimize/<target> master
+   git checkout -b optimize/<target> main
    ```
 
    If the branch already exists from a prior run, check it out and continue.
@@ -117,7 +117,7 @@ Parse `$ARGUMENTS` as: `[target] [--dry-run]`
 
 13. **Summarize** the diff: before/after line counts, categories applied.
     If a working branch was created, remind the user:
-    "Branch `optimize/<target>` is ready for review. Merge to master when satisfied."
+    "Branch `optimize/<target>` is ready for review. Merge to main when satisfied."
 
 ---
 
@@ -274,8 +274,10 @@ Convert a slice to a fixed-size array reference without `try_into().unwrap()`.
 // BEFORE
 let arr: &[u8; 4] = chunk.try_into().unwrap();
 
-// AFTER (1.93)
-let Some(arr) = chunk.as_array::<4>() else { panic!("wrong size") };
+// AFTER (1.93) — propagate the error; `panic!` is banned in non-test code
+let Some(arr) = chunk.as_array::<4>() else {
+    return Err(Error::WrongChunkSize);
+};
 ```
 
 ### D2. `fmt::from_fn` (requires 1.93)
@@ -323,7 +325,9 @@ Eliminates custom `Serialize`/`Deserialize` impls on single-field wrappers.
 If 3+ types share identical method implementations differing only in type name,
 extract a `macro_rules!` to generate them. (This pattern is already used heavily
 across `src/languages/` — prefer extending the existing macros over inventing new
-ones.)
+ones.) When consolidating, follow `.claude/rules/macro-comments.md`: keep the
+macro body minimal and hoist per-call rationale comments above each invocation,
+never into the macro definition.
 
 ---
 
@@ -355,7 +359,10 @@ Move rarely-used dependencies behind feature flags to reduce default compile sco
 
 ## Upgrade Decision Matrix
 
-When an optimization requires a newer Rust version, flag it clearly:
+This workspace's MSRV is already 1.94 (`rust-version` in the root
+`Cargo.toml`), so every feature below is available without any bump —
+apply them freely. The matrix matters only for hypothetical features
+newer than the current MSRV; flag those clearly:
 
 | Optimization | Min Rust | Impact |
 |---|---|---|
@@ -368,7 +375,8 @@ When an optimization requires a newer Rust version, flag it clearly:
 | `cfg` on `asm!` lines | 1.93 | Less asm block duplication |
 | Zeroed alloc helpers | 1.92 | Cleaner zero-init large buffers |
 
-Always state upgrade requirement in the plan and let the user decide.
+For anything above the current MSRV, state the upgrade requirement in the
+plan and let the user decide.
 
 ---
 
@@ -450,9 +458,9 @@ on Tier 2. Skip Tier 3 unless the user specifically requests it.
 - Do NOT change observable behavior (error messages, return types, side effects)
 - Do NOT add dependencies without explicit user approval
 - Do NOT touch code outside the target scope from `$ARGUMENTS`
-- Do NOT apply patterns that require an MSRV bump without flagging it in the plan
+- Do NOT apply patterns that require an MSRV bump past 1.94 without flagging it in the plan
 - Do NOT sacrifice readability for line-count reduction
 - Do NOT use `unsafe` code (project-wide ban)
-- Do NOT merge the `optimize/<target>` branch into `master` — leave it for the user
+- Do NOT merge the `optimize/<target>` branch into `main` — leave it for the user
 - Do NOT re-examine files/symbols marked clean in Serena memory (unless they have new git changes)
 - When in doubt about whether a transformation is safe, leave the code alone

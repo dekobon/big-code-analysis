@@ -6,9 +6,9 @@ description: Complete workflow for fixing GitHub issues including investigation,
 # Fix GitHub Issue Workflow
 
 1. Read the GitHub issue thoroughly (`gh issue view <number>` plus all comments).
-2. If Serena (or another LSP-based code intelligence MCP) is available, activate
-   the project (`serena:activate_project`) so symbol-level navigation and editing
-   are the default. LSP tools are preferred over text-based search/edit for code;
+2. If Serena (or another LSP-based code intelligence MCP) is available, read its
+   instructions manual (`serena:initial_instructions`) so symbol-level navigation
+   and editing are the default. LSP tools are preferred over text-based search/edit for code;
    fall back to `rg`/`fd` and the built-in Grep/Glob tools only when LSP is
    unavailable. Never use legacy `grep`/`find`.
 3. Re-read any relevant project conventions (e.g., `CLAUDE.md`, `README.md`, and
@@ -23,12 +23,14 @@ description: Complete workflow for fixing GitHub issues including investigation,
    `src/languages/` modules deliberately mirror each other; a bug in one
    language's metric implementation often exists in several. Fix all
    instances — do not leave known-broken siblings for a follow-up.
-6. **Plan the fix using sequential thinking.** Use the
-   `sequential-thinking:sequentialthinking` MCP tool to reason through the
-   resolution step by step before writing any code. The sequential thinking
-   process MUST:
-   - **Start** with `thoughtNumber: 1`, an initial `totalThoughts` estimate
-     (typically 5-8), and `nextThoughtNeeded: true`.
+6. **Plan the fix with explicit step-by-step reasoning.** If the
+   `sequential-thinking:sequentialthinking` MCP tool is available, use it
+   (start with `thoughtNumber: 1`, a `totalThoughts` estimate of typically
+   5-8, and `nextThoughtNeeded: true`; adjust `totalThoughts` as
+   understanding evolves and use `isRevision` to correct earlier reasoning;
+   conclude with `nextThoughtNeeded: false`). If it is not configured,
+   reason through the same phases inline — the tool is a vehicle, not the
+   requirement. The plan MUST:
    - **Analyze** the root cause — not just the symptom. Trace the data/control
      flow that leads to the bug.
    - **Enumerate approaches** and evaluate trade-offs (simplicity, correctness,
@@ -43,13 +45,11 @@ description: Complete workflow for fixing GitHub issues including investigation,
      unexplained abbreviation, a `to_string_lossy()` on an identifier path,
      `unsafe` code, or any other anti-pattern, redesign before proceeding.
    - **Verify completeness** — confirm the plan covers implementation, tests
-     for **every affected language**, and documentation before concluding.
-   - **Conclude** with `nextThoughtNeeded: false` and a final plan summary.
-   - Adjust `totalThoughts` up or down as understanding evolves. Use
-     `isRevision` if earlier reasoning needs correction.
+     for **every affected language**, and documentation, and conclude with a
+     final plan summary.
 7. **Implement the fix.** Do NOT stop after planning — execute the plan from
-   step 6. If the implementation reveals issues the plan missed, revise via
-   sequential thinking before proceeding. Before changing any public API, run
+   step 6. If the implementation reveals issues the plan missed, revise the
+   plan the same way before proceeding. Before changing any public API, run
    `find_referencing_symbols` (or equivalent) to enumerate every call site.
    Remember: this crate is published on crates.io; public API breaks affect
    downstream users.
@@ -68,6 +68,11 @@ description: Complete workflow for fixing GitHub issues including investigation,
    - Tests must actually assert what they claim — no silent fallbacks
      (`unwrap_or_else` that swallows failures), no missing assertions, no
      coupling to incidental host/filesystem details.
+   - **Test-via-revert for defensive refactors**: if the fix pins an
+     invariant rather than repairing a live bug, follow
+     `.claude/rules/testing.md` — prove the new test fails against the
+     pre-fix code before trusting it, and revert safely (never a
+     file-level restore over uncommitted work).
 9. **Review the changes** for:
    - **Correctness**: Does the fix actually address the root cause, not just
      the symptom?
@@ -88,10 +93,10 @@ description: Complete workflow for fixing GitHub issues including investigation,
 10. Fix any issues found in review. If the fixes were non-trivial, re-review.
     Do NOT commit with known issues and plan to fix them in a follow-up — that
     is how fix-up chains happen.
-11. Run `make pre-commit` as the final gate before committing. It runs
-    `cargo fmt --check`, the pair of clippy invocations, the workspace
-    tests with all features, `cargo +nightly udeps`, and the markdown /
-    TOML / shell / Makefile lint families in one parallel pass. If
+11. Run `make pre-commit` as the final gate before committing. It is the
+    canonical entry point for the full validation gate (see "Validation
+    gates" in `AGENTS.md` for the current stage list — do not rely on a
+    from-memory subset). If
     `make` is unavailable, fall back to running the cargo gates manually
     (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
     `cargo test --workspace --all-features`) plus `rumdl check`
@@ -108,8 +113,10 @@ description: Complete workflow for fixing GitHub issues including investigation,
     change (rebuild first; never test stale).
 13. **Update all documentation.** Review and update each of the following as
     applicable:
-    - `CHANGELOG.md` — add an entry under the appropriate section (Added,
-      Changed, Fixed) if the project keeps one.
+    - `CHANGELOG.md` — add an entry under `## [Unreleased]`. Public-API
+      changes must be cross-referenced against `STABILITY.md`; a
+      source-level break deferred to the next major bump is marked
+      **(breaking)** (see AGENTS.md "Editing principles").
     - `README.md` — if user-facing behavior, install steps, or supported
       languages changed.
     - `big-code-analysis-book/` — if the change affects documented metrics,

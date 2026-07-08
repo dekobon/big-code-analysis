@@ -519,7 +519,7 @@ invocation in:
 | `src/metrics/abc.rs` | `Abc` |
 | `src/metrics/cognitive.rs` | `Cognitive` |
 | `src/metrics/cyclomatic.rs` | `Cyclomatic` |
-| `src/metrics/exit.rs` | `Exit` |
+| `src/metrics/nexits.rs` | `Exit` |
 | `src/metrics/halstead.rs` | `Halstead` |
 | `src/metrics/loc.rs` | `Loc` |
 | `src/metrics/mi.rs` | `Mi` |
@@ -541,7 +541,7 @@ Run `cargo check -p big-code-analysis` — it should now succeed.
   branch** — this is consistent with the existing Java and Cpp impls
   in this repo, and was reaffirmed for Go in commit `e0701e1`. Match
   the language's actual node kinds, not generic names.
-- **Exit** (`src/metrics/exit.rs`): `+1` per `return`/`yield` /
+- **Exit** (`src/metrics/nexits.rs`): `+1` per `return`/`yield` /
   language-specific exit. A multi-value return counts once.
 - **Halstead** (`src/metrics/halstead.rs`): wire
   `compute_halstead::<Self>` through the existing
@@ -727,7 +727,7 @@ were:
 |--------|-----------:|--------------------------------------------|
 | `cognitive` | 9 | no-op file, simple function, sequence of same/different booleans, negated booleans, 1-level nesting, 2-level nesting, `break`/`continue`, complex `if let / else if / else`. |
 | `cyclomatic` | 1 | nested-control-flow representative test. (Go currently overshoots Rust here at 10 — match Rust's 1, optionally add a couple more if the language has unusual constructs.) |
-| `exit` | 2 | function with no exit, function with `?` / language equivalent of early-exit. |
+| `nexits` | 2 | function with no exit, function with `?` / language equivalent of early-exit. |
 | `halstead` | 1 | one comprehensive `<lang>_operators_and_operands` test pinning every Halstead field via `insta`. |
 | `loc` | 15 | blank, no-zero-blank, cloc, lloc, then **at least one `<lang>_no_*_lloc` test for each gating decision** (Rust has: `field_expression`, `parenthesized_expression`, `array_expression`, `tuple_expression`, `unit_expression`, `call_function`, `macro_invocation`, `function_in_loop`, `function_in_if`, `function_in_return`, `closure_expression`). Mirror this — every node kind your `compute` excludes from LLOC needs a dedicated test that would fail if the gating is removed. |
 | `nargs` | 5 | no functions/closures, single function, single closure, multiple functions, nested functions. |
@@ -761,7 +761,7 @@ only when the grammar has constructs the existing repo has not seen
   (Go's `defer`/`go` test is the template). Do not pad the count by
   adding one test per ordinary branching keyword; that is what the
   single nested test already covers.
-- **`exit`** — `<lang>_no_exit` (function with no return), and one
+- **`nexits`** — `<lang>_no_exit` (function with no return), and one
   test per language-specific exit path (e.g. Rust's `?`, Go's
   multi-value return, Python's `yield`/`raise`, Ruby's `next`/`break`
   out of a block if you treat them as exits — document the choice).
@@ -928,7 +928,7 @@ language alphabetically:
 
 `CHANGELOG.md` is present at the repo root and used. A new language
 warrants its own entry — do not consolidate into a batch-fix line.
-Append under `Added`:
+Append under `Added` within the `## [Unreleased]` section:
 
 ```markdown
 - Support for <LangName> source files (`.<ext>`).
@@ -1069,7 +1069,7 @@ Files changed:
   src/checker.rs
   src/getter.rs
   src/alterator.rs                   (if applicable)
-  src/metrics/{abc,cognitive,cyclomatic,exit,halstead,loc,mi,nargs,nom,npa,npm,wmc}.rs
+  src/metrics/{abc,cognitive,cyclomatic,nexits,halstead,loc,mi,nargs,nom,npa,npm,wmc}.rs
   big-code-analysis-book/src/languages.md
   *.snap                             (new insta snapshots)
 

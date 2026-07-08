@@ -13,7 +13,8 @@ source under `big-code-analysis-book/src/`).
 is an editor helper that applies those rules. If the skill and the
 convention disagree, the convention wins. For lessons-learned entries
 use the `lessons-learned` skill; for changelog entries follow the
-changelog rules in `AGENTS.md`. This skill does neither.
+`## Changelog` section of `docs/conventions/documentation.md` (plus the
+stability-contract rules in `AGENTS.md`). This skill does neither.
 
 ## Arguments
 

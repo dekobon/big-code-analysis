@@ -13,7 +13,7 @@ creation, modification, or closing.
 - Empty → all qualifying open issues
 - `<crate-name>` → filter to issues whose title starts with that crate name
   (one of `big-code-analysis`, `big-code-analysis-cli`,
-  `big-code-analysis-web`)
+  `big-code-analysis-web`, `big-code-analysis-py`)
 - `<language>` → filter to issues whose title or body references a
   specific language module (e.g., `python`, `rust`, `java`)
 
@@ -21,26 +21,23 @@ creation, modification, or closing.
 
 ## Step 1: Fetch issues
 
-### 1a: Ensure label vocabulary exists
+### 1a: Check the label vocabulary
 
 `gh issue list --label <missing>` returns empty rather than erroring, so
-querying a non-existent label silently filters it out. Provision the
-labels this skill expects up front:
+querying a non-existent label silently filters it out. This skill is
+read-only — do **not** create labels. Detect which expected labels are
+missing and surface them instead:
 
 ```bash
-ensure_label() {
-  local name="$1" color="$2" desc="$3"
-  if ! gh label list --limit 200 --json name --jq '.[].name' | grep -qx "$name"; then
-    gh label create "$name" --color "$color" --description "$desc"
-  fi
-}
-ensure_label refactor         "fbca04" "Refactor without behavior change"
-ensure_label security         "ee0701" "Security-relevant finding"
-ensure_label upstream-grammar "fbca04" "Cannot be fixed locally; needs upstream tree-sitter grammar change"
+have="$(gh label list --limit 200 --json name --jq '.[].name')"
+for l in bug enhancement documentation refactor security upstream-grammar; do
+  printf '%s\n' "$have" | rg -qx "$l" || echo "missing label: $l"
+done
 ```
 
-`bug`, `enhancement`, and `documentation` already exist on most GitHub
-repos; `low-priority` is provisioned by `issue-plan`.
+List any missing labels in the report's caveats section (issues carrying
+them cannot be grouped by label, and a maintainer or `issue-plan` run
+must provision them). `low-priority` is provisioned by `issue-plan`.
 
 ### 1b: Query and merge
 

@@ -28,7 +28,9 @@ Parse `$ARGUMENTS` as: `<crate-name> [--dry-run]`
 ## Constraints
 
 - **Safe refactors only**: no public API changes, no data model changes,
-  no cross-crate changes
+  no cross-crate changes, no behavioral changes (improvements must be
+  behavior-neutral — observable output, including metric values, stays
+  identical)
 - **No public API breaks**: this is a published library — `lib.rs`
   re-exports, public traits (`ParserTrait`, `LanguageInfo`, etc.), and
   public types (`Metrics`, `FuncSpace`, language enums) are off-limits
@@ -36,7 +38,7 @@ Parse `$ARGUMENTS` as: `<crate-name> [--dry-run]`
 - **Cross-language parity**: per-language modules under `src/languages/`
   deliberately mirror each other; any change to one usually requires the
   same change to all sibling language modules
-- **Do not merge to master**: leave the integration branch for the user
+- **Do not merge to main**: leave the integration branch for the user
 - **Skip on failure**
 - **No re-examination**: skip files/symbols already reviewed in prior runs
 
@@ -72,7 +74,7 @@ If dirty, abort.
 ### 0c: Create integration branch
 
 ```bash
-git checkout -b improve/<crate-name> master
+git checkout -b improve/<crate-name> main
 ```
 
 If the branch already exists from a prior partial run, check it out and
@@ -112,7 +114,7 @@ crate under improvement:
 
 ```bash
 cargo build -p big-code-analysis-cli >/dev/null 2>&1
-./target/debug/big-code-analysis-cli -m -O json -p "$CRATE_DIR" \
+./target/debug/bca metrics -O json "$CRATE_DIR" \
   > /tmp/improve-metrics.json || true
 ```
 
@@ -294,7 +296,8 @@ full. Apply fixes directly:
 - Manual error-mapping chains replaceable by a single `From` impl
 - Identical match arms that can be consolidated
 - Helpers duplicated across `language_*.rs` that could move to
-  `src/macros.rs` / `c_langs_macros/` / a shared module
+  `src/macros/` / `src/c_langs_macros/` / a shared module (follow
+  `.claude/rules/macro-comments.md` when consolidating into macros)
 
 **Clarity**:
 
@@ -368,13 +371,15 @@ change, public-trait change), STOP and report SKIPPED.
 
 ### 3e: Validate
 
+Run the fast per-agent gate (the canonical `make pre-commit` gate runs
+once on the integration branch in Step 4 — do not pay its full cost per
+change area):
+
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
 ```
-
-If `pre-commit` is installed, run `pre-commit run --all-files`.
 
 If validation fails:
 
@@ -382,7 +387,13 @@ If validation fails:
 - Otherwise SKIP.
 
 For snapshot test changes: run `cargo insta test --review` and accept or
-reject each snapshot deliberately. Do NOT blindly accept.
+reject each snapshot deliberately. Do NOT blindly accept. If a change
+shifts snapshots under `tests/repositories/big-code-analysis-output/`
+(the integration-snapshot submodule), it is behaviour-changing: follow
+the submodule discipline in `AGENTS.md` (accepted snapshots pushed to
+the submodule remote, new submodule SHA recorded in the same commit) —
+or treat the change as out of scope for this skill and SKIP, since
+improvements here must stay behavior-neutral.
 
 ### 3f: Commit
 
@@ -401,7 +412,9 @@ git commit -m "<conventional commit message>"
 ```
 
 Commit format: `<type>(<scope>): <subject>`, e.g.
-`refactor(big-code-analysis): simplify halstead operator classification`.
+`refactor(big-code-analysis): deduplicate operand-span helpers`. (Keep
+examples behavior-neutral — a change that reclassifies operators would
+shift metric values and trigger the submodule discipline in 3e.)
 
 ### 3g: Report result
 
@@ -413,7 +426,8 @@ SUCCESS (branch, commit, files, summary) or SKIPPED (reason).
 
 ## Step 4: Integrate successful changes
 
-> **Branch mode**: Skip — integration happens inline in Step 3.
+> **Branch mode**: Skip the merges — integration happened inline in
+> Step 3 — but still run the validation gate below.
 
 ```bash
 git checkout improve/<crate-name>
@@ -422,7 +436,12 @@ git merge <worktree-branch-name> --no-edit
 
 If conflict: `git merge --abort` and log.
 
-After all merges, run the full validation suite. If it fails, bisect:
+After all merges (or directly, in branch mode), run `make pre-commit` on
+the integration branch — the canonical validation gate (see "Validation
+gates" in `AGENTS.md`; it adds udeps, doc warnings, the lint families,
+the self-scan threshold gates, and `make snapshot-anchors` on top of the
+cargo trio run in 3e). If `make` is unavailable, fall back to the raw
+cargo gates from 3e. If it fails, bisect:
 
 ```bash
 git revert -m 1 <merge-commit>
@@ -478,13 +497,13 @@ Branch: improve/<crate-name>
 ```
 
 Remind the user: "Integration branch `improve/<crate-name>` is ready for
-review. Merge to `master` when satisfied."
+review. Merge to `main` when satisfied."
 
 ---
 
 ## Guardrails
 
-- Do NOT merge `improve/<crate-name>` into `master`
+- Do NOT merge `improve/<crate-name>` into `main`
 - Do NOT change public APIs, public traits, or data models
 - Do NOT change items re-exported from `src/lib.rs` without authorization
 - Do NOT introduce per-language inconsistency in `src/languages/`
