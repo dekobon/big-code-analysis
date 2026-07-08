@@ -46,7 +46,12 @@ Commit your changes and create a new pull request
 ## Internal grammars
 
 Update the version of `tree-sitter-cli` in the `package.json` file of
-the internal grammar and then install the updated version.
+the internal grammar, then refresh its committed `package-lock.json`
+with `npm install --package-lock-only --ignore-scripts` in the same
+directory and commit both files together. The regen scripts install
+with `npm ci`, which fails loudly when the lockfile is missing or out
+of sync with `package.json` — this keeps every regen hash-verified
+and byte-reproducible (OpenSSF Scorecard Pinned-Dependencies).
 
 The five vendored grammars publish under the `bca-tree-sitter-*`
 namespace (see `RELEASING.md` for the rename rationale), but consumer

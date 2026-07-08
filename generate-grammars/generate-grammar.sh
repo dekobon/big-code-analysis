@@ -17,8 +17,14 @@ set -euo pipefail
 # Enter grammar directory
 pushd "$1" || exit
 
-# Install dependencies
-npm install --include=dev
+# Install dependencies exactly as recorded in the committed
+# package-lock.json (hash-verified by npm). `npm ci` fails loudly when
+# the lockfile is missing or out of sync with package.json — the right
+# behaviour for a reproducibility-sensitive regen path (issue #1012,
+# OpenSSF Scorecard Pinned-Dependencies). After bumping a dependency
+# in package.json, refresh the lockfile with
+# `npm install --package-lock-only --ignore-scripts` and commit it.
+npm ci --include=dev
 
 # Generate grammar
 ./node_modules/.bin/tree-sitter generate
