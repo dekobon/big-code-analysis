@@ -281,12 +281,17 @@ jobs:
         run: |
           set -euo pipefail
           ls -la dist/
-          python -m pip install --upgrade pip
-          # Install only from the local dist; --no-index makes accidental
-          # PyPI fallback (e.g. when the wheel name does not match the
-          # current interpreter) fail loudly rather than silently install
-          # a stale published version.
-          python -m pip install --no-index --find-links=dist big-code-analysis
+          # Install the just-built wheel by path; the build job's verify
+          # step guarantees every wheel in dist/ matches this arch's
+          # abi3 pattern (and pip would fail loudly on a duplicate), and
+          # --no-index makes accidental PyPI fallback (e.g. when the
+          # wheel name does not match the current interpreter) fail
+          # loudly rather than silently install a stale published
+          # version. --no-deps is a no-op today (the wheel has zero
+          # Python runtime deps) but keeps a future dep addition from
+          # being resolved unpinned here (OpenSSF Scorecard
+          # Pinned-Dependencies).
+          python -m pip install --no-index --no-deps dist/*.whl
 
       # Exercise the public API surface that #103 enumerates:
       # analyze_source returns a dict, flatten_spaces yields function

@@ -114,15 +114,19 @@ and `cargo run -p big-code-analysis-web --`.
   `uv sync --locked --extra dev` from the checked-in `uv.lock`,
   producing a reproducible dev environment shared across contributors
   who use this path. After editing `pyproject.toml` deps, run
-  `make py-relock` (which runs `uv lock`) to regenerate the lockfile;
-  bootstrap will fail-loud rather than silently rewriting it. Install
-  uv with `curl -LsSf https://astral.sh/uv/install.sh | sh`,
+  `make py-relock`, which regenerates `uv.lock` **and** the
+  hash-pinned exports under `big-code-analysis-py/requirements/`
+  (`dev.txt`, `examples.txt`); bootstrap will fail-loud rather than
+  silently rewriting the lockfile. Install uv with
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`,
   `brew install uv`, or `pipx install uv`. Alternative provisioning
   paths (`mise install` via `mise.toml`, direct `pipx install`, plain
   `pip install -e .[dev]`) remain functional but bypass `uv.lock` —
-  resolved versions can drift from peers and from CI. CI itself does
-  not yet consume `uv.lock` (workflows pip-install pyproject floors);
-  closing that gap is tracked as a follow-up.
+  resolved versions can drift from peers and from CI. CI consumes
+  `uv.lock` through those requirements exports (`pip install
+  --require-hashes -r …` in the workflows, per OpenSSF Scorecard
+  Pinned-Dependencies), so a `uv.lock` change and its regenerated
+  exports must land in the same commit.
 - **GitHub Actions linting**: any edit under `.github/workflows/`
   must be validated with `make actionlint` before commit. The
   Makefile target invokes `actionlint` at the repo root, which

@@ -567,11 +567,18 @@ py-sync: py-bootstrap
 # dev-extra floor). Separated from py-bootstrap so lockfile churn is
 # always a deliberate, reviewable act — `make py-bootstrap` will not
 # silently update the lockfile on contributors' machines.
+# The hash-pinned exports under big-code-analysis-py/requirements/
+# are regenerated in the same breath: CI installs its Python tooling
+# with `pip install --require-hashes -r` from those files (OpenSSF
+# Scorecard Pinned-Dependencies), so they must always mirror uv.lock.
 py-relock:
 	@command -v uv >/dev/null 2>&1 || { \
 	  echo "ERROR: uv missing — install via 'curl -LsSf https://astral.sh/uv/install.sh | sh' (or 'brew install uv', 'pipx install uv')"; \
 	  exit 1; }
 	@cd "$(BCA_PY_DIR)" && uv lock
+	@cd "$(BCA_PY_DIR)" && mkdir -p requirements && \
+	  uv export --locked --no-emit-project --extra dev -o requirements/dev.txt && \
+	  uv export --locked --no-emit-project --extra examples -o requirements/examples.txt
 
 # `scripts/smoke` is a second, separate ruff invocation rather than an extra
 # path on the bindings call: `--config` would otherwise re-root the bindings

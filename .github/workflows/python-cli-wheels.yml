@@ -338,11 +338,15 @@ jobs:
         run: |
           set -euo pipefail
           ls -la dist/
-          python -m pip install --upgrade pip
-          # --no-index makes an accidental PyPI fallback (e.g. a wheel
-          # whose platform tag does not match this runner) fail loudly
-          # rather than silently installing a stale published version.
-          python -m pip install --no-index --find-links=dist big-code-analysis-cli
+          # Install the just-built wheel by path; the build job's verify
+          # step guarantees dist/ holds exactly one wheel, and --no-index
+          # makes an accidental PyPI fallback (e.g. a wheel whose
+          # platform tag does not match this runner) fail loudly rather
+          # than silently installing a stale published version. --no-deps
+          # is a no-op today (the bin wheel has zero Python runtime deps)
+          # but keeps a future dep addition from being resolved unpinned
+          # here (OpenSSF Scorecard Pinned-Dependencies).
+          python -m pip install --no-index --no-deps dist/*.whl
           # The console script lands in the setup-python interpreter's
           # scripts dir, which is on PATH. The assertions (version
           # lockstep against EXPECTED_TAG, the all-languages grammar set,
