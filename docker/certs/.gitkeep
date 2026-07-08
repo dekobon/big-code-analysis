@@ -1,0 +1,3 @@
+# Drop corporate/proxy root CA certificates (PEM, *.crt) here to build the
+# dev image behind a TLS-intercepting proxy. Files are git-ignored so
+# nothing environment-specific is committed. See docker/README.md.

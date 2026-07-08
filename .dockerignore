@@ -1,0 +1,20 @@
+# The image only COPYs docker/mcp.json; everything else is bind-mounted at
+# run time, so keep the build context tiny. Exclude build artefacts, VCS
+# metadata, vendored fixtures, and per-developer state.
+target
+enums/target
+big-code-analysis-book/book
+.git
+tests/repositories
+node_modules
+**/node_modules
+big-code-analysis-py/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.so
+out
+dist
+.serena
+.mcp.json
