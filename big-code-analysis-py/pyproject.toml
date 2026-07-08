@@ -51,11 +51,14 @@ environments = ["sys_platform != 'emscripten' and python_full_version < '3.15'"]
 # the resolved set matches the checked-in `uv.lock`). `uv pip install
 # -e .[dev]` and `pip install -e .[dev]` still work but bypass the
 # lockfile — they re-resolve from the version bounds below and can
-# drift from CI / from peers. Pinned floors track the earliest
-# versions exercised by CI; the upper bound on maturin stays open
-# within the 1.x series.
+# drift from CI / from peers. CI installs the same locked set via the
+# hash-pinned exports under requirements/ (regenerated alongside
+# uv.lock by `make py-relock`), so the floors below only bound
+# un-locked installs; the upper bound on maturin stays open within
+# the 1.x series.
 dev = [
   "pytest>=8.0",
+  "pytest-cov>=5.0",
   "mypy>=1.10",
   "ruff>=0.6,<0.16",
   "pyright>=1.1.380",
@@ -69,7 +72,16 @@ dev = [
 # floors track the earliest versions that the notebook exercises;
 # nbconvert is pinned to >=7 so the API used in the CI step
 # (`jupyter nbconvert --execute --to notebook --inplace`) is stable.
-examples = ["jupyter>=1.0", "nbconvert>=7.0", "pandas>=2.0", "matplotlib>=3.7"]
+# maturin is included so the extra covers the notebook run end-to-end
+# from source (`maturin develop` precedes the nbconvert execution both
+# in CI and locally).
+examples = [
+  "jupyter>=1.0",
+  "nbconvert>=7.0",
+  "pandas>=2.0",
+  "matplotlib>=3.7",
+  "maturin>=1.7,<2.0",
+]
 
 [tool.coverage.run]
 branch = true
