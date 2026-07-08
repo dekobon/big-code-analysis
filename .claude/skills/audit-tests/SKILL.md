@@ -18,7 +18,7 @@ Determine what to audit based on `$ARGUMENTS`:
 |----------|-------|
 | *(empty)* | Tests in unstaged + staged changes (`git diff HEAD`) |
 | `staged` | Tests in staged changes only (`git diff --cached`) |
-| `branch` | Tests in all commits on current branch vs `master` (`git diff master...HEAD`) |
+| `branch` | Tests in all commits on current branch vs `main` (`git diff main...HEAD`) |
 | *file path* | Specific test file |
 | *directory path* | All test files under the directory (`tests/`, `src/**/mod.rs`, `#[cfg(test)]` modules) |
 

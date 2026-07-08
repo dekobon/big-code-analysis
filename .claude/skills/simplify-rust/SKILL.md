@@ -17,7 +17,7 @@ Determine what to review based on `$ARGUMENTS`:
 |----------|-------|
 | *(empty)* | Unstaged + staged changes (`git diff HEAD`) |
 | `staged` | Staged changes only (`git diff --cached`) |
-| `branch` | All commits on current branch vs `master` (`git diff master...HEAD`) |
+| `branch` | All commits on current branch vs `main` (`git diff main...HEAD`) |
 | *path* | Specific file or directory (any argument that isn't a keyword above) |
 
 ## Process
@@ -55,6 +55,9 @@ Look for duplicated logic and missing abstractions.
 - Helper functions that duplicate standard library or crate functionality
 - Per-language duplicated logic in `src/languages/` that could be expressed via
   a trait method or macro instead of being copied across language modules
+  (when consolidating into a macro, follow `.claude/rules/macro-comments.md`:
+  hoist per-language rationale comments above each invocation, not into the
+  macro body)
 
 **Do NOT extract**: one-off logic into tiny helpers that obscure the flow. Three
 similar lines are better than a premature abstraction.

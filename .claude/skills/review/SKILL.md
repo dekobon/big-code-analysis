@@ -16,7 +16,7 @@ Determine what to review based on `$ARGUMENTS`:
 |----------|-------|
 | *(empty)* | Unstaged + staged changes (`git diff HEAD`) |
 | `staged` | Staged changes only (`git diff --cached`) |
-| `branch` | All commits on current branch vs `master` (`git diff master...HEAD`) |
+| `branch` | All commits on current branch vs `main` (`git diff main...HEAD`) |
 | `pr <N>` | Pull request diff (`gh pr diff <N>`) |
 | `<commit>` | Single commit (`git show <commit>`) |
 | `<commit>..<commit>` | Commit range |

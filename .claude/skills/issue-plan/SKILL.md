@@ -28,7 +28,7 @@ body text — do not rely on the title alone.
 
 Before planning, understand the relevant code:
 
-1. Check whether the issue is already resolved (the fix is merged on `master`
+1. Check whether the issue is already resolved (the fix is merged on `main`
    and the described behavior no longer applies). If so, add a comment
    explaining what resolved it (commit, PR, or code reference), apply the
    label `resolved` (create it first if needed:
@@ -36,7 +36,9 @@ Before planning, understand the relevant code:
    and stop. Do NOT close the issue — leave that for a human.
 2. Identify which crate(s), modules, or files the issue relates to. The
    workspace contains `big-code-analysis` (root library),
-   `big-code-analysis-cli`, and `big-code-analysis-web`. Per-language
+   `big-code-analysis-cli`, `big-code-analysis-web`,
+   `big-code-analysis-py` (PyO3 bindings), `xtask` (man-page
+   generation), and `enums` (language-enum codegen). Per-language
    logic lives under `src/languages/` (one `language_<lang>.rs` per
    supported language) and metric implementations under `src/metrics/`.
 3. Use Serena LSP tools (`find_symbol`, `get_symbols_overview`,
@@ -53,12 +55,13 @@ Before planning, understand the relevant code:
 
 ## Step 3: Develop a resolution plan using sequential thinking
 
-Use the `sequential-thinking:sequentialthinking` MCP tool to reason through
-the resolution step by step. The sequential thinking process MUST:
+Reason through the resolution step by step. If the
+`sequential-thinking:sequentialthinking` MCP tool is available, use it
+(start with `thoughtNumber: 1`, a `totalThoughts` estimate of typically
+5–8, and `nextThoughtNeeded: true`); otherwise work through the same
+phases inline. The reasoning MUST:
 
-1. **Start** with `thoughtNumber: 1`, an initial `totalThoughts` estimate
-   (typically 5–8), and `nextThoughtNeeded: true`.
-2. **Analyze** the issue: root cause, affected code, potential approaches.
+1. **Analyze** the issue: root cause, affected code, potential approaches.
 3. **Evaluate** trade-offs (simplicity, correctness, performance, scope,
    risk to public API, risk of cross-language inconsistency).
 4. **Propose** a concrete step-by-step resolution plan.
@@ -169,7 +172,9 @@ separate comment.
 
 ## Guardrails
 
-- **Always use sequential thinking**: Do not skip Step 3.
+- **Always plan before rating**: Do not skip Step 3 (use the
+  sequential-thinking MCP tool when configured; otherwise reason
+  through the same phases inline).
 - **Preserve the original body**: Append only.
 - **Temp files for body updates**: Always use `--body-file`.
 - **No premature closure**: Do NOT close the issue. A human decides.

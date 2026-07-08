@@ -219,7 +219,7 @@ the audit to the highest-risk functions.
 
 ```bash
 if cargo build -p big-code-analysis-cli >/dev/null 2>&1; then
-  ./target/debug/big-code-analysis-cli -m -O json -p "$FILE_ABS" > /tmp/audit-metrics.json || true
+  ./target/debug/bca metrics -O json "$FILE_ABS" > /tmp/audit-metrics.json || true
 fi
 ```
 

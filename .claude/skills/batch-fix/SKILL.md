@@ -113,6 +113,10 @@ The workspace crates are:
   traversal, metric computation, per-language modules
 - `big-code-analysis-cli` — CLI binary (`big-code-analysis-cli/`)
 - `big-code-analysis-web` — REST API server (`big-code-analysis-web/`)
+- `big-code-analysis-py` — PyO3 Python bindings (`big-code-analysis-py/`,
+  excluded from default-members; needs Python headers + maturin)
+- `xtask` — man-page generation helper (`xtask/`, excluded from
+  default-members)
 - `enums` — code-generation helper for language enums (`enums/`, excluded
   from default workspace)
 
@@ -124,7 +128,8 @@ Use these signals in priority order:
    - "parser", "tree-sitter", "AST", "node", "grammar", "ParserTrait" ->
      `big-code-analysis`
    - "metric", "halstead", "cyclomatic", "cognitive", "loc", "abc", "wmc",
-     "nargs", "nom", "npa", "npm", "exit", "mi" -> `big-code-analysis`
+     "nargs", "nom", "npa", "npm", "nexits", "exit", "tokens", "mi" ->
+     `big-code-analysis`
    - "checker", "getter", "alterator", "spaces" -> `big-code-analysis`
    - "language X", a specific language name (rust, python, javascript, c,
      cpp, java, kotlin, typescript, etc.), or `src/languages/` path ->
@@ -133,6 +138,9 @@ Use these signals in priority order:
      CLI flags) -> `big-code-analysis-cli`
    - "REST", "API", "server", "HTTP", "endpoint", "route" ->
      `big-code-analysis-web`
+   - "Python", "PyO3", "maturin", "stub", "`_native.pyi`", "wheel" ->
+     `big-code-analysis-py`
+   - "man page", "manpage", "xtask" -> `xtask`
    - "language enum", "enum generation", "code generation",
      `enums/templates/`, `enums/src/` -> `enums`
 3. **Ambiguous**: If the crate cannot be determined from labels or keywords,
@@ -528,6 +536,14 @@ After all waves are processed, if any merges succeeded:
 
 ```bash
 git checkout <INTEGRATION_BRANCH>
+```
+
+Then run `make pre-commit` — the canonical gate per "Validation gates"
+in `AGENTS.md` (it adds udeps, doc warnings, the lint families, the
+self-scan gates, and `make snapshot-anchors` on top of the cargo trio).
+If `make` is unavailable, fall back to:
+
+```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
@@ -739,12 +755,13 @@ Follow the `/fix-issue` workflow:
    cause is repeated, fix all instances. Similarly, if metric code under
    `src/metrics/` has the same anti-pattern in multiple metrics, fix all of
    them.
-5. **Plan the fix using sequential thinking.** Use the
-   `sequential-thinking:sequentialthinking` MCP tool to reason through the
-   resolution step by step before writing any code. The sequential thinking
-   process MUST:
-   - **Start** with `thoughtNumber: 1`, an initial `totalThoughts` estimate
-     (typically 5-8), and `nextThoughtNeeded: true`.
+5. **Plan the fix with explicit step-by-step reasoning.** If the
+   `sequential-thinking:sequentialthinking` MCP tool is available, use it
+   (start with `thoughtNumber: 1`, a `totalThoughts` estimate of typically
+   5-8, and `nextThoughtNeeded: true`; adjust `totalThoughts` as
+   understanding evolves and use `isRevision` to correct earlier
+   reasoning; conclude with `nextThoughtNeeded: false`). If it is not
+   configured, reason through the same phases inline. The plan MUST:
    - **Analyze** the root cause — not just the symptom. Trace the
      data/control flow that leads to the bug.
    - **Enumerate approaches** and evaluate trade-offs (simplicity,
@@ -761,15 +778,12 @@ Follow the `/fix-issue` workflow:
      code, or any other anti-pattern from `AGENTS.md`, redesign before
      proceeding.
    - **Verify completeness** — confirm the plan covers implementation,
-     tests for **every affected language**, and documentation before
-     concluding.
-   - **Conclude** with `nextThoughtNeeded: false` and a final plan summary.
-   - Adjust `totalThoughts` up or down as understanding evolves. Use
-     `isRevision` if earlier reasoning needs correction.
+     tests for **every affected language**, and documentation, and
+     conclude with a final plan summary.
 6. **Implement the fix.** Execute the plan from step 5. Before changing any
    public API, run `find_referencing_symbols` (or workspace-wide `rg`) to
    enumerate every call site. If the implementation reveals issues the plan
-   missed, revise via sequential thinking before proceeding.
+   missed, revise the plan the same way before proceeding.
 7. Self-review the implementation:
    - Correctness: root cause addressed, not just symptom?
    - Performance: appropriate algorithms and data structures? No O(n²) on
@@ -795,7 +809,18 @@ Follow the `/fix-issue` workflow:
      language affected.
    - **Snapshot tests** (`insta`): if existing snapshots changed, run
      `cargo insta test --review` and accept each diff individually rather
-     than blindly accepting all.
+     than blindly accepting all. Every **new**
+     `insta::assert_json_snapshot!(metric.…)` must be anchored (inline
+     expected block, integer `assert_eq!` above the call, or an
+     `// expected: <derivation>` comment) — bare snapshots fail
+     `make snapshot-anchors`.
+   - **Integration-snapshot submodule**: a behaviour-changing metric /
+     traversal / alterator fix generates `.snap.new` inside
+     `tests/repositories/big-code-analysis-output/`. Follow the submodule
+     discipline in `AGENTS.md`: accept the snapshots, push them to the
+     submodule remote, and record the new submodule SHA in the **same**
+     commit as the fix (`git add tests/repositories/big-code-analysis-output`
+     is exempt from the "only files you changed" staging rule).
    - **Regression check**: `cargo test --workspace --all-features` and
      `cargo clippy --workspace --all-targets -- -D warnings` must pass.
    - Tests must actually assert what they claim — no silent fallbacks
@@ -836,8 +861,8 @@ directly:
 - Helper functions that duplicate standard library or crate functionality
 - Duplicate logic across sibling language modules that should live in a
   shared helper, trait method, or macro (the project already uses
-  `c_langs_macros/`, `src/macros.rs`, and `src/c_macro.rs` for shared
-  structure)
+  `src/c_langs_macros/`, `src/macros/`, and `src/c_macro.rs` for shared
+  structure; follow `.claude/rules/macro-comments.md` when consolidating)
 
 **Clarity**:
 

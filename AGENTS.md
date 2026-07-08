@@ -36,8 +36,9 @@ and `cargo run -p big-code-analysis-web --`.
 
 - `src/lib.rs` — public re-exports; this is the published API surface.
 - `src/languages/` — one `language_<lang>.rs` per supported language. These
-  modules deliberately mirror each other; macros under `c_langs_macros/`,
-  `src/macros.rs`, and `src/c_macro.rs` generate the shared structure. A
+  modules deliberately mirror each other; macros under
+  `src/c_langs_macros/`, `src/macros/`, and `src/c_macro.rs` generate the
+  shared structure. A
   bug in one language module typically exists in several — fix all
   affected siblings together.
 - `src/metrics/` — individual metric implementations: `abc.rs`,
@@ -60,20 +61,20 @@ and `cargo run -p big-code-analysis-web --`.
 
 ## Editing principles
 
-- This is a published `1.x` library (`big-code-analysis` on crates.io)
+- This is a published `2.x` library (`big-code-analysis` on crates.io)
   with a written stability contract in [`STABILITY.md`](./STABILITY.md).
   Treat `lib.rs` re-exports, public traits (`ParserTrait`,
   `LanguageInfo`, etc.), and public types (`Metrics`, `FuncSpace`,
-  language enums) as a stable API surface. Within `1.x`, additive
-  changes belong under a minor bump; breaking shape changes are
-  reserved for `2.0` and must be planned deliberately — never slip a
-  SemVer break into a patch or minor release. Public-API changes
-  must be cross-referenced against `STABILITY.md` and recorded in
-  the `## [Unreleased]` section of `CHANGELOG.md`; if the change is
-  a source-level break that must wait for `2.0`, mark the entry
-  **(breaking)** and note that it is deferred to the next major
-  bump (the release-prep commit then moves the entry into the
-  appropriate version section).
+  language enums) as a stable API surface. Within the current major
+  line, additive changes belong under a minor bump; breaking shape
+  changes are reserved for the next major (`3.0`) and must be planned
+  deliberately — never slip a SemVer break into a patch or minor
+  release. Public-API changes must be cross-referenced against
+  `STABILITY.md` and recorded in the `## [Unreleased]` section of
+  `CHANGELOG.md`; if the change is a source-level break that must
+  wait for the next major, mark the entry **(breaking)** and note
+  that it is deferred to the next major bump (the release-prep
+  commit then moves the entry into the appropriate version section).
 - For code files: prefer LSP / symbol-level editing
   (`replace_symbol_body`, `insert_before/after_symbol`) over line-based
   edits when available. Read the file (or use a symbol overview) before
@@ -379,8 +380,8 @@ weigh them, do not drive them to zero at any cost.
 
 ## Tree-sitter grammars
 
-External grammar crates are version-pinned (`=0.23.x`, etc.) in the root
-`Cargo.toml`. Treat the pinned version as fixed:
+External grammar crates are version-pinned (`=0.23.5`, `=0.26.10`,
+etc.) in the root `Cargo.toml`. Treat the pinned version as fixed:
 
 - Do not loosen pins to a range without explicit user approval.
 - Bumping a grammar version is a deliberate, separate change — usually

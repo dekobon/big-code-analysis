@@ -68,8 +68,8 @@ Parse `$ARGUMENTS` as: `<crate-name> [--dry-run] [--aggressive]`
 ## Constraints
 
 - **Deletions only**: no refactoring, no API changes, no behavioral changes
-- **Do not merge to master**: leave the integration branch for the user
-  (note: this repo's default branch is `master`, not `main`)
+- **Do not merge to main**: leave the integration branch for the user
+  (this repo's default branch is `main`)
 - **Skip on failure**: if any removal area fails, discard it and log the reason
 - **No re-examination**: skip files already reviewed in prior runs
 - **Never remove test code**
@@ -108,7 +108,7 @@ If there are uncommitted changes, abort:
 ### 0c: Create integration branch
 
 ```bash
-git checkout -b cleanup/<crate-name> master
+git checkout -b cleanup/<crate-name> main
 ```
 
 If the branch already exists from a prior partial run, check it out and
@@ -328,15 +328,15 @@ cargo check -p <CRATE>
 
 If check fails, attempt to fix (one retry); otherwise SKIP.
 
-If check passes, run the full validation:
+If check passes, run the fast per-agent validation (the canonical
+`make pre-commit` gate runs once on the integration branch in Step 4 —
+do not pay its full cost per removal area):
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
 ```
-
-(If `pre-commit` is installed, also run `pre-commit run --all-files`.)
 
 If validation fails:
 
@@ -379,7 +379,8 @@ Return SUCCESS (branch, commit hash, files, removed symbols) or SKIPPED
 
 ## Step 4: Integrate successful changes
 
-> **Branch mode**: Skip — integration happens inline in Step 3.
+> **Branch mode**: Skip the merges — integration happened inline in
+> Step 3 — but still run the validation gate below.
 
 For each successful worktree agent:
 
@@ -390,7 +391,12 @@ git merge <worktree-branch-name> --no-edit
 
 If a merge conflict: `git merge --abort` and log as conflict.
 
-After all merges, run the full validation suite on the integration branch.
+After all merges (or directly, in branch mode), run `make pre-commit` on
+the integration branch — the canonical validation gate (see "Validation
+gates" in `AGENTS.md`; it adds udeps, doc warnings, the lint families,
+the self-scan gates, and `make snapshot-anchors` on top of the cargo
+trio run in 3e). If `make` is unavailable, fall back to the raw cargo
+gates from 3e.
 
 ---
 
@@ -449,7 +455,7 @@ Branch: cleanup/<crate-name>
 ```
 
 Remind the user: "Integration branch `cleanup/<crate-name>` is ready for
-review. Merge to `master` when satisfied."
+review. Merge to `main` when satisfied."
 
 If approval-required items exist, suggest `--aggressive`.
 
@@ -457,7 +463,7 @@ If approval-required items exist, suggest `--aggressive`.
 
 ## Guardrails
 
-- Do NOT merge `cleanup/<crate-name>` into `master`
+- Do NOT merge `cleanup/<crate-name>` into `main`
 - Do NOT remove public API items unless `--aggressive` is set
 - Do NOT remove items re-exported from `src/lib.rs`
 - Do NOT remove trait implementations
