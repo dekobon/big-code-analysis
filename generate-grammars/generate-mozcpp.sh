@@ -15,8 +15,8 @@
 # (cargo compiles against the local glibc, sidestepping the issue).
 
 # Fail loud rather than limp on with a half-regenerated, garbage
-# parser: a failed download / npm install / fetch must abort the
-# run, not silently fall through to `tree-sitter generate`.
+# parser: a failed download / npm ci / fetch / hash check must abort
+# the run, not silently fall through to `tree-sitter generate`.
 set -euo pipefail
 
 # Name of the tree-sitter-cpp crate
@@ -70,18 +70,35 @@ git remote add origin https://github.com/tree-sitter/tree-sitter-cpp.git
 git fetch --depth 1 origin "$TS_CPP_SHA1"
 git checkout FETCH_HEAD
 
-# Install tree-sitter-cpp dependencies
-npm install -y
+# Install tree-sitter-cpp dependencies exactly as recorded in the
+# package-lock.json committed by upstream at the pinned revision
+# (issue #1012, OpenSSF Scorecard Pinned-Dependencies).
+npm ci
 
 # Pin the tree-sitter-c base grammar that tree-sitter-cpp's grammar.js
 # extends (`require('tree-sitter-c/grammar')`). tree-sitter-cpp declares
-# it as a floating `^0.23.1`, so a bare install would silently float to
+# it as a floating `^0.23.1`, so npm resolution would silently float to
 # the latest 0.23.x and change the generated parser — the second
 # non-reproducible axis behind issue #406 (the first being the
 # tree-sitter-cli version, pinned in tree-sitter-mozcpp/package.json).
 # 0.23.1 is the version the committed grammar.json/node-types.json
-# correspond to; pinning it keeps the regen byte-reproducible.
-npm install --no-save tree-sitter-c@0.23.1
+# correspond to. The tarball is fetched by exact version and verified
+# against the sha512 recorded below (matching the npm registry's
+# integrity value for tree-sitter-c@0.23.1) before it replaces
+# whatever upstream's lockfile resolved — no npm resolution at all
+# (issue #1012). Only grammar.js is consumed from the package, so its
+# install scripts are never run.
+TS_C_VERSION="0.23.1"
+TS_C_TARBALL="tree-sitter-c-$TS_C_VERSION.tgz"
+TS_C_SHA512="701344cff2c5d027483c3a848808059c7f0265367f08b81a395cc6e66e60d415c3eb0d9e08080fbdad40d92ce44cae60be73dd12281c41bce97d1c27b6b6eb71"
+wget --header="User-Agent: big-code-analysis grammar regen" \
+	-O "$TS_C_TARBALL" \
+	"https://registry.npmjs.org/tree-sitter-c/-/tree-sitter-c-$TS_C_VERSION.tgz"
+echo "$TS_C_SHA512  $TS_C_TARBALL" | sha512sum --check --quiet -
+rm -rf node_modules/tree-sitter-c
+mkdir -p node_modules/tree-sitter-c
+tar -xzf "$TS_C_TARBALL" --strip-components=1 -C node_modules/tree-sitter-c
+rm -f "$TS_C_TARBALL"
 
 # Exit tree-sitter-cpp directory
 popd || exit

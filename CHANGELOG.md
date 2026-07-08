@@ -80,6 +80,25 @@ for historical reference.
   `dev` extra and `maturin` the `examples` extra so the exports cover
   exactly what each CI job needs.
 
+- The grammar-regeneration scripts now install npm dependencies
+  hash-verified (OpenSSF Scorecard Pinned-Dependencies, code-scanning
+  alerts #759–#761, issue #1012). The four internal grammar crates
+  (`tree-sitter-ccomment`, `tree-sitter-preproc`, `tree-sitter-mozcpp`,
+  `tree-sitter-mozjs`) now commit their `package-lock.json` (previously
+  gitignored — the lockfiles were never actually in git) and
+  `generate-grammars/generate-grammar.sh` installs with
+  `npm ci --include=dev`, which fails loudly on a missing or drifted
+  lockfile. `generate-mozcpp.sh` uses `npm ci` inside the upstream
+  `tree-sitter-cpp` checkout (upstream commits a lockfile at the pinned
+  revision) and replaces the `npm install --no-save tree-sitter-c@0.23.1`
+  override with a registry tarball fetched by exact version and verified
+  against a recorded sha512 before extraction — no npm version
+  resolution at all, and the package's install scripts are never run.
+  `generate-mozjs.sh` gains the `set -euo pipefail` fail-loud guard its
+  mozcpp sibling already had, so an aborted regen can no longer fall
+  through to cleanup and report success. Both regens were verified
+  byte-reproducible from a clean checkout.
+
 - Cleared three RUSTSEC advisories flagged by the `cargo-deny` gate.
   `crossbeam-epoch` (a shipped transitive dependency via `crossbeam`)
   moves `0.9.18` → `0.9.20` for the invalid-pointer-dereference in its

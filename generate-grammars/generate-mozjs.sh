@@ -4,6 +4,12 @@
 #
 # Usage: ./generate-grammars/generate-mozjs.sh
 
+# Fail loud rather than limp on with a half-regenerated, garbage
+# parser: a failed download / fetch — or generate-grammar.sh aborting
+# on `npm ci` lockfile drift — must abort the run, not fall through
+# to the final cleanup and report success (issue #1012).
+set -euo pipefail
+
 # Name of the tree-sitter-javascript crate
 TS_JS_CRATE="tree-sitter-javascript"
 
@@ -38,7 +44,12 @@ rm -rf "$CRATE_OUTPUT" "$CRATE_DIR"
 # Enter the mozjs directory
 pushd tree-sitter-mozjs || exit
 
-# Create tree-sitter-javascript directory
+# Create a fresh tree-sitter-javascript directory. Remove any leftover
+# from an interrupted prior run first: under `set -e` a stale clone
+# would wedge the next run at `git remote add origin` ("remote origin
+# already exists", exit 3). Starting clean keeps the script idempotent
+# and avoids stale partial-clone state.
+rm -rf "$TS_JS_CRATE"
 mkdir -p "$TS_JS_CRATE"
 
 # Enter tree-sitter-javascript directory
