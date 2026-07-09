@@ -10,190 +10,169 @@
 [![docs.rs](https://docs.rs/big-code-analysis/badge.svg)](https://docs.rs/big-code-analysis)
 [![License](https://img.shields.io/crates/l/big-code-analysis.svg)](LICENSE)
 
-**big-code-analysis** is a hard fork of the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) project.
-This project is an unapologetic vibe-coded fork that seeks to add as many features and functions as fast as possible.
+**big-code-analysis** measures how maintainable your code is. The `bca`
+command line tool computes per-function metrics for
+[more than twenty programming languages](https://dekobon.github.io/big-code-analysis/languages.html):
+cyclomatic and
+[cognitive](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)
+complexity,
+[Halstead](https://en.wikipedia.org/wiki/Halstead_complexity_measures),
+maintainability index, ABC, lines-of-code variants, and the rest of
+[the metric suite](https://dekobon.github.io/big-code-analysis/metrics.html). It parses with
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/), so it needs
+no compiler, build step, or language runtime: point it at a directory
+and it prints numbers.
 
-Nonetheless, it is still a Rust library to analyze and extract information
-from source code written in many different programming languages.
-It is based on a parser generator tool and an incremental parsing library
-called
-<a href="https://tree-sitter.github.io/tree-sitter/" target="_blank">Tree Sitter</a>.
+The project is a hard fork of Mozilla's
+[rust-code-analysis](https://github.com/mozilla/rust-code-analysis)
+that grows the metric engine into a code-quality toolchain:
 
-A command line tool called **bca** is provided to interact with the API of the library in an easy way.
+- `bca check`: a threshold gate with baselines, in-source suppression
+  markers, and CI-friendly exit codes.
+- Agent feedback: violations piped back into
+  [Claude Code](https://code.claude.com/docs/en/overview) or
+  [opencode](https://opencode.ai/) after every edit
+  ([below](#feed-metrics-to-your-coding-agent)).
+- `bca report`: Markdown and HTML hotspot reports.
+- `bca vcs`: change-history metrics over a git tree (churn, ownership
+  dilution, bug-fix history).
+- Library bindings: the same engine as a Rust crate, a
+  [Python package](https://pypi.org/project/big-code-analysis/), and a
+  REST server (`bca-web`).
 
-This tool can be used to:
+The full documentation lives in
+[**the book**](https://dekobon.github.io/big-code-analysis/): metrics
+definitions, command reference, CI recipes, and library guides.
 
-- Call **big-code-analysis** API
-- Print nodes and metrics information
-- Export metrics in different formats
-- Generate a Markdown or HTML quality-metrics report (`bca report markdown` / `bca report html`)
+## Feed metrics to your coding agent
 
-In addition, we provide a **bca-web** tool to use the library through a REST API.
+Coding agents write a lot of code, and nothing in their loop tells
+them a function has become too complex to maintain. `bca check` closes
+that loop: it checks each file the agent edits and reports the
+offending functions back into the model's context the moment the edit
+lands. All it needs is `bca` on `PATH` (see
+[Quick start](#quick-start)) plus a few lines of config.
 
-## Live example reports
+- **Claude Code**: a `PostToolUse` hook runs `bca check` on the edited
+  file and feeds violations back through stderr. This repository
+  dogfoods a reference hook at
+  [`.claude/hooks/bca-check.sh`](.claude/hooks/bca-check.sh).
+- **opencode**: a `tool.execute.after` plugin does the same; the
+  reference copy is at
+  [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js).
 
-`bca` runs against its own source on every push to `main` and publishes
-the result alongside the documentation:
+The
+[agent feedback recipe](https://dekobon.github.io/big-code-analysis/recipes/agent-feedback.html)
+has copy-pasteable wiring for both tools, plus the guidance block that
+keeps an agent from gaming the metric instead of simplifying the code.
+
+## Quick start
+
+Install a prebuilt `bca` from the
+[releases page](https://github.com/dekobon/big-code-analysis/releases)
+(signed tarballs for Linux, macOS, and Windows, plus `.deb`, `.rpm`,
+and `.apk` packages), or install it from a package registry:
+
+```console
+cargo install big-code-analysis-cli    # or: pip install big-code-analysis-cli
+```
+
+Then, from a project root:
+
+```console
+bca metrics src/main.rs      # per-function metric tree for one file
+bca init                     # scaffold bca.toml, .bcaignore, .bca-baseline.toml
+bca check                    # exit 2 when a function crosses a threshold
+bca report -O html -o report.html
+```
+
+The [Commands](https://dekobon.github.io/big-code-analysis/commands/index.html)
+chapter of the book documents every subcommand, flag, and output
+format.
+
+## Quality gates and reports in CI
+
+`bca check` reads thresholds, baselines, and excludes from a committed
+`bca.toml`, so CI, local runs, and agent hooks all gate on the same
+signal. `bca report` turns the same run into a Markdown comment for a
+pull request or an HTML hotspot page. This repository gates itself on
+every push and publishes the result:
 
 - HTML hotspot report:
   <https://dekobon.github.io/big-code-analysis/reports/index.html>
 - Markdown PR/MR comment:
   <https://dekobon.github.io/big-code-analysis/reports/report.md>
 
-The wiring lives in
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml). For
-downstream projects, the
-[CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html)
-is the canonical adoption guide — it documents the recommended
-pinned-release install path (with `BCA_VERSION` + sha256 pin) plus
-a `cargo install` alternative. The in-tree `pages.yml` workflow
-builds `bca` from the current checkout because main may carry CLI
-artifact schemas that no released `bca` supports yet — see the
-schema-compatibility note in the recipe before copying that pattern.
+The [CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html)
+is the adoption guide: a pinned-release install with checksum
+verification, ready-made GitHub Actions and GitLab CI jobs, and the
+[baselines](https://dekobon.github.io/big-code-analysis/recipes/baselines.html)
+and
+[local threshold gates](https://dekobon.github.io/big-code-analysis/recipes/local-gates.html)
+recipes for ratcheting an existing codebase.
 
-## Usage
+## Use it as a library
 
-**big-code-analysis** supports many types of programming languages and
-computes a great variety of metrics. You can find up to date documentation at
-<a href="https://dekobon.github.io/big-code-analysis/index.html" target="_blank">Documentation</a>.
+The `big-code-analysis` crate is published on crates.io under a
+written stability contract ([STABILITY.md](./STABILITY.md)): the
+public API holds stable across patch and minor bumps within `2.x`,
+and breaking changes wait for the next major. Metric *values* may
+still drift across minor bumps when a grammar pin moves or a metric
+definition is fixed; the contract spells out exactly what is and is
+not promised.
 
-On the
-<a href="https://dekobon.github.io/big-code-analysis/commands/index.html" target="_blank">
-    Commands
-</a> page, there is a list of commands that can be run to get information
-about metrics, nodes, and other general data provided by this software.
+```toml
+[dependencies]
+big-code-analysis = "2"
+```
 
-## Using as a library
+Every grammar sits behind a per-language Cargo feature; the default is
+all of them, and consumers who need a subset can disable default
+features and re-enable individual languages. See
+[Per-language Cargo features](https://dekobon.github.io/big-code-analysis/library/cargo-features.html)
+in the book, and the
+[Using as a Library](https://dekobon.github.io/big-code-analysis/library/index.html)
+chapter for task-oriented walkthroughs (quick start, in-memory
+analysis, walking `FuncSpace` results, error handling). The API
+reference is on [docs.rs](https://docs.rs/big-code-analysis).
 
-`big-code-analysis` is published on crates.io and can be embedded
-directly. The crate is on the `1.x` line and ships under a written
-stability contract: the public API surface is held stable across
-patch and minor bumps, and breaking shape changes are reserved for
-the next major bump. Metric *values* may still drift across minor
-bumps when a grammar pin moves or a metric definition is fixed —
-see [STABILITY.md](./STABILITY.md) for the full versioning contract,
-MSRV policy, escape hatches, and exactly what we do and do not
-promise within `1.x`.
-
-For task-oriented walkthroughs — quick start, in-memory analysis,
-walking `FuncSpace` results, and error handling — see the
-[**Using as a Library**](https://dekobon.github.io/big-code-analysis/library/index.html)
-section of the book.
-
-Python bindings (PyO3) live in
+Python bindings ([PyO3](https://pyo3.rs/)) live in
 [`big-code-analysis-py/`](./big-code-analysis-py/README.md) and ship
-the same metric pipeline as a Python package. See the book's
-[**Python Bindings**](https://dekobon.github.io/big-code-analysis/python/index.html)
-section for the install matrix, batch / async / SARIF recipes, and
-the full error taxonomy.
+the same metric pipeline as the
+[`big-code-analysis` package on PyPI](https://pypi.org/project/big-code-analysis/).
+The book's
+[Python Bindings](https://dekobon.github.io/big-code-analysis/python/index.html)
+chapter covers installation, batch and async processing, and
+[SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+output.
 
-### Per-language Cargo features
+For a service, `bca-web` wraps the library in a REST API; see
+[Operating bca-web](https://dekobon.github.io/big-code-analysis/commands/web-server.html).
 
-Every tree-sitter grammar is gated behind a per-language Cargo
-feature. The default feature set is `all-languages`, so a bare
+## Building and contributing
 
-```toml
-big-code-analysis = "2.0.1"
-```
-
-pulls every grammar in (matching the library's historical behaviour
-and what the `bca` / `bca-web` binaries ship). Library consumers that
-only need a subset of languages can opt out of the defaults and
-re-enable just the grammars they want:
-
-```toml
-big-code-analysis = { version = "2.0.1", default-features = false, features = ["rust", "typescript"] }
-```
-
-Supported language features: `bash`, `c`, `cpp`, `csharp`, `elixir`,
-`go`, `groovy`, `irules`, `java`, `javascript`, `kotlin`, `lua`,
-`mozcpp`, `mozjs`, `perl`, `php`, `python`, `ruby`, `rust`, `tcl`,
-`typescript`. The `irules` feature adds F5 iRules (a Tcl
-dialect; extensions `.irule` / `.irules`). The
-`cpp` feature backs the `Cpp` LANG variant with the upstream
-community `tree-sitter-cpp` grammar and, with the `Ccomment` and
-`Preproc` C-family helper variants, pulls in `tree-sitter-cpp`,
-`bca-tree-sitter-ccomment`, and `bca-tree-sitter-preproc` together.
-The `c` feature (added in #721) backs the dedicated `C` LANG variant
-with upstream `tree-sitter-c` and owns `.c`; it shares the same
-`ccomment` / `preproc` C-family helpers. `.h` stays on `Cpp`.
-The opt-in `mozcpp` feature adds the `Mozcpp` LANG variant — the
-Mozilla/Gecko C++ dialect (vendored `bca-tree-sitter-mozcpp` fork) —
-which owns no file extensions and is selected only by name
-(`--language mozcpp`, manifest, or API), mirroring `mozjs` for
-`.jsm`. Since #720 `cpp` no longer pulls `bca-tree-sitter-mozcpp`
-(a breaking dep-set change for `--no-default-features` consumers).
-
-The `LANG` enum keeps every variant defined regardless of the active
-feature set; selecting a [`LANG`] variant whose feature is off
-returns `Err(MetricsError::LanguageDisabled(LANG))` from every
-dispatch entry point (`analyze`, `metrics_from_tree`, `action`,
-`get_ops`, the deprecated `get_function_spaces*` shims, and
-`LANG::tree_sitter_language`). The set of compiled-in variants
-is queryable via `LANG::is_enabled`.
-
-## Building
-
-The repository ships a `Makefile` that wraps every common build, test,
-lint, and docs task. Run `make help` for the full list, and
-`make check-tools` to verify the optional tools are installed.
+The repository is a Cargo workspace with a `Makefile` wrapper for
+common tasks. Run `make help` for the full list.
 
 ```console
-make build           # debug build of the entire workspace
-make build-release   # optimised release build
+make build        # debug build of the entire workspace
+make test         # full test suite (workspace, all features)
+make pre-commit   # full local gate, mirrors CI
 ```
 
-If you prefer to run cargo directly, or want to build a single crate:
-
-```console
-cargo build                              # library only
-cargo build -p big-code-analysis-cli     # CLI only
-cargo build -p big-code-analysis-web     # web server only
-cargo build --workspace                  # everything in one shot
-```
-
-## Testing
-
-```console
-make test           # cargo test --workspace --all-features --lib --bins --tests
-make test-doc      # cargo test --workspace --all-features --doc
-make pre-commit    # full local gate: fmt-check, clippy, tests, udeps, lint families
-```
-
-`make pre-commit` is the recommended gate before committing — it is
-equivalent to what CI runs. If GNU Make 4 or any of the optional
-tools are unavailable, the raw cargo invocation still works:
-
-```console
-cargo test --workspace --all-features --verbose
-```
-
-### Updating insta tests
-
-We use [insta](https://insta.rs), to update the snapshot tests you should install [cargo insta](https://crates.io/crates/cargo-insta)
-
-```console
-make insta-review   # cargo insta test --review
-```
-
-Will run the tests, generate the new snapshot references and let you review them.
-
-### Updating grammars
-
-Have a look at
-<a href="https://dekobon.github.io/big-code-analysis/developers/update-grammars.html" target="_blank">Update grammars guide</a>
-to learn how to update languages grammars.
-
-## Contributing
-
-If you want to contribute to the development of this software, have a look at the
-guidelines contained in our
-<a href="https://dekobon.github.io/big-code-analysis/developers/index.html" target="_blank">Developers Guide</a>.
+[CONTRIBUTING.md](./CONTRIBUTING.md) covers the contribution workflow,
+and the
+[Developers Guide](https://dekobon.github.io/big-code-analysis/developers/index.html)
+in the book covers internals: adding a language, implementing a
+metric, and updating grammars.
 
 ## Licenses
 
-- Mozilla-defined grammars are released under the MIT license.
+- The vendored grammar crates (`tree-sitter-ccomment`,
+  `tree-sitter-mozcpp`, `tree-sitter-mozjs`, `tree-sitter-preproc`,
+  `tree-sitter-tcl`) are released under the MIT license.
 
-- **big-code-analysis**, **big-code-analysis-cli** and **big-code-analysis-web**
-are released under the
-<a href="https://www.mozilla.org/MPL/2.0/" target="_blank">Mozilla Public License v2.0</a>.
+- **big-code-analysis**, **big-code-analysis-cli**,
+  **big-code-analysis-web**, and **big-code-analysis-py** are released
+  under the
+  [Mozilla Public License v2.0](https://www.mozilla.org/MPL/2.0/).
