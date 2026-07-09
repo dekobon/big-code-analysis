@@ -23,7 +23,8 @@ pub(crate) struct ReportArgs {
     pub(crate) format: Option<ReportFormat>,
     /// Deprecated positional form of the report format, kept working
     /// for one release cycle. Hidden from help; use `--format`/`-O`
-    /// instead. The flag wins when both are given. To be removed in 2.0.
+    /// instead. The flag wins when both are given. To be removed in
+    /// the next major.
     // The `--format`/`-O` flag superseded the positional form in issue #513.
     #[clap(value_enum, hide = true, value_name = "FORMAT")]
     pub(crate) format_positional: Option<ReportFormat>,

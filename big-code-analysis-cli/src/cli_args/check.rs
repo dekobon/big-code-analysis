@@ -79,7 +79,7 @@ CLI `--threshold` flags override values read from this file."
     /// extension (`.sarif` → sarif, `.xml` → checkstyle); an extension
     /// with no unique dialect is a usage error. The old `--format` / `-O`
     /// / `--output-format` spellings stay hidden aliases for one release
-    /// cycle and are slated for removal in 2.0.
+    /// cycle and are slated for removal in the next major.
     // `--report-format` split from the data `--format` in issue #659; the
     // `--format`/`-O`/`--output-format` aliases trace to issues #513/#659.
     #[clap(
