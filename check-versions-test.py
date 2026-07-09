@@ -168,11 +168,20 @@ class CiRecipePinTest(unittest.TestCase):
         text = "$ bca --version\nbig-code-analysis-cli 1.1.0\n"
         self.assertEqual(self._stale_lines(text, "1.2.0"), [])
 
-    def test_real_ci_md_pins_are_at_canonical(self) -> None:
-        canonical = cv.workspace_version(REPO_ROOT)
+    def test_real_ci_md_pins_are_at_a_published_release(self) -> None:
+        # ci.md pins track the published releases (latest or the one
+        # before), never the workspace version — they can only move
+        # once the release's SHA256SUMS exists.
+        ci_allowed = cv.released_versions(REPO_ROOT)[:2]
         for ci_path in cv.CI_RECIPE_FILES:
             text = cv.read(REPO_ROOT / ci_path)
-            self.assertEqual(self._stale_lines(text, canonical), [], ci_path)
+            stale = [
+                cited
+                for m in cv.CI_PIN_RE.finditer(text)
+                for cited in [next(g for g in m.groups() if g is not None)]
+                if not cv.matches_any(cited, ci_allowed)
+            ]
+            self.assertEqual(stale, [], ci_path)
 
     def test_real_ci_md_would_flag_on_bump(self) -> None:
         # On a hypothetical bump, the real ci.md pins go stale — proving
@@ -181,6 +190,42 @@ class CiRecipePinTest(unittest.TestCase):
             text = cv.read(REPO_ROOT / ci_path)
             stale = self._stale_lines(text, "9.9.9")
             self.assertTrue(stale, f"{ci_path} should expose stale pins on a bump")
+
+
+class ChangelogReleaseTest(unittest.TestCase):
+    """Doc pins are checked against CHANGELOG's released sections."""
+
+    SYNTHETIC = (
+        "# Changelog\n\n"
+        "## [Unreleased]\n\n### Added\n- something\n\n"
+        "## [2.1.0] - 2026-08-01\n\n### Added\n- thing\n\n"
+        "## [2.0.0] - 2026-06-29\n\n### Changed\n- other\n\n"
+        "## [2.0.0-rc1] - 2026-06-19\n\n- rc\n"
+    )
+
+    def test_release_headers_parse_newest_first(self) -> None:
+        found = cv.CHANGELOG_RELEASE_RE.findall(self.SYNTHETIC)
+        self.assertEqual(found, ["2.1.0", "2.0.0", "2.0.0-rc1"])
+
+    def test_unreleased_section_is_not_a_release(self) -> None:
+        found = cv.CHANGELOG_RELEASE_RE.findall("## [Unreleased]\n")
+        self.assertEqual(found, [])
+
+    def test_real_changelog_has_a_released_section(self) -> None:
+        released = cv.released_versions(REPO_ROOT)
+        self.assertTrue(released, "CHANGELOG.md must have a released section")
+        self.assertRegex(released[0], r"^\d+\.\d+\.\d+")
+
+    def test_ci_pins_may_lag_one_release_but_not_two(self) -> None:
+        allowed = ["2.1.0", "2.0.0"]
+        self.assertTrue(cv.matches_any("2.1.0", allowed))
+        self.assertTrue(cv.matches_any("2.0.0", allowed))  # lag of one
+        self.assertFalse(cv.matches_any("1.1.0", allowed))  # lag of two
+
+    def test_doc_pin_prefix_still_normalizes(self) -> None:
+        # The README's major-line form ("2") must satisfy the latest
+        # published release via prefix normalization.
+        self.assertEqual(cv.normalize("2", "2.1.0"), "2.1.0")
 
 
 class SmokeTest(unittest.TestCase):

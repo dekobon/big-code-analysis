@@ -37,13 +37,12 @@ use big_code_analysis::{
 fn hotspots(space: &FuncSpace, threshold: u64, out: &mut Vec<String>) {
     if space.kind == SpaceKind::Function
         && space.metrics.cognitive.cognitive_sum() > threshold
+        && let Some(name) = &space.name
     {
-        if let Some(name) = &space.name {
-            out.push(format!(
-                "{name} (lines {}–{})",
-                space.start_line, space.end_line,
-            ));
-        }
+        out.push(format!(
+            "{name} (lines {}–{})",
+            space.start_line, space.end_line,
+        ));
     }
     for child in &space.spaces {
         hotspots(child, threshold, out);

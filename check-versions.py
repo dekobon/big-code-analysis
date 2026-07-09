@@ -7,8 +7,18 @@ crates (`enums/`, `xtask/`), and the five `bca-tree-sitter-*`
 vendored grammar leaves — must share one version number. Every
 internal-dep pin must reference that same version.
 
-See `RELEASING.md` "Lockstep version policy" for the policy this
-enforces. Wired into `make pre-commit` and the CI lint job.
+Documentation pins follow a different clock: readers deploy the
+latest *published* release, not the workspace version, which runs
+ahead of it between releases. Doc snippets are therefore checked
+against the topmost released `## [X.Y.Z] - YYYY-MM-DD` section of
+`CHANGELOG.md` (which release-prep moves in the same commit as the
+doc pins), and the `recipes/ci.md` install pins may additionally
+lag one release because they can only move once the release's
+`SHA256SUMS` exists.
+
+See `RELEASING.md` "Lockstep version policy" and "Version strings
+in documentation" for the policies this enforces. Wired into
+`make pre-commit` and the CI lint job.
 
 Exits 0 on lockstep, non-zero with a per-source listing on drift.
 """
@@ -44,9 +54,13 @@ INTERNAL_PIN_MANIFESTS = (
     "big-code-analysis-web/Cargo.toml",
 )
 
-# Doc files that hard-code the workspace version in install snippets
-# or stability prose. Every plain `X.Y.Z` or `= X.Y.Z` match in these
-# files must equal the canonical version.
+# Doc files that hard-code a version in install snippets or
+# stability prose. Every plain `X.Y.Z` or `= X.Y.Z` match in these
+# files must equal the **latest published release** (the topmost
+# released section of CHANGELOG.md), not the workspace version:
+# readers copy these lines, so they must resolve against the
+# registries today. See RELEASING.md "Version strings in
+# documentation".
 DOC_VERSION_FILES = (
     "README.md",
     "STABILITY.md",
@@ -63,9 +77,12 @@ DOC_VERSION_FILES = (
 # CI-recipe docs that pin a *published* big-code-analysis-cli release in
 # install snippets. These use install-action / binstall / env-var forms
 # rather than the `<crate> = "X.Y.Z"` Cargo-snippet shape DOC_PIN_RE
-# matches, so they need their own file list + pattern (#879). The
-# line-665 comment ("pin a published big-code-analysis-cli release")
-# confirms these are meant to track the current release, not lag it.
+# matches, so they need their own file list + pattern (#879). Because
+# the paired BCA_SHA256 values come from the release's SHA256SUMS
+# asset, these pins move in a post-publish follow-up commit and may
+# therefore cite either the latest published release or the one
+# immediately before it (RELEASING.md "Version strings in
+# documentation"); anything older is stale.
 #
 # Deliberately *not* gated here: the `key: bca-…-X.Y.Z` GitHub Actions
 # cache key (ci.md:205). It embeds the version too, but a stale cache
@@ -87,6 +104,15 @@ CI_PIN_RE = re.compile(
     r"--version\s+(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?)"
     r"|big-code-analysis-cli@(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?)"
     r'|BCA_VERSION:\s*"(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?)"'
+)
+
+# A released CHANGELOG section header: `## [X.Y.Z] - YYYY-MM-DD`.
+# `## [Unreleased]` has no version-date shape and never matches. The
+# file is newest-first, so the first match is the latest published
+# release.
+CHANGELOG_RELEASE_RE = re.compile(
+    r"^## \[(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\] - \d{4}-\d{2}-\d{2}",
+    re.MULTILINE,
 )
 
 WORKSPACE_VERSION_RE = re.compile(
@@ -188,6 +214,16 @@ def workspace_version(root: pathlib.Path) -> str:
     return m.group(1)
 
 
+def released_versions(root: pathlib.Path) -> list[str]:
+    """Released versions from CHANGELOG.md section headers, newest first."""
+    return CHANGELOG_RELEASE_RE.findall(read(root / "CHANGELOG.md"))
+
+
+def matches_any(cited: str, allowed: list[str]) -> bool:
+    """True if `cited` equals (or is a prefix of) any allowed version."""
+    return any(normalize(cited, version) == version for version in allowed)
+
+
 def package_version(manifest: pathlib.Path) -> str | None:
     m = PACKAGE_VERSION_RE.search(read(manifest))
     return m.group(1) if m else None
@@ -228,6 +264,15 @@ def check_external_grammar_lockstep(root: pathlib.Path) -> list[str]:
 def main() -> int:
     root = REPO_ROOT
     canonical = workspace_version(root)
+    released = released_versions(root)
+    if not released:
+        sys.exit(
+            "error: CHANGELOG.md has no released '## [X.Y.Z] - YYYY-MM-DD' section"
+        )
+    latest_release = released[0]
+    # ci.md pins move in a post-publish follow-up (they need the
+    # release's SHA256SUMS), so they may lag one release behind.
+    ci_allowed = released[:2]
     failures: list[str] = []
 
     for leaf in EXCLUDED_LEAF_DIRS:
@@ -263,22 +308,25 @@ def main() -> int:
         doc = root / doc_path
         for m in DOC_PIN_RE.finditer(read(doc)):
             cited = m.group(1).strip()
-            if normalize(cited, canonical) != canonical:
+            if normalize(cited, latest_release) != latest_release:
                 line = read(doc)[: m.start()].count("\n") + 1
                 failures.append(
                     f"{doc_path}:{line}: snippet cites version "
-                    f"{cited!r}, expected {canonical!r} (or a prefix)"
+                    f"{cited!r}, expected the latest published release "
+                    f"{latest_release!r} (or a prefix)"
                 )
 
     for ci_path in CI_RECIPE_FILES:
         text = read(root / ci_path)
         for m in CI_PIN_RE.finditer(text):
             cited = next(g for g in m.groups() if g is not None)
-            if normalize(cited, canonical) != canonical:
+            if not matches_any(cited, ci_allowed):
                 line = text[: m.start()].count("\n") + 1
                 failures.append(
                     f"{ci_path}:{line}: install snippet pins release "
-                    f"{cited!r}, expected {canonical!r} (or a prefix)"
+                    f"{cited!r}, expected one of {ci_allowed!r} (ci.md "
+                    f"pins move in the post-publish follow-up and may "
+                    f"lag one release)"
                 )
 
     failures.extend(check_external_grammar_lockstep(root))
@@ -289,7 +337,10 @@ def main() -> int:
         for f in failures:
             print(f"  {f}", file=sys.stderr)
         return 1
-    print(f"versions OK: every owned crate at {canonical}")
+    print(
+        f"versions OK: every owned crate at {canonical}, "
+        f"doc pins at published release {latest_release}"
+    )
     return 0
 
 
