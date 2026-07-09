@@ -9,7 +9,7 @@
 
 #![cfg(feature = "rust")]
 
-use big_code_analysis::{analyze, FuncSpace, MetricsOptions, SpaceKind, Source, LANG};
+use big_code_analysis::{FuncSpace, LANG, MetricsOptions, Source, SpaceKind, analyze};
 
 /// `in-memory.md` — "Reading from a buffer".
 #[cfg(feature = "python")]
@@ -34,13 +34,12 @@ fn in_memory_analyze_buffer() {
 fn hotspots(space: &FuncSpace, threshold: u64, out: &mut Vec<String>) {
     if space.kind == SpaceKind::Function
         && space.metrics.cognitive.cognitive_sum() > threshold
+        && let Some(name) = &space.name
     {
-        if let Some(name) = &space.name {
-            out.push(format!(
-                "{name} (lines {}\u{2013}{})",
-                space.start_line, space.end_line,
-            ));
-        }
+        out.push(format!(
+            "{name} (lines {}\u{2013}{})",
+            space.start_line, space.end_line,
+        ));
     }
     for child in &space.spaces {
         hotspots(child, threshold, out);
@@ -69,7 +68,7 @@ fn hard(x: i32) -> i32 {
 /// `reuse-tree.md` — "Working example".
 #[test]
 fn reuse_tree_working_example() {
-    use big_code_analysis::{tree_sitter, Ast};
+    use big_code_analysis::{Ast, tree_sitter};
 
     let source_code = "fn main() { if true { 1 } else { 2 }; }";
     let source = source_code.as_bytes().to_vec();
@@ -77,22 +76,20 @@ fn reuse_tree_working_example() {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(
-            &LANG::Rust.tree_sitter_language().expect("rust feature enabled"),
+            &LANG::Rust
+                .tree_sitter_language()
+                .expect("rust feature enabled"),
         )
         .expect("rust grammar pinned to a compatible version");
     let tree = parser
         .parse(&source, None)
         .expect("parser has a language set");
 
-    let from_tree = Ast::from_tree_sitter(
-        LANG::Rust,
-        tree,
-        source.clone(),
-        Some("foo.rs".to_owned()),
-    )
-    .expect("rust feature enabled")
-    .metrics(MetricsOptions::default())
-    .expect("non-empty input");
+    let from_tree =
+        Ast::from_tree_sitter(LANG::Rust, tree, source.clone(), Some("foo.rs".to_owned()))
+            .expect("rust feature enabled")
+            .metrics(MetricsOptions::default())
+            .expect("non-empty input");
 
     let from_bytes = analyze(
         Source::new(LANG::Rust, &source).with_name(Some("foo.rs".to_owned())),

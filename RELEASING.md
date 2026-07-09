@@ -197,12 +197,15 @@ drift. A version bump touches:
 5. The `version = "=<new>"` pin on the `big-code-analysis` path-dep
    in `big-code-analysis-cli/Cargo.toml` and
    `big-code-analysis-web/Cargo.toml`.
-6. The hard-coded version references in user-facing docs
+6. Only when the bump is the release-prep commit for the version
+   being cut: the hard-coded version references in user-facing docs
    (`README.md`, `STABILITY.md`, the book's `quick-start.md` and
    `cargo-features.md`) **and** the install snippet in every
    leaf's `bindings/rust/README.md` (5 files), since those ship
    inside the published `bca-tree-sitter-*` tarballs and render as
-   the crates.io landing page.
+   the crates.io landing page. A post-tag bump to the next
+   development version leaves them at the published release; see
+   [Version strings in documentation](#version-strings-in-documentation).
 7. The man pages (re-run `cargo run -p xtask`).
 8. The SARIF tool-version snapshots (re-run `cargo insta test` and
    accept).
@@ -523,6 +526,15 @@ developed. Between a tag and the next release the two deliberately
 diverge: after the post-tag bump, `Cargo.toml` reads ahead of every
 documentation example, and that is correct. When in doubt, apply the
 reader test: if someone copies this line today, does it resolve?
+
+`./check-versions.py` (`make check-versions`, wired into
+`make pre-commit` and the CI lint job) enforces the two automatable
+categories: dependency-example pins must equal the latest released
+`## [X.Y.Z]` section of `CHANGELOG.md`, and the `recipes/ci.md`
+install pins may cite that release or the one immediately before it
+(they move in the post-publish follow-up). Because release-prep
+creates the new changelog section, the gate forces the release-prep
+doc bump and rejects a premature one in the same stroke.
 
 ### Bump in the release-prep commit (before tagging vX.Y.Z)
 
