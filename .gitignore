@@ -9,6 +9,8 @@ enums/target
 .serena/
 *.pending-snap
 
+.codegraph/
+
 # Python bindings: per-developer virtualenv, build artefacts, caches
 big-code-analysis-py/.venv/
 big-code-analysis-py/**/__pycache__/
