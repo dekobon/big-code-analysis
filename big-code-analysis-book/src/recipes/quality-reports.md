@@ -10,8 +10,9 @@ Recipes for producing aggregated, human-readable Markdown reports.
 
 ## Live example reports
 
-`big-code-analysis` publishes the output of `bca report markdown --vcs`
-and `bca report html --vcs` against its own source tree on every push to
+`big-code-analysis` publishes the output of `bca report -O markdown
+--vcs` and `bca report -O html --vcs` against its own source tree on
+every push to
 `main`. Open either to see exactly what the recipes on this page produce
 on a multi-language Rust + Python codebase:
 
@@ -37,7 +38,7 @@ Run from the project root and write the report to a file:
 ```bash
 bca report \
     --paths "$PWD" \
-    markdown \
+    -O markdown \
     --top 20 \
     --strip-prefix "$PWD/" \
     --output report.md
@@ -62,7 +63,7 @@ include/exclude globs do the filtering:
 bca report \
     --include "*.rs" --include "*.py" \
     --paths "$PWD" \
-    markdown --output report.md
+    -O markdown --output report.md
 ```
 
 To exclude vendored or generated trees, layer in `--exclude`:
@@ -72,7 +73,7 @@ bca report \
     --include "*.rs" \
     --exclude "**/target/**" --exclude "**/vendor/**" \
     --paths "$PWD" \
-    markdown
+    -O markdown
 ```
 
 > **Flag arity.** `--include` and `--exclude` take exactly one glob per
@@ -94,7 +95,7 @@ values; blank lines and `#`-prefixed comments are skipped:
 bca report \
     --paths . \
     --exclude-from .bcaignore \
-    markdown --output report.md
+    -O markdown --output report.md
 ```
 
 ## Show only the worst offenders
@@ -103,7 +104,7 @@ For a quick triage view that highlights the top three problems per
 section:
 
 ```bash
-bca report -p src/ markdown --top 3
+bca report -p src/ -O markdown --top 3
 ```
 
 The report still includes every section, but each table is short
@@ -116,10 +117,10 @@ on each side and diff the Markdown:
 
 ```bash
 git worktree add /tmp/before main
-bca report -p /tmp/before markdown \
+bca report -p /tmp/before -O markdown \
     --strip-prefix /tmp/before/ --output /tmp/before.md
 
-bca report -p "$PWD" markdown \
+bca report -p "$PWD" -O markdown \
     --strip-prefix "$PWD/" --output /tmp/after.md
 
 diff -u /tmp/before.md /tmp/after.md | less
@@ -145,12 +146,14 @@ bca preproc \
 bca report \
     --paths src/ \
     --preproc-data /tmp/preproc.json \
-    markdown --output report.md
+    -O markdown --output report.md
 ```
 
-`--preproc-data` is a global flag, so it works with `metrics`, `ops`,
-`functions`, and the other subcommands as well — anywhere accurate
-C/C++ analysis matters.
+`--preproc-data` is accepted by every metric-computing walking
+subcommand (`metrics`, `ops`, `functions`, `report`, `check`, …) —
+anywhere accurate C/C++ analysis matters. Subcommands that do not
+consume it (`vcs`, `preproc`, `list-metrics`, `diff-baseline`)
+reject it as a usage error.
 
 ## Analyze only files changed in a PR
 
@@ -176,7 +179,7 @@ pipeline:
 
 ```bash
 git diff --name-only --diff-filter=AM origin/main...HEAD \
-    | bca report --paths-from - markdown \
+    | bca report --paths-from - -O markdown \
         --top 10 --output pr-report.md
 ```
 

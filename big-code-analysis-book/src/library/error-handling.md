@@ -75,8 +75,9 @@ tree. That means:
 If you need to know whether the input parsed cleanly, count
 `ERROR` nodes by walking the tree-sitter AST yourself (see the
 [`Node`][Node] escape hatch in
-[`STABILITY.md`](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches)) or use the
-[`bca nodes`](../commands/nodes.md) subcommand on the CLI side.
+[`STABILITY.md`](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches)) or use
+`bca find -t ERROR` on the CLI side (see the
+[Nodes](../commands/nodes.md) page).
 
 ## Bubbling `MetricsError` through `?`
 

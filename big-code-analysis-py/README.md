@@ -40,29 +40,34 @@ docs.
 | `sarif_output.py` | Minimal SARIF rendering. Embedded by *SARIF output*. |
 | `errors_taxonomy.py` | The full exception map across the entry points. Embedded by *Error handling*. |
 | `async_patterns.py` | `asyncio.to_thread` (canonical) vs the in-loop anti-pattern. Embedded by *Async patterns*. |
-| `cli_parity.py` | Byte-for-byte parity smoke test vs `bca metrics --output-format json`. Wired into `make py-test`. |
+| `cli_parity.py` | Byte-for-byte parity smoke test vs `bca metrics --format json`. Wired into `make py-test`. |
 | `pipeline_db.py` | Directory walk → `analyze_batch` → `flatten_spaces` → sqlite top-N, with a deliberately broken file to exercise the never-raise contract. |
 | `sarif_upload.py` | SARIF emission tuned for GitHub Code Scanning (`github/codeql-action/upload-sarif@v3`). |
 | `jupyter_quickstart.ipynb` | Pandas DataFrame + matplotlib `cyclomatic.sum` per function + top-N. Executed in CI via `python-examples-nbconvert`. |
 
 ## Installation
 
-The package is not yet published on PyPI. When it is, the
-distribution will be **`big-code-analysis`** and the import name
-**`big_code_analysis`** — these names are locked by the stability
-contract (see [`STABILITY.md`](../STABILITY.md), *Python bindings*)
-and cannot change post-publish without breaking every consumer. For
-development, build locally via [maturin](https://www.maturin.rs/).
+The package is published on PyPI: the distribution is
+**`big-code-analysis`** and the import name **`big_code_analysis`** —
+names locked by the stability contract (see
+[`STABILITY.md`](../STABILITY.md), *Python bindings*).
+
+```bash
+pip install big-code-analysis
+```
+
+For development, build locally via [maturin](https://www.maturin.rs/).
 The recommended
 bootstrap uses [uv](https://docs.astral.sh/uv/) so the resolved dev
 set matches the checked-in `uv.lock` — every contributor on this
 path gets the same ruff/mypy/pyright/maturin/pytest versions. CI
-does not yet consume `uv.lock` (its `python-*` jobs still pip-install
-the pyproject floors directly); convergence is tracked as a follow-up
-in the PR-2 plan committed alongside this work:
+consumes `uv.lock` through the hash-pinned exports under
+`requirements/` (`pip install --require-hashes -r …` in the
+workflows), so a `uv.lock` change and its regenerated exports must
+land in the same commit:
 
 ```bash
-make py-bootstrap          # runs `uv sync --extra dev` in big-code-analysis-py/
+make py-bootstrap          # runs `uv sync --locked --extra dev` in big-code-analysis-py/
                            # creates .venv with ruff, mypy, pyright, maturin, pytest
 cd big-code-analysis-py
 source .venv/bin/activate
@@ -84,7 +89,7 @@ is pinned to `uv.lock`.
 import big_code_analysis as bca
 
 # Analyse a file by path. The returned dict matches the JSON
-# emitted by `bca metrics --output-format json` for the same
+# emitted by `bca metrics --format json` for the same
 # file at the `FuncSpace` boundary — same field order, same
 # numeric formatting, same shape. Language detection mirrors the
 # CLI (path extension, then shebang, then emacs `-*- mode -*-`).
@@ -100,7 +105,7 @@ if result is not None:
     print(result["metrics"]["cognitive"]["sum"])
 
 # Analyse a Rust file with `#[test]` subtrees pruned out — same
-# result as `bca metrics --exclude-tests --output-format json`.
+# result as `bca metrics --exclude-tests --format json`.
 prod_only = bca.analyze("src/main.rs", exclude_tests=True)
 
 # Non-UTF-8 paths raise `ValueError` by default so the `name`
@@ -237,19 +242,20 @@ a well-formed SARIF document with empty `results` and `rules`
 arrays. This matches the CLI's posture: there are **no built-in
 default thresholds**; every check run supplies its own limits.
 
-**Unit-level findings.** `to_sarif` emits file-scope (unit-space)
-findings for every metric whose JSON headline at the unit space
-matches the CLI's per-space accessor (`loc.*`, `halstead.*`,
-`mi.*`, `nom`, `nargs`, `nexits`, `tokens`, `abc`, `wmc`, `npm`,
-`npa`). The three exceptions — `cyclomatic`, `cyclomatic.modified`,
-`cognitive` — are skipped at the unit level because the JSON only
-exposes the aggregate `sum` across children while the CLI's
-per-space accessor returns just the unit's own scalar; emitting
-findings from the aggregate would diverge from the CLI for parent
-spaces. Unit findings carry `logicalLocations: [{"fullyQualifiedName":
+**Unit-level findings.** `to_sarif` emits a finding at every space
+whose **own** value breaches its limit, exactly matching
+`bca check --report-format sarif`. Emission is scope-gated per metric
+(`loc.*` at the file unit, `nom` / `wmc` / `npm` / `npa` at
+containers, the rest at function spaces), and the four
+subtree-aggregate metrics (`cyclomatic`, `cyclomatic.modified`,
+`cognitive`, `abc`) read the per-space `value` field rather than the
+rolled-up aggregate (#958, #969). Unit findings carry
+`logicalLocations: [{"fullyQualifiedName":
 "<file>"}]`; nameless non-unit spaces (rare parse-failure case)
 carry `"<unnamed>"` — both matching the CLI's `function_token`
-placeholders.
+placeholders. See the book's
+[SARIF output](https://dekobon.github.io/big-code-analysis/python/sarif.html)
+page for the full contract.
 
 ### Upload to GitHub Code Scanning
 
@@ -432,7 +438,8 @@ Exception types raised by `bca.analyze` / `bca.analyze_source`:
   with `err.errno` and `err.filename` populated.
 
 Exception types raised by the change-history surface
-(`bca.vcs_metrics` / `bca.vcs_trend` / `bca.vcs_jit`, and
+(`bca.vcs.rank` / `bca.vcs.trend` / `bca.vcs.commit` /
+`bca.vcs.score_diff`, and
 `bca.analyze(..., vcs=True)` for its option parsing) — all subclass
 `bca.VcsError`, itself a `ValueError`, so existing `except ValueError`
 handlers keep working (#624):
@@ -442,8 +449,9 @@ handlers keep working (#624):
   directory". (`analyze(..., vcs=True)` never raises it — a
   non-repository file just yields no `vcs` block.)
 - `bca.InvalidRevisionError` — a `reference` / `commit` could not be
-  resolved (`vcs_jit`).
-- `bca.InvalidDiffError` — the `diff` passed to `vcs_jit` is malformed.
+  resolved (`vcs.commit`).
+- `bca.InvalidDiffError` — the `diff` passed to `vcs.commit` is
+  malformed.
 - `bca.VcsEnvironmentError` — an environment / backend failure
   (opening the repository, walking history, diffing, `.mailmap`,
   blame, or cache I/O). Mirrors the `500` (rather than `400`)

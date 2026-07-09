@@ -6,8 +6,8 @@ requests, wikis, or issue trackers.
 
 Pick the format with `--format` / `-O` (`bca report --format html`).
 When omitted, the report defaults to `markdown`. The bare positional
-form (`bca report markdown`) still works as a deprecated alias and will
-be removed in 2.0; prefer `--format`.
+form (`bca report markdown`) still works as a deprecated alias and is
+slated for removal in the next major; prefer `--format`.
 
 > **CI integration.** For runnable GitHub Actions and GitLab CI
 > recipes that post the Markdown report as a PR/MR comment, see the
@@ -125,8 +125,9 @@ alongside `SLOC` so two complementary size proxies are visible per row.
      clamps to 0 still contributes its true (often negative)
      maintainability rather than a misleading 0.
    - *Actionable Summary* — counts of functions exceeding common
-     thresholds (CC > 10, cognitive > 15, SLOC > 100, args > 3,
-     Halstead bugs > 1). Emitted **first**, directly after the Summary
+     thresholds (by default CC > 10, cognitive > 15, SLOC > 100,
+     args > 3, Halstead bugs > 1; a manifest `[thresholds]` table
+     overrides each cutoff). Emitted **first**, directly after the Summary
      and before any hotspot table, so a reader who stops after a table
      or two still sees the highest-altitude counts. These are **raw**
      counts that ignore suppression; the section is captioned to say

@@ -236,7 +236,7 @@ specifications. They go stale immediately.
 `CHANGELOG.md` follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). This is a
-published `1.x` library with a written stability contract in
+published `2.x` library with a written stability contract in
 [`STABILITY.md`](../../STABILITY.md); the detailed entry, sectioning,
 and SemVer discipline lives in [`AGENTS.md`](../../AGENTS.md). The
 rules that matter most for prose:

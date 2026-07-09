@@ -21,7 +21,7 @@ This is useful for:
 ```rust
 use big_code_analysis::{analyze, MetricsOptions, Source, LANG};
 
-fn analyze_buffer(source: &[u8]) -> Option<f64> {
+fn analyze_buffer(source: &[u8]) -> Option<u64> {
     // `Source::name` is the display identifier baked into the
     // top-level `FuncSpace`. Pick whatever is meaningful for
     // downstream consumers (logs, JSON output); pass `None` if

@@ -3,7 +3,7 @@
 How `big-code-analysis` decides which language a file is written in, and
 what it reads off disk before parsing. All of the logic lives in
 [`src/tools.rs`](../src/tools.rs), [`src/langs.rs`](../src/langs.rs),
-and the macros in [`src/macros.rs`](../src/macros.rs).
+and the macros in [`src/macros/mod.rs`](../src/macros/mod.rs).
 
 ## Reading the file
 
@@ -13,10 +13,10 @@ happens:
 | Function | Behaviour |
 |----------|-----------|
 | `read_file(path)` | Reads the whole file. Normalises CRLF and lone CR to LF in place. Buffer ends with exactly one trailing `\n`. |
-| `read_file_with_eol(path)` | Same normalisation, plus: returns `None` for files ≤ 3 bytes; strips a leading UTF-8/UTF-16 BOM; sniffs the first ~64 bytes and returns `None` if a U+FFFD replacement char appears (treated as non-UTF-8). |
+| `read_file_with_eol(path)` | Same normalisation, plus: returns `None` for files ≤ 3 bytes and for files with a UTF-16 BOM (#803); strips a leading UTF-8 BOM; byte-validates the first ~64 bytes with `std::str::from_utf8` and returns `None` on invalid UTF-8 (#746, #758; a lossy U+FFFD check was rejected because U+FFFD can legitimately appear in source). |
 
 Downstream consumers must assume the buffer contains no `\r` bytes. The
-metric engine depends on this — passing raw CRLF input to a parser
+metric engine depends on this: passing raw CRLF input to a parser
 would shift line numbers and break LoC counts.
 
 ## Detecting the language
@@ -24,18 +24,18 @@ would shift line numbers and break LoC counts.
 There are two public entry points, both returning a
 [`LANG`](../src/langs.rs) variant:
 
-### `get_language_for_file(path)` — extension only
+### `get_language_for_file(path)`: extension only
 
 Lowercases the file's extension and looks it up. Returns `None` if the
 path has no extension, the extension is not valid UTF-8, or no language
-claims that extension. This is the cheap path — no buffer required.
+claims that extension. This is the cheap path; no buffer required.
 
-### `guess_language(buf, path)` — extension + mode line + shebang
+### `guess_language(buf, path)`: extension + mode line + shebang
 
 Combines the extension lookup with an Emacs/Vim *mode line* scan of the
 buffer and a shebang scan of the first line. Returns `(Option<LANG>,
 &str)` where the second element is the canonical lowercase language slug
-(`"cpp"`, `"csharp"`, `"rust"`, etc.) — the same string `LANG::name`
+(`"cpp"`, `"csharp"`, `"rust"`, etc.), the same string `LANG::name`
 emits and a valid `FromStr` lookup token. Objective-C (`.m`) parses with
 the dedicated `tree-sitter-objc` grammar and reports `"objc"`;
 Objective-C++ (`.mm`) stays on the C++ grammar and reports `"cpp"` (see
@@ -49,10 +49,10 @@ Mode line scanning runs three regexes (compiled once via `OnceLock`):
 | `-\*-\s*([^:;\s]+)\s*-\*-` | Bare Emacs mode | `// -*- c++ -*-` |
 | `(?i)vim\s*:.*[^\w]ft\s*=\s*([^:\s]+)` | Vim `ft=` modeline | `// vim: set ts=4 ft=c++` |
 
-The scan checks the **first 4 lines** for any of the three patterns,
-then the **last 4 lines** for the Vim pattern only (Vim modelines are
+The scan checks the **first 5 lines** for any of the three patterns,
+then the **last 5 lines** for the Vim pattern only (Vim modelines are
 conventionally at the bottom of the file, Emacs ones at the top).
-"Lines" here means LF-delimited segments — `guess_language` relies on
+"Lines" here means LF-delimited segments; `guess_language` relies on
 the CRLF/CR → LF normalisation performed by the readers above.
 
 #### Resolution rules
@@ -60,19 +60,17 @@ the CRLF/CR → LF normalisation performed by the readers above.
 Given an extension result and a mode result, `guess_language` resolves
 as follows:
 
-1. **Both agree** — return that language. Apply the Objective-C
-   override (see below) before picking the display name.
-2. **Both disagree** — extension wins. The mode line is treated as
-   advisory, and the Objective-C overlay is **not** consulted in this
-   branch (the display name comes straight from the extension's
-   `LANG`).
-3. **Only extension matches** — return it.
-4. **Only mode matches** — return it.
-5. **Only shebang matches** — return it. The shebang signal is
+1. **Both agree**: return that language.
+2. **Both disagree**: extension wins. The mode line is treated as
+   advisory; the display name comes straight from the extension's
+   `LANG`.
+3. **Only extension matches**: return it.
+4. **Only mode matches**: return it.
+5. **Only shebang matches**: return it. The shebang signal is
    consulted **after** the extension and mode-line lookups have both
    come back empty, so an explicit `.py` extension or `mode: python`
    line on a script with `#!/bin/sh` still resolves to Python.
-6. **Nothing matches** — return `(None, "")`.
+6. **Nothing matches**: return `(None, "")`.
 
 #### Shebang scan
 
@@ -111,16 +109,16 @@ Since #724, Objective-C has its own dedicated grammar:
   `LANG::Cpp`, reporting `"cpp"`. Objective-C++ mixes Objective-C and
   C++; the `tree-sitter-objc` grammar parses the Objective-C and C
   parts but not C++ constructs (templates, namespaces, classes, `::`).
-  Because a `.mm` file is `.mm` precisely because it contains C++ — the
-  larger, more pervasive surface — the C++ grammar degrades more
+  Because a `.mm` file is `.mm` precisely because it contains C++ (the
+  larger, more pervasive surface), the C++ grammar degrades more
   gracefully on `.mm` than the Objective-C grammar would (it only trips
   on the Objective-C glue, not the whole C++ half). This is the same
   asymmetric-failure trade-off #721 used to keep `.h` on `LANG::Cpp`.
   Metrics for the Objective-C portions of a `.mm` file are therefore
-  approximate — a known limitation tracked in the original #724 decision.
+  approximate, a known limitation tracked in the original #724 decision.
 
-The earlier `fake::get_true` overlay — which folded both extensions onto
-the `"cpp"` slug while they shared one grammar (#540) — was retired in
+The earlier `fake::get_true` overlay, which folded both extensions onto
+the `"cpp"` slug while they shared one grammar (#540), was retired in
 the #724 change: `.m` now reports `"objc"` natively and `.mm` reports
 `"cpp"` natively, so no override is needed.
 
@@ -144,32 +142,32 @@ last two tuple fields of each `mk_langs!` entry in
 ```
 
 The `mk_extensions!` and `mk_emacs_mode!` macros in
-[`src/macros.rs`](../src/macros.rs) expand these into the public
+[`src/macros/mod.rs`](../src/macros/mod.rs) expand these into the public
 `get_from_ext(ext) -> Option<LANG>` and
 `get_from_emacs_mode(mode) -> Option<LANG>` lookup functions. Both are
-plain `match` arms — no fuzzy matching, no fallback.
+plain `match` arms: no fuzzy matching, no fallback.
 
 To add or change an alias, edit the `mk_langs!` invocation; the
 generated lookups update automatically.
 
 ## How callers use detection
 
-- **Library** — `guess_language` is the standard entry point; the CLI
+- **Library**: `guess_language` is the standard entry point; the CLI
   and REST server both go through it. `get_language_for_file` is
   available for callers that have only a path.
-- **CLI (`bca`)** — auto-detects via `guess_language`
+- **CLI (`bca`)**: auto-detects via `guess_language`
   unless the user passes `--language <name>` (short form `-l`; the old
   `--language-type` spelling stays as a hidden alias for one release
   cycle). The flag value is resolved by trying `LANG`'s `FromStr`
   (canonical name, e.g. `rust`) first, then `get_from_ext` (extension,
   e.g. `rs`), with an `Action::PreprocProduce` short-circuit. An
   unrecognised value is a hard error (exit 1) that lists the valid
-  language names — it no longer silently disables analysis. See
+  language names; it no longer silently disables analysis. See
   [`big-code-analysis-cli/src/main.rs`](../big-code-analysis-cli/src/main.rs).
-- **REST (`bca-web`)** — every endpoint that takes a path plus
+- **REST (`bca-web`)**: every endpoint that takes a path plus
   buffer calls `guess_language` to resolve the language before
   dispatching to a parser.
-- **Tests** — `tests/common/mod.rs` falls back to `guess_language` when
+- **Tests**: `tests/common/mod.rs` falls back to `guess_language` when
   the test harness cannot infer the language another way.
 
 ## Detection failures
@@ -178,7 +176,7 @@ If `guess_language` returns `(None, _)`:
 
 - The CLI logs and skips the file.
 - The REST server returns an error to the caller.
-- The library leaves it to the caller — there is no default parser.
+- The library leaves it to the caller; there is no default parser.
 
 Beyond the shebang scan described above, there is no content-based
 heuristic and no MIME sniffing. Add a missing extension or Emacs mode

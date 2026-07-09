@@ -36,7 +36,7 @@ selection = [MetricName.CYCLOMATIC, "cognitive"]
 
 The members are generated from the same `Metric` table the CLI and
 JSON output use, so the values never drift from the slugs you see in
-`bca metrics --output-format json`.
+`bca metrics --format json`.
 
 Names are case-sensitive lowercase; passing an unknown name
 raises `ValueError` with the canonical list in the message. The

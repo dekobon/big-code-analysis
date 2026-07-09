@@ -59,7 +59,9 @@ let source = source_code.as_bytes().to_vec();
 // matches the one the metric walker was compiled against.
 let mut parser = tree_sitter::Parser::new();
 parser
-    .set_language(&LANG::Rust.tree_sitter_language())
+    .set_language(
+        &LANG::Rust.tree_sitter_language().expect("rust feature enabled"),
+    )
     .expect("rust grammar pinned to a compatible version");
 let tree = parser
     .parse(&source, None)

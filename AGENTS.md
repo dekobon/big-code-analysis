@@ -4,8 +4,11 @@ Universal project instructions for AI coding assistants.
 
 ## Project Overview
 
-`big-code-analysis` is a Mozilla-maintained Rust library that extracts
-maintainability metrics from source code in many languages. It is built on
+`big-code-analysis` is a Rust library that extracts maintainability
+metrics from source code in many languages. It is a hard fork of
+Mozilla's
+[rust-code-analysis](https://github.com/mozilla/rust-code-analysis),
+maintained in this repository. It is built on
 [tree-sitter](https://tree-sitter.github.io/tree-sitter/) and is published on
 crates.io as a library plus two binaries.
 

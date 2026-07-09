@@ -12,6 +12,9 @@ The recipes are grouped by goal:
 - [CI integration](ci.md) — wire `bca check` and `bca report` into
   GitHub Actions and GitLab CI, including the baseline / ratchet
   pattern and the Code Quality widget path.
+- [Baselines](baselines.md) — record existing offenders in a
+  `.bca-baseline.toml` so the gate only fires on new or worsened
+  violations, and audit or diff that baseline during review.
 - [Local threshold gates](local-gates.md) — mirror the CI threshold
   gate on a developer machine with a two-tier (hard + headroom)
   Makefile / `just` / `pre-commit` pattern, so regressions never

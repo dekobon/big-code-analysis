@@ -48,7 +48,7 @@ scripts can branch on the process status without inspecting output:
 | `0`  | Success. |
 | `1`  | Tool error — a bad flag / threshold / glob spec, unreadable input, or a parse failure. This includes **usage errors** (unknown flag, bad subcommand, a malformed `--threshold` value rejected by clap). **Never** a metric signal. |
 | `2`  | Metric gate: [`check`](check.md) thresholds were exceeded, [`vcs commit --fail-above`](vcs.md) was breached, or [`diff`](../recipes/exporting-data.md) / [`diff-baseline`](../recipes/baselines.md) under `--exit-code` found a non-empty filtered diff. |
-| `3`–`5` | [`check --exit-codes=tiered`](check.md#tiered-exit-codes---exit-codestiered) only: tiered violation severity (new-only / regression-only / mixed / hard-breach). |
+| `3`–`5` | [`check --exit-codes=tiered`](check.md#tiered-exit-codes---exit-codestiered) only: tiered violation severity (regression-only / mixed / hard-breach; in tiered mode code `2` means new-only). |
 
 Codes `2`–`5` are gate signals, emitted only by [`check`](check.md),
 [`vcs commit --fail-above`](vcs.md), and `diff` / `diff-baseline` under
@@ -62,9 +62,11 @@ gate band — CI can always distinguish "the gate found a regression"
 
 ## Flag placement and input paths
 
-Every subcommand reads the input it analyzes as a trailing positional
+Most subcommands read the input they analyze as a trailing positional
 path, so the common case reads like every other code tool
-(`tokei`, `cloc`, `scc`, `rg`):
+(`tokei`, `cloc`, `scc`, `rg`). The exceptions: `report` and `vcs`
+select input with `--paths`, `diff` compares two result sets, and
+`init` targets a directory via `--dir`.
 
 ```bash
 bca metrics src/            # analyze the src/ tree
