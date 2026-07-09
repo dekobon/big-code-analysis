@@ -4,17 +4,8 @@ This document is the step-by-step procedure for releasing
 `big-code-analysis`. It describes what to do, in what order, and what
 to check when something looks wrong.
 
-> **Status.** The release pipeline described here is being built up in
-> stages (`S1`–`S8` of the public-release roadmap). The repository
-> currently ships with a Cargo workspace, the MSRV declaration, the
-> CHANGELOG, and the contributor docs. The signed-artefact pipeline,
-> minisign key, packaging matrix, and external taps/buckets land in
-> the remaining stages. Sections below that describe in-flight pieces
-> say so explicitly.
-
-The pipeline, once landed, is defined in
-`.github/workflows/release.yml`. Everything downstream of `git push
---tags` is automated.
+The pipeline is defined in `.github/workflows/release.yml`.
+Everything downstream of `git push --tags` is automated.
 
 ## MSRV (Minimum Supported Rust Version)
 
@@ -48,36 +39,36 @@ lands). Note the bump in the CHANGELOG under `### Changed`.
 
 One push of a `v*` tag will run this end-to-end:
 
-1. **preflight** — validates the tag, checks `Cargo.toml` version
+1. **preflight**: validates the tag, checks `Cargo.toml` version
    parity against `[workspace.package] version`, confirms
    `minisign.pub` is not a placeholder, and extracts the matching
    `CHANGELOG.md` section as release notes.
-2. **build** — cross-compiles `bca` and `bca-web` for the target
+2. **build**: cross-compiles `bca` and `bca-web` for the target
    matrix: Linux gnu/musl × x86_64/aarch64, macOS aarch64, Windows
    x86_64/aarch64. `x86_64-unknown-freebsd` is tracked separately
    (see [#346](https://github.com/dekobon/big-code-analysis/issues/346)
-   under [Known pipeline issues](#known-pipeline-issues)). Strips
+   under [Known pipeline limitations](#known-pipeline-limitations)). Strips
    binaries, captures debug symbols, and produces per-target
    `.tar.gz` / `.zip` archives.
-3. **package-*** — builds `.deb`, `.rpm`, `.apk`, and any other OS
+3. **package-***: builds `.deb`, `.rpm`, `.apk`, and any other OS
    packages from the staged binaries.
-4. **smoke-*** — installs each package inside the appropriate
+4. **smoke-***: installs each package inside the appropriate
    container/VM and asserts `bca --version` and `bca-web --version`
    match the tag.
-5. **sign-attest** — flattens every artefact into `release/`,
+5. **sign-attest**: flattens every artefact into `release/`,
    generates CycloneDX SBOMs, computes `SHA256SUMS`, signs it with
    minisign, and attaches SLSA build provenance.
-6. **publish** — creates/updates the GitHub Release, attaches every
+6. **publish**: creates/updates the GitHub Release, attaches every
    artefact + `SHA256SUMS` + `SHA256SUMS.minisig`, and (for non
    pre-releases, **subject to the gating variables below**) pushes the
    Homebrew formula and Scoop manifest.
-7. **publish-crates** — for non pre-releases, **subject to the gating
+7. **publish-crates**: for non pre-releases, **subject to the gating
    variables below**, runs `cargo publish` for each publishable
    workspace crate in dependency order: the five `bca-tree-sitter-*`
    grammar leaves first, then `big-code-analysis` (library), then
    `big-code-analysis-cli` and `big-code-analysis-web`. Skips
    idempotently if the version is already on crates.io.
-8. **verify** — downloads the published musl tarball back out of the
+8. **verify**: downloads the published musl tarball back out of the
    release, verifies the minisign signature, checksum, and SLSA
    provenance.
 
@@ -91,15 +82,15 @@ workflows** that are *not* part of `release.yml` and run fully in
 parallel with it (a failure in one does not block the others):
 
 - **`python-wheels.yml`** publishes the importable library bindings
-  (`big-code-analysis`) — an abi3 extension wheel. See
+  (`big-code-analysis`), an abi3 extension wheel. See
   [Python wheels (PyPI)](#python-wheels-pypi).
 - **`python-cli-wheels.yml`** publishes the `bca` command-line tool
-  (`big-code-analysis-cli`) — a `-b bin` wheel that drops `bca` onto
+  (`big-code-analysis-cli`), a `-b bin` wheel that drops `bca` onto
   `PATH`. See [CLI wheels (PyPI)](#cli-wheels-pypi).
 
 Both read the workspace version (`dynamic = ["version"]`), so they
-publish in lockstep with the crates above on every bump — no separate
-version step. Their one-time Trusted-Publisher setup is in the
+publish in lockstep with the crates above on every bump (no separate
+version step). Their one-time Trusted-Publisher setup is in the
 [Post-public-release checklist](#post-public-release-checklist); after
 that they fire automatically on each tag.
 
@@ -160,7 +151,7 @@ Each leaf manifest sets `[lib] name = "tree_sitter_<lang>"` so the
 *published* package name is `bca-tree-sitter-<lang>`. The workspace
 alias in the root `Cargo.toml` (and `enums/Cargo.toml`) uses Cargo's
 `package = ...` aliasing so every consumer site reads
-`tree-sitter-<lang> = { workspace = true }` as before — call sites
+`tree-sitter-<lang> = { workspace = true }` as before; call sites
 under `src/`, `enums/`, and feature flags did not change.
 
 **Publish order is leaf-first.** The `publish-crates` job in
@@ -178,8 +169,8 @@ handles this automatically: it queries the sparse index for
 runs the parent dry-run if that leaf is already published. On the
 first tag with `ENABLE_CRATES_PUBLISH=true`, the parent dry-run is
 skipped with a `::notice::` and the `publish-crates` job uploads the
-five leaves *first*, then `big-code-analysis`, then the binaries —
-in one workflow run, no manual intervention. From the second tag
+five leaves *first*, then `big-code-analysis`, then the binaries (in
+one workflow run, no manual intervention). From the second tag
 onwards the parent dry-run becomes a hard gate.
 
 `make release-check VERSION=…` mirrors the same logic: it
@@ -187,13 +178,13 @@ unconditionally dry-runs the five leaves, then wraps the parent
 dry-run in a warning that points back to this section if the
 bootstrap state is detected.
 
-**Lockstep version policy.** Every crate in this repository — the
+**Lockstep version policy.** Every crate in this repository (the
 library, the CLI, the web crate, the Python crate, the `enums` /
 `xtask` helpers, and the five `bca-tree-sitter-*` vendored grammar
-leaves — shares one version number. There is no per-crate version
+leaves) shares one version number. There is no per-crate version
 drift. A version bump touches:
 
-1. `[workspace.package] version` in the root `Cargo.toml` — this
+1. `[workspace.package] version` in the root `Cargo.toml`; this
    covers every workspace member that declares
    `version.workspace = true`.
 2. `[package] version` in `enums/Cargo.toml` (excluded from the
@@ -223,7 +214,7 @@ the `lint` job in `.github/workflows/ci.yml`) after editing to
 catch any item the human eye missed.
 
 A grammar refresh (`recreate-grammars.sh` regenerates the parsers)
-is a normal change *under* the current version — bumping the
+is a normal change *under* the current version: bumping the
 grammars does not bump the version on its own. The next workspace
 release picks up the regenerated grammars at whatever leaf version
 already matches the workspace version.
@@ -255,19 +246,19 @@ respectively. Both are minted at
 <https://github.com/settings/personal-access-tokens/new> as
 fine-grained PATs with **Repository access: Only select repositories**
 (scoped to the single tap or bucket repo) and **Repository permissions
-→ Contents: Read and write** — leave every other permission at *No
+→ Contents: Read and write**; leave every other permission at *No
 access*. Store each token under Settings → Secrets and variables →
 Actions → Secrets on `dekobon/big-code-analysis`.
 
 crates.io authentication uses
-[Trusted Publishing](https://crates.io/docs/trusted-publishing) — no
+[Trusted Publishing](https://crates.io/docs/trusted-publishing): no
 long-lived `CARGO_REGISTRY_TOKEN` is stored as a secret. The
 `publish-crates` job mints a GitHub OIDC ID token and exchanges it for
 a short-lived registry token scoped to that run.
 
-If `HOMEBREW_TAP_TOKEN` or `SCOOP_BUCKET_TOKEN` is missing — or if the
+If `HOMEBREW_TAP_TOKEN` or `SCOOP_BUCKET_TOKEN` is missing, or if the
 target tap/bucket repo is unreachable (deleted, renamed, or the PAT
-cannot see it) — the corresponding step emits a GitHub Actions
+cannot see it), the corresponding step emits a GitHub Actions
 warning and skips without failing the release.
 
 ### Minisign key
@@ -283,7 +274,7 @@ minisign -G -p minisign.pub -s minisign.key
 ```
 
 Commit `minisign.pub`. Store `minisign.key` as the
-`MINISIGN_SECRET_KEY` repo secret via stdin redirection — **do not
+`MINISIGN_SECRET_KEY` repo secret via stdin redirection; **do not
 paste the contents into the web UI**:
 
 ```bash
@@ -296,9 +287,9 @@ gh secret set MINISIGN_PASSWORD -R dekobon/big-code-analysis
 A minisign secret key file is two lines and ends with `\n`. Paste-via-
 UI silently strips the trailing newline (and can introduce other
 whitespace artefacts) so that `minisign -S` later fails with `Error
-while loading the secret key file` — masquerading as a wrong-key /
+while loading the secret key file`, masquerading as a wrong-key /
 wrong-password failure when the bytes are actually one newline short.
-Stdin redirection from the file preserves the exact file bytes —
+Stdin redirection from the file preserves the exact file bytes,
 including the trailing newline that the web UI eats. Keep
 `minisign.key` itself out of the repo.
 
@@ -306,13 +297,13 @@ including the trailing newline that the web UI eats. Keep
 
 Stable releases push to (subject to the gating variables above):
 
-- `dekobon/homebrew-tap` — shared Homebrew tap; the release workflow
+- `dekobon/homebrew-tap`: shared Homebrew tap; the release workflow
   commits only `Formula/big-code-analysis.rb` and leaves the other
   formulae in the tap untouched.
-- `dekobon/scoop-bucket` — shared Scoop bucket; the release workflow
+- `dekobon/scoop-bucket`: shared Scoop bucket; the release workflow
   commits only `bucket/big-code-analysis.json` and leaves the other
   manifests in the bucket untouched.
-- crates.io — leaf-first: the five `bca-tree-sitter-*` grammar
+- crates.io, leaf-first: the five `bca-tree-sitter-*` grammar
   crates, then `big-code-analysis` (library), then
   `big-code-analysis-cli` and `big-code-analysis-web`. See
   [crates.io ownership](#cratesio-ownership) for the publish loop
@@ -323,7 +314,7 @@ Both tap and bucket repos must exist and accept the configured PAT.
 ### crates.io ownership
 
 Before the first automated publish you must manually claim **all eight
-crate names** — the five `bca-tree-sitter-*` leaves plus the three
+crate names**: the five `bca-tree-sitter-*` leaves plus the three
 top-level crates. The `publish-crates` job in `release.yml` uses
 Trusted Publishing which requires the crate to exist before TP can be
 registered, so the very first publish has to be a hand-rolled
@@ -340,16 +331,16 @@ registered, so the very first publish has to be a hand-rolled
 
    If any name is taken by someone else, pick a different name and
    update the matching `[package].name` (and the workspace alias for
-   leaves) before tagging — `cargo owner --add` only works on crates
+   leaves) before tagging; `cargo owner --add` only works on crates
    you already own.
 
 2. **Verify the parent's `include` whitelist is present.** The
    `[package].include = […]` block in the root `Cargo.toml`
    restricts the published `.crate` to `src/**`, `Cargo.toml`,
    `README.md`, `LICENSE`, and `CHANGELOG.md`. Without it,
-   `cargo publish` packages the entire repo — notably
+   `cargo publish` packages the entire repo, notably
    `tests/repositories/` (~130 MiB compressed of snapshot
-   fixtures) — and the upload fails against crates.io's size
+   fixtures), and the upload fails against crates.io's size
    limit with a Varnish `503 backend write error` rather than a
    useful error message. Verify before the first publish:
 
@@ -412,7 +403,7 @@ one-time setup steps are required on top of the
    The `publish-crates` job references this environment and the
    crates.io trusted publisher matches the `environment` OIDC claim
    against it. Optional protection rules (required reviewers,
-   deployment branch filters) act as a manual gate on every publish —
+   deployment branch filters) act as a manual gate on every publish;
    the environment is the right place to add them, not the workflow.
    The name must match the TP registration exactly; a typo here is
    the most common self-inflicted failure mode.
@@ -428,7 +419,7 @@ one-time setup steps are required on top of the
    - Workflow filename: `release.yml` (basename only, not a path).
    - Environment: `release`.
 
-   Every publishable crate needs its own trusted-publisher entry — a
+   Every publishable crate needs its own trusted-publisher entry: a
    TP registered on `big-code-analysis` does not cover the CLI, the
    web crate, or any of the leaves. The workflow still performs a
    single `auth` exchange for all publishes because crates.io
@@ -453,7 +444,7 @@ tagging.
 Member crates inherit their version from `[workspace.package]`, so
 edit these in lockstep:
 
-1. Root `Cargo.toml`, `[workspace.package] version = "x.y.z"` — the
+1. Root `Cargo.toml`, `[workspace.package] version = "x.y.z"`: the
    canonical version that every member crate picks up via
    `version.workspace = true`.
 2. Any `[workspace.dependencies]` entries that pin an internal crate
@@ -461,7 +452,7 @@ edit these in lockstep:
    }`). Must match the workspace version, otherwise `cargo publish`
    on the dependent crate will reject the dependency.
 3. The `enums/` helper crate (excluded from the root workspace).
-   Its own `[package] version` carries the same value — bump it
+   Its own `[package] version` carries the same value; bump it
    alongside the workspace bump, never on its own.
 4. Each `tree-sitter-<lang>/Cargo.toml` (also excluded). Same
    discipline as `enums/`: bump in lockstep with the workspace.
@@ -491,16 +482,16 @@ cargo xtask
 
 `man/*.1` embeds both the binary version (`big-code-analysis x.y.z`
 in the `.TH` line and `vX.Y.Z` in `.SH VERSION`) and the live clap
-schema, so any version bump — workspace-wide or CLI-only (e.g. the
-`big-code-analysis-cli` version override at #235) — leaves the
+schema, so any version bump, workspace-wide or CLI-only (e.g. the
+`big-code-analysis-cli` version override at #235), leaves the
 committed pages stale. The per-PR `man pages up to date` CI job
 gates against drift; `release.yml` regenerates the pages again per
 build leg so the shipped artefacts cannot ship with a stale schema,
 but committing the regenerated pages keeps the gate green between
 release-prep and tag push. Same rule applies any time a CLI flag is
-added or renamed — not just at release time.
+added or renamed, not just at release time.
 
-Pick the version using semver. The workspace is on the `1.x` line
+Pick the version using semver. The workspace is on the `2.x` line
 and ships under the [STABILITY.md][stability] contract: the public
 Rust API surface (`big-code-analysis` library re-exports, the `bca`
 CLI argument grammar, and the `bca-web` REST schema) is held stable
@@ -522,13 +513,123 @@ so the release-prep commit is a single, self-contained change:
 chore(release): prepare v1.2.0
 ```
 
+## Version strings in documentation
+
+The docs carry two kinds of version string, and they move at
+different times. Reader-facing pins must always reference the
+**latest published release** (what a reader can download today),
+while the workspace manifests track the **next** version being
+developed. Between a tag and the next release the two deliberately
+diverge: after the post-tag bump, `Cargo.toml` reads ahead of every
+documentation example, and that is correct. When in doubt, apply the
+reader test: if someone copies this line today, does it resolve?
+
+### Bump in the release-prep commit (before tagging vX.Y.Z)
+
+These strings must read `X.Y.Z` in the tagged commit. They reference
+crates.io / PyPI versions, which resolve as soon as `publish-crates`
+and the wheel workflows finish, so setting them at release-prep is
+safe:
+
+| File | String |
+| --- | --- |
+| `STABILITY.md` | `(currently \`X.Y.Z\`)` in the opening paragraph |
+| `STABILITY.md` | both exact-pin examples `big-code-analysis = "= X.Y.Z"` |
+| `big-code-analysis-book/src/library/stability.md` | the same two shapes as `STABILITY.md` |
+| `big-code-analysis-book/src/library/quick-start.md` | the `[dependencies]` example |
+| `big-code-analysis-book/src/library/cargo-features.md` | both `[dependencies]` examples |
+| `CHANGELOG.md` | `## [Unreleased]` entries move into `## [X.Y.Z]` (see the checklist) |
+
+Optionally refresh the sample REST responses in
+`big-code-analysis-book/src/commands/rest.md` (`"server"`,
+`"library"`, `"version"` fields) so captured output matches the
+release; they are illustrative, not pins, so this is non-blocking.
+
+`man/*.1` also embeds the version but is generated: run `cargo xtask`
+(already part of the release-prep steps above); never hand-edit.
+
+Find stragglers with a scoped sweep before tagging. Never run a
+blind repo-wide `sed`: the SemVer / Keep-a-Changelog spec URLs,
+historical changelog sections, and illustrative examples match
+version-shaped patterns and must not be rewritten. Review each hit
+against the categories on this page:
+
+```bash
+PREV=2.0.0   # the previous published release
+rg -n "$PREV" README.md STABILITY.md docs/ big-code-analysis-py/README.md \
+  big-code-analysis-book/src/ --glob '!**/CHANGELOG.md'
+```
+
+### Update only after the release is actually published
+
+Every pin in `big-code-analysis-book/src/recipes/ci.md` references a
+published GitHub Release or crates.io artifact. They all move in a
+single follow-up commit to `main` once the pipeline finishes:
+
+- `BCA_VERSION` (the GitHub Actions `env:` block and the GitLab
+  `variables:` block) and their paired `BCA_SHA256` values. The
+  sha256 is the digest of
+  `big-code-analysis-X.Y.Z-${BCA_TARGET}.tar.gz` from the release's
+  `SHA256SUMS` asset; it cannot exist before the `sign-attest` job
+  runs, which is why this category exists at all. Bump the version
+  and the sha together, never one without the other.
+- The `taiki-e/install-action` pins
+  (`tool: big-code-analysis-cli@X.Y.Z`, two sites), the
+  `cargo binstall ... --version X.Y.Z` line, and the cargo cache key
+  `bca-${{ runner.os }}-X.Y.Z`. These carry no checksum and could
+  technically move at release-prep, but they mean "a published
+  release", so they move with their sha-pinned siblings in the one
+  post-release sweep.
+
+Fetch the new checksum straight from the release:
+
+```bash
+VERSION=X.Y.Z
+gh release download "v${VERSION}" -R dekobon/big-code-analysis \
+  -p SHA256SUMS -O - | grep 'x86_64-unknown-linux-gnu\.tar\.gz$'
+```
+
+This follow-up commit is part of cutting the release, not of the
+next development cycle; land it before (or together with) the
+post-tag version bump.
+
+### Leave alone when bumping main to the next version
+
+The post-tag bump to the next version changes the workspace
+manifests (the `Cargo.toml` sites listed under
+[Bumping the version](#bumping-the-version), plus `Cargo.lock`) and
+the regenerated `man/*.1`, and **nothing else**. In particular do
+not touch:
+
+- Any pin in `recipes/ci.md` (the previous category): readers deploy
+  the published release, not `main`.
+- The dependency examples and `(currently ...)` strings from the
+  release-prep category: they keep reading the published release
+  until the next release-prep commit moves them.
+
+### Never change (outside a major bump)
+
+- Major-line strings: `2.x` in `STABILITY.md`, `AGENTS.md`,
+  `README.md`, `docs/conventions/documentation.md`, the book's
+  stability page, and this file, plus the README dependency example
+  `big-code-analysis = "2"`. These move only when `3.0` ships.
+- Historical records: released `CHANGELOG.md` sections, prose
+  describing past releases ("shipped in `2.0.0`", "removed in 2.0"),
+  and `docs/development/lessons_learned.md`.
+- Illustrative placeholders: the `v1.2.0` / `v0.1.0` example
+  versions in this file's command snippets.
+- External spec versions that merely look like ours: the
+  [SemVer 2.0.0](https://semver.org/spec/v2.0.0.html) and
+  [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
+  URLs.
+
 ## Pre-release checklist
 
 Before tagging, on `main`:
 
 - [ ] All intended changes are merged and CI is green.
 - [ ] Workspace version is bumped per
-      [Bumping the version](#bumping-the-version) — all
+      [Bumping the version](#bumping-the-version): all
       `Cargo.toml` sites, plus a refreshed `Cargo.lock`.
 - [ ] `cargo xtask` has been run and the resulting `man/*.1` edits
       are committed in the release-prep commit. `git diff man/`
@@ -537,12 +638,16 @@ Before tagging, on `main`:
       notes. The header must match the tag exactly, minus the
       leading `v`. Move entries out of `## [Unreleased]` into the
       new section.
+- [ ] Reader-facing documentation pins read the new version per the
+      release-prep category of
+      [Version strings in documentation](#version-strings-in-documentation),
+      and the scoped `rg` sweep there shows no stragglers.
 - [ ] `cargo test --workspace --all-features` passes locally
-      (including integration snapshots — initialize submodules first).
+      (including integration snapshots; initialize submodules first).
 - [ ] `minisign.pub` is a real key (run
-      `grep '^untrusted comment: placeholder' minisign.pub` — it
+      `grep '^untrusted comment: placeholder' minisign.pub`; it
       should print nothing).
-- [ ] Parent crate packages to a sane size — `cargo package -p
+- [ ] Parent crate packages to a sane size: `cargo package -p
       big-code-analysis --allow-dirty --no-verify` followed by
       `ls -lh target/package/big-code-analysis-*.crate` should show
       well under 10 MiB (the crates.io upload ceiling). If it
@@ -567,7 +672,7 @@ git tag -a v1.2.0 -m "v1.2.0"
 git push origin v1.2.0
 ```
 
-That's it — the push of the tag triggers `release.yml` **and** the two
+That's it: the push of the tag triggers `release.yml` **and** the two
 PyPI wheel workflows (`python-wheels.yml` for the library bindings,
 `python-cli-wheels.yml` for the `bca` CLI), all in parallel. Watch all
 three in the Actions tab:
@@ -589,7 +694,7 @@ in [Post-release verification](#post-release-verification).
 ## Cutting a pre-release
 
 Pre-release tags match `vX.Y.Z-<suffix>` where `<suffix>` is
-`[A-Za-z][0-9]*` — e.g. `v1.2.0-rc1`, `v1.2.0-beta2`,
+`[A-Za-z][0-9]*`, e.g. `v1.2.0-rc1`, `v1.2.0-beta2`,
 `v1.2.0-alpha3`. **Do not use dotted forms like `v1.2.0-rc.1`**:
 Alpine's abuild grammar rejects dots in the pre-release suffix.
 
@@ -609,11 +714,11 @@ pushes.
 Both PyPI wheel workflows still **build and smoke-test** every wheel on
 a pre-release tag but **skip the PyPI publish step**, so a pre-release
 never lands a wheel on PyPI. The CLI wheel (`python-cli-wheels.yml`)
-skips publish for *any* hyphenated suffix — `!contains(github.ref,
-'-')`, matching `release.yml`'s `*-*` prerelease rule exactly; the
+skips publish for *any* hyphenated suffix (`!contains(github.ref,
+'-')`, matching `release.yml`'s `*-*` prerelease rule exactly); the
 library wheel (`python-wheels.yml`) skips the recognised `-rc` /
 `-beta` / `-alpha` suffixes. For the suffixes this project actually
-uses (above), all three pipelines stay aligned — one tag cannot publish
+uses (above), all three pipelines stay aligned: one tag cannot publish
 a prerelease to one registry while skipping another.
 
 ## Post-release verification
@@ -651,8 +756,8 @@ once the corresponding gating variable is on):
 
 Confirm both PyPI wheels published at the new version (these ship on
 every tag once their Trusted Publishers are registered). Either check
-the project pages — <https://pypi.org/project/big-code-analysis/> and
-<https://pypi.org/project/big-code-analysis-cli/> — or verify the CLI
+the project pages (<https://pypi.org/project/big-code-analysis/> and
+<https://pypi.org/project/big-code-analysis-cli/>) or verify the CLI
 end-to-end from a clean environment:
 
 ```bash
@@ -667,6 +772,13 @@ bca --version   # must print the tagged version
 deactivate
 ```
 
+Finally, land the documentation follow-up commit: update every pin
+in `big-code-analysis-book/src/recipes/ci.md` (the post-publish
+category of
+[Version strings in documentation](#version-strings-in-documentation))
+to the new version, with the `BCA_SHA256` values taken from the
+release's `SHA256SUMS` asset.
+
 ## Post-public-release checklist
 
 The first time the repository goes public and a stable release is
@@ -679,7 +791,7 @@ turns into a foot-gun on the *next* release.
       leaves, `big-code-analysis`, `big-code-analysis-cli`,
       `big-code-analysis-web`): claim the name with a manual
       `cargo publish` (leaf-first, retry on the new-crate rate
-      limit — see [crates.io ownership](#cratesio-ownership) for
+      limit; see [crates.io ownership](#cratesio-ownership) for
       the loop), add at least one co-owner via `cargo owner
       --add`, and register a Trusted Publisher (repo owner
       `dekobon`, repo `big-code-analysis`, workflow `release.yml`,
@@ -739,12 +851,12 @@ turns into a foot-gun on the *next* release.
 
 Python bindings ship via `.github/workflows/python-wheels.yml`, not
 `release.yml`. The two workflows trigger on the same `v*` tag push
-but run in parallel — a crates.io publish failure does not block the
+but run in parallel; a crates.io publish failure does not block the
 PyPI upload, and vice versa.
 
 What the python-wheels pipeline does:
 
-1. **build** — `PyO3/maturin-action@v1.51.0` builds a manylinux_2_28
+1. **build**: `PyO3/maturin-action@v1.51.0` builds a manylinux_2_28
    abi3 wheel on `ubuntu-latest` (x86_64) and `ubuntu-24.04-arm`
    (aarch64). `[tool.maturin].features` in
    `big-code-analysis-py/pyproject.toml` pins
@@ -752,10 +864,10 @@ What the python-wheels pipeline does:
    the limited (stable) Python C API and targets CPython 3.12+
    forward-compatibly. One wheel per architecture covers every
    future 3.12+ minor release.
-2. **sdist** — `maturin sdist` produces a source distribution as
+2. **sdist**: `maturin sdist` produces a source distribution as
    the PyPI fallback for niche architectures and a
    reproducibility anchor for the wheels.
-3. **smoke-test** — pulls each wheel onto a clean runner of the
+3. **smoke-test**: pulls each wheel onto a clean runner of the
    matching architecture, installs it with
    `pip install --no-index --find-links=dist big-code-analysis`,
    and asserts that the public API surface
@@ -764,7 +876,7 @@ What the python-wheels pipeline does:
    shape under both Python 3.12 and 3.13. An abi3 wheel that
    loaded on 3.12 but failed on 3.13 (the most plausible silent
    forward-compat regression) trips here.
-4. **publish** — gated on a `v*` tag and the `pypi` deployment
+4. **publish**: gated on a `v*` tag and the `pypi` deployment
    environment. Authentication is via PyPI Trusted Publishing
    (OIDC); the workflow has no `PYPI_API_TOKEN` secret to leak.
    PEP 740 Sigstore attestations are generated automatically by
@@ -794,7 +906,7 @@ on PyPI as the maintainer:
 
    The environment name is intentionally distinct from the
    `release` environment used by the crates.io trusted publisher
-   in `release.yml` — keeping them separate prevents the OIDC
+   in `release.yml`; keeping them separate prevents the OIDC
    `environment` claim from accidentally satisfying the wrong
    registry's TP entry.
 
@@ -808,14 +920,14 @@ on PyPI as the maintainer:
    environment with **no protection rules** the first time the
    workflow runs. Create the environment manually *before* the
    first `v*` tag if you want the approval gate to apply on the
-   first publish — otherwise the cutover release goes through
+   first publish; otherwise the cutover release goes through
    immediately with no manual checkpoint.
 
 4. **Create the `python-wheels` PR label.** The wheel build /
    sdist / smoke-test jobs are gated by a `python-wheels` label
    on PRs so Rust-only PRs that happen to share a path-filter
    neighbour (e.g. `Cargo.lock`) do not pay the wheel-matrix
-   cost. GitHub does not auto-create custom labels — until the
+   cost. GitHub does not auto-create custom labels; until the
    label exists, contributors cannot opt PRs into wheel
    verification. One-off via the `gh` CLI:
 
@@ -825,13 +937,13 @@ on PyPI as the maintainer:
      --description "PR opts in to the manylinux wheel CI matrix"
    ```
 
-   Tag pushes and `workflow_dispatch` runs ignore the label —
+   Tag pushes and `workflow_dispatch` runs ignore the label;
    they always build the full matrix.
 
 5. **First tagged release validates the path.** Trusted
    Publishing cannot be rehearsed via `workflow_dispatch` (the
    environment claim mismatches). The first non-prerelease `v*`
-   tag after registration is the canonical end-to-end test —
+   tag after registration is the canonical end-to-end test;
    watch the `publish` job's log for the OIDC exchange and the
    attestation upload.
 
@@ -841,7 +953,7 @@ on PyPI as the maintainer:
 `[workspace.package] version` via `version.workspace = true` in its
 `Cargo.toml`, and `pyproject.toml` reads the same value at build
 time (`dynamic = ["version"]`). The "Bumping the version" steps
-above are therefore sufficient — there is no separate
+above are therefore sufficient: there is no separate
 `big-code-analysis-py/pyproject.toml` version field to keep in sync.
 
 ### Testing a release candidate without uploading
@@ -855,7 +967,7 @@ To exercise the PyPI side end-to-end against
 `https://test.pypi.org/`, temporarily change the
 `pypa/gh-action-pypi-publish` step's `repository-url` input to
 `https://test.pypi.org/legacy/` and register a matching TP entry
-on TestPyPI — keep this off `main` to avoid leaking a real upload
+on TestPyPI; keep this off `main` to avoid leaking a real upload
 into a production-shaped flow.
 
 ### Out of scope
@@ -864,7 +976,7 @@ The wheel pipeline ships Linux only (x86_64 + aarch64). macOS and
 Windows wheels are tracked separately under
 [#103](https://github.com/dekobon/big-code-analysis/issues/103)'s
 "Out of scope" section. (This Linux-only scope is for the *library*
-bindings wheel above; the **CLI** `bca` wheel — see below — does ship
+bindings wheel above; the **CLI** `bca` wheel, see below, does ship
 macOS and Windows.)
 
 ## CLI wheels (PyPI)
@@ -887,7 +999,7 @@ onto the user's `PATH`. Key differences from the library wheel:
   installed command intentionally differs from the dist name (the `bca`
   name on PyPI is taken; `big-code-analysis` is the library bindings).
 - **Full grammar set is inherited from the crate** (`all-languages`, via
-  #252) — no `[tool.maturin] features` wiring.
+  #252); no `[tool.maturin] features` wiring.
 - **Wider platform matrix:** Linux `manylinux_2_28` (`x86_64` /
   `aarch64`), macOS (`x86_64` / `arm64`), Windows (`x86_64`).
 - **Compliance artefacts ride in the wheel:** the per-binary
@@ -919,7 +1031,7 @@ Mirror the library-wheel setup above, with CLI-specific values:
 
 3. **Create the `pypi-cli` GitHub Environment** (Settings →
    Environments → New environment → `pypi-cli`) before the first `v*`
-   tag if you want a manual approval gate on the first publish — GitHub
+   tag if you want a manual approval gate on the first publish; GitHub
    auto-creates a referenced-but-undefined environment with no
    protection rules otherwise.
 
@@ -936,7 +1048,7 @@ Mirror the library-wheel setup above, with CLI-specific values:
    Tag pushes and `workflow_dispatch` runs ignore the label.
 
 5. **First tagged release validates the path**, exactly as for the
-   library wheel — Trusted Publishing cannot be rehearsed via
+   library wheel: Trusted Publishing cannot be rehearsed via
    `workflow_dispatch`.
 
 ### Version coupling
@@ -952,11 +1064,11 @@ Mirror the library-wheel setup above, with CLI-specific values:
    `minisign -G -p minisign.pub.new -s minisign.key.new`.
 2. Replace `minisign.pub` with the new public key and commit it.
 3. Update `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` secrets with
-   the new values. Use stdin redirection — `gh secret set
-   MINISIGN_SECRET_KEY -R dekobon/big-code-analysis < minisign.key.new`
-   — to preserve the trailing newline of the key file; see
+   the new values. Use stdin redirection (`gh secret set
+   MINISIGN_SECRET_KEY -R dekobon/big-code-analysis < minisign.key.new`)
+   to preserve the trailing newline of the key file; see
    [Minisign key](#minisign-key) for why paste-via-UI bites.
-4. Cut a new release — its `SHA256SUMS.minisig` will be signed with
+4. Cut a new release; its `SHA256SUMS.minisig` will be signed with
    the new key, self-documenting the rotation.
 
 Users verifying an older release still need the old `minisign.pub`
@@ -972,13 +1084,13 @@ if `MINISIGN_SECRET_KEY` is missing, corrupted, or doesn't pair with
 `MINISIGN_PASSWORD`.
 
 `post-publish verify` runs *after* `publish` and is an internal
-sanity check — its failure does not invalidate the published
+sanity check; its failure does not invalidate the published
 artefacts and does not roll back any external state. Treat a `verify`
 red as a CI bug to triage, not as a botched release.
 
 If publish itself partially succeeds (e.g. GitHub Release created but
 tap push failed), the fix is usually to re-run the workflow against
-the same tag — **Actions** tab → open the failed run → **Re-run
+the same tag: **Actions** tab → open the failed run → **Re-run
 failed jobs** (top-right of the run page). The pipeline is designed
 to be idempotent on re-run, and re-runs pick up freshly-set repo
 secrets without needing a force-retag.
@@ -990,7 +1102,7 @@ gh release delete vX.Y.Z --cleanup-tag --yes
 ```
 
 Then fix the underlying issue, bump to `vX.Y.(Z+1)`, and re-tag.
-**Do not re-use a published version number** — Homebrew/Scoop and
+**Do not re-use a published version number**: Homebrew/Scoop and
 crates.io users may have already cached the old artefacts.
 
 ### Cutover-only escape hatch: force-moving the tag
@@ -999,7 +1111,7 @@ The recovery rule above (bump to the next patch version) is correct
 for any release that already produced external state. On the *very
 first* tag for a brand-new repo, before `publish` has touched
 crates.io / Homebrew / Scoop, no downstream state exists yet to
-poison — and bumping the version mid-cutover adds churn (workspace
+poison, and bumping the version mid-cutover adds churn (workspace
 version, man pages, SARIF snapshots, CHANGELOG section). In that
 narrow window, force-moving the tag is the cheaper recovery:
 
@@ -1023,28 +1135,19 @@ This is **only safe** while:
   won't roll back). Accept that single noisy red if the wheels are
   already correctly on PyPI.
 - crates.io has not yet been told about this version. ANY publish
-  for the version — workflow-driven *or* manual `cargo publish` from
-  the maintainer's workstation — makes a force-retag inappropriate,
+  for the version (workflow-driven *or* manual `cargo publish` from
+  the maintainer's workstation) makes a force-retag inappropriate,
   because the published version is irrevocable (yank-able, not
   delete-able).
 
-Outside that window, never force-move — use `vX.Y.(Z+1)`.
+Outside that window, never force-move; use `vX.Y.(Z+1)`.
 
-### Known pipeline issues
+### Known pipeline limitations
 
-Tracked as GitHub issues; a maintainer triaging a red run should
-check these first before deeper debugging:
+The one standing limitation a maintainer should know about:
 
-- [#346](https://github.com/dekobon/big-code-analysis/issues/346) —
-  `x86_64-unknown-freebsd` dropped from the binary matrix; cross
-  v0.2.5 + the vendored grammars' C++ scanners cannot link against
-  `libcxxrt` without a deeper toolchain change. Restoration via
-  `vmactions/freebsd-vm` is the queued remediation. While the target
-  is absent, FreeBSD users install from source.
-- [#351](https://github.com/dekobon/big-code-analysis/issues/351) —
-  `post-publish verify` fails on a brand-new release because
-  `SHA256SUMS` is emitted with `./`-prefixed filenames and the
-  verify-step awk filter compares against the unprefixed basename.
-  The artefacts themselves verify correctly with a manual
-  `sha256sum -c SHA256SUMS` (sha256sum canonicalises `./X` to `X`).
-  Will be fixed alongside the producer in v1.0.1.
+- `x86_64-unknown-freebsd` is absent from the binary matrix
+  ([#346](https://github.com/dekobon/big-code-analysis/issues/346),
+  closed): cross v0.2.5 + the vendored grammars' C++ scanners cannot
+  link against `libcxxrt` without a deeper toolchain change. While
+  the target is absent, FreeBSD users install from source.
