@@ -150,8 +150,9 @@ For a PR bot, `bca diff-baseline <old> <new> --format markdown` emits
 a fenced block ready to drop into a sticky comment, and the
 `--worsened-only` / `--added-only` filters narrow it to just the
 regressions reviewers must look at. `--format json` feeds the same
-diff to other tooling. The command always exits 0 — it informs review,
-it does not gate; the gate is `bca check` itself.
+diff to other tooling. The command exits 0 by default — it informs
+review, it does not gate (the gate is `bca check` itself) — though
+the opt-in `--exit-code` flag exits 2 on a non-empty filtered diff.
 
 ### Reading the gate output
 
@@ -353,8 +354,9 @@ bca exemptions --paths src/
   ...
 ```
 
-The baseline section reads the same `--baseline` / `bca.toml` top-level
-`baseline` source `bca check` does (or `.bca-baseline.toml` by default).
+The baseline section reads the same `--baseline` / `bca.toml`
+`[check] baseline` source `bca check` does (or `.bca-baseline.toml`
+by default).
 Use `--baseline-only` to list just the baselined offenders, `--format
 markdown` for a PR comment, or `--format json` for dashboards. During
 PR review, pair it with `bca diff-baseline <old> <new>` (above): the

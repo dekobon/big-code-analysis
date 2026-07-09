@@ -21,10 +21,11 @@ bca find \
     -t ERROR
 ```
 
-> **Flag ordering.** `--include` and `--exclude` are variadic and
-> consume tokens until the next flag begins, so put them **before**
-> `--paths` to avoid the subcommand name being eaten as a glob. The
-> single-value `=` form (`--include="*.rs"`) also works.
+> **One glob per occurrence.** `--include` and `--exclude` take
+> exactly one value each time they appear; repeat the flag for
+> multiple globs (`--include "*.rs" --include "*.py"`). A positional
+> path that follows is never swallowed. The `=` form
+> (`--include="*.rs"`) also works.
 
 A clean run prints nothing. Wire this into a pre-commit hook to fail
 fast when a syntactically broken file is staged.
@@ -85,8 +86,8 @@ bca find \
     --line-start 42 --line-end 88 -t return_expression
 ```
 
-The short `--ls` / `--le` spellings remain as deprecated aliases for one
-release cycle and are slated for removal in 2.0.
+The short `--ls` / `--le` spellings remain as deprecated aliases and
+are slated for removal in the next major.
 
 ## List every function or method
 

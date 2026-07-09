@@ -26,8 +26,9 @@ Change-history risk (long window 365d, recent 90d, formula v2)
 With no `--format`, a human-readable ranked table is printed. Pass
 `--format markdown|html` for a rendered report page, or
 `--format json|yaml|toml|cbor|csv` for structured output. Unlike
-`bca metrics` / `bca ops` (whose `--output` is a *directory* of per-file
-emissions), a change-history report is a single whole-repo document, so
+`bca metrics` / `bca ops` (whose `--output-dir` is a *directory* of
+per-file emissions), a change-history report is a single whole-repo
+document, so
 `bca vcs --output <file>` writes **one file** (CBOR, being binary,
 requires `--output`). The global `--paths` / `--include` / `--exclude` /
 `--no-ignore` filters are reused to pick which tracked files to report.

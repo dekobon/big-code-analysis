@@ -171,7 +171,10 @@ import big_code_analysis as bca
 log = logging.getLogger(__name__)
 
 def report(paths: list[str]) -> None:
-    for path, slot in zip(paths, bca.analyze_batch(paths)):
+    # skip_generated=False keeps the result list index-aligned with
+    # `paths`; with the default True, a generated file yields no slot
+    # and the zip silently misaligns.
+    for path, slot in zip(paths, bca.analyze_batch(paths, skip_generated=False)):
         if isinstance(slot, bca.AnalysisFailure):
             log.warning(
                 "skip %s (%s): %s", path, slot.error_kind, slot.error

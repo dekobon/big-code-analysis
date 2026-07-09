@@ -8,7 +8,7 @@ metrics from a string of source code.
 ```toml
 # Cargo.toml
 [dependencies]
-big-code-analysis = "2.0.1"
+big-code-analysis = "2.0.0"
 ```
 
 The crate uses Rust edition 2024 and pins `rust-version = "1.94"`.
@@ -46,11 +46,13 @@ fn main() {
 
 `Source::name` ends up as the top-level [`FuncSpace::name`]; passing
 `None` leaves the top-level name unset. The return type is
-[`Result<FuncSpace, MetricsError>`][MetricsError]. The `Err` variant
-tells parse-failure apart from empty-input apart from disabled-
-language; see [Error handling](error-handling.md) for the variant
-set and matching patterns. `MetricsError` is `#[non_exhaustive]`, so
-always include a `_` arm when matching.
+[`Result<FuncSpace, MetricsError>`][MetricsError]. In practice the
+`Err` variant means the requested language's Cargo feature is
+disabled in this build; a parse failure does **not** produce `Err`
+(tree-sitter recovers with `ERROR` nodes). See
+[Error handling](error-handling.md) for the variant set and matching
+patterns. `MetricsError` is `#[non_exhaustive]`, so always include a
+`_` arm when matching.
 
 Tip: `use big_code_analysis::prelude::*;` brings the recommended
 entry points (`analyze`, `Ast`, `Source`, `MetricsOptions`,

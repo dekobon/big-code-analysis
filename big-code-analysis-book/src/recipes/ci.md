@@ -22,7 +22,7 @@ runnable example.
 | Code Scanning alerts (GitHub)                   | `bca check … --report-format sarif --no-fail` + `github/codeql-action/upload-sarif` |
 | Merge-request widget (GitLab Code Quality)      | `bca check … --report-format code-climate --no-fail` |
 | Jenkins / SonarQube ingestion                   | `bca check … --report-format checkstyle` |
-| Human-readable PR/MR comment or downloadable    | `bca report markdown --top 20 --strip-prefix "$PWD/"`                                                        |
+| Human-readable PR/MR comment or downloadable    | `bca report -O markdown --top 20 --strip-prefix "$PWD/"`                                                        |
 | Machine-readable artifact for dashboards        | `bca metrics --format json --output-dir ./out`                                                            |
 
 *(‡) Recommended adoption path when introducing thresholds on a
@@ -103,11 +103,11 @@ so a green-path rerun skips the download entirely:
 
 ```yaml
 env:
-  BCA_VERSION: "2.0.1"
+  BCA_VERSION: "2.0.0"
   BCA_TARGET:  "x86_64-unknown-linux-gnu"
   # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from the
   # release's SHA256SUMS file. Bump together with BCA_VERSION.
-  BCA_SHA256:  "f11c324fd80787e1a9edf99d3c1763980e035e51abb5479527b14b1e2f83e919"
+  BCA_SHA256:  "a205fff13108d0f8c679a062e352ba8468109c4adfdd8c9e3567cf5fcc99c3d5"
 
 steps:
   # Cache key MUST include BCA_SHA256 (and BCA_TARGET). Without the
@@ -176,7 +176,7 @@ default for downstream adopters.
 - name: Install bca
   uses: taiki-e/install-action@v2
   with:
-    tool: big-code-analysis-cli@2.0.1
+    tool: big-code-analysis-cli@2.0.0
 ```
 
 ```yaml
@@ -184,7 +184,7 @@ default for downstream adopters.
 - name: Install cargo-binstall
   uses: cargo-bins/cargo-binstall@main
 - name: Install bca
-  run: cargo binstall --no-confirm big-code-analysis-cli --version 2.0.1
+  run: cargo binstall --no-confirm big-code-analysis-cli --version 2.0.0
 ```
 
 If either action falls back to compilation, cache the cargo registry +
@@ -233,11 +233,11 @@ jobs:
       - name: Install bca
         uses: taiki-e/install-action@v2
         with:
-          tool: big-code-analysis-cli@2.0.1
+          tool: big-code-analysis-cli@2.0.0
       - name: Generate report
         run: |
           bca \
-            report markdown \
+            report -O markdown \
             --paths "$PWD" \
             --top 20 \
             --strip-prefix "$PWD/" \
@@ -429,7 +429,7 @@ table, a per-metric count breakdown, and the top-10 offenders by
 suppresses the digest even when `$GITHUB_STEP_SUMMARY` is set.
 
 The digest is bracketed by HTML-comment markers (`<!-- bca-step-summary-begin -->`
-/ `<!-- /bca-step-summary-end -->`) so a retried step replaces (not
+/ `<!-- bca-step-summary-end -->`) so a retried step replaces (not
 stacks) the previous block — three retries converge to exactly one
 up-to-date digest. Content outside the markers (e.g. summaries
 written by other tools earlier in the same step) is preserved.
@@ -622,11 +622,12 @@ Both tiers consume the same `bca.toml` thresholds and the same
 with every threshold value multiplied by `BCA_HEADROOM`. Both
 exit `0` clean, `2` on any threshold violation, `1` on tool
 error — the soft tier is a real gate, not advisory, so do not
-wrap `make self-scan-headroom` in `|| true`. All four targets
-are wired into `make pre-commit`, `make ci`, and
-`.pre-commit-config.yaml`, with `self-scan-headroom: self-scan`
-as a Make prerequisite so the hard tier always reports a true
-regression before the soft tier reports near-limit headroom.
+wrap `make self-scan-headroom` in `|| true`. The two gate targets
+(`self-scan`, `self-scan-headroom`) are wired into `make
+pre-commit`, `make ci`, and `.pre-commit-config.yaml`; those chains
+run the hard tier before the soft tier, so a true regression always
+reports before near-limit headroom. The two `write-baseline`
+targets are side-effecting and deliberately not wired in.
 
 `BCA_HEADROOM=0.90 make self-scan-headroom` widens the band;
 `BCA_HEADROOM=0.99` tightens it to the last 1%. When the soft
@@ -662,11 +663,11 @@ stages:
   - quality
 
 variables:
-  BCA_VERSION: "2.0.1"  # pin a published big-code-analysis-cli release
+  BCA_VERSION: "2.0.0"  # pin a published big-code-analysis-cli release
   BCA_TARGET:  "x86_64-unknown-linux-gnu"
   # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from
   # the release's SHA256SUMS file. Bump together with BCA_VERSION.
-  BCA_SHA256:  "f11c324fd80787e1a9edf99d3c1763980e035e51abb5479527b14b1e2f83e919"
+  BCA_SHA256:  "a205fff13108d0f8c679a062e352ba8468109c4adfdd8c9e3567cf5fcc99c3d5"
 
 bca-quality:
   stage: quality
@@ -708,7 +709,7 @@ bca-quality:
         --output bca-checkstyle.xml
         --no-fail
     - bca
-        report markdown
+        report -O markdown
         --paths "$PWD"
         --top 20
         --strip-prefix "$PWD/"

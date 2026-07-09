@@ -417,7 +417,7 @@ The **hotspot score** is the product of a file's complexity and its
 recent churn: `hotspot_score = cyclomatic_sum × churn_recent`. It is an
 `Option`, present only when an AST complexity figure is computed
 alongside the history (for example `bca metrics --metrics
-cyclomatic,vcs`), because it needs both halves.
+cyclomatic --vcs`), because it needs both halves.
 
 The metric is the central idea of Adam Tornhill's 2015 book [*Your Code
 as a Crime
@@ -450,7 +450,8 @@ whose departure would leave more than half of a directory's files
 without a knowledgeable maintainer. The broader concept has a
 [Wikipedia summary](https://en.wikipedia.org/wiki/Bus_factor);
 big-code-analysis emits it as a `vcs_aggregate` object covering the
-whole repository and each top-level directory.
+whole repository, each top-level directory, and each of its immediate
+subdirectories.
 
 The estimation method is Guilherme Avelino, Leonardo Passos, Andre
 Hora, and Marco Tulio Valente's 2016 ICPC paper [*A Novel Approach for

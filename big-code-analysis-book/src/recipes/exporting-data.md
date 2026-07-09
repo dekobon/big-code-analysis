@@ -114,7 +114,9 @@ explicit request: an unresolvable ref, a missing `git`, or a non-git
 working directory is a hard error (exit 1). `--since` takes at most one
 positional (the after side); passing two is an error.
 
-`bca diff` always exits 0 on success — it is informational, not a gate.
+`bca diff` exits 0 on success — it is informational, not a gate —
+unless the opt-in `--exit-code` flag is passed, which exits 2 when
+the filtered diff is non-empty.
 It replaces the former `json-minimal-tests` + `split-minimal-tests.py`
 chain used to validate that a grammar bump did not regress metrics; the
 `check-grammar-crate.py` helper now calls `bca diff` internally.
@@ -159,10 +161,11 @@ bca ops \
     --output-dir /tmp/ops
 ```
 
-> **Flag ordering.** Variadic flags like `--include` and `--exclude`
-> consume tokens until the next flag, so put them before `--paths`
-> (or use the `--include=GLOB` single-value form) to keep the
-> subcommand from being eaten as a glob.
+> **One glob per occurrence.** `--include` and `--exclude` take
+> exactly one value each time they appear; repeat the flag for
+> multiple globs (`--include "*.rs" --include "*.py"`). A positional
+> path that follows is never swallowed. The `=` form
+> (`--include="*.rs"`) also works.
 
 Each output file mirrors the input path under `/tmp/ops/`.
 

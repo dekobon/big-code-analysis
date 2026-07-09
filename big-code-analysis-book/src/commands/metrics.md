@@ -79,7 +79,7 @@ bca metrics --paths /path/to/your/file/or/directory \
   that default explicitly (for example to override a `bca.toml` that set
   a structured format). The structured per-file serializers are `cbor`,
   `csv`, `json`, `toml`, and `yaml`. `--output-format` is accepted as a
-  deprecated alias and will be removed in 2.0.
+  deprecated alias and is slated for removal in the next major.
 - `-o, --output`: a single file holding one aggregate document for the
   whole run — a top-level array of the per-file results (TOML wraps the
   array under a `files` key; CSV concatenates each file's rows). If

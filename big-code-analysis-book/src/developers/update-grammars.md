@@ -106,6 +106,12 @@ For `tree-sitter-mozjs`, run
 ./generate-grammars/generate-mozjs.sh
 ```
 
+`tree-sitter-tcl`, the fifth vendored grammar, has no regeneration
+script: it vendors pre-generated parser sources only (no
+`grammar.js`), so updating it means re-vendoring the generated `src/`
+from its upstream project rather than running `tree-sitter generate`
+locally.
+
 Once the script above has finished its execution, you need to fix,
 if there are any, all failed tests and problems introduced by changes
 in the grammars.

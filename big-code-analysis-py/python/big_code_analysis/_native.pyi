@@ -965,15 +965,14 @@ def to_sarif(
     tool driver name / version, and rule descriptions match the
     CLI byte-for-byte.
 
-    Unit-level (file-scope) findings are emitted for every metric
-    whose JSON headline at the file-level ``unit`` space matches
-    the CLI's per-space accessor (``loc.*``, ``halstead.*``,
-    ``mi.*``, ``nom``, ``nargs``, ``nexits``, ``tokens``, ``abc``,
-    ``wmc``, ``npm``, ``npa``). For the three metrics whose CLI
-    per-space accessor returns just the unit's own scalar while
-    the JSON exposes the aggregate ``sum`` across children —
-    ``cyclomatic``, ``cyclomatic.modified``, ``cognitive`` — the
-    unit space is skipped (those metrics emit per-function only).
+    A finding is emitted at every space whose *own* value breaches
+    its limit, exactly matching ``bca check --report-format sarif``.
+    Emission is scope-gated per metric (``loc.*`` at the file unit,
+    ``nom`` / ``wmc`` / ``npm`` / ``npa`` at containers, the rest at
+    function spaces), and the four subtree-aggregate metrics
+    (``cyclomatic``, ``cyclomatic.modified``, ``cognitive``,
+    ``abc``) read the per-space ``value`` field rather than the
+    rolled-up aggregate (#958, #969).
     Unit-level findings carry ``logicalLocations: [{"fullyQualifiedName":
     "<file>"}]``; nameless non-unit spaces carry ``"<unnamed>"`` —
     matching the CLI's ``function_token`` placeholder.

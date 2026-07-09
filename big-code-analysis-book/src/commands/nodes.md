@@ -63,7 +63,7 @@ bca dump --line-start 5 --line-end 10 /path/to/your/file/or/directory
 
 These flags are specific to `dump` and `find`, so they must follow the
 subcommand. The short `--ls` / `--le` spellings still work as
-deprecated aliases but are slated for removal in 2.0.
+deprecated aliases but are slated for removal in the next major.
 
 ## Listing functions
 

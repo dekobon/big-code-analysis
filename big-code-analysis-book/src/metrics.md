@@ -22,8 +22,7 @@ A few framing notes before we start:
   method*, per *class or unit-like space*, and per *file*. The
   underlying tree-sitter parser produces a tree of "spaces" (functions,
   closures, classes, namespaces, …) and every metric is rolled up
-  through that tree. See the [Supported Languages](./languages.md)
-  chapter for which scopes apply to which languages.
+  through that tree.
 - **Object-oriented metrics only fire on object-oriented constructs.**
   WMC, NPA, and NPM report `0` on a Rust file that has no `impl`
   blocks or on a Python module without classes; that is the correct
@@ -931,8 +930,8 @@ serialised output is three fields: `class_wmc_sum` (sum of WMC across
 all classes in the file), `interface_wmc_sum` (sum across interfaces),
 and `total` (the two combined). No min/max/average aggregation is
 emitted at the file scope — to rank individual classes by WMC, use
-the report subcommand, which surfaces a *WMC hotspots* section
-(see [Commands → Report](./commands/report.md)).
+the report subcommand, which surfaces a *Type hotspots (top N by
+WMC)* section (see [Commands → Report](./commands/report.md)).
 
 ### How to read it
 
@@ -958,10 +957,10 @@ gargantuan methods (split the methods, not the class). A class with
 
 ## Where to go next
 
-- The [Supported Languages](./languages.md) chapter lists which
-  metrics fire for which languages — language coverage varies
-  because some metric definitions (`NPA`, `NPM`, `WMC`) only make
-  sense in languages with classes.
+- The [Supported Languages](./languages.md) chapter lists every
+  supported language and grammar. Metric coverage varies by
+  language because some metric definitions (`NPA`, `NPM`, `WMC`)
+  only make sense in languages with classes.
 - The [Supported Change-history (VCS) Metrics](./metrics-vcs.md)
   chapter covers the complementary family derived from version-control
   history — commit frequency, churn, ownership, and the composite risk

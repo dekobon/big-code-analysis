@@ -11,7 +11,7 @@ essentials; the deeper conventions live in
   under [MPL-2.0](https://www.mozilla.org/MPL/2.0/), matching the rest
   of the project (declared via `license = "MPL-2.0"` in the root
   `Cargo.toml`).
-- Security-sensitive reports must **not** go in public issues — see
+- Security-sensitive reports must **not** go in public issues; see
   [`SECURITY.md`](SECURITY.md) for the private disclosure channels.
 
 ## Getting started
@@ -36,24 +36,33 @@ fixture.
 
 The two binaries shipped with the workspace are:
 
-- `bca` — the CLI (`big-code-analysis-cli`):
+- `bca`, the CLI (`big-code-analysis-cli`):
   `cargo run -p big-code-analysis-cli --`.
-- `bca-web` — the REST API server (`big-code-analysis-web`):
+- `bca-web`, the REST API server (`big-code-analysis-web`):
   `cargo run -p big-code-analysis-web --`.
 
 ## Local validation gate
 
 `make pre-commit` is the canonical entry point for the full validation
-gate. It runs, in one parallel pass:
+gate. In one parallel pass it runs, among other stages:
 
 - `cargo fmt --check`.
 - `cargo clippy --workspace --all-targets -- -D warnings` in both
   default-features and `--all-features` flavours.
 - `cargo test --workspace --all-features`.
+- `cargo doc --no-deps --workspace --all-features` with
+  `RUSTDOCFLAGS="-D warnings"`.
 - `cargo +nightly udeps`.
-- Markdown / TOML / shell / Makefile lint families
-  (`rumdl`, `taplo`, `shellcheck`, `shfmt`, `checkmake`).
+- Markdown / TOML / shell / Makefile / GitHub Actions lint families
+  (`rumdl`, `taplo`, `shellcheck`, `shfmt`, `checkmake`,
+  `actionlint`).
+- The man-page drift gate and the `bca` self-scan threshold gates.
 - `./check-snapshot-anchors.py` (see "Snapshot anchors" below).
+- The Python lint / type-check / test stages (see below), skipped
+  per stage when a tool is absent.
+
+The authoritative stage list lives in the "Validation gates" section
+of [`AGENTS.md`](AGENTS.md).
 
 `make ci` runs the same checks without auto-fix, mirroring the GitHub
 Actions behaviour.
@@ -67,7 +76,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
 ```
 
-If `pre-commit` is installed, also run `pre-commit run --all-files` —
+If `pre-commit` is installed, also run `pre-commit run --all-files`;
 the project's `.pre-commit-config.yaml` wires clippy, `cargo +nightly
 udeps`, the test suite, `ruff-check` + `ruff-format`, and a local
 `mypy --strict` hook into the standard hook flow.
@@ -79,25 +88,26 @@ plus `pyright` for type checking. `make pre-commit` and `make ci`
 run these alongside the Rust gates when the tools are present.
 
 **Canonical install path: `make py-bootstrap`** (requires
-[uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`,
+[uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`,
 `brew install uv`, or `pipx install uv`). This runs
 `uv sync --locked --extra dev` against the checked-in `uv.lock`, so
 the resolved ruff/mypy/pyright/maturin/pytest versions are identical
 across every contributor on this path.
 
 After editing the `dev` extra in `pyproject.toml`, run
-`make py-relock` (which runs `uv lock`) to regenerate the lockfile.
-`make py-bootstrap` will refuse to silently rewrite `uv.lock` —
-intentional, so lockfile churn is always a deliberate, reviewable
-commit. Resolve `uv.lock` rebase conflicts by re-running
-`make py-relock` rather than hand-merging the file. CI does **not**
-yet consume `uv.lock` (workflows pip-install pyproject floors); a
-follow-up will move them onto `uv sync --frozen` so the contributor
-path and the CI matrix resolve from the same source of truth.
+`make py-relock`, which regenerates `uv.lock` **and** the hash-pinned
+exports under `big-code-analysis-py/requirements/` (`dev.txt`,
+`examples.txt`). `make py-bootstrap` will refuse to silently rewrite
+`uv.lock` (intentional, so lockfile churn is always a deliberate,
+reviewable commit). Resolve `uv.lock` rebase conflicts by re-running
+`make py-relock` rather than hand-merging the file. CI consumes
+`uv.lock` through the requirements exports (`pip install
+--require-hashes -r …` in the workflows), so a `uv.lock` change and
+its regenerated exports must land in the same commit.
 
 Alternative install paths (`mise install` via `mise.toml`, direct
 `pipx install ruff/mypy/pyright/maturin`, `python -m venv .venv &&
-pip install -e ".[dev]"`) still work but bypass `uv.lock` — resolved
+pip install -e ".[dev]"`) still work but bypass `uv.lock`; resolved
 versions can drift from peers and from CI. They remain documented
 for contributors with environment constraints that preclude uv.
 
@@ -112,7 +122,7 @@ python -m pytest
 
 Or simply `make py-test` from the repo root, which performs the
 maturin-develop step implicitly. CI runs the same flow across
-Linux / macOS / Windows on Python 3.12 and 3.13 (six matrix legs),
+Linux / macOS / Windows on every supported Python version,
 gated by a `dorny/paths-filter` job so Rust-only PRs skip it
 entirely.
 
@@ -127,7 +137,7 @@ Per-metric tests under `src/metrics/` use
 [`insta`](https://insta.rs/) snapshot assertions. **Every
 `insta::assert_json_snapshot!` call must be anchored**: a bare
 `insta::assert_json_snapshot!(metric.X)` records whatever production
-emitted at acceptance time — including bugs.
+emitted at acceptance time, including bugs.
 
 Each new snapshot assertion must carry one of:
 
@@ -152,11 +162,11 @@ fails on any *increase* against that baseline.
 
 Background reading:
 
-- [`AGENTS.md`](AGENTS.md), section "Validation gates" — the full
+- [`AGENTS.md`](AGENTS.md), section "Validation gates": the full
   policy and the bulk-acceptance rules around grammar bumps.
 - [`docs/development/lessons_learned.md`](docs/development/lessons_learned.md),
   lesson 2 ("Tree-sitter aliases one rule across many kind_ids") and
-  lesson 6 ("Snapshot tests pin behaviour, not correctness") — the
+  lesson 6 ("Snapshot tests pin behaviour, not correctness"): the
   bug classes the anchor rule exists to catch.
 
 For bulk snapshot refresh after a grammar bump or a deliberate
@@ -176,8 +186,8 @@ the following have happened in the same parent commit:
    `tests/repositories/big-code-analysis-output/`).
 2. The accepted snapshots are committed and pushed to the submodule's
    remote (`dekobon/big-code-analysis-output`, `main` branch).
-3. The parent records the new submodule SHA — `git add
-   tests/repositories/big-code-analysis-output` — in the **same
+3. The parent records the new submodule SHA (`git add
+   tests/repositories/big-code-analysis-output`) in the **same
    parent commit** as the metric/alterator fix.
 4. After any rebase, force-push, or long-running batch fix, re-run
    the integration tests before declaring done.
@@ -190,17 +200,17 @@ for why this matters.
 
 - **Rust style**: `cargo fmt`, clippy clean with
   `--workspace --all-targets -- -D warnings`. No `unsafe` code (one
-  narrow PyO3 FFI exception — see `AGENTS.md`). Avoid
+  narrow PyO3 FFI exception; see `AGENTS.md`). Avoid
   `unwrap` / `expect` / `panic!` / `assert!` in non-test code;
   propagate errors with `?`.
 - **Visibility**: prefer `pub(crate)` over `pub`; widen visibility
   only when an item is re-exported from `lib.rs`.
-- **Edition**: 2024 — `let-else`, let-chains, and other 2024 features
+- **Edition**: 2024; `let-else`, let-chains, and other 2024 features
   are available.
 - **Borrowing**: prefer `&str` over `String` parameters unless
   ownership is required downstream. Never use `to_string_lossy()` on
-  paths used as identifiers (map keys, JSON output, error correlation)
-  — use `to_str()` with explicit error handling.
+  paths used as identifiers (map keys, JSON output, error correlation);
+  use `to_str()` with explicit error handling.
 - **Per-language modules mirror each other**: a bug in one
   `src/languages/language_<lang>.rs` typically exists in several. Fix
   every affected sibling together.
@@ -234,13 +244,13 @@ guides under `big-code-analysis-book/src/developers/`:
 - [Updating tree-sitter grammars](big-code-analysis-book/src/developers/update-grammars.md).
 
 External grammar crates are version-pinned (`=0.23.x`, etc.) in the
-root `Cargo.toml`. Do not loosen those pins without explicit approval —
+root `Cargo.toml`. Do not loosen those pins without explicit approval;
 a grammar bump is a deliberate, separate change and snapshot tests
 shift accordingly.
 
 ## Code review
 
-Criticism is welcome — point out mistakes, suggest better approaches,
+Criticism is welcome: point out mistakes, suggest better approaches,
 cite relevant standards. Be skeptical and concise. Reviews focus on
 correctness, API shape, and test coverage before style.
 

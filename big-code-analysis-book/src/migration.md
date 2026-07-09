@@ -56,7 +56,7 @@ big-code-analysis-cli \
 bca \
     report \
     --paths "$PWD" \
-    markdown \
+    --format markdown \
     --top 20 \
     --strip-prefix "$PWD/"
 ```
@@ -152,7 +152,7 @@ For example:
 $ bca --metrics -O markdown
 note: the CLI was restructured into subcommands. See migration.md for the full mapping.
   --metrics  ->  bca metrics
-  -O markdown  ->  bca report markdown [--top N] [--strip-prefix P]
+  -O markdown  ->  bca report markdown|html [--top N] [--strip-prefix P]
   Run `bca --help` for the new command list.
 
 error: unexpected argument '--metrics' found

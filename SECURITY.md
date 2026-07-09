@@ -47,11 +47,10 @@ to release a fix before public disclosure.
 
 ## Verifying release artefacts
 
-Every `v*` tag is intended to publish signed release artefacts to
-[GitHub Releases](https://github.com/dekobon/big-code-analysis/releases).
-Until the release pipeline lands (tracked in
-[`RELEASING.md`](RELEASING.md)), the verification recipe below is the
-expected post-release shape:
+Every `v*` tag publishes signed release artefacts to
+[GitHub Releases](https://github.com/dekobon/big-code-analysis/releases)
+(the pipeline is described in [`RELEASING.md`](RELEASING.md)). Each
+release carries:
 
 - **`SHA256SUMS`** — SHA-256 hashes of every artefact in the release.
 - **`SHA256SUMS.minisig`** —

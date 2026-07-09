@@ -52,8 +52,10 @@ cargo install cargo-mutants --locked
 ```
 
 The repo ships a `cargo mutants` alias (`.cargo/config.toml`) that
-matches the CI flags. To exercise a single metric file (the typical
-local case):
+pins the package and mutation order (`--package big-code-analysis
+--no-shuffle --in-place`); CI additionally passes `-j 2
+--minimum-test-timeout 120 --output target/mutants`. To exercise a
+single metric file (the typical local case):
 
 ```bash
 cargo mutants -f src/metrics/cognitive.rs
@@ -71,7 +73,9 @@ parallelism if the run is starving other work; the CI workflow uses
 
 ## Interpreting an escaped mutant
 
-`cargo-mutants` writes its results to `target/mutants/`:
+`cargo-mutants` writes its results to `target/mutants/` in CI (via
+`--output`); a local run with the alias writes to the default
+`mutants.out/` in the repo root:
 
 | File | Meaning |
 |------|---------|

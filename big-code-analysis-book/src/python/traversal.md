@@ -54,7 +54,7 @@ variants), `child(i)` / `named_child(i)`,
 `walk()` is a lazy pre-order iterator over a node and its
 descendants; `descendants_by_kind(kinds)` collects the matches in one
 pass; and `ast.find(filters)` searches the whole tree, accepting the
-same vocabulary as [`bca count`](../commands/count.md) (`function`,
+same vocabulary as [`bca count`](../commands/nodes.md#counting-nodes) (`function`,
 `call`, `comment`, `string`, an exact kind, …):
 
 ```python
@@ -129,6 +129,5 @@ are also safe to share across threads.
 
 * [Metric selection](metrics.md) — compute only the metrics you need
   from the same parse.
-* The CLI's [`dump`](../commands/dump.md) and
-  [`count`](../commands/count.md) commands are the shell-level
-  equivalents of `dump()` and `find()`.
+* The CLI's [`dump` and `count`](../commands/nodes.md) commands are
+  the shell-level equivalents of `dump()` and `find()`.

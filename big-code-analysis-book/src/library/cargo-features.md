@@ -6,7 +6,7 @@ the default
 
 ```toml
 [dependencies]
-big-code-analysis = "2.0.1"
+big-code-analysis = "2.0.0"
 ```
 
 pulls every grammar in — matching the library's historical
@@ -24,7 +24,7 @@ A downstream service that only analyses Rust and TypeScript:
 
 ```toml
 [dependencies]
-big-code-analysis = { version = "2.0.1", default-features = false, features = ["rust", "typescript"] }
+big-code-analysis = { version = "2.0.0", default-features = false, features = ["rust", "typescript"] }
 ```
 
 The library still compiles, the `LANG` enum still has every
@@ -86,8 +86,8 @@ disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
 - `Ast::parse` / `Ast::from_tree_sitter` (and the `metrics` / `ops`
   methods on the returned `Ast`)
 - [`LANG::tree_sitter_language`] — this returns
-  `Result<tree_sitter::Language, MetricsError>` (changed in 0.0.26)
-  rather than the previous `Language`
+  `Result<tree_sitter::Language, MetricsError>` rather than the bare
+  `Language` the upstream project returned
 
 Callers can query the compiled-in set without going through a
 dispatcher:

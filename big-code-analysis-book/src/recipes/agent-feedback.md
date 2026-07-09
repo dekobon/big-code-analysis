@@ -222,7 +222,7 @@ export const BcaCheck = async ({ $ }) => {
         .quiet()
         .nothrow()
       // 0 clean, 1 tool error: not a complexity issue. `< 2` rather than
-      // `=== 2` so the tiered exit codes (3-5, from `--strict-exit-codes`
+      // `=== 2` so the tiered exit codes (3-5, from `--exit-codes=tiered`
       // / `exit_codes = "tiered"`) still report.
       if (res.exitCode < 2) return
 

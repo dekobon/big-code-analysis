@@ -34,7 +34,7 @@ use big_code_analysis::{
     analyze, FuncSpace, MetricsOptions, SpaceKind, Source, LANG,
 };
 
-fn hotspots(space: &FuncSpace, threshold: f64, out: &mut Vec<String>) {
+fn hotspots(space: &FuncSpace, threshold: u64, out: &mut Vec<String>) {
     if space.kind == SpaceKind::Function
         && space.metrics.cognitive.cognitive_sum() > threshold
     {
@@ -64,7 +64,7 @@ fn hard(x: i32) -> i32 {
     .expect("parses");
 
     let mut hits = Vec::new();
-    hotspots(&space, 2.0, &mut hits);
+    hotspots(&space, 2, &mut hits);
     for hit in hits {
         println!("{hit}");
     }

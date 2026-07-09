@@ -6,7 +6,7 @@ multiple times — different metric subsets, an interleaved custom
 tree-sitter walk, or a metric re-run after a configuration change — that
 re-parse is wasted work.
 
-The [`Ast`][ast] type, added in `0.0.26`, exposes the seam:
+The [`Ast`][ast] type, added in `1.1.0`, exposes the seam:
 parse the source once, then call [`Ast::metrics`][ast_metrics] as many
 times as you need against the held parse.
 

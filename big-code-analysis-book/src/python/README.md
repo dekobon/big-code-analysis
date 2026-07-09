@@ -49,8 +49,12 @@ option.
   feeding sqlite / pandas.
 * [Metric selection](metrics.md) — `metrics=` kwarg,
   `bca.METRIC_NAMES`, dependency-pull semantics.
+* [AST traversal](traversal.md) — `Ast`, `Node`, `walk()`, and
+  `find()` over the held parse.
 * [SARIF output](sarif.md) — `to_sarif` + GitHub Code Scanning
   upload.
+* [Change-history (VCS) metrics](vcs.md) — `vcs.rank`, `vcs.trend`,
+  `vcs.commit`, and `vcs.score_diff` over a git working tree.
 * [Error handling](errors.md) — the full exception taxonomy and
   the never-raise batch contract.
 * [Async patterns](async.md) — `asyncio.to_thread` is the
