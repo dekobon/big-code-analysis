@@ -25,7 +25,7 @@ pub(crate) struct StructuredArgs {
     /// that set a structured format). `json` / `yaml` / `toml` / `cbor` /
     /// `csv` emit structured per-file data. `--output-format` is accepted
     /// as a deprecated alias; it is hidden from help and slated for
-    /// removal in 2.0.
+    /// removal in the next major.
     // The `--output-format` alias is the pre-rename spelling from issue #513.
     #[clap(
         long = "format",
@@ -146,7 +146,8 @@ pub(crate) struct NodeTypesArgs {
 /// names cluttered all of their help. The descriptive `--line-start` /
 /// `--line-end` are canonical; `--ls` / `--le` survive as hidden
 /// deprecated aliases for one release cycle (mirrors the #513
-/// `--output-format` deprecation) and are slated for removal in 2.0.
+/// `--output-format` deprecation) and are slated for removal in the
+/// next major.
 #[derive(Args, Debug, Default)]
 pub(crate) struct LineRange {
     /// First line of the range to analyze (1-based, inclusive).
