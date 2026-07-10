@@ -70,7 +70,7 @@ pub fn generate_macros(output: &Path) -> std::io::Result<()> {
 fn create_macros_file(output: &Path, filename: &str, u_name: &str) -> std::io::Result<()> {
     let mut macro_file = File::open(Path::new(&format!(
         "{}/{}/{}.txt",
-        &env::var("CARGO_MANIFEST_DIR").unwrap(),
+        env::var("CARGO_MANIFEST_DIR").unwrap(),
         MACROS_DEFINITION_DIR,
         filename
     )))?;
