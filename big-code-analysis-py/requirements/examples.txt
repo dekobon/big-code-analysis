@@ -688,9 +688,9 @@ maturin==1.13.3 ; python_full_version < '3.15' and sys_platform != 'emscripten' 
     --hash=sha256:c00ea6428dea17bf616fe93770837634454b28c2de1a876e42ef8036c616079a \
     --hash=sha256:def4a435ea9d2ee93b18ba579dc8c9cf898889a66f312cd379b5e374ec3e3ad6
     # via big-code-analysis
-mistune==3.2.1 ; python_full_version < '3.15' and sys_platform != 'emscripten' \
-    --hash=sha256:78cdb0ba5e938053ccf63651b352508d2efa9411dc8810bfb05f2dc5140c0048 \
-    --hash=sha256:7c8e5501d38bac1582e067e46c8343f17d57ea1aaa735823f3aba1fd59c88a28
+mistune==3.3.0 ; python_full_version < '3.15' and sys_platform != 'emscripten' \
+    --hash=sha256:3074ec4c61b384abe725128e4dcbb483f5a09cc4632012505cdee655d3a113b9 \
+    --hash=sha256:a758e578acda49d8195f9a860b132dae2cf7bf409381393b1c4e6e489a65397b
     # via nbconvert
 nbclient==0.10.4 ; python_full_version < '3.15' and sys_platform != 'emscripten' \
     --hash=sha256:1e54091b16e6da39e297b0ece3e10f6f29f4ac4e8ee515d29f8a7099bd6553c9 \
