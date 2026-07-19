@@ -146,13 +146,13 @@ jobs:
       # on the host; the `targets:` add lets cargo-about's
       # `--filter-platform` resolve a cross target (e.g. x86_64 on the
       # arm64 macOS runner) without a full target install.
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - name: Install cargo-about
-        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145 # v2.83.1
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
           tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
 
