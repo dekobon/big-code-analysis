@@ -113,7 +113,7 @@ assert!(ops.operators.iter().any(|op| op == "+"));
 
 [ast_ops]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.ops
 
-## Adopting a caller-built tree
+## Adopting a caller-built tree {#adopting-a-caller-built-tree}
 
 If you already build the `tree_sitter::Tree` yourself (e.g. because
 your editor / LSP has its own parser pool),
@@ -152,7 +152,7 @@ different grammar yield nonsensical results.
 
 [lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.tree_sitter_language
 
-## C++ preprocessor
+## C++ preprocessor {#c-preprocessor}
 
 When `Ast::parse` is called on a [`Source`][source] carrying preprocessor
 inputs (`Source::with_preproc_path` + `Source::with_preproc`) and the

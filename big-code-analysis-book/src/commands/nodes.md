@@ -33,7 +33,7 @@ bca find -t ERROR -I "*.ext" /path/to/your/file/or/directory
   `*.js`, `*.rs`). Each `-I` takes exactly one value, so a following
   positional path is never swallowed.
 
-## Counting nodes
+## Counting nodes {#counting-nodes}
 
 Count occurrences of one or more node types with the `count` command:
 

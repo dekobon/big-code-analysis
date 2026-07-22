@@ -23,7 +23,7 @@ fails the pipeline before the change lands.
 `1` is reserved so CI can distinguish a regression (`2`) from a tool
 misconfiguration (`1`).
 
-### Tiered exit codes (`--exit-codes=tiered`)
+### Tiered exit codes (`--exit-codes=tiered`) {#tiered-exit-codes---exit-codestiered}
 
 `--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
 `bca.toml`) splits the single violation code `2` by severity so CI can
@@ -109,7 +109,7 @@ form:
 An unknown threshold name is a tool error (exit `1`), not silently
 ignored.
 
-### Threshold scope
+### Threshold scope {#threshold-scope}
 
 A threshold is checked only against the space kind its metric actually
 measures, so a metric's whole-file or whole-`impl` aggregate is never
@@ -217,7 +217,7 @@ excluding it from the walk. The native dialect is `bca: suppress` /
 compatibility shim. See [Suppression markers](suppression.md) for
 the full reference and the `--no-suppress` CI-audit flag.
 
-## Exempting whole file categories (`[check.exclude]`)
+## Exempting whole file categories (`[check.exclude]`) {#exempting-whole-file-categories-checkexclude}
 
 Some files should be **analysed and reported but never gated**: test
 fixtures that intentionally trip cognitive/cyclomatic, generated
@@ -442,7 +442,7 @@ also conflicts with `--since` / `--changed-only` (a partial
 baseline would silently mask every offender outside the diff scope
 on the next full-tree run).
 
-## CI example (GitHub Actions)
+## CI example (GitHub Actions) {#ci-example-github-actions}
 
 ```yaml
 - name: Check code complexity thresholds
@@ -462,7 +462,7 @@ annotation while you reduce the count, swap in `--no-fail`:
     bca check --paths src/ --no-fail
 ```
 
-## Exporting offender records
+## Exporting offender records {#exporting-offender-records}
 
 `bca check` also emits a single CI/IDE document covering every
 offender in the walk. Pass `--report-format <fmt>` to pick the
@@ -495,7 +495,7 @@ document — empty `runs[].results` array for SARIF, empty JSON array
 warning-line formats — so CI consumers can ingest clean runs
 unchanged.
 
-### Checkstyle (CI integration)
+### Checkstyle (CI integration) {#checkstyle-ci-integration}
 
 ```bash
 bca check --paths src/ \

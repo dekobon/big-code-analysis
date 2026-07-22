@@ -237,7 +237,7 @@ Notes:
 - Mutually exclusive with `--no-suppress` (which un-silences markers to
   show the raw offender list) and `--write-baseline`.
 
-## Auditing exemptions (`bca exemptions`)
+## Auditing exemptions (`bca exemptions`) {#auditing-exemptions-bca-exemptions}
 
 `--no-suppress` shows you the offenders a marker *silences*, but not
 the markers themselves — to find every silencer you previously had to

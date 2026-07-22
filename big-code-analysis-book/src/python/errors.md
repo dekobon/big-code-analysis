@@ -117,7 +117,7 @@ directly.
   iterable's `__iter__`, so a generator's side effects (and any
   partial yields) are preserved on this raise path.
 
-## Change-history (VCS) exceptions
+## Change-history (VCS) exceptions {#change-history-vcs-exceptions}
 
 The [`big_code_analysis.vcs`](vcs.md) functions raise a typed
 hierarchy rooted at `bca.VcsError`, itself a `ValueError`, so an

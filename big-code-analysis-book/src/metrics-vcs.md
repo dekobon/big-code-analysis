@@ -62,7 +62,7 @@ A few framing notes before we start:
 | [Bus factor](#bus-factor) | Knowledge concentration across a set of files | Avelino *et al.*, 2016 |
 | [Just-in-time commit score](#just-in-time-commit-score) | Defect-induction risk of one commit | Kamei *et al.*, 2013 |
 
-## Commit frequency
+## Commit frequency {#commit-frequency}
 
 The simplest change-history signal is how many distinct commits have
 touched a file. big-code-analysis records it per window as
@@ -98,7 +98,7 @@ under active feature development or structurally unstable; pairing it
 with [code churn](#code-churn) tells the two apart, since heavy churn
 on few commits is a different story from light churn on many.
 
-## Code churn
+## Code churn {#code-churn}
 
 **Code churn** is the volume of change: the sum of added and deleted
 lines touching a file, recorded per window as `churn_long` and
@@ -133,7 +133,7 @@ recent churn is high relative to its long-window churn is changing
 faster now than its history would predict — exactly the
 [burst](#burst) signal below.
 
-## Burst
+## Burst {#burst}
 
 **Burst** is the share of a file's activity concentrated in the recent
 window: `commits_recent / commits_long`, reported as a ratio in
@@ -157,7 +157,7 @@ on a file with deep history is an old file that has suddenly woken up,
 which is often the more interesting case. Read it alongside
 [age](#age-and-last-modified) to tell the two apart.
 
-## Authorship and ownership
+## Authorship and ownership {#authorship-and-ownership}
 
 Two related signals describe *who* changes a file. **Author counts**
 (`authors_long`, `authors_recent`) count the distinct people who
@@ -201,7 +201,7 @@ six- and nine-developer marks that encode Meneely and Williams' RHEL4
 thresholds. For knowledge concentration across a *set* of files rather
 than within one, see the [bus factor](#bus-factor).
 
-## Fix, security, and revert commits
+## Fix, security, and revert commits {#fix-security-and-revert-commits}
 
 big-code-analysis classifies each long-window commit touching a file
 by the intent of its message and keeps three counts: `bug_fix_commits`
@@ -239,7 +239,7 @@ ordinary bug fixes. Because the classifier reads messages, its
 accuracy tracks your project's commit hygiene: a repository with terse
 or templated messages will under-count.
 
-## Age and last-modified
+## Age and last-modified {#age-and-last-modified}
 
 Two timing signals bound a file's history. `age_days` is the number of
 days since the file's *first* in-window commit (capped at the long
@@ -263,7 +263,7 @@ code has had the least chance to be exercised and reviewed.
 high-risk file that has not been touched in months is a different
 maintenance proposition from one being edited today.
 
-## Change entropy
+## Change entropy {#change-entropy}
 
 **Change entropy** measures how *scattered* the commits touching a
 file are. It is reported per window as `change_entropy_long` and
@@ -303,7 +303,7 @@ when their raw churn is identical. High change entropy is a smell of
 others. It enters the recent-window risk term additively, complementing
 rather than restating the churn and commit counts.
 
-## Co-change entropy
+## Co-change entropy {#co-change-entropy}
 
 **Co-change entropy** measures how wide a file's change *blast radius*
 is — how many different files it tends to change alongside. It is
@@ -343,7 +343,7 @@ two entropy signals are designed to complement each other, and the
 [risk score](#composite-risk-score) `v2` adds both recent-window terms
 together.
 
-## Composite risk score
+## Composite risk score {#composite-risk-score}
 
 The **risk score** rolls every signal above into a single
 per-file number, `risk_score`. It is the headline output of `bca vcs`
@@ -411,7 +411,7 @@ move over time, use [`bca vcs trend`](./commands/vcs.md#historical-trend-over-ti
 which re-anchors the walk at each historical point so the series
 reflects what the file actually looked like then.
 
-## Hotspot score
+## Hotspot score {#hotspot-score}
 
 The **hotspot score** is the product of a file's complexity and its
 recent churn: `hotspot_score = cyclomatic_sum × churn_recent`. It is an
@@ -441,7 +441,7 @@ files, it surfaces the ones actively being edited, which are both the
 likeliest to break and the cheapest to refactor while they are already
 open on someone's screen.
 
-## Bus factor
+## Bus factor {#bus-factor}
 
 Where `ownership_top_share` measures knowledge concentration *within* a
 single file, the **bus factor** (also called the *truck factor*)
@@ -489,7 +489,7 @@ means the earliest commit seen in that window, not necessarily a file's
 true creation. Use it to find the directories where knowledge is
 dangerously concentrated and spread review accordingly.
 
-## Just-in-time commit score
+## Just-in-time commit score {#just-in-time-commit-score}
 
 Everything above ranks *files* at a point in time. The
 **just-in-time (JIT) score** instead scores a single *commit* for its

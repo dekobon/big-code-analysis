@@ -28,7 +28,7 @@ For the full flag set, environment variables, resource limits, and the
 trust boundaries to respect before exposing the daemon, see
 [Operating bca-web](web-server.md).
 
-## CORS
+## CORS {#cors}
 
 By default **bca-web emits no CORS headers**: a browser script served from
 a different origin cannot read the API's responses. This keeps a local
@@ -65,7 +65,7 @@ set the `Allow` header advertises), and `Access-Control-Allow-Headers`
 Accept` for a bare probe). The API has no authentication or cookies, so
 `Access-Control-Allow-Credentials` is **never** sent.
 
-## API Versioning
+## API Versioning {#api-versioning}
 
 All endpoints are mounted under a `/v1` prefix (for example
 `/v1/metrics`). The full route set is `/v1/ping`, `/v1/version`,
@@ -142,7 +142,7 @@ Status codes:
 - `504 Gateway Timeout` — the parse (or history walk) exceeded the
   server's configured deadline.
 
-## Content negotiation
+## Content negotiation {#content-negotiation}
 
 The structured analysis endpoints — `/v1/ast`, `/v1/comment` (JSON
 variant), `/v1/function`, `/v1/metrics`, `/v1/vcs`, `/v1/vcs/trend`, and
@@ -546,7 +546,7 @@ Like every endpoint, `/version` and `/languages` are served only under
 the `/v1` prefix; the unprefixed `1.x` aliases were removed in 2.0 (see
 [API Versioning](#api-versioning)).
 
-### 8. Route index
+### 8. Route index {#8-route-index}
 
 Returns a machine-readable index of every registered route — its path,
 the HTTP methods it accepts, and a one-line description — so clients can
@@ -577,7 +577,7 @@ GET http://127.0.0.1:8080/v1
 `GET /v1/version`. The unprefixed root `/` that earlier releases served
 as this endpoint's alias was removed in 2.0.
 
-## Change-history (VCS) metrics
+## Change-history (VCS) metrics {#change-history-vcs-metrics}
 
 Three endpoints expose the change-history (version-control) metrics —
 the same numbers `bca vcs` computes from the CLI. Unlike every other

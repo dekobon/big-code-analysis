@@ -35,7 +35,7 @@ requires `--output`). The global `--paths` / `--include` / `--exclude` /
 
 `bca vcs` errors clearly when run outside a git working tree.
 
-### File-type scope
+### File-type scope {#file-type-scope}
 
 By default `bca vcs` ranks **only the files bca computes metrics for** —
 the same set `bca metrics` would analyse. High-churn non-source files
@@ -141,7 +141,7 @@ commits with zero change entropy). Bulk-import commits touching more than
 1000 files are excluded from the co-change graph — its edge count grows
 O(width²) — but still contribute their O(width) change entropy.
 
-## Composite risk score
+## Composite risk score {#composite-risk-score}
 
 The default **weighted** formula is a log-scaled weighted sum with
 categorical multiplicative bumps:
@@ -214,7 +214,7 @@ cross-project robustness.
 | `--clear-cache` | off | Wipe this repo's cached history before running |
 | `--cache-dir <DIR>` | platform cache | Override the cache directory |
 
-## Caching
+## Caching {#caching}
 
 Ranking re-walks only the part of history inside the long window, but on a
 large, active repository that is still the dominant cost — and in CI the
@@ -319,7 +319,7 @@ rare `gix-blame` failure on pathologically repetitive content — its
 per-function blocks are simply omitted while the file-level block (and the
 AST metrics) still emit.
 
-## Just-in-time (commit-level) scoring
+## Just-in-time (commit-level) scoring {#just-in-time-commit-level-scoring}
 
 Where everything above ranks *files* at a ref, `bca vcs commit <commit>`
 scores a single *commit* for defect-induction risk — the unit a CI gate
@@ -471,7 +471,7 @@ The JIT score is also available off the CLI:
 
 ML-based JIT models and server-side hook integration remain out of scope.
 
-## Historical trend (over time)
+## Historical trend (over time) {#historical-trend-over-time}
 
 A single `bca vcs` run answers *"what is risky now."* `bca vcs trend`
 answers *"is it getting better or worse"* — the actionable question for a
@@ -600,7 +600,7 @@ only for the dedicated `bca vcs` / `bca report --vcs` reports and the REST
 / Python endpoints; the per-file `bca metrics --vcs` injection path does
 not pay for it.
 
-### Author-detail privacy
+### Author-detail privacy {#author-detail-privacy}
 
 The `key_author_ids` digests are a **stable pseudonym, not
 anonymization**. Hashing keeps plaintext emails out of the report and the

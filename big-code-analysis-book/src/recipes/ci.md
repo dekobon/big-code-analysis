@@ -38,7 +38,7 @@ the [Quality reports recipe](quality-reports.md).
 
 ## GitHub Actions
 
-### Live worked example
+### Live worked example {#live-worked-example}
 
 `big-code-analysis` runs the recipes below against its own source on
 every push and PR. The workflow source —
@@ -76,7 +76,7 @@ annotations — live in the
 [Check command page](../commands/check.md#ci-example-github-actions).
 Use the link rather than re-implementing them here.
 
-### Installing `bca` from a GitHub Release (recommended)
+### Installing `bca` from a GitHub Release (recommended) {#installing-bca-from-a-github-release-recommended}
 
 The fastest, most reproducible install path is the prebuilt tarball
 from this repository's [GitHub Releases](https://github.com/dekobon/big-code-analysis/releases).
@@ -149,7 +149,7 @@ Available `BCA_TARGET` values (pick the one that matches `runs-on`):
 `.tar.gz`; the `bca-web` binary ships alongside `bca` in the same
 archive.
 
-### Alternative: `cargo install` via prebuilt-aware actions
+### Alternative: `cargo install` via prebuilt-aware actions {#alternative-cargo-install-via-prebuilt-aware-actions}
 
 When you cannot reach `github.com` from a runner (air-gapped, custom
 mirror) but can reach crates.io, the following two actions fall back
@@ -315,7 +315,7 @@ reader looks at: which file has the most problems, and which metric
 is the loudest in that file. Pass `--no-summary` to suppress the
 footer for downstream tooling that grep-pipes the stderr stream.
 
-### Actionable failure output
+### Actionable failure output {#actionable-failure-output}
 
 The four sub-sections below turn `bca check`'s failure output from
 "a wall of offender lines" into a stack of CI-aware presentations:
@@ -741,7 +741,7 @@ A few notes about the example:
   [Code Quality widget section below](#gitlab-code-quality-widget)
   for the field-by-field semantics.
 
-### GitLab Code Quality widget
+### GitLab Code Quality widget {#gitlab-code-quality-widget}
 
 GitLab's first-class Code Quality experience (inline complaints on
 the MR diff, summary on the MR overview page) consumes

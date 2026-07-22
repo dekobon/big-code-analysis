@@ -41,7 +41,7 @@ The version printed equals
 from the Rust workspace's `Cargo.toml` — the bindings and the Rust
 library version in lockstep.
 
-## Building from source
+## Building from source {#building-from-source}
 
 If no wheel matches your platform, or you want to bind against an
 unreleased Rust commit, build with

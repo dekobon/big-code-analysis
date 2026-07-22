@@ -45,7 +45,7 @@ constructs the parser internally and owns the parse end to end.
 [analyze]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [source]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 
-## Working example
+## Working example {#working-example}
 
 ```rust,no_run
 use big_code_analysis::{analyze, tree_sitter, Ast, LANG, MetricsOptions, Source};

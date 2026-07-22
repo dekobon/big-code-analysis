@@ -1594,7 +1594,15 @@ mod tests {
     /// outside `[a-z0-9]` collapsed to a single `-`, leading/trailing `-`
     /// trimmed. Matches the published anchors in the chapter's own Index
     /// (`## Cyclomatic Complexity (CC)` -> `cyclomatic-complexity-cc`).
+    /// A heading may instead pin its anchor with a trailing `{#id}`
+    /// attribute (introduced with the Japanese translation so anchors
+    /// survive heading translation); mdBook then uses the id verbatim.
     fn mdbook_slug(heading: &str) -> String {
+        if let Some(rest) = heading.trim_end().strip_suffix('}')
+            && let Some((_, id)) = rest.rsplit_once("{#")
+        {
+            return id.trim().to_owned();
+        }
         let mut slug = String::with_capacity(heading.len());
         let mut prev_dash = false;
         for ch in heading.chars() {

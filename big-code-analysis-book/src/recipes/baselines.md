@@ -96,7 +96,7 @@ threshold-check:
 Exit codes: `0` clean, `2` regression or new offender, `1` tool error.
 See [CI integration](ci.md) for the broader matrix of CI surfaces.
 
-### 4. Refresh the baseline as the team pays debt down
+### 4. Refresh the baseline as the team pays debt down {#4-refresh-the-baseline-as-the-team-pays-debt-down}
 
 Every few weeks, or after a focused refactor:
 
@@ -202,7 +202,7 @@ When `.bca-baseline.toml` contains only `version = 5` and no entries,
 drop the `--baseline` flag from CI and delete the file. The thresholds
 now stand on their own.
 
-## Tier/headroom provenance
+## Tier/headroom provenance {#tierheadroom-provenance}
 
 A baseline written with `--write-baseline` (v5+) records *which gate it
 was written against* in a `[provenance]` table:
@@ -258,7 +258,7 @@ either side is a `[thresholds.soft]`-table baseline (no single ratio to
 compare). To clear a genuine warning, refresh the baseline at the
 current tier with the matching `--write-baseline` recipe.
 
-## How matching works
+## How matching works {#how-matching-works}
 
 Each entry is keyed on `(path, qualified_symbol, metric)` — the
 qualified symbol being the `::`-joined chain of enclosing named

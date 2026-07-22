@@ -46,7 +46,7 @@ A few framing notes before we start:
 | [Tokens](#tokens) | Tree-sitter leaf-token count (size proxy) | Lizard tool, Terry Yin |
 | [WMC](#wmc) | Sum of cyclomatic complexity across a class's methods | Chidamber & Kemerer, 1994 |
 
-## ABC
+## ABC {#abc}
 
 The **ABC** metric measures the size of a piece of code as a
 three-dimensional vector. Each component counts one kind of operation:
@@ -245,7 +245,7 @@ considered hard to maintain. Those thresholds are language-specific —
 expect higher values in C++ and Java, which use explicit getter/setter
 assignments more aggressively.
 
-## Cognitive Complexity
+## Cognitive Complexity {#cognitive-complexity}
 
 **Cognitive Complexity** was introduced by G. Ann Campbell at
 SonarSource in the 2017 white paper *Cognitive Complexity — A new way
@@ -331,7 +331,7 @@ Sonar ecosystem.
   than the enclosing function's nesting. Byte-equivalent constructs
   therefore score identically across languages.
 
-## Cyclomatic Complexity (CC)
+## Cyclomatic Complexity (CC) {#cyclomatic-complexity-cc}
 
 The original software complexity metric, introduced by Thomas J.
 McCabe in 1976 in [*A Complexity
@@ -440,7 +440,7 @@ score around 30, even though they are very different reading
 experiences. Cognitive Complexity (above) was designed to fix exactly
 that.
 
-## Halstead
+## Halstead {#halstead}
 
 The **Halstead suite** is the oldest size-and-effort metric family on
 this page. Maurice H. Halstead introduced it in his 1977 book
@@ -533,7 +533,7 @@ In modern practice the Halstead numbers are used for three things:
    higher Halstead difficulty is the one more likely to introduce
    regressions.
 
-## Lines of Code
+## Lines of Code {#lines-of-code}
 
 This section covers the five LOC variants — SLOC, PLOC, LLOC, CLOC,
 and BLANK. "Counting lines" sounds trivial until you have to define exactly
@@ -599,7 +599,7 @@ weakness — LOC is easy to game and a 10× difference in coding style
 can produce a 2× difference in LOC — is the reason this chapter has
 so many other metrics in it.
 
-## Maintainability Index (MI)
+## Maintainability Index (MI) {#maintainability-index-mi}
 
 The **Maintainability Index** is a composite metric that rolls
 several of the metrics above into a single 0-to-100ish number meant
@@ -674,7 +674,7 @@ metric that has attracted the most criticism. Treat it as a smoke
 detector, not a thermostat: a sudden drop is a useful signal, but
 the absolute number is noisy.
 
-## NArgs
+## NArgs {#nargs}
 
 **NArgs** counts the number of arguments declared by a function,
 method, or closure. The metric does not have a famous origin paper —
@@ -712,7 +712,7 @@ threshold. NArgs is also a useful component of API-design dashboards:
 public APIs whose average NArgs has crept upward over time tend to be
 ones that have accreted "just one more parameter" feature flags.
 
-## NExits
+## NExits {#nexits}
 
 **NExits** counts the number of distinct exit points from a
 function — every explicit `return`, every `throw` / `raise`, and
@@ -750,7 +750,7 @@ A *very* high NExits — say above 8 — is the warning sign. It usually
 means the function should have been split into several smaller
 functions, with each "successful branch" becoming its own helper.
 
-## NOM
+## NOM {#nom}
 
 **NOM** stands for *Number Of Methods* and counts every function,
 method, and closure defined inside a given scope (file, class, or
@@ -784,7 +784,7 @@ candidate for "extract collaborator" refactoring as documented in
 Martin Fowler's [*Refactoring* catalogue
 entry on Large Class](https://refactoring.com/catalog/extractClass.html).
 
-## NPA
+## NPA {#npa}
 
 **NPA** counts the **number of public attributes** (a.k.a. fields,
 properties, instance variables) declared by a class or interface. It
@@ -824,7 +824,7 @@ The emergent use is **API-stability auditing**: a public library
 class whose NPA grows over time accumulates breaking-change
 liability faster than its public-method surface.
 
-## NPM
+## NPM {#npm}
 
 **NPM** counts the **number of public methods** declared by a class
 or interface. It is the method-side companion to NPA and was again
@@ -863,7 +863,7 @@ libraries: monitoring NPM at the package level catches accidental
 expansion of a library's surface area in the same way that NPA
 catches accidental exposure of internal fields.
 
-## Tokens
+## Tokens {#tokens}
 
 **Tokens** is a per-function and per-file count of the *tree-sitter
 leaf tokens* — identifiers, literals, keywords, punctuation —
@@ -901,7 +901,7 @@ information. This makes Tokens particularly useful for
 machine-learning code-quality models that train across many
 languages.
 
-## WMC
+## WMC {#wmc}
 
 **WMC** — *Weighted Methods per Class* — is the first metric in
 the [Chidamber and Kemerer suite](https://www.eso.org/~tcsmgr/oowg-forum/TechMeetings/Articles/OOMetrics.pdf),

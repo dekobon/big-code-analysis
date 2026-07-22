@@ -135,7 +135,7 @@ Nodes can be used to:
 send source code via HTTP and receive corresponding metrics in `JSON`
 format.
 
-## Skipping generated code
+## Skipping generated code {#skipping-generated-code}
 
 Generated bindings (protobuf stubs, OpenAPI clients, lex/yacc output,
 build-system plumbing) inflate metrics for code no human will refactor.

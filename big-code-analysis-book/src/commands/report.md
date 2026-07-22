@@ -212,7 +212,7 @@ two populations for a double-count, each is captioned: the cyclomatic
 note adds "(excluding suppressed functions)", and the Actionable
 Summary names the raw, suppression-ignoring basis of its counts.
 
-## HTML format
+## HTML format {#html-format}
 
 `bca report html` emits a single self-contained HTML page covering the
 same sections as the Markdown report. It is designed to be served as a

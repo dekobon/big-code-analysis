@@ -87,7 +87,7 @@ environment variable rather than maintaining a parallel
 soft-threshold file that will drift out of sync with the
 hard config the first time anyone forgets to update both files.
 
-## Two-tier thresholds
+## Two-tier thresholds {#two-tier-thresholds}
 
 `bca check --tier <hard|soft|soft=RATIO>` selects which tier to gate
 against. `hard` (the default) compares against `[thresholds]` verbatim.
@@ -135,7 +135,7 @@ separate soft baseline file). `bca check --print-effective-config
 output into `[thresholds.soft]` to migrate from a blanket-ratio band
 to explicit per-metric limits.
 
-## Zero-config: the `bca.toml` manifest
+## Zero-config: the `bca.toml` manifest {#zero-config-the-bcatoml-manifest}
 
 Rather than thread `--paths`, `--exclude-from`, `--jobs`,
 `--config`, `--baseline`, and `--tier=soft=<ratio>` through every
@@ -363,7 +363,7 @@ not rescaled. There is no separate helper script or second TOML
 file to maintain — the soft tier is the hard-tier invocation plus
 one flag.
 
-### Exit codes
+### Exit codes {#exit-codes}
 
 The gate exit codes propagate verbatim from `bca check`: **`0`
 clean, `2` on any threshold violation (hard or soft), `1` on tool

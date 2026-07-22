@@ -265,7 +265,7 @@ real project:
 - **Shared guidance.** Read the guidance text from one file that both
   this plugin and the Claude Code hook cite, so the two never drift.
 
-## Agent guidance (ship this verbatim)
+## Agent guidance (ship this verbatim) {#agent-guidance-ship-this-verbatim}
 
 The feedback channel is only half the recipe. A bare "cognitive 26 >
 25" reliably triggers the gaming move — the agent extracts a
@@ -303,7 +303,7 @@ down.
   honest `// bca: suppress(...)` is better than a "compliant" tangle.
 ```
 
-## Honest suppression (exact syntax)
+## Honest suppression (exact syntax) {#honest-suppression-exact-syntax}
 
 The guidance above tells the agent that suppression is a legitimate
 move. For that to work the agent has to spell the marker correctly —

@@ -8,7 +8,7 @@ or port a [py-tree-sitter][pyts] matcher — parse once into an
 
 [pyts]: https://github.com/tree-sitter/py-tree-sitter
 
-## The `Ast` handle
+## The `Ast` handle {#the-ast-handle}
 
 `bca.Ast.parse(code, language)` (or `bca.Ast.from_path(path)`) parses
 the source **once** and hands back a handle you can draw both metrics
@@ -26,7 +26,7 @@ ast.root_node      # the syntax tree, walked lazily (below)
 The handle is immutable and thread-safe, so it composes with
 `ThreadPoolExecutor` fan-out exactly like `analyze`.
 
-## The `Node` handle
+## The `Node` handle {#the-node-handle}
 
 `ast.root_node` is the tree's root as a lazy `Node`. Unlike
 [`ast.dump()`](#lazy-nodes-vs-dump), which materialises one dict per
@@ -89,7 +89,7 @@ So `node.start_line == node.start_point[0] + 1`, and
 matcher written against py-tree-sitter's `node.type` ports over
 unchanged; `kind` stays the canonical bca spelling.
 
-## Lazy nodes vs. `dump()`
+## Lazy nodes vs. `dump()` {#lazy-nodes-vs-dump}
 
 `ast.dump()` returns the tree as nested dicts; `ast.root_node` returns
 lazy handles. They differ in two ways that matter:
