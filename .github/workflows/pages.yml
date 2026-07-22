@@ -77,6 +77,14 @@ permissions:
 env:
   MDBOOK_VERSION: "0.4.40"
   MDBOOK_SHA256: "9ef07fd288ba58ff3b99d1c94e6d414d431c9a61fdb20348e5beb74b823d546b"
+  # Provides the mdbook-gettext preprocessor for the Japanese book
+  # build (big-code-analysis-book/po/ja.po). Must stay on the 0.3.x
+  # line while MDBOOK_VERSION is 0.4.x — mdbook-i18n-helpers 0.4.0+
+  # targets the mdbook 0.5 preprocessor crates. Bump the two pins
+  # together. Installed via `cargo install --locked` (no prebuilt
+  # binaries are published upstream), matching how this workflow
+  # already trusts its own cargo builds (see the note above).
+  MDBOOK_I18N_HELPERS_VERSION: "0.3.6"
   # Workspace-wide Rust env, mirrored from ci.yml so the `bca` build
   # in this workflow gates on the same warnings, retries, and
   # incremental settings as the rest of CI. Without these, a warning
@@ -111,8 +119,20 @@ jobs:
           rm -f "/tmp/${tarball}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Build book
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install mdbook-i18n-helpers
+        run: cargo install mdbook-i18n-helpers --version "=${MDBOOK_I18N_HELPERS_VERSION}" --locked
+
+      - name: Build book (English)
         run: mdbook build big-code-analysis-book
+
+      # The Japanese book is served from /ja/ under the same Pages
+      # site. Build order matters: the English build cleans book/,
+      # so the ja build (which only cleans book/ja/) must run second.
+      - name: Build book (Japanese)
+        run: MDBOOK_BOOK__LANGUAGE=ja mdbook build big-code-analysis-book -d book/ja
 
       # Belt-and-braces: `actions/deploy-pages` already bypasses
       # Jekyll, but the same artifact directory is also what the

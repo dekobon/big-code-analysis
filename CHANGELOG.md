@@ -26,6 +26,17 @@ for historical reference.
 
 ### Added
 
+- Japanese localization of the documentation. The mdBook is now
+  translated through the gettext workflow from `mdbook-i18n-helpers`
+  (`big-code-analysis-book/po/ja.po`; untranslated or stale entries
+  fall back to English) and deployed at
+  [`/ja/`](https://dekobon.github.io/big-code-analysis/ja/) alongside
+  the English site, with `README.ja.md` as a hand-maintained sibling
+  of `README.md`. Fragment-linked headings carry explicit `{#anchor}`
+  ids so intra-book links survive heading translation. New Makefile
+  targets `book-pot`, `book-po-update`, and `book-ja` drive the
+  refresh workflow, documented in
+  [`docs/development/translations.md`](docs/development/translations.md).
 - Per-PR coverage for the release/wheel smoke harnesses, closing the
   drift gap that let three stale assertions block the `v2.0.0` cut
   (#995). The integer-valued-metric JSON serialization (#530) is now

@@ -1,5 +1,7 @@
 # big-code-analysis
 
+> This documentation is also available in [Japanese](ja/).
+
 **big-code-analysis** is a Rust library to analyze and extract information
 from source codes written in many different programming languages.
 It is based on a parser generator tool and an incremental parsing library

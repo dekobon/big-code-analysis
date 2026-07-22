@@ -10,6 +10,8 @@
 [![docs.rs](https://docs.rs/big-code-analysis/badge.svg)](https://docs.rs/big-code-analysis)
 [![License](https://img.shields.io/crates/l/big-code-analysis.svg)](LICENSE)
 
+English | [日本語](README.ja.md)
+
 **big-code-analysis** measures how maintainable your code is. The `bca`
 command line tool computes per-function metrics for
 [more than twenty programming languages](https://dekobon.github.io/big-code-analysis/languages.html):

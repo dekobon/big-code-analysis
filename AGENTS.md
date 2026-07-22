@@ -85,6 +85,15 @@ and `cargo run -p big-code-analysis-web --`.
 - For non-code files (Markdown, TOML, YAML, JSON): use targeted edits with
   scoped `old_string` / `new_string` pairs. Avoid `sed` for multi-line
   edits.
+- The book is translated (Japanese, `big-code-analysis-book/po/ja.po`)
+  via the gettext workflow in
+  [`docs/development/translations.md`](docs/development/translations.md).
+  English doc edits never block on translation — changed paragraphs
+  fall back to English on the `/ja/` site until someone runs
+  `make book-po-update` and fills the new/fuzzy entries. Two rules do
+  apply: pin an explicit `{#anchor}` id on any heading you
+  fragment-link to, and keep `README.ja.md` in step when you edit
+  `README.md`.
 - Never rewrite an entire test file to add or fix one test. Modify only
   the specific tests that need changing.
 - Verify previously passing tests still pass before committing

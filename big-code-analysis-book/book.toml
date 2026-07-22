@@ -7,6 +7,19 @@ authors = [
 ]
 language = "en"
 
+[build]
+extra-watch-dirs = ["po"]
+
+# Gettext-based translation pipeline (mdbook-i18n-helpers). English
+# builds pass through untouched; setting MDBOOK_BOOK__LANGUAGE=ja
+# makes this preprocessor substitute translations from po/ja.po,
+# falling back to English for untranslated or fuzzy entries.
+# `optional = true` keeps plain `mdbook build` working for
+# contributors without mdbook-gettext installed.
+[preprocessor.gettext]
+after = ["links"]
+optional = true
+
 [output.html]
 mathjax-support = true
 
