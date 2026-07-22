@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           submodules: false
@@ -119,7 +119,7 @@ jobs:
           rm -f "/tmp/${tarball}"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Install mdbook-i18n-helpers
@@ -195,7 +195,7 @@ jobs:
     # commit — the baseline keys are sensitive to which files the
     # walker actually visits.
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # `--since "origin/${GITHUB_BASE_REF:-main}"` (set via
           # BCA_SINCE on the threshold-gate step below, #387) resolves a
@@ -215,7 +215,7 @@ jobs:
       # Swatinem/rust-cache below keeps the cold-build cost
       # bounded — warm runs are dominated by incremental relink,
       # not full recompile.
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # stable tip
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
         with:
           toolchain: stable
       # `shared-key` (vs `key`) lets Swatinem fall back to
@@ -369,7 +369,7 @@ jobs:
       # distinct analysis from ci.yml's `category: clippy` upload.
       - name: Upload self-scan SARIF to code scanning
         if: always() && hashFiles('bca.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@e0647621c2984b5ed2f768cb892365bf2a616ad1 # v4.37.2
         with:
           sarif_file: bca.sarif
           category: bca
