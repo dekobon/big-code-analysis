@@ -1196,9 +1196,9 @@ send2trash==2.1.0 ; python_full_version < '3.15' and sys_platform != 'emscripten
     --hash=sha256:0da2f112e6d6bb22de6aa6daa7e144831a4febf2a87261451c4ad849fe9a873c \
     --hash=sha256:1c72b39f09457db3c05ce1d19158c2cbef4c32b8bedd02c155e49282b7ea7459
     # via jupyter-server
-setuptools==82.0.1 ; python_full_version < '3.15' and sys_platform != 'emscripten' \
-    --hash=sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9 \
-    --hash=sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb
+setuptools==83.0.0 ; python_full_version < '3.15' and sys_platform != 'emscripten' \
+    --hash=sha256:025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef \
+    --hash=sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3
     # via jupyterlab
 six==1.17.0 ; python_full_version < '3.15' and sys_platform != 'emscripten' \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
