@@ -9853,4 +9853,126 @@ class A {
             },
         );
     }
+
+    /// Analyses `source` **verbatim** in `lang`.
+    ///
+    /// `check_metrics` cannot be used for the #1051 cases: it routes through
+    /// `tools::check_func_space`, which trims trailing newlines and appends
+    /// one, so a node ending at EOF is unreachable through it and any such
+    /// test would pass vacuously. `Source` applies no normalisation of its
+    /// own, so this is the in-tree path that reproduces the bug.
+    ///
+    /// Takes `lang` rather than hard-coding one: the untestable-at-EOF class
+    /// is shared by every `Loc` submodule, not just Rust's.
+    fn loc_verbatim(lang: crate::LANG, source: &[u8]) -> Stats {
+        crate::analyze(
+            crate::Source::new(lang, source),
+            crate::MetricsOptions::default(),
+        )
+        .expect("verbatim source must analyse")
+        .metrics
+        .loc
+    }
+
+    /// `loc_verbatim` bound to Rust, which is where #1051 lives.
+    fn rust_loc(source: &[u8]) -> Stats {
+        loc_verbatim(crate::LANG::Rust, source)
+    }
+
+    /// #1051: a Rust doc comment ending at EOF has no trailing newline for
+    /// the scanner to consume, so its `LineComment` node ends on its own
+    /// start row and discounting a row underflowed. On row 0 that panicked
+    /// (debug: the subtraction; release: a hash-table capacity overflow in
+    /// `add_only_comment_lines`). On any later row release did not crash —
+    /// it silently reported one `cloc` too few.
+    #[test]
+    fn rust_doc_comment_at_eof_does_not_underflow() {
+        // `end == start == 0` — underflowed at the subtraction itself.
+        // expected: the sole row is one comment-only line, no code.
+        let outer = rust_loc(b"/// x");
+        assert_eq!(outer.cloc(), 1);
+        assert_eq!(outer.ploc(), 0);
+
+        let inner = rust_loc(b"//! x");
+        assert_eq!(inner.cloc(), 1);
+        assert_eq!(inner.ploc(), 0);
+
+        // `end == start > 0` — the subtraction succeeded but drove `end`
+        // below `start`. Release silently counted `cloc == 0` here.
+        // expected: row 0 is code, row 1 is comment-only.
+        let after_code = rust_loc(b"fn f(){}\n/// x");
+        assert_eq!(after_code.cloc(), 1);
+        assert_eq!(after_code.ploc(), 1);
+
+        // Two doc comments, the second at EOF: both rows are comment-only.
+        // Pre-fix release reported 1 here, not 2.
+        assert_eq!(rust_loc(b"/// a\n/// b").cloc(), 2);
+
+        // A doc comment sharing its row with code. `let` is not valid at
+        // file scope, but tree-sitter parses it as a clean `let_declaration`
+        // + `line_comment`, which is the only way to reach the
+        // comment-after-code branch (no *valid* Rust puts `///` after code).
+        let trailing = rust_loc(b"let x = 1; /// d");
+        assert_eq!(trailing.cloc(), 1);
+        assert_eq!(trailing.ploc(), 1);
+    }
+
+    /// A doc comment at EOF must count exactly like a plain line comment at
+    /// EOF. The `DocComment` adjustment exists only to discount the newline
+    /// the scanner consumes; at EOF there is none to discount, so the two
+    /// shapes are indistinguishable for LOC purposes.
+    #[test]
+    fn rust_doc_comment_at_eof_matches_plain_comment() {
+        let plain = rust_loc(b"// x");
+        // Pin the baseline absolutely too: parity alone would still hold if
+        // both sides moved together, and would then read as a regression
+        // when the un-newline-terminated `sloc` accounting is corrected.
+        assert_eq!(plain.cloc(), 1);
+        assert_eq!(plain.ploc(), 0);
+
+        for doc in [&b"/// x"[..], &b"//! x"[..]] {
+            let doc = rust_loc(doc);
+            assert_eq!(doc.cloc(), plain.cloc());
+            assert_eq!(doc.ploc(), plain.ploc());
+            assert_eq!(doc.sloc(), plain.sloc());
+            assert_eq!(doc.blank(), plain.blank());
+        }
+    }
+
+    /// The newline-terminated path must stay unchanged by the #1051 guard.
+    /// A `DocComment` node really does span one row more than it renders
+    /// whenever the scanner consumed a newline, and that row must still be
+    /// excluded — otherwise the guard would silently become a no-op and
+    /// inflate CLOC for every doc-commented Rust file.
+    #[test]
+    fn rust_doc_comment_with_trailing_newline_still_discounts_the_row() {
+        // expected: one rendered comment row, not two.
+        assert_eq!(rust_loc(b"/// x\n").cloc(), 1);
+        // expected: two consecutive doc comments are two rows, not four.
+        assert_eq!(rust_loc(b"/// a\n/// b\n").cloc(), 2);
+
+        // The common real-world shape: doc comment attached to an item.
+        // expected: row 0 comment-only, row 1 code.
+        let documented = rust_loc(b"/// doc\nfn f() {}\n");
+        assert_eq!(documented.cloc(), 1);
+        assert_eq!(documented.ploc(), 1);
+    }
+
+    /// CRLF is the boundary the guard must *not* fire on. `\r` is ordinary
+    /// content to `process_line_doc_content`, so it consumes the following
+    /// `\n` and the node does span an extra row — the discount is still
+    /// owed. A lone trailing `\r` at EOF is the opposite case. Without this,
+    /// a future grammar bump that stops consuming the newline would leave
+    /// every LF test passing while the discount silently became dead code.
+    #[test]
+    fn rust_doc_comment_crlf_still_discounts_the_row() {
+        // Newline consumed despite the `\r`: discount applies.
+        assert_eq!(rust_loc(b"/// x\r\n").cloc(), 1);
+        // expected: row 0 code, row 1 comment-only.
+        let after_code = rust_loc(b"fn f(){}\r\n/// x");
+        assert_eq!(after_code.cloc(), 1);
+        assert_eq!(after_code.ploc(), 1);
+        // Lone `\r`, then EOF: no newline consumed, so no discount is owed.
+        assert_eq!(rust_loc(b"/// x\r").cloc(), 1);
+    }
 }
