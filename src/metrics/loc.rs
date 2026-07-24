@@ -9853,4 +9853,90 @@ class A {
             },
         );
     }
+
+    /// Analyses `source` **verbatim**.
+    ///
+    /// `check_metrics` cannot be used for the #1051 cases: it routes through
+    /// `tools::check_func_space`, which trims trailing newlines and appends
+    /// one, so a node ending at EOF is unreachable through it and any such
+    /// test would pass vacuously. `Source` applies no normalisation of its
+    /// own, so this is the in-tree path that reproduces the bug.
+    fn loc_verbatim(source: &[u8]) -> Stats {
+        crate::analyze(
+            crate::Source::new(crate::LANG::Rust, source),
+            crate::MetricsOptions::default(),
+        )
+        .expect("verbatim source must analyse")
+        .metrics
+        .loc
+    }
+
+    /// #1051: a Rust doc comment ending at EOF has no trailing newline for
+    /// the scanner to consume, so its `LineComment` node ends on its own
+    /// start row and the `end - 1` adjustment underflowed. Debug builds
+    /// panicked at the subtraction; release builds wrapped to `usize::MAX`
+    /// and surfaced far away as a hash-table capacity overflow inside
+    /// `add_only_comment_lines`.
+    #[test]
+    fn rust_doc_comment_at_eof_does_not_underflow() {
+        // `end == start == 0` — underflowed at the subtraction itself.
+        // expected: the sole row is one comment-only line, no code.
+        let outer = loc_verbatim(b"/// x");
+        assert_eq!(outer.cloc(), 1);
+        assert_eq!(outer.ploc(), 0);
+
+        let inner = loc_verbatim(b"//! x");
+        assert_eq!(inner.cloc(), 1);
+        assert_eq!(inner.ploc(), 0);
+
+        // `end == start > 0` — the subtraction succeeded but drove `end`
+        // below `start`, underflowing `add_cloc_lines` instead.
+        // expected: row 0 is code, row 1 is comment-only.
+        let after_code = loc_verbatim(b"fn f(){}\n/// x");
+        assert_eq!(after_code.cloc(), 1);
+        assert_eq!(after_code.ploc(), 1);
+
+        // A doc comment sharing its row with code: one code line that also
+        // carries a comment.
+        let trailing = loc_verbatim(b"let x = 1; /// d");
+        assert_eq!(trailing.cloc(), 1);
+        assert_eq!(trailing.ploc(), 1);
+    }
+
+    /// A doc comment at EOF must count exactly like a plain line comment at
+    /// EOF. The `DocComment` adjustment exists only to discount the newline
+    /// the scanner consumes; at EOF there is none to discount, so the two
+    /// shapes are indistinguishable for LOC purposes. Asserting parity
+    /// rather than literal numbers keeps this honest if the LOC accounting
+    /// is ever retuned.
+    #[test]
+    fn rust_doc_comment_at_eof_matches_plain_comment() {
+        let plain = loc_verbatim(b"// x");
+        for doc in [&b"/// x"[..], &b"//! x"[..]] {
+            let doc = loc_verbatim(doc);
+            assert_eq!(doc.cloc(), plain.cloc());
+            assert_eq!(doc.ploc(), plain.ploc());
+            assert_eq!(doc.sloc(), plain.sloc());
+            assert_eq!(doc.blank(), plain.blank());
+        }
+    }
+
+    /// The newline-terminated path must stay unchanged by the #1051 guard.
+    /// A `DocComment` node really does span one row more than it renders
+    /// whenever the scanner consumed a newline, and that row must still be
+    /// excluded — otherwise the guard would silently become a no-op and
+    /// inflate CLOC for every doc-commented Rust file.
+    #[test]
+    fn rust_doc_comment_with_trailing_newline_still_discounts_the_row() {
+        // expected: one rendered comment row, not two.
+        assert_eq!(loc_verbatim(b"/// x\n").cloc(), 1);
+        // expected: two consecutive doc comments are two rows, not four.
+        assert_eq!(loc_verbatim(b"/// a\n/// b\n").cloc(), 2);
+
+        // The common real-world shape: doc comment attached to an item.
+        // expected: row 0 comment-only, row 1 code.
+        let documented = loc_verbatim(b"/// doc\nfn f() {}\n");
+        assert_eq!(documented.cloc(), 1);
+        assert_eq!(documented.ploc(), 1);
+    }
 }

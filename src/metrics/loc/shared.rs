@@ -42,7 +42,16 @@ pub(crate) fn init(
 // the ones that are on an independent line.
 // This difference is necessary in order to avoid having
 // a wrong count for the blank metric.
+//
+// Requires `end >= start`. Every caller passes the row span returned by
+// `init`, and tree-sitter guarantees a node's end row is never before its
+// start row — so the only way to violate this is for a caller to adjust
+// `end` downwards itself, as Rust's `LineComment` arm does for doc
+// comments (#1051). The assert keeps such a regression loud in tests
+// instead of wrapping to `usize::MAX` in release and surfacing far away
+// as a hash-table capacity overflow.
 pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
+    debug_assert!(end >= start, "add_cloc_lines: end {end} < start {start}");
     let comment_diff = end - start;
     let is_comment_after_code_line = stats.ploc.lines.contains(&start);
     if is_comment_after_code_line && comment_diff == 0 {

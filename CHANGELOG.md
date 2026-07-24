@@ -56,6 +56,22 @@ for historical reference.
 
 ### Fixed
 
+- A Rust doc comment ending at EOF without a trailing newline no longer
+  panics the analyzer (#1051). `Loc` discounts the row that a
+  `DocComment`'s scanner consumes along with its newline, but at EOF
+  there is no newline left to consume, so the node ends on its own start
+  row and the unconditional `end - 1` underflowed. Debug builds panicked
+  at the subtraction; release builds wrapped to `usize::MAX` and
+  surfaced far away as a hash-table capacity overflow while inserting
+  comment rows. Inputs as small as `/// x` were affected. The first-party
+  binaries never reached this — `bca`, `bca-web`, and the Python bindings
+  all normalize line endings, which appends a trailing newline — but
+  library callers using `analyze` / `Source` directly (the documented
+  entry point, and the shape a fuzz harness would use) did. `Loc` now
+  discounts the row only when the node actually spans one, and
+  `add_cloc_lines` carries a `debug_assert` documenting its
+  `end >= start` precondition so a future caller cannot reintroduce the
+  wrap silently. Metric values for all other inputs are unchanged.
 - docs.rs now publishes the **complete** API reference. The published
   build previously used default features only, silently dropping the
   entire feature-gated `vcs` module (change-history metrics, #328) from

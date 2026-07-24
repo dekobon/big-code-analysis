@@ -44,7 +44,14 @@ impl Loc for RustCode {
                 // Exclude the last line for `LineComment` containing a `DocComment`,
                 // since the `DocComment` includes the newline,
                 // as explained here: https://github.com/tree-sitter/tree-sitter-rust/blob/2eaf126458a4d6a69401089b6ba78c5e5d6c1ced/src/scanner.c#L194-L195
-                let end = if node.is_child(DocComment as u16) {
+                //
+                // The `end > start` guard covers the one case where that
+                // does not hold: a doc comment ending at EOF has no newline
+                // left to consume, so the node ends on its own start row and
+                // there is no extra row to exclude. Subtracting anyway
+                // underflows `end` (or drives it below `start`, underflowing
+                // `add_cloc_lines`) — see #1051.
+                let end = if node.is_child(DocComment as u16) && end > start {
                     end - 1
                 } else {
                     end
