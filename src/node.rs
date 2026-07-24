@@ -140,6 +140,20 @@ impl<'a> Node<'a> {
         self.0.end_position().row
     }
 
+    /// Returns this node's parent.
+    ///
+    /// **`O(depth)`, not `O(1)`.** tree-sitter stores no parent pointer:
+    /// `ts_node_parent` restarts at the tree root and descends. A single
+    /// call in a per-node metric therefore costs `O(nodes × depth)` over
+    /// a walk, and an ancestor *loop* built on it costs `O(depth²)` per
+    /// call.
+    ///
+    /// This has bitten the analyzer for real: #1052 was a per-leaf
+    /// `successors(node, Node::parent)` walk in `Tokens` that made the
+    /// metric `O(leaves × depth²)`, so a 2 KB file of nested parentheses
+    /// took ~19 s. Prefer inheriting state downward through the
+    /// traversal (see `Walk` in `spaces::compute`) over rediscovering it
+    /// upward. Remaining known instances are tracked in #1062.
     pub(crate) fn parent(&self) -> Option<Node<'a>> {
         self.0.parent().map(Node)
     }

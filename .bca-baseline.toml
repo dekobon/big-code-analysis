@@ -938,23 +938,16 @@ value = 8.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 202
+start_line = 217
 metric = "halstead.effort"
-value = 66012.71705067596
-
-[[entry]]
-path = "src/spaces/compute.rs"
-qualified = "compute_per_node"
-start_line = 202
-metric = "nargs"
-value = 7.0
+value = 61523.95778223676
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 346
+start_line = 386
 metric = "halstead.effort"
-value = 109810.50849120741
+value = 122486.96209573474
 
 [[entry]]
 path = "src/suppression.rs"
