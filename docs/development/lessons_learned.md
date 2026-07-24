@@ -422,17 +422,21 @@ spans when its scanner consumes the trailing newline; at EOF there is
 none to consume, so the unconditional `end - 1` underflowed —
 panicking in debug, and in release wrapping to `usize::MAX` and
 surfacing far away as a hash-table capacity overflow while inserting
-comment rows. Every LOC test routes through `check_metrics` →
+comment rows. The unit LOC tests route through `check_metrics` →
 `tools::check_func_space`, which does `trim_end().trim_matches('\n')`
 and then `push(b'\n')`: it strips trailing newlines and appends one.
-"A node ending at EOF" is therefore unreachable through the helper, so
-the suite had no path to the bug — and a regression test written the
-ordinary way would have passed against the unfixed code. The fix added
-a `loc_verbatim` helper calling `analyze(Source::new(..))` with no
-normalization, carrying a doc comment explaining why it must not be
-"simplified" back to `check_metrics`. Sharper than the NaN case above:
-there the filter sat in one test's call path; here it is in the
-canonical helper an entire metric family shares.
+The integration snapshot suites (`tests/serde_test.rs` and siblings)
+bypass that helper entirely — but reach the same wall, because
+`read_file_with_eol` → `normalize_line_endings` ends with an
+unconditional `data.push(b'\n')`. "A node ending at EOF" is therefore
+unreachable from *either* harness, so the suite had no path to the bug
+— and a regression test written the ordinary way would have passed
+against the unfixed code. The fix added a `loc_verbatim` helper calling
+`analyze(Source::new(..))` with no normalization, carrying a doc
+comment explaining why it must not be "simplified" back to
+`check_metrics`. Sharper than the NaN case above: there the filter sat
+in one test's call path; here two independent chokepoints normalize the
+input class out of reach of the whole suite.
 
 **Section-presence tests with no value assertions** (`df84dd27`).
 `wmc_section_present_with_class_summaries`,

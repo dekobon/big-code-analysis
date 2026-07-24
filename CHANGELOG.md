@@ -57,21 +57,29 @@ for historical reference.
 ### Fixed
 
 - A Rust doc comment ending at EOF without a trailing newline no longer
-  panics the analyzer (#1051). `Loc` discounts the row that a
+  crashes or miscounts (#1051). `Loc` discounts the row that a
   `DocComment`'s scanner consumes along with its newline, but at EOF
   there is no newline left to consume, so the node ends on its own start
-  row and the unconditional `end - 1` underflowed. Debug builds panicked
-  at the subtraction; release builds wrapped to `usize::MAX` and
-  surfaced far away as a hash-table capacity overflow while inserting
-  comment rows. Inputs as small as `/// x` were affected. The first-party
-  binaries never reached this — `bca`, `bca-web`, and the Python bindings
-  all normalize line endings, which appends a trailing newline — but
-  library callers using `analyze` / `Source` directly (the documented
-  entry point, and the shape a fuzz harness would use) did. `Loc` now
-  discounts the row only when the node actually spans one, and
-  `add_cloc_lines` carries a `debug_assert` documenting its
-  `end >= start` precondition so a future caller cannot reintroduce the
-  wrap silently. Metric values for all other inputs are unchanged.
+  row and the row was discounted anyway. The symptom split by where the
+  comment sat:
+  - **On the first row** (`/// x` as the whole file): the analyzer
+    panicked — in debug at the subtraction, in release as a hash-table
+    capacity overflow while inserting comment rows.
+  - **On any later row** (`fn f() {}\n/// x`): release builds did **not**
+    crash. They silently reported `cloc` one too low, which also shifted
+    `blank` and the Maintainability Index's comment percentage.
+
+  **This changes metric values.** Any Rust file whose last line is a doc
+  comment with no trailing newline now reports one more `cloc` (and one
+  fewer `blank`) than a `2.0.1` release build did; two such comments
+  shift by two. Re-check `.bca-baseline.toml` entries and thresholds for
+  affected files.
+
+  Reachable from `analyze` / `Source` (the documented library entry
+  point) and from the Python `Ast.parse(...).metrics()` fast path, which
+  — unlike `analyze_source` and `Ast.from_path` — does not normalize
+  line endings. The `bca` CLI and every `bca-web` endpoint that computes
+  metrics normalize their input and were unaffected.
 - docs.rs now publishes the **complete** API reference. The published
   build previously used default features only, silently dropping the
   entire feature-gated `vcs` module (change-history metrics, #328) from
