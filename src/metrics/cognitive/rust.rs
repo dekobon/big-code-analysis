@@ -22,7 +22,11 @@ impl Cognitive for RustCode {
     ) {
         use Rust::*;
         // Macro expansion is not tracked; macros are treated as opaque tokens.
-        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfExpression if !Self::is_else_if(node) => {
@@ -62,6 +66,13 @@ impl Cognitive for RustCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

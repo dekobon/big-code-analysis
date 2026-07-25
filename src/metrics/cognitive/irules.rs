@@ -22,7 +22,11 @@ impl Cognitive for IrulesCode {
     ) {
         use Irules::*;
 
-        let (mut nesting, mut depth, lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // Defensive guard for parity with sibling impls; iRules' dedicated
@@ -72,6 +76,13 @@ impl Cognitive for IrulesCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

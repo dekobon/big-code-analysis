@@ -69,7 +69,11 @@ impl Cognitive for ElixirCode {
     ) {
         use Elixir as E;
 
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             E::Call => match elixir_call_keyword(node, code) {
@@ -129,6 +133,13 @@ impl Cognitive for ElixirCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

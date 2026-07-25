@@ -358,7 +358,7 @@ struct Walk {
 }
 
 /// Seeds each child's `nesting_map` slot from `node`'s own, so
-/// `Cognitive` can read the triple it inherits without calling
+/// `Cognitive` can read the [`Nesting`] it inherits without calling
 /// `Node::parent`.
 ///
 /// A node's slot means two different things either side of its
@@ -367,23 +367,23 @@ struct Walk {
 /// - **on entry** it holds what the node inherits — this is what
 ///   `get_nesting_from_map` reads;
 /// - **on exit** each language's `compute` has overwritten it with the
-///   post-increment triple its children should see — this is what this
+///   post-increment `Nesting` its children should see — this is what this
 ///   function hands down.
 ///
 /// So the write at the end of every `Cognitive::compute` must stay at the
 /// end. Moving it to the top would make every descendant inherit the
-/// pre-increment triple and silently under-count.
+/// pre-increment `Nesting` and silently under-count.
 ///
 /// `or_insert`, not `insert`: Python's comprehension handling pre-writes
 /// its clause children's slots during the *comprehension's* `compute`
 /// (the #421 fix, so clause nesting does not depend on sibling traversal
 /// order), and those values deliberately differ from the comprehension's
-/// own triple. A blanket overwrite would clobber them — the
+/// own `Nesting`. A blanket overwrite would clobber them — the
 /// `python_comprehension_*` tests in `metrics::cognitive` are what catch
 /// it.
 ///
 /// Grammars whose `Cognitive` impl is the macro's no-op (`Preproc`,
-/// `Ccomment`) never write a slot, so they inherit the root's `(0, 0, 0)`
+/// `Ccomment`) never write a slot, so they inherit the root's default
 /// unchanged. That matches the pre-#1062 behaviour only because zero is
 /// the identity here; it costs them a map entry per node that nothing
 /// reads.
@@ -471,7 +471,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // Initialize nesting_map used for storing nesting information for cognitive
     // Three type of nesting info: conditionals, functions and lambdas
     let mut nesting_map = NestingMap::default();
-    nesting_map.insert(node.id(), (0, 0, 0));
+    nesting_map.insert(node.id(), Nesting::default());
 
     // Suppression markers are resolved inline during the walk rather
     // than queued for a post-finalize pass. When we visit a comment

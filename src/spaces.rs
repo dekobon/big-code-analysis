@@ -102,10 +102,27 @@ impl Hasher for NodeIdHasher {
     }
 }
 
-/// Per-node `(nesting, depth, lambda)` state that `Cognitive` inherits
-/// down the walk; see `spaces::compute::propagate_nesting_to_children`.
-pub(crate) type NestingMap =
-    HashMap<usize, (usize, usize, usize), BuildHasherDefault<NodeIdHasher>>;
+/// Per-node nesting state that `Cognitive` inherits down the walk.
+///
+/// A struct rather than a `(usize, usize, usize)` because the three are
+/// same-typed and summed symmetrically (`conditional + function_depth +
+/// lambda`), so a transposition is invisible at the point of use and
+/// surfaces only in the arms that read one field alone. Naming them
+/// makes the boundary — where the walk reads and writes this — the
+/// place a mix-up is visible.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub(crate) struct Nesting {
+    /// Structural nesting from enclosing control constructs.
+    pub(crate) conditional: usize,
+    /// Count of enclosing functions.
+    pub(crate) function_depth: usize,
+    /// Count of enclosing lambdas / closures.
+    pub(crate) lambda: usize,
+}
+
+/// Node-id keyed [`Nesting`] state; see
+/// `spaces::compute::propagate_nesting_to_children`.
+pub(crate) type NestingMap = HashMap<usize, Nesting, BuildHasherDefault<NodeIdHasher>>;
 
 use crate::langs::LANG;
 use crate::metric_set::{Metric, MetricSet};

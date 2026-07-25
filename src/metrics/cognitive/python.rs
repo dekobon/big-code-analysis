@@ -45,11 +45,25 @@ fn python_comprehension_clause_nesting(
     for child in node.children() {
         let kind = child.kind_id();
         if kind == ForInClause as u16 {
-            nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
+            nesting_map.insert(
+                child.id(),
+                Nesting {
+                    conditional: nesting + for_count,
+                    function_depth: depth,
+                    lambda,
+                },
+            );
             for_count += 1;
             last_clause_is_if = false;
         } else if kind == IfClause as u16 {
-            nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
+            nesting_map.insert(
+                child.id(),
+                Nesting {
+                    conditional: nesting + for_count,
+                    function_depth: depth,
+                    lambda,
+                },
+            );
             last_clause_is_if = true;
         }
     }
@@ -92,7 +106,11 @@ impl Cognitive for PythonCode {
         use Python::*;
 
         // Get nesting of the parent
-        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // `else: if x:` chains surface as an `if_statement` wrapped
@@ -186,6 +204,13 @@ impl Cognitive for PythonCode {
             _ => {}
         }
         // Add node to nesting map
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

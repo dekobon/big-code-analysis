@@ -22,7 +22,11 @@ impl Cognitive for TclCode {
     ) {
         use Tcl::*;
 
-        let (mut nesting, mut depth, lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // Guard kept for defensive consistency with sibling impls; Tcl's dedicated
@@ -62,6 +66,13 @@ impl Cognitive for TclCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

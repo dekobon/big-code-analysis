@@ -22,7 +22,7 @@
     clippy::cast_sign_loss
 )]
 
-use crate::spaces::NestingMap;
+use crate::spaces::{Nesting, NestingMap};
 
 use std::fmt;
 
@@ -251,8 +251,7 @@ fn increment_branch_extension(stats: &mut Stats) {
     stats.boolean_seq.reset();
 }
 
-/// Returns the `(nesting, depth, lambda)` triple `node` inherits from its
-/// parent.
+/// Returns the [`Nesting`] `node` inherits from its parent.
 ///
 /// The map is keyed so that a node's own slot holds what it *inherits*:
 /// the walker seeds each child's slot from its parent's slot after the
@@ -260,8 +259,8 @@ fn increment_branch_extension(stats: &mut Stats) {
 /// `spaces::compute`). Reading `node.parent()` here instead would cost
 /// `O(depth)` per node — `Node::parent` walks down from the root — which
 /// made this metric quadratic in nesting depth (#1062).
-fn get_nesting_from_map(node: &Node, nesting_map: &NestingMap) -> (usize, usize, usize) {
-    nesting_map.get(&node.id()).copied().unwrap_or((0, 0, 0))
+fn get_nesting_from_map(node: &Node, nesting_map: &NestingMap) -> Nesting {
+    nesting_map.get(&node.id()).copied().unwrap_or_default()
 }
 
 fn increment_function_depth<T: PartialEq + From<u16>>(depth: &mut usize, node: &Node, stops: &[T]) {
@@ -310,7 +309,11 @@ macro_rules! js_cognitive {
             nesting_map: &mut NestingMap,
         ) {
             use $lang::*;
-            let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+            let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
             match node.kind_id().into() {
                 IfStatement if !Self::is_else_if(node) => {
@@ -366,7 +369,10 @@ macro_rules! js_cognitive {
                 }
                 _ => {}
             }
-            nesting_map.insert(node.id(), (nesting, depth, lambda));
+            nesting_map.insert(
+            node.id(),
+            Nesting { conditional: nesting, function_depth: depth, lambda },
+        );
         }
     };
 }
@@ -9382,6 +9388,49 @@ end",
             "else-if chain ({}) must score lower than triple-nested ifs ({})",
             chain_sum.get(),
             nested_sum.get(),
+        );
+    }
+
+    /// Pins that `function_depth` and `lambda` are distinguishable.
+    ///
+    /// They are summed symmetrically almost everywhere, so most inputs
+    /// cannot tell them apart. The one asymmetric operation in the whole
+    /// cognitive family is the JS `FunctionDeclaration` arm's
+    /// `lambda = 0`, which clears one field alone.
+    ///
+    /// Whether that separates them depends on the *parity* of the
+    /// ancestor chain between the innermost arrow and the
+    /// `function_declaration`, because a swap at the write site
+    /// transposes the pair at every node on the way down. The plain
+    /// `arrow -> statement_block -> function_declaration` chain has odd
+    /// parity and stays at the same total either way; a second chained
+    /// arrow flips it. Hence the doubled arrow here — without it this
+    /// test passes with the two fields transposed and guards nothing.
+    #[test]
+    fn javascript_function_depth_and_lambda_are_distinguishable() {
+        // expected: the inner `function` resets lambda, so only its own
+        // function-depth level survives and the `if` costs 1.
+        check_metrics::<JavascriptParser>(
+            "const f = () => () => { function inner() { if (a) { } } };",
+            "nest.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1);
+            },
+        );
+    }
+
+    /// The `ArrowFunction` arm's own `lambda += 1`, pinned separately:
+    /// with no `function_declaration` between the arrow and the `if`,
+    /// nothing resets lambda, so the arrow's level reaches the `if`.
+    #[test]
+    fn javascript_arrow_contributes_lambda_nesting() {
+        // expected: 1 for the `if`, +1 for the enclosing arrow level.
+        check_metrics::<JavascriptParser>(
+            "const f = () => { if (a) { } };",
+            "arrow.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+            },
         );
     }
 
