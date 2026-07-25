@@ -221,7 +221,7 @@ fn compute_per_node<'a, T: ParserTrait>(
     code: &'a [u8],
     options: MetricsOptions,
     facts: NodeFacts,
-    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    nesting_map: &mut NestingMap,
 ) {
     let NodeFacts {
         func_space,
@@ -390,7 +390,7 @@ struct Walk {
 fn propagate_nesting_to_children(
     node: &Node,
     children: &[(Node<'_>, Walk)],
-    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    nesting_map: &mut NestingMap,
 ) {
     // Leaves are roughly half of a real AST, so bail before hashing a key
     // we would only read to iterate zero children.
@@ -470,7 +470,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     let mut last_level = 0;
     // Initialize nesting_map used for storing nesting information for cognitive
     // Three type of nesting info: conditionals, functions and lambdas
-    let mut nesting_map = HashMap::<usize, (usize, usize, usize)>::default();
+    let mut nesting_map = NestingMap::default();
     nesting_map.insert(node.id(), (0, 0, 0));
 
     // Suppression markers are resolved inline during the walk rather

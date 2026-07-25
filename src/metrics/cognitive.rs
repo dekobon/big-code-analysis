@@ -22,7 +22,7 @@
     clippy::cast_sign_loss
 )]
 
-use std::collections::HashMap;
+use crate::spaces::NestingMap;
 
 use std::fmt;
 
@@ -169,7 +169,7 @@ where
         node: &Node<'a>,
         code: &'a [u8],
         stats: &mut Stats,
-        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+        nesting_map: &mut NestingMap,
     );
 }
 
@@ -260,10 +260,7 @@ fn increment_branch_extension(stats: &mut Stats) {
 /// `spaces::compute`). Reading `node.parent()` here instead would cost
 /// `O(depth)` per node — `Node::parent` walks down from the root — which
 /// made this metric quadratic in nesting depth (#1062).
-fn get_nesting_from_map(
-    node: &Node,
-    nesting_map: &HashMap<usize, (usize, usize, usize)>,
-) -> (usize, usize, usize) {
+fn get_nesting_from_map(node: &Node, nesting_map: &NestingMap) -> (usize, usize, usize) {
     nesting_map.get(&node.id()).copied().unwrap_or((0, 0, 0))
 }
 
@@ -310,7 +307,7 @@ macro_rules! js_cognitive {
             node: &Node<'a>,
             _code: &'a [u8],
             stats: &mut Stats,
-            nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+            nesting_map: &mut NestingMap,
         ) {
             use $lang::*;
             let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);

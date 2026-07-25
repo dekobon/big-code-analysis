@@ -18,7 +18,7 @@ impl Cognitive for RustCode {
         node: &Node<'a>,
         _code: &'a [u8],
         stats: &mut Stats,
-        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+        nesting_map: &mut NestingMap,
     ) {
         use Rust::*;
         // Macro expansion is not tracked; macros are treated as opaque tokens.

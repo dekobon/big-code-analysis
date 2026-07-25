@@ -18,7 +18,7 @@ impl Cognitive for TclCode {
         node: &Node<'a>,
         code: &'a [u8],
         stats: &mut Stats,
-        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+        nesting_map: &mut NestingMap,
     ) {
         use Tcl::*;
 
