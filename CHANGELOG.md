@@ -56,6 +56,32 @@ for historical reference.
 
 ### Fixed
 
+- The `cognitive` metric's nesting lookup is no longer quadratic in
+  nesting depth (#1062). It recovered each node's inherited nesting via
+  `node.parent()`, which is `O(depth)` — tree-sitter stores no parent
+  pointer — making the lookup `O(nodes × depth)`. The walker now hands
+  each node its inherited nesting directly, so the lookup is `O(1)`.
+  Cognitive values are unchanged. On shapes that exercise only this path,
+  whole-file analysis is now linear: nested parentheses at depths
+  8000 / 16000 / 32000 / 64000 take 13 / 23 / 45 / 88 ms, so a 128 KB
+  file completes in under a tenth of a second.
+
+  **Deeply nested code is still superlinear in general** — this fixes one
+  of several `Node::parent` call sites, and *not* the one users hit most.
+  `Checker::is_else_if` calls `parent()` (or `previous_sibling()`, which
+  is implemented via `parent()`) for every `if`, across 13 languages, so
+  nested and `else if`-chained conditionals remain quadratic: a 4000-deep
+  C `if` chain takes ~3.3 s at depth 8000 where the equivalent `while`
+  chain takes 44 ms. Also outstanding: `Node::count_specific_ancestors`
+  (used by `loc` for C-family, Java, C#, Go, Groovy, Objective-C, and
+  twice per node by Python's boolean-operator handling),
+  `cognitive::increment_function_depth` (4000 nested Rust `fn`s, 55 KB →
+  ~1.9 s), and Elixir's `is_inside_quote_block`, which runs for every
+  node behind no metric selection and so cannot be deselected (4000
+  nested `quote` blocks, 52 KB → ~2.7 s). All tracked in #1062, which
+  stays open; a shared parent lookup owned by the walker would retire
+  them together.
+
 - Deeply nested source no longer costs quadratic time in the `tokens`
   metric (#1052). `Tokens` decided whether a leaf sat inside a comment by
   walking that leaf's ancestor chain — and `Node::parent` is itself
@@ -116,13 +142,19 @@ for historical reference.
 
 ### Security
 
-- Removed a remotely-triggerable CPU-exhaustion vector in the `tokens`
-  metric — a few kilobytes of deeply nested source could pin a core for
-  minutes against the unauthenticated `bca-web` endpoints, whose parse
-  deadline frees the client but cannot cancel the blocking task. See the
-  `tokens` entry under **Fixed** (#1052) for detail and for the residual
-  superlinear paths that remain (#1062); operators analysing untrusted
-  input should still bound request concurrency.
+- Narrowed a remotely-triggerable CPU-exhaustion vector: a few kilobytes
+  of deeply nested source could pin a core for minutes against the
+  unauthenticated `bca-web` endpoints, whose parse deadline frees the
+  client but cannot cancel the blocking task. Two of the quadratic paths
+  are gone — the `tokens` ancestor walk (#1052) and the `cognitive`
+  nesting lookup (#1062); see those entries under **Fixed**.
+
+  **This is not closed.** `Checker::is_else_if` still calls
+  `Node::parent` per `if` across 13 languages, so deeply nested or
+  `else if`-chained conditionals — ordinary generated and state-machine
+  code, not just adversarial input — remain quadratic, along with three
+  further ancestor walks. All tracked in #1062. Operators analysing
+  untrusted input must still bound request concurrency and input size.
 - Cleared the two RUSTSEC advisories behind the OpenSSF Scorecard
   Vulnerabilities alert: `anyhow` `1.0.102` → `1.0.103` (unsound
   `Error::downcast_mut()`, RUSTSEC-2026-0190) and `memmap2` `0.9.10`

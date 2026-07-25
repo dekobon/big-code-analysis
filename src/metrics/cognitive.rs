@@ -251,14 +251,20 @@ fn increment_branch_extension(stats: &mut Stats) {
     stats.boolean_seq.reset();
 }
 
+/// Returns the `(nesting, depth, lambda)` triple `node` inherits from its
+/// parent.
+///
+/// The map is keyed so that a node's own slot holds what it *inherits*:
+/// the walker seeds each child's slot from its parent's slot after the
+/// parent's `compute` has run (see `propagate_nesting_to_children` in
+/// `spaces::compute`). Reading `node.parent()` here instead would cost
+/// `O(depth)` per node — `Node::parent` walks down from the root — which
+/// made this metric quadratic in nesting depth (#1062).
 fn get_nesting_from_map(
     node: &Node,
     nesting_map: &HashMap<usize, (usize, usize, usize)>,
 ) -> (usize, usize, usize) {
-    node.parent()
-        .and_then(|parent| nesting_map.get(&parent.id()))
-        .copied()
-        .unwrap_or((0, 0, 0))
+    nesting_map.get(&node.id()).copied().unwrap_or((0, 0, 0))
 }
 
 fn increment_function_depth<T: PartialEq + From<u16>>(depth: &mut usize, node: &Node, stops: &[T]) {
@@ -9379,6 +9385,76 @@ end",
             "else-if chain ({}) must score lower than triple-nested ifs ({})",
             chain_sum.get(),
             nested_sum.get(),
+        );
+    }
+
+    /// Deeply nested input must stay tractable (#1062).
+    ///
+    /// `get_nesting_from_map` used to recover a node's inherited nesting
+    /// via `node.parent()`, which is `O(depth)` — tree-sitter stores no
+    /// parent pointer — making the metric `O(nodes × depth)`. The walker
+    /// now seeds each child's slot from its parent's, so the lookup is
+    /// `O(1)`.
+    ///
+    /// Uses `while`, deliberately, **not** `if`: `Checker::is_else_if`
+    /// calls `node.parent()` for every `if_statement`, so nested `if`s
+    /// are still quadratic for reasons this fix does not touch. Anchoring
+    /// the assertion to that shape would measure the unfixed path — at
+    /// nesting depth 8000 a release build takes 3.3 s of `if` versus
+    /// 44 ms of `while`.
+    ///
+    /// Asserts a *ratio* rather than a wall-clock budget. The pre-fix code
+    /// produced identical values, only quadratically, so a value assertion
+    /// alone would let a regression hang CI instead of failing it — but an
+    /// absolute budget is calibrated to one machine and this suite also
+    /// runs under `cargo llvm-cov` and on shared Windows / macOS runners.
+    /// Doubling the depth costs ~2x when the lookup is `O(1)` and ~4x when
+    /// it is `O(depth)`, and that ratio is independent of host speed.
+    #[test]
+    fn cognitive_deep_nesting_is_tractable() {
+        // Restricted to `Cognitive` — which pulls in `Nom` as a declared
+        // dependency, so this narrows the work rather than isolating it.
+        fn cognitive_of(source: &str) -> (u64, std::time::Duration) {
+            let started = std::time::Instant::now();
+            let sum = crate::analyze(
+                crate::Source::new(crate::LANG::C, source.as_bytes()),
+                crate::MetricsOptions::default().with_only(&[crate::Metric::Cognitive]),
+            )
+            .expect("source must analyse")
+            .metrics
+            .cognitive
+            .cognitive_sum();
+            (sum, started.elapsed())
+        }
+
+        // Each level adds its own nesting penalty, so cognitive grows as
+        // 1 + 2 + … + n. Asserting it pins that nesting is still inherited
+        // correctly at depth, independently of the timing below.
+        let nested_whiles = |n: usize| -> String {
+            format!(
+                "int main(){{ {} 1; {} }}\n",
+                "while (a) { ".repeat(n),
+                "} ".repeat(n)
+            )
+        };
+        let expected = |n: u64| n * (n + 1) / 2;
+
+        assert_eq!(cognitive_of(&nested_whiles(3)).0, expected(3), "1 + 2 + 3");
+
+        let base = 2_000;
+        let (shallow_sum, shallow_time) = cognitive_of(&nested_whiles(base));
+        let (deep_sum, deep_time) = cognitive_of(&nested_whiles(base * 2));
+        assert_eq!(shallow_sum, expected(base as u64));
+        assert_eq!(deep_sum, expected(base as u64 * 2));
+
+        // Guard against a zero denominator on a very fast machine.
+        let shallow_ns = shallow_time.as_nanos().max(1);
+        let ratio = deep_time.as_nanos() as f64 / shallow_ns as f64;
+        assert!(
+            ratio < 3.0,
+            "doubling nesting depth cost {ratio:.1}x ({shallow_time:?} -> {deep_time:?}); \
+             an O(1) inherited lookup scales ~2x, the O(depth) `Node::parent` \
+             lookup this replaced scales ~4x (#1062)"
         );
     }
 }

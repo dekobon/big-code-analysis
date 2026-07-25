@@ -728,14 +728,14 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 448
+start_line = 454
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 448
+start_line = 454
 metric = "nexits"
 value = 6.0
 
@@ -938,16 +938,16 @@ value = 8.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 217
+start_line = 218
 metric = "halstead.effort"
 value = 61523.95778223676
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 386
+start_line = 421
 metric = "halstead.effort"
-value = 122486.96209573474
+value = 142419.45851755128
 
 [[entry]]
 path = "src/suppression.rs"
