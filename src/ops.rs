@@ -254,6 +254,8 @@ pub(crate) fn ops_inner<T: ParserTrait>(
         // mirrors (which differ by `State` payload) it is reused directly
         // rather than duplicated. The `children.drain(..).rev()` ordering
         // it encapsulates is load-bearing for suppression attribution.
+        // The returned child slice is only useful to `metrics_inner`,
+        // which seeds their cognitive nesting; `ops` just walks them.
         push_children(&mut cursor, &node, new_level, &mut children, &mut stack);
     }
 

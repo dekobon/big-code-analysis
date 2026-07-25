@@ -422,13 +422,28 @@ fn propagate_nesting_to_children(
 /// `Tag` is generic because the two walkers carry different context down
 /// the tree: `ops` needs only the nesting level, while `metrics_inner`
 /// also propagates comment membership ([`Walk`], issue #1052).
-pub(crate) fn push_children<'a, Tag: Copy>(
+///
+/// Returns the children just pushed, as a slice borrowed from `stack` —
+/// empty for a leaf, and in reverse source order like the stack itself.
+///
+/// Borrowing rather than returning indices is what makes "these are
+/// exactly this node's children" a compiler-checked claim: the borrow
+/// forbids touching `stack` while the slice is alive, so the slice
+/// cannot drift from the pushes it describes. Recording `stack.len()`
+/// around the call instead only holds while the two stay adjacent, and
+/// nothing enforces that.
+pub(crate) fn push_children<'a, 's, Tag: Copy>(
     cursor: &mut Cursor<'a>,
     node: &Node<'a>,
     tag: Tag,
     children: &mut Vec<(Node<'a>, Tag)>,
-    stack: &mut Vec<(Node<'a>, Tag)>,
-) {
+    stack: &'s mut Vec<(Node<'a>, Tag)>,
+) -> &'s [(Node<'a>, Tag)] {
+    debug_assert!(
+        children.is_empty(),
+        "scratch buffer must be left drained by the previous call"
+    );
+    let first = stack.len();
     cursor.reset(node);
     if cursor.goto_first_child() {
         loop {
@@ -441,6 +456,7 @@ pub(crate) fn push_children<'a, Tag: Copy>(
             stack.push(child);
         }
     }
+    &stack[first..]
 }
 
 pub(crate) fn metrics_inner<T: ParserTrait>(
@@ -590,9 +606,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             );
         }
 
-        let first_child = stack.len();
-
-        push_children(
+        let pushed = push_children(
             &mut cursor,
             &node,
             Walk {
@@ -604,7 +618,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
         );
 
         if selected.contains(Metric::Cognitive) {
-            propagate_nesting_to_children(&node, &stack[first_child..], &mut nesting_map);
+            propagate_nesting_to_children(&node, pushed, &mut nesting_map);
         }
     }
 
