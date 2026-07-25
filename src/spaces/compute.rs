@@ -190,6 +190,22 @@ pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace,
     Ast::parse(source)?.metrics(options)
 }
 
+/// Per-node classification the walker derives once and the metrics
+/// consume. Bundled rather than passed as three loose `bool`s so the
+/// call site cannot transpose them — they are all same-typed flags
+/// about the node currently being visited.
+#[derive(Clone, Copy)]
+struct NodeFacts {
+    /// This node opens a new [`FuncSpace`].
+    func_space: bool,
+    /// This node's space kind is [`SpaceKind::Unit`].
+    unit: bool,
+    /// Whether this node lies inside a comment subtree — the node
+    /// **itself** or any ancestor is a comment. Contrast
+    /// [`Walk::in_comment`], which covers ancestors only (#1052).
+    in_comment: bool,
+}
+
 // Per-node metric dispatch. Each `compute` call is paired with a bit
 // check against the caller's selection. The bit tests are cheap
 // (single AND-and-compare on the `MetricSet` bitfield) and an
@@ -204,10 +220,14 @@ fn compute_per_node<'a, T: ParserTrait>(
     node: &Node<'a>,
     code: &'a [u8],
     options: MetricsOptions,
-    func_space: bool,
-    unit: bool,
+    facts: NodeFacts,
     nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
 ) {
+    let NodeFacts {
+        func_space,
+        unit,
+        in_comment,
+    } = facts;
     let selected = options.metrics;
     let last = &mut state.space;
     if selected.contains(Metric::Cognitive) {
@@ -231,7 +251,7 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Nom::compute(node, code, &mut last.metrics.nom);
     }
     if selected.contains(Metric::Tokens) {
-        T::Tokens::compute(node, &mut last.metrics.tokens);
+        T::Tokens::compute(node, &mut last.metrics.tokens, in_comment);
     }
     if selected.contains(Metric::Nargs) {
         T::NArgs::compute(node, &mut last.metrics.nargs);
@@ -292,15 +312,14 @@ fn push_synthetic_unit_root<T: ParserTrait>(
 /// than aborting the walk: a typo in one file must not derail a
 /// workspace-wide pass, and dropping is the conservative choice — a typo
 /// should not accidentally silence anything.
-fn apply_comment_suppression<T: ParserTrait>(
+fn apply_comment_suppression(
     state_stack: &mut Vec<State>,
     node: &Node,
     code: &[u8],
     diagnostic_path: &str,
+    is_comment: bool,
 ) {
-    if T::Checker::is_comment(node)
-        && let Some(text) = node.utf8_text(code)
-    {
+    if is_comment && let Some(text) = node.utf8_text(code) {
         match parse_suppression_marker(text) {
             Ok(Some(s)) => apply_suppression(state_stack, &s),
             Ok(None) => {}
@@ -314,25 +333,53 @@ fn apply_comment_suppression<T: ParserTrait>(
     }
 }
 
+/// Context carried down the metrics walk alongside each node.
+///
+/// `in_comment` replaces the per-leaf ancestor walk `Tokens::compute` used
+/// to do. That walk was `O(depth)` per leaf and, because `Node::parent`
+/// is itself `O(depth)`, made the metric `O(leaves × depth²)` — a few
+/// kilobytes of deeply nested source burned minutes of CPU (issue #1052).
+/// Propagating the flag down the traversal computes the same predicate in
+/// `O(1)` per node: a node is inside a comment iff its parent was, or the
+/// node itself is a comment.
+#[derive(Clone, Copy)]
+struct Walk {
+    /// Nesting level, used to close func-spaces on the way back up.
+    level: usize,
+    /// Whether an **ancestor** of this node is a comment.
+    ///
+    /// Deliberately excludes the node itself — the walk ORs in
+    /// `is_comment(node)` on arrival to get the node's own membership,
+    /// and tags its children with that. Note this differs from
+    /// [`NodeFacts::in_comment`], which *does* include the node: passing
+    /// this field where that one is expected would stop excluding a
+    /// comment's own leaves and reintroduce the #1052 miscount.
+    in_comment: bool,
+}
+
 /// Pushes `node`'s direct children onto the traversal `stack`, each tagged
-/// with `new_level`.
+/// with `tag`.
 ///
 /// The `children.drain(..).rev()` ordering is load-bearing: it makes the
 /// LIFO `stack` yield children in source order, which in turn governs
 /// line-shared suppression attribution (issue #289). The `children`
 /// scratch buffer is drained empty here so callers can reuse its
 /// allocation across iterations.
-pub(crate) fn push_children<'a>(
+///
+/// `Tag` is generic because the two walkers carry different context down
+/// the tree: `ops` needs only the nesting level, while `metrics_inner`
+/// also propagates comment membership ([`Walk`], issue #1052).
+pub(crate) fn push_children<'a, Tag: Copy>(
     cursor: &mut Cursor<'a>,
     node: &Node<'a>,
-    new_level: usize,
-    children: &mut Vec<(Node<'a>, usize)>,
-    stack: &mut Vec<(Node<'a>, usize)>,
+    tag: Tag,
+    children: &mut Vec<(Node<'a>, Tag)>,
+    stack: &mut Vec<(Node<'a>, Tag)>,
 ) {
     cursor.reset(node);
     if cursor.goto_first_child() {
         loop {
-            children.push((cursor.node(), new_level));
+            children.push((cursor.node(), tag));
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -384,9 +431,15 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
 
     push_synthetic_unit_root::<T>(&mut state_stack, &node, code, selected);
 
-    stack.push((node, 0));
+    stack.push((
+        node,
+        Walk {
+            level: 0,
+            in_comment: false,
+        },
+    ));
 
-    while let Some((node, level)) = stack.pop() {
+    while let Some((node, Walk { level, in_comment })) = stack.pop() {
         // Close any spaces left open by a deeper, already-walked subtree
         // before doing anything else with this node. This must run before
         // the test-subtree prune below so that, when we skip a pruned
@@ -456,9 +509,18 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             level
         };
 
+        // Computed once and reused: suppression needs it for this node,
+        // and the children need it to inherit comment membership (#1052).
+        let is_comment = T::Checker::is_comment(&node);
+
         // Pin each suppression marker to its innermost enclosing
         // function space (issue #289); see `apply_comment_suppression`.
-        apply_comment_suppression::<T>(&mut state_stack, &node, code, diagnostic_path);
+        // Deliberately called before `subtree_in_comment` is bound: the
+        // two are adjacent same-typed `bool`s, and passing the inclusive
+        // one here would re-apply a marker once per descendant leaf.
+        apply_comment_suppression(&mut state_stack, &node, code, diagnostic_path, is_comment);
+
+        let subtree_in_comment = in_comment || is_comment;
 
         if let Some(state) = state_stack.last_mut() {
             compute_per_node::<T>(
@@ -466,13 +528,25 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
                 &node,
                 code,
                 options,
-                func_space,
-                unit,
+                NodeFacts {
+                    func_space,
+                    unit,
+                    in_comment: subtree_in_comment,
+                },
                 &mut nesting_map,
             );
         }
 
-        push_children(&mut cursor, &node, new_level, &mut children, &mut stack);
+        push_children(
+            &mut cursor,
+            &node,
+            Walk {
+                level: new_level,
+                in_comment: subtree_in_comment,
+            },
+            &mut children,
+            &mut stack,
+        );
     }
 
     finalize::<T>(&mut state_stack, usize::MAX, selected);

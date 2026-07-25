@@ -56,6 +56,30 @@ for historical reference.
 
 ### Fixed
 
+- Deeply nested source no longer costs quadratic time in the `tokens`
+  metric (#1052). `Tokens` decided whether a leaf sat inside a comment by
+  walking that leaf's ancestor chain — and `Node::parent` is itself
+  `O(depth)`, so the metric ran in `O(leaves × depth²)`. A 2 KB file of
+  nested parentheses took ~19 s and a 4 KB one over two minutes, with
+  parsing itself staying flat, which made it an unauthenticated CPU
+  exhaustion vector against `bca-web` and a way to stall `bca check` in
+  CI. The walker now propagates comment membership down the traversal in
+  `O(1)` per node, so `tokens` is linear: measured at nesting depths
+  1000 / 2000 / 4000, the metric now costs 4 / 5 / 6 ms, and the same
+  files analyse end-to-end in 74 ms / 285 ms / 1.1 s. Token counts are
+  unchanged — comment-internal leaves (Rust doc-comment markers and
+  content) are still excluded, now by an inherited flag rather than a
+  rediscovered one.
+
+  Nesting-heavy input is **faster but still superlinear overall**, so
+  untrusted deeply-nested source is not yet safe to analyse unbounded.
+  `Node::parent` is `O(depth)` and is used per-node in several other
+  places: `cognitive`'s nesting-map lookup dominates the nested-paren
+  shape measured above, while `Loc`'s `count_specific_ancestors`
+  (C-family, Java, C#, Go, Groovy, Objective-C) and Elixir's
+  `is_inside_quote_block` are superlinear on other shapes — the latter
+  behind no metric selection, so it cannot be deselected. Tracked in
+  #1062.
 - A Rust doc comment ending at EOF without a trailing newline no longer
   crashes or miscounts (#1051). `Loc` discounts the row that a
   `DocComment`'s scanner consumes along with its newline, but at EOF
@@ -92,6 +116,13 @@ for historical reference.
 
 ### Security
 
+- Removed a remotely-triggerable CPU-exhaustion vector in the `tokens`
+  metric — a few kilobytes of deeply nested source could pin a core for
+  minutes against the unauthenticated `bca-web` endpoints, whose parse
+  deadline frees the client but cannot cancel the blocking task. See the
+  `tokens` entry under **Fixed** (#1052) for detail and for the residual
+  superlinear paths that remain (#1062); operators analysing untrusted
+  input should still bound request concurrency.
 - Cleared the two RUSTSEC advisories behind the OpenSSF Scorecard
   Vulnerabilities alert: `anyhow` `1.0.102` → `1.0.103` (unsound
   `Error::downcast_mut()`, RUSTSEC-2026-0190) and `memmap2` `0.9.10`

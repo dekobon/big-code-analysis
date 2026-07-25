@@ -25,8 +25,11 @@ use crate::macros::implement_metric_trait;
 use crate::*;
 
 /// The `Tokens` metric: per-function and per-file count of tree-sitter
-/// leaf tokens, excluding any leaf whose ancestor chain includes a
-/// comment node.
+/// leaf tokens, excluding any leaf that is itself a comment or has a
+/// comment among its ancestors. Both halves matter: most grammars emit
+/// comments as bare leaves, while some (Rust doc comments, Groovy
+/// groovydoc, JSX `html_comment`) give them structured children whose
+/// own leaves are not comment kinds.
 ///
 /// This is a token-based size proxy: it counts the lexer's tokens
 /// (identifiers, literals, keywords, punctuation) rather than lines or
@@ -139,20 +142,20 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats) {
-        if node.child_count() != 0 {
+    ///
+    /// `in_comment` is true when the node itself or any ancestor is a
+    /// comment, so grammars whose comments have internal structure (e.g.
+    /// Rust doc comments split into markers and content) exclude their
+    /// inner leaves too. The walker propagates it down the traversal
+    /// rather than having this function rediscover it per leaf: the old
+    /// ancestor walk was `O(depth)` per leaf over an `O(depth)`
+    /// `Node::parent`, which made the metric `O(leaves × depth²)` and let
+    /// a few kilobytes of nested source burn minutes of CPU (#1052).
+    fn compute(node: &Node, stats: &mut Stats, in_comment: bool) {
+        if in_comment || node.child_count() != 0 {
             return;
         }
-        // Walk the leaf's ancestors so grammars whose comments have
-        // internal structure (e.g. Rust doc comments split into
-        // markers and content) also exclude inner leaves; the leaf
-        // itself is the first item, so bare comment nodes are caught
-        // immediately.
-        let in_comment =
-            std::iter::successors(Some(*node), Node::parent).any(|n| Self::is_comment(&n));
-        if !in_comment {
-            stats.tokens += 1;
-        }
+        stats.tokens += 1;
     }
 }
 
@@ -419,8 +422,110 @@ mod tests {
         });
     }
 
-    /// Rust doc comments may split into structured children under
-    /// some grammars; the ancestor walk must filter every inner leaf.
+    /// Analyses `source` verbatim and returns its total token count.
+    ///
+    /// Used by the tests below that need to *compare* counts across
+    /// inputs, which `check_metrics` cannot express: it takes an `F: Fn`
+    /// that cannot return a value, and it normalises the source before
+    /// parsing.
+    ///
+    /// Restricted to `Tokens` so these tests measure only the metric
+    /// they guard. With every metric enabled, `cognitive`'s own
+    /// superlinear nesting lookup (#1062) dominates the deep-nesting
+    /// case below — a `cognitive` regression would look like a `tokens`
+    /// one, and a `cognitive` fix would mask a `tokens` regression.
+    fn tokens_of(source: &str) -> u64 {
+        crate::analyze(
+            crate::Source::new(crate::LANG::Rust, source.as_bytes()),
+            crate::MetricsOptions::default().with_only(&[crate::Metric::Tokens]),
+        )
+        .expect("source must analyse")
+        .metrics
+        .tokens
+        .tokens_sum()
+    }
+
+    fn nested_parens(depth: usize) -> String {
+        format!(
+            "fn f() -> i32 {{ {}1{} }}\n",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        )
+    }
+
+    /// Deeply nested input must stay tractable (#1052).
+    ///
+    /// The metric used to walk each leaf's ancestor chain to decide
+    /// comment membership. `Node::parent` is itself `O(depth)`, so that
+    /// cost `O(leaves × depth²)`: depth 1000 took ~19 s and depth 2000
+    /// over two minutes, which would hang CI rather than fail it. The
+    /// walker now propagates the flag down the traversal in `O(1)` per
+    /// node, and this runs in milliseconds.
+    ///
+    /// The count is asserted by formula rather than hand-counted: each
+    /// added paren pair contributes exactly two leaves, so the delta
+    /// between consecutive depths pins the metric without depending on
+    /// how the grammar tokenises the surrounding function.
+    #[test]
+    fn tokens_deep_nesting_is_tractable() {
+        let shallow = tokens_of(&nested_parens(1));
+        assert_eq!(tokens_of(&nested_parens(2)), shallow + 2);
+
+        // Bound the wall clock, not just the count: the pre-#1052
+        // implementation produced the *same* counts, only quadratically,
+        // so a count assertion alone turns a reintroduced ancestor walk
+        // into a hung CI job rather than a failure. The budget is ~500x
+        // the observed cost (single-digit ms with `Tokens` alone), so it
+        // discriminates a quadratic blow-up without being timing-flaky.
+        let started = std::time::Instant::now();
+        assert_eq!(tokens_of(&nested_parens(2000)), shallow + 2 * 1999);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "depth-2000 token count took {elapsed:?}; the per-leaf \
+             ancestor walk (#1052) is quadratic in nesting depth and \
+             took minutes at this depth"
+        );
+    }
+
+    /// A comment deep in the tree still contributes nothing.
+    ///
+    /// Honest scope: the comment's *own* subtree is only one level deep
+    /// (`line_comment` → marker / `doc_comment`), so the enclosing block
+    /// nesting exercises the walker's inheritance rather than any extra
+    /// level of comment-internal structure —
+    /// `rust_tokens_doc_comments_excluded` already covers the latter at
+    /// depth 1. What this adds is the anchored differential below: a
+    /// count that would not survive an `in_comment` wired to a constant.
+    #[test]
+    fn rust_tokens_comment_excluded_at_depth() {
+        let deep_block = format!(
+            "fn f() {{ {}let x = 1;{} }}\n",
+            "{ ".repeat(50),
+            " }".repeat(50)
+        );
+        let with_doc = deep_block.replace("let x = 1;", "/// doc\nlet x = 1;");
+        let baseline = tokens_of(&deep_block);
+        // Anchor the differential: without this, an `in_comment` wired
+        // to always-true would return 0 on both sides and pass.
+        assert_eq!(
+            baseline, 111,
+            // 4 (`fn f ( )`) + 2 (outer braces) + 100 (50 nested brace
+            // pairs) + 5 (`let x = 1 ;`).
+            "expected 111 tokens for the comment-free baseline"
+        );
+        assert_eq!(
+            tokens_of(&with_doc),
+            baseline,
+            "a doc comment 50 blocks deep must contribute no tokens, \
+             including its structured inner leaves"
+        );
+    }
+
+    /// Rust doc comments split into structured children whose leaves are
+    /// not themselves comment kinds (`//`, `outer_doc_comment_marker`,
+    /// `doc_comment`), so excluding only the comment node is not enough
+    /// — every leaf beneath it must be filtered too.
     #[test]
     fn rust_tokens_doc_comments_excluded() {
         check_metrics::<RustParser>(
