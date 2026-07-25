@@ -138,12 +138,13 @@ impl Cognitive for PythonCode {
                     python_comprehension_clause_nesting(node, nesting, depth, lambda, nesting_map);
             }
             ForInClause | IfClause => {
-                // Nesting was precomputed on the comprehension node (visited
-                // first in pre-order) into this clause's own map slot, so read
-                // it back instead of re-scanning siblings per clause.
-                if let Some(&(clause_nesting, _, _)) = nesting_map.get(&node.id()) {
-                    nesting = clause_nesting;
-                }
+                // `nesting` already holds this clause's own value: the
+                // comprehension (visited first in pre-order) precomputed it
+                // into this clause's map slot, and since #1062 a node reads
+                // its own slot, so the read at the top of `compute` picks it
+                // up. Before #1062 a node read its *parent's* slot, so this
+                // arm had to re-read the slot explicitly; that override is
+                // now a no-op and has been removed.
                 stats.nesting = nesting + depth + lambda;
                 increment(stats);
                 stats.boolean_seq.reset();

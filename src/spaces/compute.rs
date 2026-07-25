@@ -357,6 +357,59 @@ struct Walk {
     in_comment: bool,
 }
 
+/// Seeds each child's `nesting_map` slot from `node`'s own, so
+/// `Cognitive` can read the triple it inherits without calling
+/// `Node::parent`.
+///
+/// A node's slot means two different things either side of its
+/// `compute`, and the distinction is load-bearing:
+///
+/// - **on entry** it holds what the node inherits — this is what
+///   `get_nesting_from_map` reads;
+/// - **on exit** each language's `compute` has overwritten it with the
+///   post-increment triple its children should see — this is what this
+///   function hands down.
+///
+/// So the write at the end of every `Cognitive::compute` must stay at the
+/// end. Moving it to the top would make every descendant inherit the
+/// pre-increment triple and silently under-count.
+///
+/// `or_insert`, not `insert`: Python's comprehension handling pre-writes
+/// its clause children's slots during the *comprehension's* `compute`
+/// (the #421 fix, so clause nesting does not depend on sibling traversal
+/// order), and those values deliberately differ from the comprehension's
+/// own triple. A blanket overwrite would clobber them — the
+/// `python_comprehension_*` tests in `metrics::cognitive` are what catch
+/// it.
+///
+/// Grammars whose `Cognitive` impl is the macro's no-op (`Preproc`,
+/// `Ccomment`) never write a slot, so they inherit the root's `(0, 0, 0)`
+/// unchanged. That matches the pre-#1062 behaviour only because zero is
+/// the identity here; it costs them a map entry per node that nothing
+/// reads.
+fn propagate_nesting_to_children(
+    node: &Node,
+    children: &[(Node<'_>, Walk)],
+    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+) {
+    // Leaves are roughly half of a real AST, so bail before hashing a key
+    // we would only read to iterate zero children.
+    if children.is_empty() {
+        return;
+    }
+    // Unreachable in practice: the root is seeded before the walk and every
+    // other node is seeded by this function before it is popped. Degrading
+    // to "no inheritance" would silently zero a whole subtree's nesting, so
+    // fail loudly in debug rather than absorb it.
+    let Some(&inherited) = nesting_map.get(&node.id()) else {
+        debug_assert!(false, "node {} has no nesting slot", node.id());
+        return;
+    };
+    for (child, _) in children {
+        nesting_map.entry(child.id()).or_insert(inherited);
+    }
+}
+
 /// Pushes `node`'s direct children onto the traversal `stack`, each tagged
 /// with `tag`.
 ///
@@ -537,6 +590,8 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             );
         }
 
+        let first_child = stack.len();
+
         push_children(
             &mut cursor,
             &node,
@@ -547,6 +602,10 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             &mut children,
             &mut stack,
         );
+
+        if selected.contains(Metric::Cognitive) {
+            propagate_nesting_to_children(&node, &stack[first_child..], &mut nesting_map);
+        }
     }
 
     finalize::<T>(&mut state_stack, usize::MAX, selected);
