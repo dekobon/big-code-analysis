@@ -32,6 +32,14 @@
 - ライブラリバインディング — 同じエンジンを Rust クレート、
   [Python パッケージ](https://pypi.org/project/big-code-analysis/)、REST サーバー（`bca-web`）として利用できます。
 
+インストール前に出力を確認したい場合は、`bca` が `main` へのプッシュのたびに
+自分自身のソースを解析して公開している結果をご覧ください。
+
+- [**HTML ホットスポットレポート（実例）**](https://dekobon.github.io/big-code-analysis/reports/index.html)
+  — ファイル単位・関数単位でブラウズできるビュー（英語）。
+- [**Markdown レポート（実例）**](https://dekobon.github.io/big-code-analysis/reports/report.md)
+  — 同じ実行結果をプルリクエストのコメント形式にしたもの（英語）。
+
 完全なドキュメントは[**ドキュメントブック（日本語版）**](https://dekobon.github.io/big-code-analysis/ja/)にあります。
 メトリクスの定義、コマンドリファレンス、CI レシピ、ライブラリガイドを収録しています。
 

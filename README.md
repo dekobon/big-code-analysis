@@ -42,6 +42,15 @@ that grows the metric engine into a code-quality toolchain:
   [Python package](https://pypi.org/project/big-code-analysis/), and a
   REST server (`bca-web`).
 
+`bca` analyses its own source on every push to `main` and publishes
+the result, so you can see what a real run looks like before
+installing anything:
+
+- [**Live HTML hotspot report**](https://dekobon.github.io/big-code-analysis/reports/index.html)
+  — the browsable per-file, per-function view.
+- [**Live Markdown report**](https://dekobon.github.io/big-code-analysis/reports/report.md)
+  — the same run as a pull-request comment.
+
 The full documentation lives in
 [**the book**](https://dekobon.github.io/big-code-analysis/): metrics
 definitions, command reference, CI recipes, and library guides.
