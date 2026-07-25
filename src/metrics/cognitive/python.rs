@@ -37,7 +37,7 @@ fn python_comprehension_clause_nesting(
     nesting: usize,
     depth: usize,
     lambda: usize,
-    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    nesting_map: &mut NestingMap,
 ) -> usize {
     use Python::*;
     let mut for_count = 0;
@@ -87,7 +87,7 @@ impl Cognitive for PythonCode {
         node: &Node<'a>,
         _code: &'a [u8],
         stats: &mut Stats,
-        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+        nesting_map: &mut NestingMap,
     ) {
         use Python::*;
 

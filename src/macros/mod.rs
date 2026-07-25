@@ -46,7 +46,7 @@ macro_rules! implement_metric_trait {
                    _node: &Node<'a>,
                    _code: &'a [u8],
                    _stats: &mut Stats,
-                   _nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+                   _nesting_map: &mut crate::spaces::NestingMap,
                ) {}
            }
         )+
