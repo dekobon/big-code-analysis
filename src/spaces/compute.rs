@@ -383,10 +383,8 @@ struct Walk {
 /// it.
 ///
 /// Grammars whose `Cognitive` impl is the macro's no-op (`Preproc`,
-/// `Ccomment`) never write a slot, so they inherit the root's default
-/// unchanged. That matches the pre-#1062 behaviour only because zero is
-/// the identity here; it costs them a map entry per node that nothing
-/// reads.
+/// `Ccomment`) never write a slot, so the root lookup misses and the
+/// walk seeds nothing for them at all — no map, no allocation.
 fn propagate_nesting_to_children(
     node: &Node,
     children: &[(Node<'_>, Walk)],
@@ -397,12 +395,18 @@ fn propagate_nesting_to_children(
     if children.is_empty() {
         return;
     }
-    // Unreachable in practice: the root is seeded before the walk and every
-    // other node is seeded by this function before it is popped. Degrading
-    // to "no inheritance" would silently zero a whole subtree's nesting, so
-    // fail loudly in debug rather than absorb it.
+    // A miss here is a *root-only* path. Every non-root slot is created
+    // by this function's `or_insert` below, before that node is ever
+    // popped, so reaching a node with no slot means it had no parent to
+    // seed it. The root's own slot exists iff the root's `compute` wrote
+    // one — which the two no-op grammars never do, so for them the walk
+    // seeds nothing and the map stays empty.
+    //
+    // Note this does *not* depend on every real impl writing on every
+    // path: a real impl that skipped its write would still leave its
+    // children seeded, and would show up as wrong nesting values, not as
+    // a missing slot.
     let Some(&inherited) = nesting_map.get(&node.id()) else {
-        debug_assert!(false, "node {} has no nesting slot", node.id());
         return;
     };
     for (child, _) in children {
@@ -484,10 +488,13 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     let mut children = Vec::new();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
-    // Initialize nesting_map used for storing nesting information for cognitive
-    // Three type of nesting info: conditionals, functions and lambdas
+    // Per-node cognitive nesting, inherited down the walk. Deliberately
+    // not pre-seeded with the root: `get_nesting_from_map` already falls
+    // back to `Nesting::default()`, so a seed would change nothing for
+    // grammars that compute cognitive — while for the two whose impl is
+    // the macro's no-op it is the one write that would make the walk
+    // build an entry per node that nothing ever reads.
     let mut nesting_map = NestingMap::default();
-    nesting_map.insert(node.id(), Nesting::default());
 
     // Suppression markers are resolved inline during the walk rather
     // than queued for a post-finalize pass. When we visit a comment
