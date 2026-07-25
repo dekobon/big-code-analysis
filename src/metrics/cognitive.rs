@@ -9486,9 +9486,28 @@ end",
 
         assert_eq!(cognitive_of(&nested_whiles(3)).0, expected(3), "1 + 2 + 3");
 
+        // Best-of-three per depth. A single pair of timings is not
+        // robust enough here: the two measurements are sequential, so a
+        // load spike between them skews the ratio on its own. This test
+        // did flake once inside `make pre-commit`, which runs clippy,
+        // rustdoc and the Python stages alongside the suite — 70 ms vs
+        // 394 ms, a 5.6x reading on code that is linear. Contention is
+        // bursty, so the minimum of a few runs sheds it while a genuine
+        // O(depth) regression, which is present in every run, survives.
+        let best_of_three = |n: usize| -> (u64, std::time::Duration) {
+            let mut sum = 0;
+            let mut best = std::time::Duration::MAX;
+            for _ in 0..3 {
+                let (s, elapsed) = cognitive_of(&nested_whiles(n));
+                sum = s;
+                best = best.min(elapsed);
+            }
+            (sum, best)
+        };
+
         let base = 2_000;
-        let (shallow_sum, shallow_time) = cognitive_of(&nested_whiles(base));
-        let (deep_sum, deep_time) = cognitive_of(&nested_whiles(base * 2));
+        let (shallow_sum, shallow_time) = best_of_three(base);
+        let (deep_sum, deep_time) = best_of_three(base * 2);
         assert_eq!(shallow_sum, expected(base as u64));
         assert_eq!(deep_sum, expected(base as u64 * 2));
 
