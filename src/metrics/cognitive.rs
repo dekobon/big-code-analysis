@@ -9416,12 +9416,11 @@ end",
         // dependency, so this narrows the work rather than isolating it.
         fn cognitive_of(source: &str) -> (u64, std::time::Duration) {
             let started = std::time::Instant::now();
-            let sum = crate::analyze(
-                crate::Source::new(crate::LANG::C, source.as_bytes()),
+            let sum = crate::tools::metrics_verbatim(
+                crate::LANG::C,
+                source.as_bytes(),
                 crate::MetricsOptions::default().with_only(&[crate::Metric::Cognitive]),
             )
-            .expect("source must analyse")
-            .metrics
             .cognitive
             .cognitive_sum();
             (sum, started.elapsed())

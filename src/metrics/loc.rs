@@ -735,7 +735,7 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::tools::{check_metrics, metrics_verbatim};
 
     use super::*;
 
@@ -9854,29 +9854,12 @@ class A {
         );
     }
 
-    /// Analyses `source` **verbatim** in `lang`.
+    /// Analyses `source` byte-for-byte as Rust.
     ///
-    /// `check_metrics` cannot be used for the #1051 cases: it routes through
-    /// `tools::check_func_space`, which trims trailing newlines and appends
-    /// one, so a node ending at EOF is unreachable through it and any such
-    /// test would pass vacuously. `Source` applies no normalisation of its
-    /// own, so this is the in-tree path that reproduces the bug.
-    ///
-    /// Takes `lang` rather than hard-coding one: the untestable-at-EOF class
-    /// is shared by every `Loc` submodule, not just Rust's.
-    fn loc_verbatim(lang: crate::LANG, source: &[u8]) -> Stats {
-        crate::analyze(
-            crate::Source::new(lang, source),
-            crate::MetricsOptions::default(),
-        )
-        .expect("verbatim source must analyse")
-        .metrics
-        .loc
-    }
-
-    /// `loc_verbatim` bound to Rust, which is where #1051 lives.
+    /// Goes through `metrics_verbatim` rather than `check_metrics`
+    /// because the #1051 cases end at EOF; see that helper for why.
     fn rust_loc(source: &[u8]) -> Stats {
-        loc_verbatim(crate::LANG::Rust, source)
+        metrics_verbatim(crate::LANG::Rust, source, crate::MetricsOptions::default()).loc
     }
 
     /// #1051: a Rust doc comment ending at EOF has no trailing newline for

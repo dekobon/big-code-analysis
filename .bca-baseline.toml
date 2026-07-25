@@ -945,7 +945,7 @@ value = 61523.95778223676
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 421
+start_line = 446
 metric = "halstead.effort"
 value = 142419.45851755128
 
@@ -961,7 +961,7 @@ path = "src/tools.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 767.0
+value = 779.0
 
 [[entry]]
 path = "src/tools.rs"
