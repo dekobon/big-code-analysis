@@ -66,6 +66,14 @@ for historical reference.
   8000 / 16000 / 32000 / 64000 take 13 / 23 / 45 / 88 ms, so a 128 KB
   file completes in under a tenth of a second.
 
+  The walker also no longer pre-seeds that map with the root. Nothing
+  read the seed — the lookup already falls back to a default — but it was
+  the map's only entry whenever `cognitive` is deselected, so a
+  metric-subset run (`--metrics loc`, `bca check` with a threshold
+  subset) allocated a hash table per file for one unread entry. The two
+  grammars whose cognitive impl is a no-op, `preproc` and `ccomment`, now
+  build no map at all rather than one entry per AST node.
+
   **Deeply nested code is still superlinear in general** — this fixes one
   of several `Node::parent` call sites, and *not* the one users hit most.
   `Checker::is_else_if` calls `parent()` (or `previous_sibling()`, which
