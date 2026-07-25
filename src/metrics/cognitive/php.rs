@@ -22,7 +22,11 @@ impl Cognitive for PhpCode {
     ) {
         use Php::*;
 
-        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // The two-word `else if` form parses as `else_clause →
@@ -101,6 +105,13 @@ impl Cognitive for PhpCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

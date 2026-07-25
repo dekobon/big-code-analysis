@@ -22,7 +22,11 @@ impl Cognitive for LuaCode {
     ) {
         use Lua::*;
 
-        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // `is_else_if` returns true for `ElseifStatement`, but Lua's
@@ -68,6 +72,13 @@ impl Cognitive for LuaCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

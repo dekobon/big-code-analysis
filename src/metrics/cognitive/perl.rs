@@ -44,7 +44,11 @@ impl Cognitive for PerlCode {
     ) {
         use Perl as P;
 
-        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // tree-sitter-perl parses `elsif_clause` as a direct child of
@@ -106,6 +110,13 @@ impl Cognitive for PerlCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }

@@ -34,7 +34,11 @@ impl Cognitive for RubyCode {
     ) {
         use Ruby as R;
 
-        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let Nesting {
+            conditional: mut nesting,
+            function_depth: mut depth,
+            mut lambda,
+        } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // Nesting-increasing constructs. tree-sitter-ruby models
@@ -133,6 +137,13 @@ impl Cognitive for RubyCode {
             }
             _ => {}
         }
-        nesting_map.insert(node.id(), (nesting, depth, lambda));
+        nesting_map.insert(
+            node.id(),
+            Nesting {
+                conditional: nesting,
+                function_depth: depth,
+                lambda,
+            },
+        );
     }
 }
