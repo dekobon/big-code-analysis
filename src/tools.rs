@@ -775,6 +775,27 @@ pub(crate) fn check_metrics<T: crate::ParserTrait>(
     check_func_space::<T, _>(source, filename, |func_space| check(func_space.metrics));
 }
 
+/// Analyses `source` **byte-for-byte** and returns its metrics.
+///
+/// Use this, not [`check_metrics`], when a test's input must reach the
+/// parser unaltered: `check_func_space` normalises CRLF and trims then
+/// re-appends a trailing newline, so a construct ending at EOF is
+/// unreachable through it and such a test passes vacuously (#1051). It
+/// also returns a value, which `check_metrics`' bare `fn` callback
+/// cannot. Restrict `options` in timing-sensitive tests so an unrelated
+/// metric's cost cannot dominate and misattribute a regression.
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn metrics_verbatim(
+    lang: crate::LANG,
+    source: &[u8],
+    options: crate::MetricsOptions,
+) -> crate::CodeMetrics {
+    crate::analyze(crate::Source::new(lang, source), options)
+        .expect("verbatim source must analyse")
+        .metrics
+}
+
 /// Asserts that `func_space` has a direct child space named `name` and that
 /// its `kind` matches `expected`.
 ///

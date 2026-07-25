@@ -200,7 +200,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::tools::{check_metrics, metrics_verbatim};
 
     use super::*;
 
@@ -422,25 +422,17 @@ mod tests {
         });
     }
 
-    /// Analyses `source` verbatim and returns its total token count.
+    /// Total token count for `source`, analysed byte-for-byte.
     ///
-    /// Used by the tests below that need to *compare* counts across
-    /// inputs, which `check_metrics` cannot express: it takes an `F: Fn`
-    /// that cannot return a value, and it normalises the source before
-    /// parsing.
-    ///
-    /// Restricted to `Tokens` so these tests measure only the metric
-    /// they guard. With every metric enabled, `cognitive`'s own
-    /// superlinear nesting lookup (#1062) dominates the deep-nesting
-    /// case below — a `cognitive` regression would look like a `tokens`
-    /// one, and a `cognitive` fix would mask a `tokens` regression.
+    /// Restricted to `Tokens`: with every metric enabled, `cognitive`'s
+    /// own superlinear nesting lookup (#1062) dominates the deep-nesting
+    /// case below and would misattribute a regression.
     fn tokens_of(source: &str) -> u64 {
-        crate::analyze(
-            crate::Source::new(crate::LANG::Rust, source.as_bytes()),
+        metrics_verbatim(
+            crate::LANG::Rust,
+            source.as_bytes(),
             crate::MetricsOptions::default().with_only(&[crate::Metric::Tokens]),
         )
-        .expect("source must analyse")
-        .metrics
         .tokens
         .tokens_sum()
     }
