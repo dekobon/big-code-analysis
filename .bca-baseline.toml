@@ -958,13 +958,6 @@ value = 8.0
 
 [[entry]]
 path = "src/tools.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 779.0
-
-[[entry]]
-path = "src/tools.rs"
 qualified = "read_file_with_eol"
 start_line = 140
 metric = "nexits"

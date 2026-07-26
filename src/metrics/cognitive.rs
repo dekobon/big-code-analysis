@@ -585,7 +585,7 @@ implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{check_func_space, check_metrics};
+    use crate::test_support::{check_func_space, check_metrics};
 
     use super::*;
 
@@ -9141,11 +9141,11 @@ end",
         // `Fn` closure) so the final `<` assertion compares the *actual*
         // values rather than restating constants.
         let chain_cog = Cell::new(-1.0);
-        crate::tools::check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
+        crate::test_support::check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
             chain_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
         let nested_cog = Cell::new(-1.0);
-        crate::tools::check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
+        crate::test_support::check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
             nested_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
 
@@ -9471,7 +9471,7 @@ end",
         // Restricted to `Cognitive` — which pulls in `Nom` as a declared
         // dependency, so this narrows the work rather than isolating it.
         fn cognitive_of(source: &str) -> u64 {
-            crate::tools::metrics_verbatim(
+            crate::test_support::metrics_verbatim(
                 crate::LANG::C,
                 source.as_bytes(),
                 crate::MetricsOptions::default().with_only(&[crate::Metric::Cognitive]),

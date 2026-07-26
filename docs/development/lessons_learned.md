@@ -428,7 +428,7 @@ none to consume, so the unconditional `end - 1` underflowed —
 panicking in debug, and in release wrapping to `usize::MAX` and
 surfacing far away as a hash-table capacity overflow while inserting
 comment rows. The unit LOC tests route through `check_metrics` →
-`tools::check_func_space`, which does `trim_end().trim_matches('\n')`
+`test_support::check_func_space`, which does `trim_end().trim_matches('\n')`
 and then `push(b'\n')`: it strips trailing newlines and appends one.
 The integration snapshot suites (`tests/serde_test.rs` and siblings)
 bypass that helper entirely — but reach the same wall, because
@@ -1685,7 +1685,7 @@ came from the file-level Unit scope. ba2a8e3 tightened Wmc first;
 `check_func_space` assertions that the annotation type opens a
 `SpaceKind::Interface` FuncSpace named `Marker`, and factored the
 six structural assertion sites across the three metrics into a
-shared `tools::assert_child_space_kind` helper.
+shared `test_support::assert_child_space_kind` helper.
 
 **Plain `interface I {...}` declarations share the bug** (#311).
 The same pattern exists for ordinary Java/Groovy interface
@@ -1700,7 +1700,7 @@ arms (the metric counts inside it), every per-metric test must
 assert *both* halves: the structural side (FuncSpace opens with the
 expected `SpaceKind` and name) and the body-walker side (the metric
 sum matches the expected value). Use `check_func_space` (or the
-`tools::assert_child_space_kind` helper) at the top of each test;
+`test_support::assert_child_space_kind` helper) at the top of each test;
 follow with the existing `check_metrics` value assertion. Coverage
 that *looks* complete because three metrics each have a regression
 test can in reality be split — three vacuous tests guard nothing

@@ -30,8 +30,14 @@ cyclomatic_count_try = false
 # `#[cfg(test)]` modules this project co-locates in-file (#182/#717).
 # Equivalent to passing `--exclude-tests`. Rust-only — inert for other
 # grammars. Lowers the node-counted metrics (cyclomatic, cognitive,
-# halstead.*, nom, nargs, abc, wmc) but NOT `loc.sloc`, which is the
-# file root span, not a traversal accumulation (separate fix in #722).
+# halstead.*, nom, nargs, abc, wmc) and, since #722, `loc.sloc` as
+# well: the file root span is still the raw first-to-last line range,
+# but each pruned subtree's inclusive row count is now subtracted from
+# it. Only the pruned *node* comes off, so a gated item's
+# `#[cfg(test)]` attribute line, its doc comment, and the blank lines
+# around it still cost full price against the `loc.sloc` cap below —
+# budget accordingly when adding shared test helpers to a production
+# file (#1066), or put them in an ignored test-only module instead.
 exclude_tests = true
 
 # Gate-only options consumed by `bca check` (#599). The baseline pairs

@@ -130,6 +130,11 @@ mod getter;
 mod language_enum_roundtrip;
 mod languages;
 mod macros;
+// Parse-and-inspect shims shared by the per-metric test modules. Kept out
+// of any production file so the self-scan gate does not spend a shipping
+// module's metric budget on test-only code (#1066).
+#[cfg(test)]
+mod test_support;
 
 // `langs` hosts the `mk_langs!` macro expansion. `LANG` is the only
 // public name; the per-language `<Lang>Code` tags and `<Lang>Parser`
@@ -195,8 +200,6 @@ pub use crate::spaces::{Ast, CodeMetrics, FuncSpace, MetricsOptions, Source, Spa
 // that ship in the default set keep the symbol live in any normal build.
 #[allow(unused_imports)]
 pub(crate) use crate::spaces::metrics_inner;
-#[cfg(test)]
-pub(crate) use crate::tools::check_func_space;
 
 /// Per-metric implementations.
 ///

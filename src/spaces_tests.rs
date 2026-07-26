@@ -1,6 +1,7 @@
 use crate::MetricsOptions;
 use crate::spaces::metrics_inner;
-use crate::{CppParser, ParserTrait, SpaceKind, check_func_space};
+use crate::test_support::check_func_space;
+use crate::{CppParser, ParserTrait, SpaceKind};
 
 /// `SpaceKind` is `#[non_exhaustive]` (#551); the attribute is a
 /// compile-time forward-compat contract and must not change the

@@ -637,7 +637,7 @@ serialize_via_wire!(function::FunctionSpan => FunctionSpan);
 mod tests {
     use super::*;
     use crate::RustParser;
-    use crate::tools::check_func_space;
+    use crate::test_support::check_func_space;
 
     /// A branchy multi-function Rust fixture so several metrics are
     /// non-trivial (cyclomatic > 1, multiple spaces, real Halstead/MI).

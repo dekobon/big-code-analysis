@@ -534,7 +534,7 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use crate::tools::check_metrics;
+    use crate::test_support::check_metrics;
 
     use super::*;
 
