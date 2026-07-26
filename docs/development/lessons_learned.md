@@ -4193,3 +4193,70 @@ nothing; here the masking mechanism is type coercion, not grammar
 error-recovery).
 
 ---
+
+## 81. De-recursing a traversal does not de-recurse the type it walks
+
+Converting every walk over a tree to an explicit work stack leaves three
+recursions untouched, because they are generated rather than written: the
+`From`/`map` projection that rebuilds the tree in another shape, the
+derived `Serialize`, and the compiler-generated `Drop` glue. None of them
+turns up in a traversal audit — there is no `fn walk(...)` to grep for —
+and each still costs one native stack frame per nesting level. The
+failure mode is worse than an ordinary bug: a stack overflow raises
+`SIGABRT`, not a catchable panic, so a `catch_unwind` / `spawn_blocking`
+harness that contains every other failure cannot contain this one. The
+process dies, taking every in-flight request with it.
+
+**#700 / #709 de-recursed every walk and left the types recursive**
+(#1056, `3fd01c70`). The three small-stack regression tests those issues
+left behind all passed, because all three exercise the *dump* walk and
+construct their fixtures by hand. Meanwhile `bca metrics -O json` on
+1 000 nested functions — 11 KB of source — aborted the process, and the
+`/ast` endpoint aborted on 80 KB of nested parentheses. Measured abort
+depths on a default 2 MiB thread, release / debug: the recursive
+`wire::FuncSpace::from` at ~900 / ~380, the derived `Serialize` at
+3 072 / 384 for the most expensive format (TOML), and the derived `Drop`
+between 32 768 and 65 536 / between 8 192 and 16 384. Nesting depth is
+caller-controlled in every supported language, and ~380 000 nested `fn`s
+fit inside `bca-web`'s 4 MiB body cap.
+
+**Per-level frame cost varies by an order of magnitude, so the stage
+that overflows first is rarely the one the symptom implicates** (#1056).
+The issue was filed against `Serialize`, and its own bisection supported
+that: `bca check`, which builds and drops the identical tree without
+serializing it, survived where `bca metrics -O json` aborted. But the
+delegating `Serialize` first materialises the entire wire projection, and
+*that* conversion was the overflow — ~2.3 KB per frame in release against
+the JSON serializer's ~170 bytes. The same issue wrote `Drop` off after a
+10 000-level chain survived; a cheap frame is not an iterative one, and it
+aborts at 16 000 in a debug build. Measure each stage in isolation before
+scoping the fix.
+
+**`Serialize` is the one that cannot be fixed, only bounded** (#1056).
+`serde` offers no iterative escape: `serialize_field` must run the child's
+`Serialize` to completion before it returns, so there is nowhere to put a
+work stack. `serde_json`'s `Deserializer` already solves this on the way
+*in* with a 128-level recursion limit; `Serialize` has no equivalent, so
+the crate now supplies one (`wire::MAX_SPACE_SERIALIZE_DEPTH`,
+`MAX_AST_SERIALIZE_DEPTH`) and fails with an ordinary serializer error
+instead of an abort. `Drop` *can* be fixed outright, by hoisting
+descendants into one flat work list so each node is dropped only after its
+children have been moved out of it — at the cost of an `impl Drop`, which
+forbids moving fields out of the type by value (`E0509`) and is therefore
+a source-level SemVer break. Landing that break under a minor bump needed
+an explicit, documented exception in `STABILITY.md`.
+
+**Lesson:** After de-recursing the walks over a recursive type, audit the
+*type*: the projection that rebuilds it, every derived `Serialize`, and
+the `Drop` glue — and record that `Clone`, `PartialEq`, and `Debug`
+recurse for the same reason, whether or not any current path reaches
+them. Exercise each stage separately on a bounded stack (lesson #47,
+which covers how to bound it), because a fixture that clears one stage by
+10x may clear the next by 0.5x — and prefer letting the tree drop
+normally over `mem::forget`, so teardown is covered rather than stepped
+around. Where the recursion is inside a generated `Serialize`, bound the
+depth and return an error rather than assuming the walk-side fix reached
+it: the overflow is an abort, and no panic-catching layer above it will
+help.
+
+---
