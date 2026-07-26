@@ -9456,6 +9456,17 @@ end",
     /// runs under `cargo llvm-cov` and on shared Windows / macOS runners.
     /// Doubling the depth costs ~2x when the lookup is `O(1)` and ~4x when
     /// it is `O(depth)`, and that ratio is independent of host speed.
+    /// The wall-clock half of this test is opt-in via
+    /// `BCA_ASSERT_SCALING=1`. The value assertions above it always run.
+    ///
+    /// A timing assertion has now produced a false failure in three
+    /// different environments: `windows-latest` in CI (10.9 s against an
+    /// 8 s absolute budget), a local `make pre-commit` running clippy and
+    /// rustdoc alongside the suite (5.6x), and `cargo llvm-cov`, whose
+    /// instrumentation skewed even a best-of-three ratio to 3.5x. The
+    /// `coverage` job runs in CI, so leaving it armed reds the build on a
+    /// measurement artefact rather than a regression. Complexity guards
+    /// belong in a benchmark harness (#1068), not the unit suite.
     #[test]
     fn cognitive_deep_nesting_is_tractable() {
         // Restricted to `Cognitive` — which pulls in `Nom` as a declared
@@ -9510,6 +9521,15 @@ end",
         let (deep_sum, deep_time) = best_of_three(base * 2);
         assert_eq!(shallow_sum, expected(base as u64));
         assert_eq!(deep_sum, expected(base as u64 * 2));
+
+        // Wall clock is only asserted when this test is run explicitly.
+        // See the `#[ignore]` rationale on the attribute below: three
+        // separate environments have produced a false reading here, and
+        // a red build from a timing artefact costs more than this guard
+        // is worth inside the default suite.
+        if std::env::var_os("BCA_ASSERT_SCALING").is_none() {
+            return;
+        }
 
         // Guard against a zero denominator on a very fast machine.
         let shallow_ns = shallow_time.as_nanos().max(1);
