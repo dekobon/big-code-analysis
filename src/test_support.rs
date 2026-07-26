@@ -44,11 +44,7 @@ pub(crate) fn check_func_space<T: ParserTrait, F: Fn(FuncSpace)>(
 
 /// Parses `source` as `filename` and hands the root space's
 /// [`CodeMetrics`] to `check`.
-pub(crate) fn check_metrics<T: ParserTrait>(
-    source: &str,
-    filename: &str,
-    check: fn(CodeMetrics),
-) {
+pub(crate) fn check_metrics<T: ParserTrait>(source: &str, filename: &str, check: fn(CodeMetrics)) {
     check_func_space::<T, _>(source, filename, |func_space| {
         check(func_space.metrics.clone());
     });
