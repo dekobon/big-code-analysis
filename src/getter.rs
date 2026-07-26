@@ -27,9 +27,12 @@ use crate::*;
 ///   [`crate::Ast::from_tree_sitter`] adopting a tree built from longer
 ///   source than the `code` passed alongside it.
 ///
-/// Both degrade to `None`, which `get_func_space_name` already returns
-/// for a nameless node, so the walker records an unnamed space instead
-/// of crashing. The unguarded sibling slice sites return infallible
+/// Both degrade to `None`. The walker stores a space's name as
+/// `Option<String>` (`spaces.rs`), so that records an unnamed space
+/// rather than crashing — note this is *not* the same path as a node
+/// with no `name` field, which `get_func_space_name` reports as
+/// `Some("<anonymous>")` without reaching here. The unguarded sibling
+/// slice sites return infallible
 /// types feeding metric arithmetic or rendered output; there the only
 /// available fallback would be a fabricated empty value that silently
 /// corrupts a count, so they rely on the precondition instead. The
@@ -173,8 +176,10 @@ macro_rules! impl_js_family_get_op_type {
 /// same [`crate::Ast`]. Pairing a node with any other buffer reads the
 /// wrong bytes at best and panics on an out-of-bounds index at worst;
 /// the same precondition is documented on [`crate::dump_node`] (#795).
-/// Only `node_text`, behind the default `get_func_space_name`,
-/// bounds-checks — see its docs for why the rest deliberately do not.
+/// `node_text` — reached from the default `get_func_space_name` and
+/// from the per-language `get_func_name` overrides — is the sole
+/// bounds-checked slice; see its docs for why the rest deliberately
+/// are not.
 #[doc(hidden)]
 pub(crate) trait Getter {
     fn get_func_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
