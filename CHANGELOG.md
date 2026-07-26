@@ -53,9 +53,48 @@ for historical reference.
   workflow runs those scripts against a cheap dev build on any PR that
   touches the release/wheel plumbing, so a future metric rename or
   serialization change reds a PR check instead of a release.
+- `wire::MAX_SPACE_SERIALIZE_DEPTH` (128) and `MAX_AST_SERIALIZE_DEPTH`
+  (512): the nesting depths past which `FuncSpace` / `Ops` and `AstNode`
+  refuse to serialize (#1056). Both are set far clear of real source:
+  across the 14 450-file corpus under `tests/repositories` (TensorFlow,
+  DeepSpeech, serde, …) the deepest AST is 188 levels and the deepest
+  space nesting is 10. The space limit is also more permissive than the
+  read side, where a document caps out near 61 levels — `serde_json`'s
+  own 128-level `Deserializer` limit charges two levels per space.
+
+### Changed
+
+- **(breaking)** `FuncSpace`, `Ops`, `AstNode`, `wire::FuncSpace`, and
+  `wire::Ops` now implement `Drop` (#1056), so fields can no longer be
+  moved out of one by value: `let m = space.metrics;` becomes
+  `let m = space.metrics.clone();` or `let m = &space.metrics;`
+  (`E0509`). The compiler-generated `Drop` glue recursed once per
+  nesting level and aborted the process on a deep tree — reachable
+  through `bca-web`'s 4 MiB body cap — and an explicit `Drop` that
+  hoists descendants into a flat work list is the only way to break
+  that chain. [`STABILITY.md`](./STABILITY.md) reserves source-level
+  shape breaks for a major bump; this one is landed under a minor as a
+  deliberate, documented exception, because the alternative was leaving
+  a reachable remote process abort open until `3.0`. The mechanical fix
+  at each call site is a `.clone()` or a borrow; 13 sites inside this
+  repository needed it.
 
 ### Fixed
 
+- `wire::FuncSpace::from` and `wire::Ops::from` no longer recurse
+  (#1056). Both projected a nested tree with
+  `spaces.iter().map(Self::from).collect()`, one stack frame per nesting
+  level at roughly 2.3 KB each, which aborted the process at ~900 levels
+  on a default 2 MiB thread. They now walk an explicit work stack and
+  convert a 1 000 000-level chain on a 512 KiB thread.
+- Serializing a `FuncSpace`, `Ops`, or `AstNode` deeper than its limit
+  now fails with an ordinary serializer error naming the type and the
+  limit, instead of overflowing the stack (#1056). `serde` cannot emit a
+  tree without one native frame per level — `serialize_field` must run
+  the child's `Serialize` to completion before returning — so the depth
+  is bounded rather than de-recursed, mirroring the 128-level recursion
+  limit `serde_json`'s `Deserializer` already applies to the same
+  documents.
 - The `cognitive` metric's nesting lookup is no longer quadratic in
   nesting depth (#1062). It recovered each node's inherited nesting via
   `node.parent()`, which is `O(depth)` — tree-sitter stores no parent
@@ -149,6 +188,21 @@ for historical reference.
   before a release rather than discovered broken after publish.
 
 ### Security
+
+- Closed a remotely-triggerable process abort in the recursive
+  `Serialize` and `Drop` paths (#1056). `bca metrics -O json` on ~1 000
+  nested functions (11 KB of source) overflowed the thread stack, and a
+  stack overflow is a `SIGABRT`, not a catchable panic: `bca-web`'s
+  `spawn_blocking` wrapper turns a panic into one failed request, but an
+  abort takes the whole process down with every request in flight. Three
+  recursions were involved, all now bounded — see the **Fixed** and
+  **Changed** entries below. Reachable payloads were small: ~11 KB of
+  nested `fn`s for the serialization overflow, ~80 KB of nested
+  parentheses for the `/ast` one, both far inside the 4 MiB body cap.
+
+  Issues #700 / #709 had converted every AST *traversal* to an explicit
+  work stack; this was the same hazard in the recursive *types*, which
+  those tests did not reach.
 
 - Narrowed a remotely-triggerable CPU-exhaustion vector: a few kilobytes
   of deeply nested source could pin a core for minutes against the

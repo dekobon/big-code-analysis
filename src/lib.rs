@@ -304,7 +304,10 @@ pub use crate::function::{FunctionSpan, dump_function_spans, dump_function_spans
 
 // --- AST dump ---
 mod ast;
-pub use crate::ast::{AstCfg, AstNode, AstPayload, AstResponse, Span};
+pub use crate::ast::{AstCfg, AstNode, AstPayload, AstResponse, MAX_AST_SERIALIZE_DEPTH, Span};
+
+// --- Stack-depth bounds shared by the crate's recursive types ---
+mod recursion;
 
 // --- Halstead operator/operand result type ---
 mod ops;

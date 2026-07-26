@@ -142,6 +142,32 @@ pub struct AstResponse {
     pub root: Option<AstNode>,
 }
 
+/// Greatest AST depth [`AstNode`] will serialize.
+///
+/// An `AstNode` tree is as deep as the parsed expression nesting, which a
+/// caller controls directly — 100 000 levels fit in a 200 KB payload, well
+/// inside `bca-web`'s body cap. `serde` cannot emit a tree without one
+/// native stack frame per level, and overflowing that stack aborts the
+/// process rather than raising a catchable panic (#1056), so the depth is
+/// bounded: a deeper tree fails serialization with an ordinary serializer
+/// error naming the limit.
+///
+/// The bound is set well clear of real source: the deepest AST across the
+/// ~8 000-file corpus under `tests/repositories` (TensorFlow, serde,
+/// DeepSpeech, …) is 188 levels. It is also set well clear of the stack:
+/// the earliest measured overflow of any emitted format was 2 000 levels
+/// on a debug build's default 2 MiB thread.
+pub const MAX_AST_SERIALIZE_DEPTH: usize = 512;
+
+/// Serializes an [`AstNode`]'s children one level deeper, refusing to
+/// descend past [`MAX_AST_SERIALIZE_DEPTH`].
+fn serialize_children<S: serde::Serializer>(
+    children: &[AstNode],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    crate::recursion::serialize_bounded(children, MAX_AST_SERIALIZE_DEPTH, "AstNode", serializer)
+}
+
 /// Information on an `AST` node.
 ///
 /// Serialized as a flat object with `snake_case` keys: `type`, `value`,
@@ -164,8 +190,15 @@ pub struct AstNode {
     /// equivalent children without grammar-specific positional knowledge.
     pub field_name: Option<&'static str>,
     /// The children of a node
+    #[serde(serialize_with = "serialize_children")]
     pub children: Vec<AstNode>,
 }
+
+// AST depth is caller-controlled — 100 000 levels of nested parentheses
+// fit in a 200 KB payload — so the compiler-generated `Drop` glue would
+// recurse once per level and abort the process (#1056). See
+// [`crate::recursion`].
+crate::recursion::impl_iterative_drop!(AstNode, children);
 
 impl AstNode {
     /// Builds an `AstNode` with the supplied type, value, span, and
@@ -514,5 +547,68 @@ mod tests {
         let legacy = r#"{"start_line":2,"start_col":3,"end_line":4,"end_col":5}"#;
         let span: Span = serde_json::from_str(legacy).expect("deserialize legacy span");
         assert_eq!(span, Span::new(2, 3, 4, 5, 0, 0));
+    }
+
+    // -----------------------------------------------------------------
+    // Stack-depth regression tests (#1056)
+    // -----------------------------------------------------------------
+
+    /// A chain of `depth` nested [`AstNode`]s below the root, built
+    /// directly so the depth is exact rather than a function of how many
+    /// AST levels a grammar spends per source construct.
+    fn ast_chain(depth: usize) -> AstNode {
+        let mut node = AstNode::new("leaf", String::new(), None, Vec::new());
+        for _ in 0..depth {
+            node = AstNode::new("branch", String::new(), None, vec![node]);
+        }
+        node
+    }
+
+    #[test]
+    fn ast_depth_at_the_serialize_limit_is_accepted_and_one_deeper_is_not() {
+        let at_limit = ast_chain(MAX_AST_SERIALIZE_DEPTH);
+        serde_json::to_string(&at_limit).expect("the limit itself must serialize");
+
+        let past_limit = ast_chain(MAX_AST_SERIALIZE_DEPTH + 1);
+        let err = serde_json::to_string(&past_limit).expect_err("one deeper must be refused");
+        assert!(
+            err.to_string().contains(&format!(
+                "AstNode nesting is deeper than the serialization limit of \
+                 {MAX_AST_SERIALIZE_DEPTH} levels"
+            )),
+            "the error must name the type and the limit, got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_pathologically_deep_ast_errors_and_tears_down_without_overflowing() {
+        // The chain is built directly rather than parsed, but this depth
+        // is reachable through `bca-web`'s `/ast`: 50 000 levels of
+        // nested parentheses fit in 100 KB, an order of magnitude inside
+        // the 4 MiB body cap. Both the recursive `Serialize` and the
+        // compiler-generated `Drop` glue used to abort the process here —
+        // `SIGABRT`, which `spawn_blocking` cannot contain (#1056).
+        const DEPTH: usize = 50_000;
+        // The stack a `bca` consumer thread and a `tokio` blocking thread
+        // get; the serialization limit is dimensioned against it.
+        const PRODUCTION_STACK: usize = 2 * 1024 * 1024;
+        let message = std::thread::Builder::new()
+            .stack_size(PRODUCTION_STACK)
+            .spawn(|| {
+                let root = ast_chain(DEPTH);
+                let message = serde_json::to_string(&root)
+                    .expect_err("depth past the limit must fail, not serialize")
+                    .to_string();
+                // `root` drops here: the iterative `Drop` must unwind
+                // 50 000 levels without touching the stack.
+                message
+            })
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("bounded-stack thread must not overflow");
+        assert!(
+            message.contains("AstNode nesting is deeper than the serialization limit"),
+            "the error must explain the refusal, got: {message}"
+        );
     }
 }

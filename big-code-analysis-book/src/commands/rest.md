@@ -136,11 +136,35 @@ Status codes:
 - `413 Payload Too Large` — the request body exceeded the server limit.
 - `500 Internal Server Error` — metric computation or AST construction
   failed for an otherwise-valid request, or a `/vcs` history walk failed
-  on the server side.
+  on the server side. This also covers a response too deeply nested to
+  serialize (`serialize_failed`) — see
+  [Nesting limits](#nesting-limits) below.
 - `503 Service Unavailable` — the parse pool is saturated by orphaned
   (timed-out) tasks; retry later.
 - `504 Gateway Timeout` — the parse (or history walk) exceeded the
   server's configured deadline.
+
+## Nesting limits {#nesting-limits}
+
+Responses are trees, and no serializer can emit a tree without one
+native stack frame per level. Rather than let a deeply nested response
+overflow the stack — which aborts the whole process, taking every
+in-flight request with it — the server refuses to serialize past a
+fixed depth and answers `500` with the `serialize_failed` token:
+
+| Response | Limit | What counts as a level |
+|---|---|---|
+| `/metrics` | 128 | one nested function space (a function inside a function inside a …) |
+| `/ast` | 512 | one AST node |
+
+Both limits sit far above anything real source reaches. Across the
+14 450-file corpus this project tests against (TensorFlow, DeepSpeech,
+serde, …) the deepest AST is 188 nodes and the deepest function-space
+nesting is 10. The
+`/metrics` limit is also more generous than the read side — a JSON
+document of nested spaces cannot be parsed back past ~61 levels,
+because `serde_json`'s own 128-level recursion limit charges two levels
+per space.
 
 ## Content negotiation {#content-negotiation}
 

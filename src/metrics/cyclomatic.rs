@@ -1176,7 +1176,7 @@ mod tests {
             crate::MetricsOptions::default().with_count_cyclomatic_try(count_try),
         )
         .expect("analyze must succeed on a well-formed Rust fixture");
-        func_space.metrics.cyclomatic
+        func_space.metrics.cyclomatic.clone()
     }
 
     #[test]
@@ -1212,7 +1212,7 @@ mod tests {
                 crate::MetricsOptions::default(),
             )
             .expect("analyze must succeed on a well-formed Rust fixture");
-            func_space.metrics.cyclomatic
+            func_space.metrics.cyclomatic.clone()
         };
         let explicit_on = rust_cyclomatic_with_try(true);
         assert_eq!(default_path.cyclomatic_sum(), explicit_on.cyclomatic_sum());

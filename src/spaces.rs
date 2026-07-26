@@ -327,6 +327,11 @@ pub struct FuncSpace {
     pub suppressed: SuppressionScope,
 }
 
+// Space nesting is caller-controlled, so the compiler-generated `Drop`
+// glue would recurse once per level and abort the process on a deep tree
+// (#1056). See [`crate::recursion`].
+crate::recursion::impl_iterative_drop!(FuncSpace, spaces);
+
 impl FuncSpace {
     /// Project this space into its [`crate::wire::FuncSpace`] form — the
     /// plain, `Deserialize`-capable record that defines the serialized
