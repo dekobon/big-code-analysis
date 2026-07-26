@@ -2559,6 +2559,17 @@ iteratively unwind it before returning — otherwise a
 Drop-side overflow on test exit shadows the production-side
 correctness check and the test fails for the wrong reason.
 
+**Update (#1056).** That last sentence no longer applies to
+this repository's own trees: `FuncSpace`, `Ops`, `AstNode`,
+and the two `wire` mirrors now carry hand-written iterative
+`Drop` impls, so a deep chain tears down in constant stack.
+The three `mem::forget` / flatten-before-drop workarounds
+this lesson prescribed were removed with that fix, and
+letting the tree drop normally is now the *stronger* test —
+it exercises the iterative teardown instead of stepping
+around it. The advice still stands for any recursive type
+that lacks such a `Drop`.
+
 ---
 
 ## 48. Hand-written enum lists need a match-based companion to enforce exhaustiveness

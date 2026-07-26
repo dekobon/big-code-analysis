@@ -1483,14 +1483,10 @@ mod tests {
                 assert_eq!(out[0].name, "root.rs");
                 assert_eq!(out[DEPTH].name, format!("f_{}::f_inner", DEPTH - 1));
 
-                // FuncSpace contains `spaces: Vec<FuncSpace>`, so
-                // letting the chained tree drop at scope exit walks
-                // one frame per nested space and would overflow this
-                // tight stack — masking the production-side
-                // assertions above with a Drop-side overflow on test
-                // exit. The OS reclaims the memory at process exit;
-                // this is fine for a test.
-                std::mem::forget(current);
+                // `current` drops at scope exit rather than being
+                // leaked: `FuncSpace`'s `Drop` is iterative as of #1056,
+                // so tearing the chain down costs no stack depth and
+                // cannot mask the production-side assertions above.
             })
             .expect("spawn worker thread with bounded stack");
         handle
