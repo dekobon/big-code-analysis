@@ -50,8 +50,12 @@ impl Ast {
     ///
     /// The supplied `tree` must have been produced from `code` with the
     /// [`tree_sitter::Language`] returned by
-    /// [`LANG::tree_sitter_language`] for `lang`; a mismatch is not
-    /// `unsafe` but yields nonsensical metric values.
+    /// [`LANG::tree_sitter_language`] for `lang`. A mismatch is not
+    /// `unsafe`, but it is a precondition violation, not merely a
+    /// garbage-in/garbage-out one: the walk slices `code` by node byte
+    /// ranges, so a tree built from *longer* source than `code` indexes
+    /// out of bounds and panics. Mismatches that stay in bounds yield
+    /// nonsensical metric values instead.
     ///
     /// # Errors
     ///
