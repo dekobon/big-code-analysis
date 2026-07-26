@@ -4178,11 +4178,57 @@ have flagged a `u64` → `f64` wire regression. The discriminating check is
 `halstead.volume` (genuinely fractional) as a negative control proving the
 assertion distinguishes integers from floats rather than passing vacuously.
 
+**Moving an assertion onto a rare trigger, and what had to be true
+first** (#1068, `bfad0b9f` / `2bca5d27`). The converse case. The
+`cognitive` and `tokens` deep-nesting tests carried wall-clock
+assertions in the per-PR suite, and those assertions produced a *false
+failure* in four environments: `windows-latest` against an absolute
+8 s budget (10.9 s), a local `make pre-commit` running clippy and
+rustdoc alongside the suite (5.6x), the same host under load (3.9x),
+and `cargo llvm-cov`, whose instrumentation skewed even a
+best-of-three ratio to 3.5x. The `coverage` job runs in CI, so the
+assertion redded the build on a measurement artefact. A shared runner
+cannot produce an honest wall clock, so mirroring harder was not
+available; #1068 moved the timing half out to a quarterly bench
+(`.github/workflows/benchmark.yml`) instead. Three things made that
+acceptable rather than a rot vector. Everything *mechanical* about
+the guard stayed per-PR as ordinary unit tests in
+`big-code-analysis-bench`: that each generated shape is affine in
+bytes, parses without error, and nests proportionally to its depth
+parameter; that each probe's metric produces a non-zero reading on
+its own shape; that the log-log fit recovers 1.0, 2.0 and 0.0 on
+synthetic data; that the argument parser gates only when `cargo
+bench` asked it to. Only the timing verdict — the one thing the
+per-PR environment cannot supply — lives on the rare trigger. Second,
+the rare gate fails fast: a probe whose single walk exceeds
+`MAX_CELL_WALK` is abandoned before its deeper cells are built, so a
+reintroduced quadratic walk (over two minutes at depth 2000 before
+the #1052 fix) is reported rather than left to run out the job
+timeout, which is the failure mode the wall-clock budgets existed for
+in the first place. Third — and this is what the first cut got wrong twice —
+measurement apparatus degrades toward a *flattering* number, not
+toward an error. `run` pushed each cell into the schedule and only
+then compared it against the budget, so the cell the budget had just
+rejected was still walked once per round; and `Report::failures`
+reported an abandoned probe by its fitted exponent, which is computed
+over the cells that finished and so printed `0.00 > 1.50` — a
+pass-shaped number for the worst regression the gate can see. Both
+were caught in review (`2bca5d27`), not by a failing test, because
+neither produced a failure to catch.
+
 **Lesson:** A check that runs only on a rare trigger is not a per-PR gate —
 treat its load-bearing assertions as *untested* until they are mirrored into
 the suite that runs on every PR, and extract embedded-in-YAML scripts so they
-are lintable and locally runnable (`make smoke`). The mirror counts only if
-it discriminates the regression: when an invariant is about a value's
+are lintable and locally runnable (`make smoke`). Deliberately siting an
+assertion *only* on the rare trigger is legitimate but narrow: it holds when
+the per-PR environment cannot produce the measurement honestly (a wall clock
+on a shared runner), and then only if every mechanical part of the guard is
+mirrored per-PR and the rare gate fails fast instead of hanging. Audit such a
+gate for direction of degradation — apparatus that emits numbers rather than
+verdicts tends to report a truncated or empty measurement as an excellent
+one, so every partial-measurement path needs its own explicit verdict rather
+than a derived statistic. The mirror counts only if it discriminates the
+regression: when an invariant is about a value's
 *representation* (integer vs float, one error type vs another), assert the
 property that distinguishes them and prove the discriminating power with a
 negative control — coercing both sides to a common type guards nothing.
