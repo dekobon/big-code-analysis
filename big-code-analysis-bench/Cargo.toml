@@ -1,0 +1,48 @@
+# Benchmark harness for the metric walk (issue #1068).
+#
+# A workspace member rather than a `benches/` directory on the root
+# crate: the root package's `include = [...]` whitelist deliberately
+# keeps everything that is not shipping code out of the published
+# `.crate`, and a `[[bench]]` target declared there would have to be
+# added to that whitelist (Cargo rejects a manifest whose declared
+# target path is missing from the package). Living in its own
+# `publish = false` member keeps criterion out of the published
+# manifest entirely.
+#
+# Listed in `[workspace].members` but *not* in `default-members`, the
+# same treatment `xtask` gets: a bare `cargo build` at the repo root
+# should not build dev tooling, but `--workspace` (clippy, test) must
+# still lint and compile it so it cannot rot.
+[package]
+name = "big-code-analysis-bench"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Benchmark harness for the big-code-analysis metric walk"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# Path-only, deliberately unversioned: the crate is never published, so
+# there is no registry fallback to pin, and `check-versions.py` has no
+# internal pin to keep in lockstep.
+big-code-analysis = { path = ".." }
+
+[dev-dependencies]
+# `html_reports` writes `target/criterion/report/index.html`, which is
+# what makes a measurement reviewable after the fact rather than a
+# number pasted into a commit message.
+criterion = { version = "^0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "metric_walk"
+harness = false
+
+[[bench]]
+name = "scaling"
+harness = false

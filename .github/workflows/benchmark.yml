@@ -1,0 +1,122 @@
+name: Benchmarks
+
+# Out-of-band run of the metric-walk benchmark harness (#1068).
+#
+# Deliberately not part of per-PR CI: shared runners cannot give
+# stable numbers, which is exactly the lesson that produced this
+# harness. See docs/development/benchmarking.md.
+#
+# The complexity-class gate is ratio-based and therefore portable
+# across hosts, but a busy runner can still skew a single run, so a
+# failure is re-measured with more rounds before it is reported.
+
+on:
+  schedule:
+    # 07:00 UTC on the 15th of January, April, July, and October.
+    # Two weeks after the mutation-testing cron so the two out-of-band
+    # jobs do not land on the same day.
+    - cron: '0 7 15 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: benchmark
+  cancel-in-progress: false
+
+# All `uses:` below are pinned to commit SHAs to eliminate supply-chain
+# risk from action-release spoofing. Bump via Dependabot (see
+# .github/dependabot.yml), which rewrites the SHA + version comment.
+jobs:
+  bench:
+    name: Metric walk
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable tip
+        with:
+          toolchain: stable
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      # Runs first so its measurements survive even when the gate below
+      # fails: a complexity regression is easier to localise with the
+      # per-metric corpus numbers in hand.
+      - name: Criterion measurements
+        run: |
+          set -euo pipefail
+          mkdir -p target/bench
+          cargo bench -p big-code-analysis-bench --bench metric_walk \
+            2>&1 | tee target/bench/metric_walk.log
+
+      - name: Complexity-class gate
+        id: gate
+        run: |
+          set -euo pipefail
+          mkdir -p target/bench
+          if cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 11 \
+              2>&1 | tee target/bench/scaling.log; then
+            exit 0
+          fi
+          echo "A probe exceeded its bound; re-measuring with more rounds"
+          echo "before reporting, in case the runner was contended."
+          if cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 21 \
+              2>&1 | tee target/bench/scaling-confirm.log; then
+            echo "The second run passed. Treating the first as measurement noise."
+            exit 0
+          fi
+          exit 1
+
+      - name: Upload benchmark output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: metric-walk-benchmarks
+          path: |
+            target/bench/
+            target/criterion/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: File issue on a confirmed complexity regression
+        if: failure() && steps.gate.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ ! -f target/bench/scaling-confirm.log ]; then
+            echo "The gate failed before producing a confirmation run;"
+            echo "treating as infrastructure failure, not opening an issue."
+            exit 0
+          fi
+          {
+            echo "The scheduled \`benchmark.yml\` run measured a metric-walk"
+            echo "probe outside its declared complexity bound, twice."
+            echo
+            echo "- Run: ${RUN_URL}"
+            echo
+            echo "Reproduce locally with \`make bench-scaling\`. See"
+            echo "\`docs/development/benchmarking.md\` for how to read the table"
+            echo "and what each probe covers."
+            echo
+            echo "## Confirmation run"
+            echo
+            echo '```'
+            tail -n 80 target/bench/scaling-confirm.log
+            echo '```'
+          } > /tmp/benchmark-issue-body.md
+          gh issue create \
+            --title "Metric walk: complexity bound exceeded (run ${{ github.run_id }})" \
+            --label "bug" \
+            --body-file /tmp/benchmark-issue-body.md

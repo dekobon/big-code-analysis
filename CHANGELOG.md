@@ -26,6 +26,29 @@ for historical reference.
 
 ### Added
 
+- Benchmark harness for the metric walk, in the new workspace member
+  `big-code-analysis-bench` (#1068). `cargo bench -p
+  big-code-analysis-bench --bench scaling` (or `make bench-scaling`)
+  measures eight probes at three doubling nesting depths and fits
+  `time ~ depth^k`, failing when a probe's exponent leaves its declared
+  complexity class; `--bench metric_walk` (`make bench-walk`) runs
+  criterion benchmarks per metric over a deterministic, self-reporting
+  slice of the corpus submodules. The wall-clock assertions in
+  `cognitive_deep_nesting_is_tractable` and
+  `tokens_deep_nesting_is_tractable` moved into the gate and the
+  `BCA_ASSERT_SCALING` escape hatch is gone; both tests keep their
+  value assertions and are renamed
+  `cognitive_nesting_is_inherited_at_depth` and
+  `tokens_count_holds_at_depth`. The harness is out-of-band by design —
+  `.github/workflows/benchmark.yml` runs it quarterly, not per-PR.
+  Documented in
+  [`docs/development/benchmarking.md`](docs/development/benchmarking.md).
+  The first run recorded three walks as quadratic in nesting depth
+  (`Checker::is_else_if`, `Node::count_specific_ancestors` from `loc`,
+  and `elixir_is_inside_quote_block` from `nom`), all through
+  `Node::parent`, which `tree_sitter` resolves by descending from the
+  root; their bounds pin the current behaviour rather than endorsing
+  it, and the underlying cost is tracked as #1084.
 - Japanese localization of the documentation. The mdBook is now
   translated through the gettext workflow from `mdbook-i18n-helpers`
   (`big-code-analysis-book/po/ja.po`; untranslated or stale entries

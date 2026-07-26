@@ -9434,7 +9434,8 @@ end",
         );
     }
 
-    /// Deeply nested input must stay tractable (#1062).
+    /// Nesting is still inherited correctly thousands of levels deep
+    /// (#1062).
     ///
     /// `get_nesting_from_map` used to recover a node's inherited nesting
     /// via `node.parent()`, which is `O(depth)` — tree-sitter stores no
@@ -9442,50 +9443,46 @@ end",
     /// now seeds each child's slot from its parent's, so the lookup is
     /// `O(1)`.
     ///
+    /// Both versions produce identical numbers, only at different
+    /// speeds, so what this test pins is correctness at depth. The
+    /// *cost* is pinned by the `cognitive/nested-while` probe in the
+    /// benchmark harness (#1068), which asserts the complexity class —
+    /// `cargo bench -p big-code-analysis-bench --bench scaling`.
+    ///
+    /// The wall-clock half used to live here and produced a false
+    /// failure in four environments: `windows-latest` in CI (10.9 s
+    /// against an 8 s absolute budget), a local `make pre-commit`
+    /// running clippy and rustdoc alongside the suite (5.6x), the same
+    /// host under heavy parallel load (3.9x), and `cargo llvm-cov`,
+    /// whose instrumentation skewed even a best-of-three ratio to 3.5x.
+    /// The `coverage` job runs in CI, so leaving it armed redded the
+    /// build on a measurement artefact rather than on a regression. A
+    /// ratio between two depths is host-independent but not
+    /// load-independent, and the fix for that is interleaved
+    /// measurement at three depths, which belongs in a bench target
+    /// and not in the unit suite.
+    ///
     /// Uses `while`, deliberately, **not** `if`: `Checker::is_else_if`
     /// calls `node.parent()` for every `if_statement`, so nested `if`s
-    /// are still quadratic for reasons this fix does not touch. Anchoring
-    /// the assertion to that shape would measure the unfixed path — at
-    /// nesting depth 8000 a release build takes 3.3 s of `if` versus
-    /// 44 ms of `while`.
-    ///
-    /// Asserts a *ratio* rather than a wall-clock budget. The pre-fix code
-    /// produced identical values, only quadratically, so a value assertion
-    /// alone would let a regression hang CI instead of failing it — but an
-    /// absolute budget is calibrated to one machine and this suite also
-    /// runs under `cargo llvm-cov` and on shared Windows / macOS runners.
-    /// Doubling the depth costs ~2x when the lookup is `O(1)` and ~4x when
-    /// it is `O(depth)`, and that ratio is independent of host speed.
-    /// The wall-clock half of this test is opt-in via
-    /// `BCA_ASSERT_SCALING=1`. The value assertions above it always run.
-    ///
-    /// A timing assertion has now produced a false failure in three
-    /// different environments: `windows-latest` in CI (10.9 s against an
-    /// 8 s absolute budget), a local `make pre-commit` running clippy and
-    /// rustdoc alongside the suite (5.6x), and `cargo llvm-cov`, whose
-    /// instrumentation skewed even a best-of-three ratio to 3.5x. The
-    /// `coverage` job runs in CI, so leaving it armed reds the build on a
-    /// measurement artefact rather than a regression. Complexity guards
-    /// belong in a benchmark harness (#1068), not the unit suite.
+    /// are still quadratic for reasons this fix does not touch. The
+    /// harness measures that shape too, under a quadratic bound.
     #[test]
-    fn cognitive_deep_nesting_is_tractable() {
+    fn cognitive_nesting_is_inherited_at_depth() {
         // Restricted to `Cognitive` — which pulls in `Nom` as a declared
         // dependency, so this narrows the work rather than isolating it.
-        fn cognitive_of(source: &str) -> (u64, std::time::Duration) {
-            let started = std::time::Instant::now();
-            let sum = crate::tools::metrics_verbatim(
+        fn cognitive_of(source: &str) -> u64 {
+            crate::tools::metrics_verbatim(
                 crate::LANG::C,
                 source.as_bytes(),
                 crate::MetricsOptions::default().with_only(&[crate::Metric::Cognitive]),
             )
             .cognitive
-            .cognitive_sum();
-            (sum, started.elapsed())
+            .cognitive_sum()
         }
 
         // Each level adds its own nesting penalty, so cognitive grows as
-        // 1 + 2 + … + n. Asserting it pins that nesting is still inherited
-        // correctly at depth, independently of the timing below.
+        // 1 + 2 + … + n. Asserting the closed form at depth is what pins
+        // that nesting is still inherited rather than recomputed.
         let nested_whiles = |n: usize| -> String {
             format!(
                 "int main(){{ {} 1; {} }}\n",
@@ -9495,50 +9492,7 @@ end",
         };
         let expected = |n: u64| n * (n + 1) / 2;
 
-        assert_eq!(cognitive_of(&nested_whiles(3)).0, expected(3), "1 + 2 + 3");
-
-        // Best-of-three per depth. A single pair of timings is not
-        // robust enough here: the two measurements are sequential, so a
-        // load spike between them skews the ratio on its own. This test
-        // did flake once inside `make pre-commit`, which runs clippy,
-        // rustdoc and the Python stages alongside the suite — 70 ms vs
-        // 394 ms, a 5.6x reading on code that is linear. Contention is
-        // bursty, so the minimum of a few runs sheds it while a genuine
-        // O(depth) regression, which is present in every run, survives.
-        let best_of_three = |n: usize| -> (u64, std::time::Duration) {
-            let mut sum = 0;
-            let mut best = std::time::Duration::MAX;
-            for _ in 0..3 {
-                let (s, elapsed) = cognitive_of(&nested_whiles(n));
-                sum = s;
-                best = best.min(elapsed);
-            }
-            (sum, best)
-        };
-
-        let base = 2_000;
-        let (shallow_sum, shallow_time) = best_of_three(base);
-        let (deep_sum, deep_time) = best_of_three(base * 2);
-        assert_eq!(shallow_sum, expected(base as u64));
-        assert_eq!(deep_sum, expected(base as u64 * 2));
-
-        // Wall clock is only asserted when this test is run explicitly.
-        // See the `#[ignore]` rationale on the attribute below: three
-        // separate environments have produced a false reading here, and
-        // a red build from a timing artefact costs more than this guard
-        // is worth inside the default suite.
-        if std::env::var_os("BCA_ASSERT_SCALING").is_none() {
-            return;
-        }
-
-        // Guard against a zero denominator on a very fast machine.
-        let shallow_ns = shallow_time.as_nanos().max(1);
-        let ratio = deep_time.as_nanos() as f64 / shallow_ns as f64;
-        assert!(
-            ratio < 3.0,
-            "doubling nesting depth cost {ratio:.1}x ({shallow_time:?} -> {deep_time:?}); \
-             an O(1) inherited lookup scales ~2x, the O(depth) `Node::parent` \
-             lookup this replaced scales ~4x (#1062)"
-        );
+        assert_eq!(cognitive_of(&nested_whiles(3)), expected(3), "1 + 2 + 3");
+        assert_eq!(cognitive_of(&nested_whiles(2_000)), expected(2_000));
     }
 }
