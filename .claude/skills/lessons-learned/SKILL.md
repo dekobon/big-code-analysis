@@ -119,7 +119,15 @@ For items from Step 3 showing hard-lesson signals:
 
 Record each potential lesson:
 
-- **Source reference**: issue number(s), commit hash(es)
+- **Source reference**: issue number(s) and the PR that landed the
+  change — never a commit hash (see
+  [Cite issues and PRs](#cite-issues-and-prs-never-commit-hashes)).
+  Resolve a commit to its PR with:
+
+  ```bash
+  gh api "repos/{owner}/{repo}/commits/<sha>/pulls" \
+    --jq '.[] | "PR #\(.number)"'
+  ```
 - **One-line summary**: what went wrong or what was learned
 - **Evidence strength**: strong (cost real debugging time), moderate
   (non-obvious but caught quickly), weak (obvious in retrospect)
@@ -137,7 +145,7 @@ Present candidates as a ranked batch:
 
 ```
 ### Candidate N: <summary>
-- Source: #<issue>, <commit>
+- Source: #<issue>, PR #<pr>
 - Quality: QUALIFIES / DOES NOT QUALIFY
 - Overlap: None / Related to lesson #N (explain distinction or overlap)
 - Reasoning: <why it meets or fails the quality bar>
@@ -172,10 +180,39 @@ format in `docs/development/lessons_learned.md`:
 
 1. `## N. <Pithy Principle Name>` — use the next sequential number
 2. Opening paragraph: general lesson statement (not issue-specific)
-3. Bold sub-examples with issue/commit references (e.g., `**Description
-   of specific instance** (#42, abc1234).`)
+3. Bold sub-examples citing the issue and the PR that landed the fix
+   (e.g., `**Description of specific instance** (#42, PR #1085).`).
+   Never a commit hash — see below.
 4. Closing `**Lesson:**` paragraph summarizing the actionable takeaway
 5. Horizontal rule (`---`) separator after the entry
+
+### Cite issues and PRs, never commit hashes
+
+Issue and PR numbers are assigned once and never change. A commit hash
+is not stable until the change reaches the default branch, and this
+repository rebase-merges, so every hash on a branch is rewritten when
+the PR lands. An entry drafted alongside the change it describes — the
+normal case, because that is when the lesson is fresh — therefore cites
+hashes that are orphaned the moment it merges. Nothing detects this: the
+text still renders, and the hash still looks like a hash.
+
+It has already happened twice, both times caught by chance rather than
+by a gate, during PR #1085:
+
+- Lesson 81 cited `3fd01c70`, an orphaned pre-amend copy of the #1056
+  commit.
+- Lesson 80's sub-example, written in that same PR, cited two branch
+  hashes that the PR's own rebase merge rewrote.
+
+Existing entries that cite hashes are left alone; do not retrofit them,
+and do not treat this as licence to edit entries you are not otherwise
+touching. If you are already editing an entry and its hash turns out to
+be unreachable, check with `git merge-base --is-ancestor <sha> main` and
+replace it with the PR number then.
+
+A hash is acceptable in one case: quoting a commit that is already on
+the default branch and has no PR (a direct push). Verify reachability
+before citing it.
 
 ### Overlap handling
 
@@ -233,6 +270,7 @@ Post-completion notes to display:
 - **Append by default**: warn about renumbering risks if insertion is
   requested.
 - **Complete evidence trail**: every drafted lesson must cite at least
-  one issue number or commit hash. No lessons from vibes.
+  one issue or PR number. No lessons from vibes, and no commit hashes —
+  a rebase merge invalidates them.
 - **No forced lessons**: "no candidates qualify" is a valid and expected
   outcome. Do not lower the bar to produce output.

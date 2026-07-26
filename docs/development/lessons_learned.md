@@ -1,8 +1,13 @@
 # Lessons Learned
 
 Hard-won principles from debugging real bugs in this workspace. Each
-entry is grounded in specific issues or commits and is written to be
-re-applicable to future work — not a postmortem of one incident.
+entry is grounded in specific issues and pull requests and is written to
+be re-applicable to future work — not a postmortem of one incident.
+
+New entries cite issue and PR numbers, not commit hashes: this
+repository rebase-merges, so a hash written alongside the change it
+describes is rewritten when the PR lands. Older entries still carry
+hashes and are left as they are.
 
 New entries are appended at the end with the next sequential number.
 Other skills under `.claude/skills/` may reference lessons by number;
