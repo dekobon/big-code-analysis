@@ -61,10 +61,20 @@ pub(crate) fn check_metrics<T: ParserTrait>(source: &str, filename: &str, check:
 /// metric's cost cannot dominate and misattribute a regression.
 #[track_caller]
 pub(crate) fn metrics_verbatim(lang: LANG, source: &[u8], options: MetricsOptions) -> CodeMetrics {
-    analyze(Source::new(lang, source), options)
-        .expect("verbatim source must analyse")
-        .metrics
-        .clone()
+    // `FuncSpace` has an iterative `Drop` impl (#1056), so the field
+    // cannot be moved out — clone it, as this helper always did.
+    space_verbatim(lang, source, options).metrics.clone()
+}
+
+/// Analyses `source` **byte-for-byte** and returns its root
+/// [`FuncSpace`], nested spaces included.
+///
+/// The [`metrics_verbatim`] rationale applies verbatim; use this variant
+/// when the assertion is about a *nested* space's metrics rather than the
+/// root's aggregate (e.g. #1067's per-function `sloc`).
+#[track_caller]
+pub(crate) fn space_verbatim(lang: LANG, source: &[u8], options: MetricsOptions) -> FuncSpace {
+    analyze(Source::new(lang, source), options).expect("verbatim source must analyse")
 }
 
 /// Asserts that `func_space` has a direct child space named `name` and that

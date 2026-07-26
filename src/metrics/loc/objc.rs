@@ -14,10 +14,10 @@
 use super::*;
 
 impl Loc for ObjcCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
         use Objc::*;
 
-        let (start, end) = init(node, stats, is_func_space, is_unit);
+        let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // ObjC has no raw string literals. `instance_variables` is

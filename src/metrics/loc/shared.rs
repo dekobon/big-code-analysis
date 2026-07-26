@@ -20,19 +20,16 @@
 use super::*;
 
 #[inline]
-pub(crate) fn init(
-    node: &Node,
-    stats: &mut Stats,
-    is_func_space: bool,
-    is_unit: bool,
-) -> (usize, usize) {
-    let start = node.start_row();
-    let end = node.end_row();
+pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usize, usize) {
+    let (start, _) = node.start_position();
+    let (end, end_column) = node.end_position();
 
     if is_func_space {
         stats.sloc.start = start;
         stats.sloc.end = end;
-        stats.sloc.unit = is_unit;
+        // The end column, not a unit/non-unit flag, decides whether the
+        // final row belongs to this span — see `span_rows` (#1067).
+        stats.sloc.end_column = end_column;
     }
     (start, end)
 }

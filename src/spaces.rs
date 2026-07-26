@@ -418,6 +418,10 @@ struct State<'a> {
 ///     .with_name(Some("snippet.rs".to_owned()));
 /// let space = analyze(source, MetricsOptions::default()).unwrap();
 /// assert_eq!(space.name.as_deref(), Some("snippet.rs"));
+/// // `Source` applies no normalisation: the bytes reach the parser
+/// // exactly as given, trailing newline or not, and the one-line
+/// // snippet above counts as one source line either way (#1067).
+/// assert_eq!(space.metrics.loc.sloc(), 1);
 /// ```
 #[non_exhaustive]
 #[derive(Debug, Clone)]

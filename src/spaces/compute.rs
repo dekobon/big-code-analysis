@@ -191,15 +191,13 @@ pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace,
 }
 
 /// Per-node classification the walker derives once and the metrics
-/// consume. Bundled rather than passed as three loose `bool`s so the
+/// consume. Bundled rather than passed as loose `bool`s so the
 /// call site cannot transpose them — they are all same-typed flags
 /// about the node currently being visited.
 #[derive(Clone, Copy)]
 struct NodeFacts {
     /// This node opens a new [`FuncSpace`].
     func_space: bool,
-    /// This node's space kind is [`SpaceKind::Unit`].
-    unit: bool,
     /// Whether this node lies inside a comment subtree — the node
     /// **itself** or any ancestor is a comment. Contrast
     /// [`Walk::in_comment`], which covers ancestors only (#1052).
@@ -225,7 +223,6 @@ fn compute_per_node<'a, T: ParserTrait>(
 ) {
     let NodeFacts {
         func_space,
-        unit,
         in_comment,
     } = facts;
     let selected = options.metrics;
@@ -245,7 +242,7 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Halstead::compute(node, code, &mut state.halstead_maps);
     }
     if selected.contains(Metric::Loc) {
-        T::Loc::compute(node, &mut last.metrics.loc, func_space, unit);
+        T::Loc::compute(node, &mut last.metrics.loc, func_space);
     }
     if selected.contains(Metric::Nom) {
         T::Nom::compute(node, code, &mut last.metrics.nom);
@@ -286,10 +283,11 @@ fn push_synthetic_unit_root<T: ParserTrait>(
 ) {
     if T::Getter::get_space_kind_with_code(node, code) != SpaceKind::Unit {
         let mut synthetic = FuncSpace::new::<T::Getter>(node, code, SpaceKind::Unit, selected);
+        let (end_row, end_column) = node.end_position();
         synthetic
             .metrics
             .loc
-            .init_unit_span(node.start_row(), node.end_row());
+            .init_unit_span(node.start_row(), end_row, end_column);
         state_stack.push(State {
             space: synthetic,
             halstead_maps: HalsteadMaps::new(),
@@ -543,37 +541,27 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             if selected.contains(Metric::Loc)
                 && let Some(state) = state_stack.last_mut()
             {
+                let (end_row, end_column) = node.end_position();
                 state
                     .space
                     .metrics
                     .loc
-                    .exclude_test_span(node.start_row(), node.end_row());
+                    .exclude_test_span(node.start_row(), end_row, end_column);
             }
             continue;
         }
 
         let func_space = T::Checker::promotes_to_func_space_with_code(&node, code);
 
-        // `kind` is consumed in exactly two places: `FuncSpace::new`
-        // (only when `func_space` is true) and the `unit` flag, which
-        // flows solely into `Loc::compute` (only when `Loc` is
-        // selected). For some languages — notably Elixir, whose
-        // `get_space_kind_with_code` runs a per-`Call` source-text
-        // keyword scan — this lookup is far from a cheap enum compare,
-        // so we skip it entirely when neither consumer is active.
-        // When it IS computed it returns the same value as before, so
-        // both consumers observe byte-identical results (issue #522).
-        let kind = if func_space || selected.contains(Metric::Loc) {
-            T::Getter::get_space_kind_with_code(&node, code)
-        } else {
-            // Unused on this path: `func_space` is false (so
-            // `FuncSpace::new` is not called) and `Loc` is deselected
-            // (so the `unit` flag below is never read by `Loc::compute`).
-            SpaceKind::Unknown
-        };
-        let unit = kind == SpaceKind::Unit;
-
         let new_level = if func_space {
+            // `kind` has exactly one consumer left: `FuncSpace::new`.
+            // For some languages — notably Elixir, whose
+            // `get_space_kind_with_code` runs a per-`Call` source-text
+            // keyword scan — this lookup is far from a cheap enum
+            // compare, so it stays inside the `func_space` branch
+            // (issue #522; the `Loc` unit flag that used to force it on
+            // every node went away with #1067).
+            let kind = T::Getter::get_space_kind_with_code(&node, code);
             let state = State {
                 space: FuncSpace::new::<T::Getter>(&node, code, kind, selected),
                 halstead_maps: HalsteadMaps::new(),
@@ -606,7 +594,6 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
                 options,
                 NodeFacts {
                     func_space,
-                    unit,
                     in_comment: subtree_in_comment,
                 },
                 &mut nesting_map,
