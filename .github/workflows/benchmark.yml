@@ -58,21 +58,48 @@ jobs:
           cargo bench -p big-code-analysis-bench --bench metric_walk \
             2>&1 | tee target/bench/metric_walk.log
 
+      # The bench target exits 1 for "a probe left its complexity class"
+      # and 2 for "the harness could not run" (bad arguments, or a
+      # language not compiled in). Only the former is re-measured and
+      # reported; a 2 fails the job without filing an issue, because an
+      # infrastructure error that reproduces on the retry would
+      # otherwise open one claiming a complexity regression.
       - name: Complexity-class gate
         id: gate
         run: |
           set -euo pipefail
           mkdir -p target/bench
-          if cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 11 \
-              2>&1 | tee target/bench/scaling.log; then
+          # `status=$?` after an `if` block would read the *if
+          # statement's* status, which is 0 whenever no branch ran, so
+          # the exit code is captured with `|| status=$?` instead.
+          # `pipefail` makes that cargo's code rather than tee's.
+          status=0
+          cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 11 \
+            2>&1 | tee target/bench/scaling.log || status=$?
+          if [ "$status" = "0" ]; then
             exit 0
+          fi
+          if [ "$status" != "1" ]; then
+            echo "The harness exited ${status}, which is not a gate failure."
+            echo "Treating as an infrastructure error; no issue will be filed."
+            exit "$status"
           fi
           echo "A probe exceeded its bound; re-measuring with more rounds"
           echo "before reporting, in case the runner was contended."
-          if cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 21 \
-              2>&1 | tee target/bench/scaling-confirm.log; then
+          status=0
+          cargo bench -p big-code-analysis-bench --bench scaling -- --rounds 21 \
+            2>&1 | tee target/bench/scaling-confirm.log || status=$?
+          if [ "$status" = "0" ]; then
             echo "The second run passed. Treating the first as measurement noise."
             exit 0
+          fi
+          if [ "$status" != "1" ]; then
+            echo "The confirmation run exited ${status}, not a gate failure."
+            # Removed so the issue-filing step below, which keys on this
+            # file, cannot mistake an infrastructure error for a
+            # confirmed regression.
+            rm -f target/bench/scaling-confirm.log
+            exit "$status"
           fi
           exit 1
 

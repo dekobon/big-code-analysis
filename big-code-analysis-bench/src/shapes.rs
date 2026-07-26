@@ -160,8 +160,12 @@ pub struct Probe {
 ///
 /// Large enough that the walk dominates the fixed per-analysis cost
 /// (option resolution, root `FuncSpace` construction), small enough
-/// that a *quadratic* regression fails the gate in seconds instead of
-/// hanging it.
+/// that a *quadratic* regression is abandoned partway up the ladder
+/// rather than run to completion. Bounding the total cost of such a
+/// regression is `MAX_CELL_WALK`'s job, not this constant's: at these
+/// depths a pre-#1052-magnitude blow-up costs a couple of minutes
+/// before the budget fires, which is a report rather than the hung
+/// job the retired wall-clock assertions were guarding against.
 const LINEAR_DEPTHS: [usize; 3] = [1_000, 2_000, 4_000];
 
 /// Depths for the probes whose walk is already quadratic.

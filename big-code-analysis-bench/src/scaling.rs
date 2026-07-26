@@ -107,10 +107,18 @@ const MAX_ITERATIONS: u32 = 64;
 /// Cells are built in increasing depth order, so a probe that blows
 /// past this at one depth is abandoned before the deeper ones are
 /// attempted, and reported as over budget — which counts as a failure,
-/// since a walk this slow is the regression. The offending cell is
-/// dropped rather than measured: keeping it would multiply its cost by
-/// `rounds + WARMUP_ROUNDS` and reproduce the timeout this budget
-/// exists to avoid.
+/// since a walk this slow is the regression. An abandoned probe
+/// contributes *no* cells to the measurement schedule, not merely no
+/// deeper ones: the verdict no longer depends on its exponent, so
+/// measuring the shallower cells would multiply an input already known
+/// to be pathological by `rounds + WARMUP_ROUNDS` for nothing.
+///
+/// Twenty seconds is chosen against the magnitudes on record rather
+/// than as a round number: the pre-#1052 `tokens` walk cost ~19 s at
+/// depth 1000 and over two minutes at 2000, so this abandons that
+/// regression at its second cell. It does not bound the *first* walk
+/// of a probe, which is unavoidable — the harness cannot know a walk
+/// is slow until it finishes one.
 pub const MAX_CELL_WALK: Duration = Duration::from_secs(20);
 
 /// One (probe, depth) cell, reduced across rounds.
@@ -150,10 +158,10 @@ pub struct ProbeReport {
     /// self-explanatory without opening the source.
     pub rationale: &'static str,
     /// Set when a single walk exceeded [`MAX_CELL_WALK`], carrying the
-    /// depth it happened at and how long it took. Neither that cell nor
-    /// the probe's deeper ones were measured, so
-    /// [`ProbeReport::exponent`] is fitted over fewer points and is not
-    /// the verdict — this is.
+    /// depth it happened at and how long it took. An abandoned probe
+    /// contributes no cells at all, so [`ProbeReport::cells`] is empty
+    /// and [`ProbeReport::exponent`] is `0.0` — flattering, and not the
+    /// verdict. This is.
     pub over_budget: Option<(usize, Duration)>,
 }
 
@@ -191,6 +199,22 @@ impl fmt::Display for Report {
         writeln!(f, "metric-walk depth scaling ({} rounds)", self.rounds)?;
         for probe in &self.probes {
             writeln!(f)?;
+            // An abandoned probe has no exponent worth printing: it is
+            // fitted over the cells that finished, which for an
+            // abandoned probe is none, so the header would read
+            // `exponent 0.00 (bound 1.50) OVER BOUND` — a passing
+            // number next to a failing verdict, for the worst
+            // regression this gate can see.
+            if let Some((depth, elapsed)) = probe.over_budget {
+                writeln!(
+                    f,
+                    "{name}  ABANDONED  one walk at depth {depth} took {elapsed:?}, \
+                     over the {MAX_CELL_WALK:?} budget",
+                    name = probe.name,
+                )?;
+                writeln!(f, "  {}", probe.rationale)?;
+                continue;
+            }
             writeln!(
                 f,
                 "{name}  exponent {exp:.2} (bound {bound:.2})  {verdict}",
@@ -217,13 +241,6 @@ impl fmt::Display for Report {
                     per_byte = cell.median.as_nanos() as f64 / cell.bytes as f64,
                     iterations = cell.iterations,
                     reading = cell.reading,
-                )?;
-            }
-            if let Some((depth, elapsed)) = probe.over_budget {
-                writeln!(
-                    f,
-                    "  ABANDONED at depth {depth}: one walk took {elapsed:?}, over the \
-                     {MAX_CELL_WALK:?} budget. Deeper cells were not measured.",
                 )?;
             }
             if !probe.passed() {
@@ -323,6 +340,15 @@ pub fn run_with_budget(
     let mut pending = Vec::new();
     let mut over_budget: Vec<Option<(usize, Duration)>> = vec![None; probes.len()];
     for (index, probe) in probes.iter().enumerate() {
+        // A probe's cells accumulate here and reach the measurement
+        // schedule only if the probe finished. Abandoning it must drop
+        // the cells it already built, not just stop it deepening:
+        // `passed()` ignores the exponent once `over_budget` is set, so
+        // measuring them changes no verdict and costs `rounds +
+        // WARMUP_ROUNDS` walks of an input already known to be
+        // pathological. Accumulating locally makes that structural
+        // rather than a cleanup someone has to remember.
+        let mut cells = Vec::new();
         // Ascending depth, so an intractably slow walk is caught at the
         // cheapest depth and the deeper cells are never attempted.
         for depth in probe.depths {
@@ -336,15 +362,11 @@ pub fn run_with_budget(
             let started = Instant::now();
             let space = ast.metrics(options)?;
             let single_walk = started.elapsed();
-            // Checked before the cell is retained: a cell kept here is
-            // walked once per round, so an over-budget one would cost
-            // `rounds + WARMUP_ROUNDS` times its already-excessive
-            // single-walk time.
             if single_walk > max_cell_walk {
                 over_budget[index] = Some((depth, single_walk));
                 break;
             }
-            pending.push(Pending {
+            cells.push(Pending {
                 probe: index,
                 depth,
                 bytes: source.len(),
@@ -354,6 +376,9 @@ pub fn run_with_budget(
                 options,
                 timings: Vec::with_capacity(rounds),
             });
+        }
+        if over_budget[index].is_none() {
+            pending.append(&mut cells);
         }
     }
 
@@ -556,9 +581,20 @@ mod tests {
             probes: vec![report],
         };
         assert_eq!(full.failures().len(), 1);
+        let rendered = format!("{full}");
         assert!(
-            format!("{full}").contains("ABANDONED"),
-            "the report must say the probe was abandoned:\n{full}",
+            rendered.contains("ABANDONED"),
+            "the report must say the probe was abandoned:\n{rendered}",
+        );
+        // The exponent of an abandoned probe is fitted over the cells
+        // that finished — none — so it reads `0.00`, under any bound.
+        // Printing it beside the failing verdict produced
+        // `exponent 0.00 (bound 1.50) OVER BOUND`: a passing number
+        // next to a failing one, for the worst regression the gate can
+        // see. It must not appear at all.
+        assert!(
+            !rendered.contains("exponent"),
+            "an abandoned probe must not report a flattering exponent:\n{rendered}",
         );
     }
 
@@ -613,7 +649,6 @@ mod tests {
         assert_eq!(median(&[]), Duration::ZERO);
     }
 
-    /// Depths used by the plumbing test below.
     /// A one-round run over the real probe set produces a complete,
     /// well-formed report.
     ///
