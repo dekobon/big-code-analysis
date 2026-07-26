@@ -27,16 +27,15 @@ use super::*;
 /// sitting in the *element* position, which pre-order visits before the
 /// outer clauses run, so it under-counted).
 ///
-/// Each clause sits at the comprehension's inherited `nesting` plus the
-/// number of `for` clauses strictly before it. The element executes
-/// inside the body opened by the *last* clause, so it sits `for_count`
-/// levels deep (a trailing `for` has already advanced the count) plus one
-/// more when the last clause is an `if`.
+/// Each clause sits at the comprehension's `inherited.conditional` plus
+/// the number of `for` clauses strictly before it, and carries the
+/// comprehension's `function_depth` / `lambda` through unchanged. The
+/// element executes inside the body opened by the *last* clause, so it
+/// sits `for_count` levels deep (a trailing `for` has already advanced
+/// the count) plus one more when the last clause is an `if`.
 fn python_comprehension_clause_nesting(
     node: &Node,
-    nesting: usize,
-    depth: usize,
-    lambda: usize,
+    inherited: Nesting,
     nesting_map: &mut NestingMap,
 ) -> usize {
     use Python::*;
@@ -44,28 +43,19 @@ fn python_comprehension_clause_nesting(
     let mut last_clause_is_if = false;
     for child in node.children() {
         let kind = child.kind_id();
-        if kind == ForInClause as u16 {
-            nesting_map.insert(
-                child.id(),
-                Nesting {
-                    conditional: nesting + for_count,
-                    function_depth: depth,
-                    lambda,
-                },
-            );
-            for_count += 1;
-            last_clause_is_if = false;
-        } else if kind == IfClause as u16 {
-            nesting_map.insert(
-                child.id(),
-                Nesting {
-                    conditional: nesting + for_count,
-                    function_depth: depth,
-                    lambda,
-                },
-            );
-            last_clause_is_if = true;
+        let is_for = kind == ForInClause as u16;
+        if !is_for && kind != IfClause as u16 {
+            continue;
         }
+        nesting_map.insert(
+            child.id(),
+            Nesting {
+                conditional: inherited.conditional + for_count,
+                ..inherited
+            },
+        );
+        for_count += usize::from(is_for);
+        last_clause_is_if = !is_for;
     }
     for_count + usize::from(last_clause_is_if)
 }
@@ -152,8 +142,15 @@ impl Cognitive for PythonCode {
             | DictionaryComprehension
             | SetComprehension
             | GeneratorExpression => {
-                nesting +=
-                    python_comprehension_clause_nesting(node, nesting, depth, lambda, nesting_map);
+                nesting += python_comprehension_clause_nesting(
+                    node,
+                    Nesting {
+                        conditional: nesting,
+                        function_depth: depth,
+                        lambda,
+                    },
+                    nesting_map,
+                );
             }
             ForInClause | IfClause => {
                 // `nesting` already holds this clause's own value: the
@@ -212,5 +209,64 @@ impl Cognitive for PythonCode {
                 lambda,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::ParserTrait;
+
+    // `Nesting`'s three fields are same-typed and every downstream
+    // consumer folds them into one sum (`stats.nesting = conditional +
+    // function_depth + lambda`), so transposing two of them inside
+    // `python_comprehension_clause_nesting` leaves every cognitive score
+    // in the suite unchanged. The only way to pin the assignment is to
+    // drive the helper directly and assert each clause's map slot
+    // field-by-field — which is what the `Nesting` parameter now makes
+    // checkable at the call site too.
+    #[test]
+    fn python_comprehension_clauses_carry_inherited_depth_and_lambda() {
+        // Clause order: `for a in xs` (0 preceding `for`s), `if a` (1),
+        // `for b in ys` (1). The trailing clause is a `for`, which has
+        // already advanced the count, so the element sits 2 levels deep.
+        let parser = PythonParser::new(
+            b"[x for a in xs if a for b in ys]".to_vec(),
+            std::path::Path::new("comprehension.py"),
+            None,
+        );
+        let root = parser.root();
+        let comprehension = *root
+            .descendants_by_kind(&["list_comprehension"])
+            .first()
+            .expect("the fixture contains exactly one list comprehension");
+        let clauses: Vec<_> = comprehension
+            .children()
+            .filter(|child| matches!(child.kind(), "for_in_clause" | "if_clause"))
+            .collect();
+        assert_eq!(clauses.len(), 3, "fixture must expose all three clauses");
+
+        let inherited = Nesting {
+            conditional: 1,
+            function_depth: 2,
+            lambda: 3,
+        };
+        let mut nesting_map = NestingMap::default();
+        let element_nesting =
+            python_comprehension_clause_nesting(&comprehension, inherited, &mut nesting_map);
+
+        assert_eq!(element_nesting, 2);
+        for (clause, expected_conditional) in clauses.iter().zip([1, 2, 2]) {
+            assert_eq!(
+                nesting_map.get(&clause.id()),
+                Some(&Nesting {
+                    conditional: expected_conditional,
+                    function_depth: 2,
+                    lambda: 3,
+                }),
+                "wrong nesting recorded for the `{}` clause",
+                clause.kind()
+            );
+        }
     }
 }
