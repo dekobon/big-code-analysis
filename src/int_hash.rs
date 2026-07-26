@@ -1,0 +1,234 @@
+//! Hashing for the collections on the metric walk that are keyed by
+//! integers this crate produced itself.
+//!
+//! Two of them are hot enough to matter: the node-id keyed
+//! [`NestingMap`](crate::spaces::NestingMap) the walker threads through
+//! `Cognitive`, and the line-number sets behind `Ploc` / `Cloc` in
+//! [`crate::metrics::loc`], which are probed at least once per AST node.
+
+use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// Hasher for maps and sets keyed by an integer this crate produced.
+///
+/// The keys are tree-sitter node ids (pointer-derived `usize` values)
+/// and source line numbers: values we generated ourselves, never
+/// attacker-chosen. The default SipHash-1-3 exists to resist
+/// hash-flooding from untrusted *keys*, so on these collections it buys
+/// nothing and costs a full keyed round per probe — on paths that run
+/// several times per AST node.
+///
+/// This is FxHash as of `rustc-hash` 2.x, including the `finish` rotate
+/// that 2.0 added. It is **not** collision-resistant and must not be
+/// used for any collection whose keys come from user input.
+#[derive(Default)]
+pub(crate) struct IntKeyHasher {
+    hash: u64,
+}
+
+impl IntKeyHasher {
+    /// FxHash's multiplier. Being *odd* is the load-bearing property: it
+    /// makes `n * SEED (mod 2^64)` a bijection, so distinct keys can
+    /// never produce the same hash — and an arithmetic sequence such as
+    /// a file's line numbers lands in distinct buckets more reliably
+    /// than a random oracle would (see
+    /// `int_key_hasher_spreads_consecutive_line_numbers`).
+    const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
+    /// Rotate applied in `finish`. A multiplicative hash concentrates
+    /// entropy in the *top* bits, but hashbrown takes the bucket index
+    /// from the *bottom* ones. Node ids are pointer-aligned, so without
+    /// this every hash would end in at least three zero bits and only
+    /// one home bucket in eight would be reachable — cheap on x86-64,
+    /// where the SSE2 probe group is 16 wide, but measurably worse on
+    /// aarch64, whose NEON group is 8. Value matches `rustc-hash` 2.x.
+    const FINISH_ROTATE: u32 = 26;
+
+    #[inline]
+    fn add(&mut self, word: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(Self::SEED);
+    }
+}
+
+impl Hasher for IntKeyHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.add(u64::from(*byte));
+        }
+    }
+
+    // The integer writes are overridden so a key type change cannot
+    // silently fall back to `write`'s byte-at-a-time loop, which would
+    // cost eight dependent rounds per word and be slower than the
+    // SipHash this replaced.
+    #[inline]
+    fn write_usize(&mut self, n: usize) {
+        self.add(n as u64);
+    }
+
+    #[inline]
+    fn write_u64(&mut self, n: u64) {
+        self.add(n);
+    }
+
+    #[inline]
+    fn write_u32(&mut self, n: u32) {
+        self.add(u64::from(n));
+    }
+
+    #[inline]
+    fn write_u8(&mut self, n: u8) {
+        self.add(u64::from(n));
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash.rotate_left(Self::FINISH_ROTATE)
+    }
+}
+
+/// [`HashMap`] keyed by a self-produced integer. See [`IntKeyHasher`]
+/// for the precondition on the keys.
+pub(crate) type IntKeyHashMap<K, V> = HashMap<K, V, BuildHasherDefault<IntKeyHasher>>;
+
+/// [`HashSet`] of self-produced integers. See [`IntKeyHasher`] for the
+/// precondition on the elements.
+pub(crate) type IntKeyHashSet<T> = HashSet<T, BuildHasherDefault<IntKeyHasher>>;
+
+#[cfg(test)]
+mod tests {
+    use std::hash::Hasher;
+
+    use super::IntKeyHasher;
+
+    /// `IntKeyHasher`'s integer writes must all agree for the same value.
+    ///
+    /// `HashMap<usize, _>` only ever calls `write_usize`, so the other
+    /// overrides are unreachable today — they exist so that changing the key
+    /// type (to `u64`, say, when the node id gains a newtype) cannot silently
+    /// fall back to `Hasher::write`'s byte-at-a-time default, which costs
+    /// eight dependent rounds per word and would be slower than the SipHash
+    /// this replaced. That regression is invisible: results stay correct and
+    /// only speed changes. This pins the equivalence so the fallback cannot
+    /// creep back in unnoticed.
+    #[test]
+    fn int_key_hasher_integer_writes_agree() {
+        let hash_of = |write: &dyn Fn(&mut IntKeyHasher)| {
+            let mut h = IntKeyHasher::default();
+            write(&mut h);
+            h.finish()
+        };
+
+        for value in [0_u64, 1, 42, 0x0123_4567, u64::from(u32::MAX), u64::MAX] {
+            let via_u64 = hash_of(&|h| h.write_u64(value));
+
+            // Each narrower write is checked only for the values it can
+            // represent, so the test says the same thing on a 32-bit
+            // target as on a 64-bit one instead of silently comparing a
+            // truncated input.
+            if let Ok(narrow) = usize::try_from(value) {
+                assert_eq!(
+                    hash_of(&|h| h.write_usize(narrow)),
+                    via_u64,
+                    "write_usize must agree for {value:#x}"
+                );
+            }
+            if let Ok(narrow) = u32::try_from(value) {
+                assert_eq!(
+                    hash_of(&|h| h.write_u32(narrow)),
+                    via_u64,
+                    "write_u32 must agree for {value:#x}"
+                );
+            }
+            if let Ok(narrow) = u8::try_from(value) {
+                assert_eq!(
+                    hash_of(&|h| h.write_u8(narrow)),
+                    via_u64,
+                    "write_u8 must agree for {value:#x}"
+                );
+            }
+        }
+
+        // The byte-slice path is the fallback the overrides exist to avoid.
+        // It must still work, and must NOT coincide with the word writes —
+        // if it did, the overrides would be pointless and their removal
+        // would go unnoticed.
+        let via_bytes = hash_of(&|h| h.write(&7_u64.to_ne_bytes()));
+        assert_ne!(
+            via_bytes,
+            hash_of(&|h| h.write_u64(7)),
+            "the byte loop folds one round per byte, so it cannot match the \
+             single-round word write; if these ever agree, the overrides are \
+             no longer doing anything"
+        );
+    }
+
+    /// `finish` must rotate, not return the raw product.
+    ///
+    /// A multiplicative hash concentrates entropy in the top bits, but
+    /// hashbrown takes the bucket index from the bottom ones — and node ids
+    /// are pointer-aligned, so without the rotate every hash ends in at least
+    /// three zero bits and only one home bucket in eight is reachable.
+    /// `rustc-hash` added this in 2.0; a first cut of this hasher copied
+    /// the 1.x algorithm and reproduced exactly the defect upstream removed.
+    #[test]
+    fn int_key_hasher_finish_rotates_entropy_down() {
+        // Pointer-aligned ids, as tree-sitter produces.
+        let low_bits_set = (1..64_usize).any(|i| {
+            let mut h = IntKeyHasher::default();
+            h.write_usize(i * 8);
+            h.finish() & 0b111 != 0
+        });
+        assert!(
+            low_bits_set,
+            "every 8-aligned id hashed to a value with three zero low bits, so \
+             only one home bucket in eight is reachable — `finish` is not \
+             rotating"
+        );
+    }
+
+    /// Consecutive keys — the line-number pattern the `Ploc` / `Cloc`
+    /// sets feed in — must spread at least as well as a random oracle.
+    ///
+    /// This is the property that makes the hasher safe to reuse for the
+    /// loc line sets. Node ids arrive scattered and 8-aligned; line
+    /// numbers arrive dense and starting at zero, which is the pattern a
+    /// hash that folded away the low input bits would degenerate on.
+    /// Multiplying an arithmetic sequence by an odd constant does the
+    /// opposite: it spreads *better* than random, because a random hash
+    /// wastes buckets on coincidental collisions and this one cannot
+    /// produce them until the rotate's bit window wraps.
+    #[test]
+    fn int_key_hasher_spreads_consecutive_line_numbers() {
+        // One key per source line of a 1 000-line file, in the table
+        // hashbrown would hold them in: capacity rounds up to a power of
+        // two above `keys / 0.875`.
+        const KEYS: usize = 1_000;
+        const BUCKETS: usize = 2_048;
+        // Bounds a random hash does *not* clear on this input: it fills
+        // ~813 of the buckets and piles 4 keys on its worst one.
+        const MIN_DISTINCT_BUCKETS: usize = 900;
+        const MAX_PER_BUCKET: usize = 3;
+
+        let mut depth = vec![0_usize; BUCKETS];
+        for line in 0..KEYS {
+            let mut h = IntKeyHasher::default();
+            h.write_usize(line);
+            // Reduce first, so the index provably fits whatever width
+            // `usize` has on the host.
+            let bucket = usize::try_from(h.finish() % BUCKETS as u64)
+                .expect("a value reduced modulo BUCKETS is below 2^16");
+            depth[bucket] += 1;
+        }
+        let distinct = depth.iter().filter(|d| **d > 0).count();
+        let deepest = depth.iter().copied().max().unwrap_or(0);
+        assert!(
+            distinct >= MIN_DISTINCT_BUCKETS && deepest <= MAX_PER_BUCKET,
+            "lines 0..{KEYS} reached {distinct} of {BUCKETS} buckets with at \
+             most {deepest} per bucket; expected at least \
+             {MIN_DISTINCT_BUCKETS} and at most {MAX_PER_BUCKET} — the hasher \
+             is clustering dense integer keys"
+        );
+    }
+}

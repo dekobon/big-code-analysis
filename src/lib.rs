@@ -126,6 +126,9 @@ mod c_macro;
 mod cfg_predicate;
 mod checker;
 mod getter;
+// Fast hashing for the walk's integer-keyed maps and sets. Shared by
+// `spaces` (node ids) and `metrics::loc` (line numbers).
+mod int_hash;
 #[cfg(test)]
 mod language_enum_roundtrip;
 mod languages;

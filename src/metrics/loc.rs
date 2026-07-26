@@ -22,9 +22,8 @@
     clippy::cast_sign_loss
 )]
 
-use std::collections::HashSet;
-
 use crate::checker::Checker;
+use crate::int_hash::IntKeyHashSet;
 use crate::metrics::npa::python_is_block;
 use std::fmt;
 
@@ -64,6 +63,15 @@ fn min_or_zero(v: usize) -> u64 {
 fn span_rows(start_row: usize, end_row: usize, end_column: usize) -> usize {
     (end_row - start_row) + usize::from(end_column > 0)
 }
+
+/// Set of physical source rows, keyed by 0-based row number.
+///
+/// The hasher is deliberately not the default SipHash: the keys are line
+/// numbers this crate derived from tree-sitter positions, so there is no
+/// untrusted key to flood the table with, and `Loc` is default-selected
+/// (as well as an MI input) with at least one probe per AST node. See
+/// [`crate::int_hash`].
+type LineSet = IntKeyHashSet<usize>;
 
 /// The `SLoc` metric suite.
 #[derive(Debug, Clone, PartialEq)]
@@ -189,7 +197,7 @@ impl Sloc {
 /// The `PLoc` metric suite.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ploc {
-    lines: HashSet<usize>,
+    lines: LineSet,
     ploc_min: usize,
     ploc_max: usize,
 }
@@ -197,7 +205,7 @@ pub struct Ploc {
 impl Default for Ploc {
     fn default() -> Self {
         Self {
-            lines: HashSet::default(),
+            lines: LineSet::default(),
             ploc_min: usize::MAX,
             ploc_max: 0,
         }
@@ -261,7 +269,7 @@ pub struct Cloc {
     // line, not one per node (issue #461 follow-up). Each spanned row
     // of a genuine multi-line block comment is a distinct key, so it
     // still counts once per line.
-    only_comment_line_starts: HashSet<usize>,
+    only_comment_line_starts: LineSet,
     // Physical lines carrying both code and comment (`int x; /*c*/`).
     // A line with several inline block comments (`f(int /*a*/, int
     // /*b*/)`) must contribute a single comment line, not one per
@@ -269,7 +277,7 @@ pub struct Cloc {
     // comments_percentage above 100% (issue #461). Mirrors `Ploc`'s
     // per-line de-dup via `Ploc::lines`; disjoint from
     // `only_comment_line_starts` by construction.
-    code_comment_line_starts: HashSet<usize>,
+    code_comment_line_starts: LineSet,
     comment_line_end: Option<usize>,
     cloc_min: usize,
     cloc_max: usize,
@@ -278,8 +286,8 @@ pub struct Cloc {
 impl Default for Cloc {
     fn default() -> Self {
         Self {
-            only_comment_line_starts: HashSet::default(),
-            code_comment_line_starts: HashSet::default(),
+            only_comment_line_starts: LineSet::default(),
+            code_comment_line_starts: LineSet::default(),
             comment_line_end: Option::default(),
             cloc_min: usize::MAX,
             cloc_max: 0,

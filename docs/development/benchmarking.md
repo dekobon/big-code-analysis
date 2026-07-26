@@ -197,6 +197,45 @@ Report the interval, not its midpoint. A "~26%" improvement quoted
 from min-of-5 single runs during the #1052 / #1062 work re-measured to
 a bootstrap interval spanning roughly 7% to 41%.
 
+### When the host is not idle {#interleaved-ab}
+
+The recipe above runs the two builds one after the other, several
+minutes apart. That is fine on a quiet machine and useless on a busy
+one, because anything the host starts or stops in the gap is
+attributed to your change. A sequential pair taken during
+[#1069][interleave] read `corpus/walk/tokens` 23% faster and
+`corpus/walk/halstead` 19% slower between two builds that differ only
+in a hash function neither benchmark reaches.
+
+Interleave instead. Keep a binary per side:
+
+```bash
+cargo bench -p big-code-analysis-bench --bench metric_walk --no-run
+cp target/release/deps/metric_walk-* /tmp/metric_walk_before
+```
+
+Then alternate them round by round — flipping which side goes first,
+so a one-way drift does not always land on the same arm — and narrow
+each run to the benchmarks under test:
+
+```bash
+taskset -c 3 /tmp/metric_walk_before --bench --discard-baseline --noplot \
+  --sample-size 30 --warm-up-time 1 --measurement-time 3 'corpus/walk/loc'
+```
+
+Summarise the result as a *paired* series: one after/before ratio per
+round, reported by its median and by how many rounds went the right
+way. A sign test over those rounds is the honest headline, because a
+preempted core produces single-round ratios of 5x or 0.2x that no mean
+survives. Keep the controls in the same table — a control that moves
+as far as the effect means the run measured the host, not the change.
+
+`taskset` is the smaller half of this: pinning both sides to one core
+removes migration as a difference between them, but it is the
+interleaving that removes the load.
+
+[interleave]: https://github.com/dekobon/big-code-analysis/issues/1069
+
 ## Measurement traps
 
 Every one of these produced a wrong number in this repository before

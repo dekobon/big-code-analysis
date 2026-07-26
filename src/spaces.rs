@@ -18,89 +18,13 @@
 )]
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Hasher for the node-id keyed maps the walker threads through the
-/// metric traits.
-///
-/// The keys are tree-sitter node ids: pointer-derived `usize` values we
-/// produced ourselves, never attacker-chosen. The default SipHash-1-3
-/// exists to resist hash-flooding from untrusted *keys*, so on this map
-/// it buys nothing and costs a full keyed round per probe — on a path
-/// that runs several times per AST node.
-///
-/// This is FxHash as of `rustc-hash` 2.x, including the `finish` rotate
-/// that 2.0 added. It is **not** collision-resistant and must not be
-/// used for any map whose keys come from user input.
-#[derive(Default)]
-pub(crate) struct NodeIdHasher {
-    hash: u64,
-}
-
-impl NodeIdHasher {
-    /// FxHash's multiplier. Being *odd* is the load-bearing property: it
-    /// makes `n * SEED (mod 2^64)` a bijection, so distinct node ids can
-    /// never produce the same hash.
-    const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
-
-    /// Rotate applied in `finish`. A multiplicative hash concentrates
-    /// entropy in the *top* bits, but hashbrown takes the bucket index
-    /// from the *bottom* ones. Node ids are pointer-aligned, so without
-    /// this every hash would end in at least three zero bits and only
-    /// one home bucket in eight would be reachable — cheap on x86-64,
-    /// where the SSE2 probe group is 16 wide, but measurably worse on
-    /// aarch64, whose NEON group is 8. Value matches `rustc-hash` 2.x.
-    const FINISH_ROTATE: u32 = 26;
-
-    #[inline]
-    fn add(&mut self, word: u64) {
-        self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(Self::SEED);
-    }
-}
-
-impl Hasher for NodeIdHasher {
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.add(u64::from(*byte));
-        }
-    }
-
-    // The integer writes are overridden so a key type change cannot
-    // silently fall back to `write`'s byte-at-a-time loop, which would
-    // cost eight dependent rounds per word and be slower than the
-    // SipHash this replaced.
-    #[inline]
-    fn write_usize(&mut self, n: usize) {
-        self.add(n as u64);
-    }
-
-    #[inline]
-    fn write_u64(&mut self, n: u64) {
-        self.add(n);
-    }
-
-    #[inline]
-    fn write_u32(&mut self, n: u32) {
-        self.add(u64::from(n));
-    }
-
-    #[inline]
-    fn write_u8(&mut self, n: u8) {
-        self.add(u64::from(n));
-    }
-
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.hash.rotate_left(Self::FINISH_ROTATE)
-    }
-}
+use crate::int_hash::IntKeyHashMap;
 
 /// Per-node nesting state that `Cognitive` inherits down the walk.
 ///
@@ -122,7 +46,7 @@ pub(crate) struct Nesting {
 
 /// Node-id keyed [`Nesting`] state; see
 /// `spaces::compute::propagate_nesting_to_children`.
-pub(crate) type NestingMap = HashMap<usize, Nesting, BuildHasherDefault<NodeIdHasher>>;
+pub(crate) type NestingMap = IntKeyHashMap<usize, Nesting>;
 
 use crate::langs::LANG;
 use crate::metric_set::{Metric, MetricSet};
