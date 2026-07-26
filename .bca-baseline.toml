@@ -835,7 +835,7 @@ path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 75
 metric = "nom"
-value = 31.0
+value = 32.0
 
 [[entry]]
 path = "src/ops.rs"

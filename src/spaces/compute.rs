@@ -6,6 +6,8 @@
 //! verbatim and re-exported from the parent so the public path
 //! `crate::spaces::analyze` (and `pub(crate) metrics_inner`) is preserved.
 
+use std::hash::BuildHasherDefault;
+
 use super::*;
 
 #[inline]
@@ -492,7 +494,25 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // grammars that compute cognitive — while for the two whose impl is
     // the macro's no-op it is the one write that would make the walk
     // build an entry per node that nothing ever reads.
-    let mut nesting_map = NestingMap::default();
+    //
+    // Sized up front rather than grown: every real `Cognitive::compute`
+    // ends by writing its own node's slot, so the map converges on one
+    // entry per visited node and a default-capacity map rehashes its way
+    // there a doubling at a time. `descendant_count` is that final size,
+    // known in O(1) — an upper bound rather than an exact one only when
+    // `exclude_tests` prunes a subtree the walk never descends into.
+    //
+    // Both guards exist to keep an empty map unallocated: an unselected
+    // `Cognitive` never calls `compute` at all, and the two grammars
+    // whose impl is the macro's no-op (`Preproc`, `Ccomment`) report
+    // `SEEDS_NESTING = false` because they write no slot.
+    let mut nesting_map = if selected.contains(Metric::Cognitive)
+        && <T::Cognitive as Cognitive>::SEEDS_NESTING
+    {
+        NestingMap::with_capacity_and_hasher(node.descendant_count(), BuildHasherDefault::default())
+    } else {
+        NestingMap::default()
+    };
 
     // Suppression markers are resolved inline during the walk rather
     // than queued for a post-finalize pass. When we visit a comment
