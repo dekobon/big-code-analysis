@@ -997,14 +997,40 @@ fn run() {
             .expect("bounded-stack thread must not overflow")
     }
 
+    /// A chain of `depth` nested spaces below the root, built directly.
+    ///
+    /// `analyze` is the more faithful fixture and the deep tests below
+    /// use it, but only to a depth the remaining quadratic ancestor walks
+    /// (#1062) make affordable. This builds the same shape for free, so
+    /// the stack properties can be pinned an order of magnitude deeper
+    /// than an analysed fixture could reach in a debug build.
+    fn space_chain(depth: usize) -> crate::FuncSpace {
+        let leaf = || crate::FuncSpace {
+            name: Some("f".to_owned()),
+            start_line: 1,
+            end_line: 1,
+            kind: SpaceKind::Function,
+            spaces: Vec::new(),
+            metrics: crate::CodeMetrics::default(),
+            suppressed: SuppressionScope::default(),
+        };
+        let mut root = leaf();
+        let mut cursor = &mut root;
+        for _ in 0..depth {
+            cursor.spaces.push(leaf());
+            cursor = cursor.spaces.last_mut().expect("just pushed");
+        }
+        root
+    }
+
     #[test]
     fn deeply_nested_spaces_convert_to_wire_without_stack_overflow() {
         // `From<&spaces::FuncSpace>` walks an explicit work stack: the
         // former `spaces.iter().map(FuncSpace::from).collect()` recursed
         // once per level and aborted the process at roughly 900 levels on
-        // a 2 MiB thread. Both trees also tear down inside the thread, so
-        // this covers the iterative `Drop` on the compute and wire types.
-        const DEPTH: usize = 8_000;
+        // a 2 MiB thread — under 100 on this one. Analysed fixture, so
+        // the whole `analyze` → `to_wire` pipeline is covered.
+        const DEPTH: usize = 2_000;
         let depth = on_stack(TIGHT_STACK, || {
             let space = analyze_nested(DEPTH);
             wire_nesting_depth(&space.to_wire())
@@ -1014,12 +1040,26 @@ fn run() {
     }
 
     #[test]
+    fn a_pathologically_deep_space_chain_converts_and_tears_down() {
+        // Both `Drop` impls at a depth no recursive teardown survives:
+        // the compiler-generated glue overflowed this thread's stack at
+        // roughly 4 000 levels, and the compute tree, the wire tree, and
+        // the wire tree's own nested `Vec`s all unwind inside it.
+        const DEPTH: usize = 100_000;
+        let depth = on_stack(TIGHT_STACK, || {
+            let space = space_chain(DEPTH);
+            wire_nesting_depth(&space.to_wire())
+        });
+        assert_eq!(depth, DEPTH + 1, "the whole chain must survive conversion");
+    }
+
+    #[test]
     fn spaces_deeper_than_the_limit_fail_serialization_rather_than_abort() {
         // The reported symptom: `bca metrics -O json` on ~1 000 nested
         // functions overflowed the stack, and a stack overflow is a
         // `SIGABRT`, not a catchable panic — `bca-web`'s `spawn_blocking`
         // wrapper cannot contain it. It must now be an ordinary error.
-        const DEPTH: usize = 8_000;
+        const DEPTH: usize = 2_000;
         let message = on_stack(PRODUCTION_STACK, || {
             let space = analyze_nested(DEPTH);
             serde_json::to_string(&space)
@@ -1075,7 +1115,7 @@ fn run() {
     fn deeply_nested_ops_convert_and_serialize_without_stack_overflow() {
         // `Ops` mirrors `FuncSpace`'s nesting and had the same recursive
         // `From` and `Serialize`, so it needs the same coverage.
-        const DEPTH: usize = 8_000;
+        const DEPTH: usize = 2_000;
         let (converted_depth, message) = on_stack(PRODUCTION_STACK, || {
             let ops = crate::Ast::parse(crate::Source::new(
                 crate::LANG::Rust,
