@@ -15,13 +15,26 @@ use crate::*;
 
 /// Bounds- and UTF-8-checked text extraction for a node's byte span.
 ///
-/// `node.start_byte()`/`end_byte()` index into the `code` buffer the
-/// node was parsed from. Slicing `&code[start..end]` directly panics if
-/// the span ever falls outside the buffer or off a UTF-8 char boundary —
-/// a latent hazard whenever a node from one parse meets bytes from
-/// another (incremental reparse, VCS per-function re-slice). `code.get`
-/// turns both failure modes into `None`, so a stale span degrades to an
-/// unnamed (`None`) space instead of crashing the walker.
+/// `code` is `&[u8]`, so slicing it carries no char-boundary
+/// precondition; the two guards here cover two unrelated failure modes:
+///
+/// * `std::str::from_utf8` rejects non-UTF-8 bytes. This one is
+///   reachable from ordinary use — [`crate::Ast::parse`] accepts
+///   arbitrary bytes, so a node span in a partially-binary source need
+///   not be valid UTF-8.
+/// * `code.get` bounds-checks the range. This one is reachable only by
+///   violating the same-parse precondition documented on `Getter`, i.e.
+///   [`crate::Ast::from_tree_sitter`] adopting a tree built from longer
+///   source than the `code` passed alongside it.
+///
+/// Both degrade to `None`, which `get_func_space_name` already returns
+/// for a nameless node, so the walker records an unnamed space instead
+/// of crashing. The unguarded sibling slice sites return infallible
+/// types feeding metric arithmetic or rendered output; there the only
+/// available fallback would be a fabricated empty value that silently
+/// corrupts a count, so they rely on the precondition instead. The
+/// asymmetry is deliberate: guarding is free here because `Option` is
+/// already part of this signature's contract (#1059).
 #[inline]
 fn node_text<'a>(code: &'a [u8], node: &Node) -> Option<&'a str> {
     code.get(node.start_byte()..node.end_byte())
@@ -149,6 +162,19 @@ macro_rules! impl_js_family_get_op_type {
     };
 }
 
+/// Per-language accessors the space walker and the Halstead
+/// operator/operand classification dispatch through.
+///
+/// # Precondition
+///
+/// Every method taking a `code: &[u8]` next to a `&Node` slices `code`
+/// by that node's byte range. `code` must be the exact buffer `node` was
+/// parsed from — [`crate::Ast::source`] for a node obtained from the
+/// same [`crate::Ast`]. Pairing a node with any other buffer reads the
+/// wrong bytes at best and panics on an out-of-bounds index at worst;
+/// the same precondition is documented on [`crate::dump_node`] (#795).
+/// Only `node_text`, behind the default `get_func_space_name`,
+/// bounds-checks — see its docs for why the rest deliberately do not.
 #[doc(hidden)]
 pub(crate) trait Getter {
     fn get_func_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
@@ -288,5 +314,21 @@ mod node_text_tests {
         assert!(root.end_byte() > 2);
         let truncated = &src.as_bytes()[..2];
         assert_eq!(node_text(truncated, &root), None);
+    }
+
+    /// The UTF-8 guard is the *other* failure mode, and unlike the range
+    /// guard it is reachable without violating the same-parse
+    /// precondition: `Ast::parse` accepts arbitrary bytes. A span whose
+    /// bytes are not valid UTF-8 must yield `None`, not a panic and not
+    /// lossy replacement characters.
+    #[test]
+    fn non_utf8_span_returns_none() {
+        let mut src = b"fn ".to_vec();
+        src.extend_from_slice(&[0xF0, 0x9F]);
+        src.extend_from_slice(b"() {}");
+        let parser = RustParser::new(src.clone(), &PathBuf::from("t.rs"), None);
+        let root = parser.root();
+        assert_eq!(root.end_byte(), src.len());
+        assert_eq!(node_text(parser.code(), &root), None);
     }
 }
