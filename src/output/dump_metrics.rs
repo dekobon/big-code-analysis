@@ -366,15 +366,9 @@ mod tests {
                 }
                 let mut sink = termcolor::NoColor::new(Vec::new());
                 let ok = dump_space(&root, "", true, &mut sink).is_ok();
-                // Flatten the chain before it drops: `FuncSpace`'s derived
-                // `Drop` recurses through `spaces`, so a deep tree would
-                // overflow the small stack on teardown and mask the dump
-                // result. Hoisting each level's children out turns the
-                // drop into an iterative one.
-                let mut node = root;
-                while let Some(child) = node.spaces.pop() {
-                    node = child;
-                }
+                // `root` drops here without flattening: `FuncSpace`'s
+                // `Drop` is iterative as of #1056, so teardown costs no
+                // stack depth and cannot mask the dump result.
                 ok
             })
             .expect("spawn dump thread");
