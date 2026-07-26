@@ -4179,7 +4179,7 @@ have flagged a `u64` → `f64` wire regression. The discriminating check is
 assertion distinguishes integers from floats rather than passing vacuously.
 
 **Moving an assertion onto a rare trigger, and what had to be true
-first** (#1068, `bfad0b9f` / `2bca5d27`). The converse case. The
+first** (#1068, `0eeb6fe0` / `93c23cd4`). The converse case. The
 `cognitive` and `tokens` deep-nesting tests carried wall-clock
 assertions in the per-PR suite, and those assertions produced a *false
 failure* in four environments: `windows-latest` against an absolute
@@ -4213,7 +4213,7 @@ rejected was still walked once per round; and `Report::failures`
 reported an abandoned probe by its fitted exponent, which is computed
 over the cells that finished and so printed `0.00 > 1.50` — a
 pass-shaped number for the worst regression the gate can see. Both
-were caught in review (`2bca5d27`), not by a failing test, because
+were caught in review (`93c23cd4`), not by a failing test, because
 neither produced a failure to catch.
 
 **Lesson:** A check that runs only on a rare trigger is not a per-PR gate —
