@@ -415,7 +415,7 @@ impl Exit for ElixirCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::test_support::check_metrics;
 
     use super::*;
 

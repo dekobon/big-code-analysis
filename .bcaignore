@@ -16,6 +16,11 @@
 ./tests/**
 ./**/tests/**
 ./**/*_tests.rs
+# Same rationale as `./**/*_tests.rs`, different naming: `test_support.rs`
+# is a `#[cfg(test)]`-only module of helpers shared across the per-metric
+# test modules (#1066). It is not a sibling unit-test file, so the
+# `*_tests.rs` glob does not reach it, and none of it ships.
+./src/test_support.rs
 ./enums/**
 ./.opencode/**
 ./target/**

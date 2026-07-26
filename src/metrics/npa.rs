@@ -550,7 +550,9 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics, child_space};
+    use crate::test_support::{
+        assert_child_space_kind, check_func_space, check_metrics, child_space,
+    };
 
     use super::*;
 

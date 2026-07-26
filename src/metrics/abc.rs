@@ -422,7 +422,7 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{check_func_space, check_metrics};
+    use crate::test_support::{check_func_space, check_metrics};
     use crate::traits::ParserTrait;
 
     use super::*;

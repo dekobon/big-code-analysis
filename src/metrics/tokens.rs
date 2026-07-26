@@ -200,7 +200,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{check_metrics, metrics_verbatim};
+    use crate::test_support::{check_metrics, metrics_verbatim};
 
     use super::*;
 
