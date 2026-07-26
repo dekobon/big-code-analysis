@@ -18,6 +18,10 @@
 //! [`serialize_bounded`] refuses to descend past a per-type limit and
 //! returns an ordinary serializer error, mirroring the 128-level recursion
 //! limit `serde_json`'s `Deserializer` already applies to the same shapes.
+//!
+//! The third recursion #1056 covered is not here: projecting a compute
+//! tree onto its wire form. That one *is* de-recursed outright, by
+//! `wire::map_tree`, which lives next to the `From` impls it serves.
 
 use std::cell::Cell;
 
