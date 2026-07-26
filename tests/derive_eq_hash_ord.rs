@@ -38,9 +38,9 @@ const SRC_B: &str = r"fn noop() {}
 
 #[test]
 fn cognitive_stats_partial_eq_same_and_different_source() {
-    let a1 = analyze_rust(SRC_A).metrics.cognitive;
-    let a2 = analyze_rust(SRC_A).metrics.cognitive;
-    let b = analyze_rust(SRC_B).metrics.cognitive;
+    let a1 = analyze_rust(SRC_A).metrics.cognitive.clone();
+    let a2 = analyze_rust(SRC_A).metrics.cognitive.clone();
+    let b = analyze_rust(SRC_B).metrics.cognitive.clone();
 
     assert_eq!(a1, a2, "same source must yield equal cognitive Stats");
     assert_ne!(a1, b, "different source must yield unequal cognitive Stats");
@@ -48,9 +48,9 @@ fn cognitive_stats_partial_eq_same_and_different_source() {
 
 #[test]
 fn halstead_stats_partial_eq_same_and_different_source() {
-    let a1 = analyze_rust(SRC_A).metrics.halstead;
-    let a2 = analyze_rust(SRC_A).metrics.halstead;
-    let b = analyze_rust(SRC_B).metrics.halstead;
+    let a1 = analyze_rust(SRC_A).metrics.halstead.clone();
+    let a2 = analyze_rust(SRC_A).metrics.halstead.clone();
+    let b = analyze_rust(SRC_B).metrics.halstead.clone();
 
     assert_eq!(a1, a2, "same source must yield equal halstead Stats");
     assert_ne!(a1, b, "different source must yield unequal halstead Stats");
@@ -58,9 +58,9 @@ fn halstead_stats_partial_eq_same_and_different_source() {
 
 #[test]
 fn loc_stats_partial_eq_same_and_different_source() {
-    let a1 = analyze_rust(SRC_A).metrics.loc;
-    let a2 = analyze_rust(SRC_A).metrics.loc;
-    let b = analyze_rust(SRC_B).metrics.loc;
+    let a1 = analyze_rust(SRC_A).metrics.loc.clone();
+    let a2 = analyze_rust(SRC_A).metrics.loc.clone();
+    let b = analyze_rust(SRC_B).metrics.loc.clone();
 
     assert_eq!(a1, a2, "same source must yield equal loc Stats");
     assert_ne!(a1, b, "different source must yield unequal loc Stats");

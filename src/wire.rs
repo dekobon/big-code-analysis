@@ -387,6 +387,98 @@ impl CodeMetrics {
     }
 }
 
+/// Greatest space-nesting depth [`FuncSpace`] and [`Ops`] will serialize.
+///
+/// Both are trees, and `serde` cannot emit a tree without one native stack
+/// frame per level, so the depth has to be bounded somewhere: past it, the
+/// runtime aborts the process instead of raising a catchable panic
+/// (#1056). A space tree deeper than this fails serialization with an
+/// ordinary serializer error naming the limit.
+///
+/// The value matches the recursion limit `serde_json`'s `Deserializer`
+/// already imposes on the same documents, and is generous against both
+/// ends of that comparison. On the read side, a `FuncSpace` costs *two*
+/// JSON nesting levels (its object plus its `spaces` array), so parsing
+/// one of these documents back caps out near 61 levels — the emit limit
+/// is the more permissive of the two. On the source side, the deepest
+/// space nesting across the 14 450-file corpus under `tests/repositories`
+/// is 10 levels.
+pub const MAX_SPACE_SERIALIZE_DEPTH: usize = 128;
+
+/// Maps a recursive compute-side tree onto its wire form using an explicit
+/// work stack.
+///
+/// The natural `children.iter().map(Self::from).collect()` recursion costs
+/// one stack frame per nesting level and overflows a default 2 MiB thread
+/// stack at roughly 900 levels of nested functions — a `SIGABRT`, not a
+/// catchable panic (#1056). Space nesting is attacker-controlled, so the
+/// conversion is iterative: `build` is called on each node exactly once,
+/// bottom-up, with that node's already-converted children.
+fn map_tree<'a, Src, Dst>(
+    root: &'a Src,
+    children_of: fn(&'a Src) -> &'a [Src],
+    build: fn(&'a Src, Vec<Dst>) -> Dst,
+) -> Dst {
+    // The root frame is held outside the stack so that popping a completed
+    // frame always has somewhere to deposit it, and so the loop needs no
+    // fallible "the stack cannot be empty here" step.
+    let mut root_frame = MapFrame::new(root, children_of);
+    let mut descendants = Vec::new();
+    loop {
+        let frame = match descendants.last_mut() {
+            Some(frame) => frame,
+            None => &mut root_frame,
+        };
+        let source = frame.source;
+        if let Some(child) = children_of(source).get(frame.next_child) {
+            frame.next_child += 1;
+            descendants.push(MapFrame::new(child, children_of));
+            continue;
+        }
+        // The current frame has no children left: fold it into its parent,
+        // or stop once that frame is the root.
+        let Some(done) = descendants.pop() else { break };
+        let converted = build(done.source, done.children);
+        match descendants.last_mut() {
+            Some(parent) => parent.children.push(converted),
+            None => root_frame.children.push(converted),
+        }
+    }
+    build(root_frame.source, root_frame.children)
+}
+
+/// One in-progress node of a [`map_tree`] walk.
+struct MapFrame<'a, Src, Dst> {
+    /// The compute-side node being converted.
+    source: &'a Src,
+    /// How many of `source`'s children have been pushed onto the walk.
+    next_child: usize,
+    /// Wire forms of the children completed so far, in source order.
+    children: Vec<Dst>,
+}
+
+impl<'a, Src, Dst> MapFrame<'a, Src, Dst> {
+    fn new(source: &'a Src, children_of: fn(&'a Src) -> &'a [Src]) -> Self {
+        Self {
+            source,
+            next_child: 0,
+            children: Vec::with_capacity(children_of(source).len()),
+        }
+    }
+}
+
+/// Serializes a [`FuncSpace`]'s children one nesting level deeper,
+/// refusing to descend past [`MAX_SPACE_SERIALIZE_DEPTH`].
+fn serialize_spaces<S: Serializer>(spaces: &[FuncSpace], serializer: S) -> Result<S::Ok, S::Error> {
+    crate::recursion::serialize_bounded(spaces, MAX_SPACE_SERIALIZE_DEPTH, "FuncSpace", serializer)
+}
+
+/// Serializes an [`Ops`] node's children one nesting level deeper,
+/// refusing to descend past [`MAX_SPACE_SERIALIZE_DEPTH`].
+fn serialize_ops_spaces<S: Serializer>(spaces: &[Ops], serializer: S) -> Result<S::Ok, S::Error> {
+    crate::recursion::serialize_bounded(spaces, MAX_SPACE_SERIALIZE_DEPTH, "Ops", serializer)
+}
+
 /// Wire form of [`crate::spaces::FuncSpace`] — a recursive metric tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FuncSpace {
@@ -399,6 +491,7 @@ pub struct FuncSpace {
     /// The space kind.
     pub kind: SpaceKind,
     /// All nested subspaces.
+    #[serde(serialize_with = "serialize_spaces")]
     pub spaces: Vec<FuncSpace>,
     /// The metrics of the space.
     pub metrics: CodeMetrics,
@@ -408,17 +501,25 @@ pub struct FuncSpace {
     pub suppressed: SuppressionScope,
 }
 
+// The wire tree mirrors the compute tree's nesting, so its `Drop` needs
+// the same de-recursion (#1056). See [`crate::recursion`].
+crate::recursion::impl_iterative_drop!(FuncSpace, spaces);
+
 impl From<&crate::spaces::FuncSpace> for FuncSpace {
     fn from(f: &crate::spaces::FuncSpace) -> Self {
-        Self {
-            name: f.name.clone(),
-            start_line: f.start_line,
-            end_line: f.end_line,
-            kind: f.kind,
-            spaces: f.spaces.iter().map(FuncSpace::from).collect(),
-            metrics: CodeMetrics::from(&f.metrics),
-            suppressed: f.suppressed.clone(),
-        }
+        map_tree(
+            f,
+            |source| &source.spaces,
+            |source, spaces| Self {
+                name: source.name.clone(),
+                start_line: source.start_line,
+                end_line: source.end_line,
+                kind: source.kind,
+                spaces,
+                metrics: CodeMetrics::from(&source.metrics),
+                suppressed: source.suppressed.clone(),
+            },
+        )
     }
 }
 
@@ -437,6 +538,7 @@ pub struct Ops {
     /// The space kind.
     pub kind: SpaceKind,
     /// All nested subspaces.
+    #[serde(serialize_with = "serialize_ops_spaces")]
     pub spaces: Vec<Ops>,
     /// The operands in the space.
     pub operands: Vec<String>,
@@ -444,18 +546,26 @@ pub struct Ops {
     pub operators: Vec<String>,
 }
 
+// The wire tree mirrors the compute tree's nesting, so its `Drop` needs
+// the same de-recursion (#1056). See [`crate::recursion`].
+crate::recursion::impl_iterative_drop!(Ops, spaces);
+
 impl From<&ops::Ops> for Ops {
     fn from(o: &ops::Ops) -> Self {
-        Self {
-            name: o.name.clone(),
-            name_was_lossy: o.name_was_lossy,
-            start_line: o.start_line,
-            end_line: o.end_line,
-            kind: o.kind,
-            spaces: o.spaces.iter().map(Ops::from).collect(),
-            operands: o.operands.clone(),
-            operators: o.operators.clone(),
-        }
+        map_tree(
+            o,
+            |source| &source.spaces,
+            |source, spaces| Self {
+                name: source.name.clone(),
+                name_was_lossy: source.name_was_lossy,
+                start_line: source.start_line,
+                end_line: source.end_line,
+                kind: source.kind,
+                spaces,
+                operands: source.operands.clone(),
+                operators: source.operators.clone(),
+            },
+        )
     }
 }
 
@@ -814,5 +924,184 @@ fn run() {
             assert!(!pruned_selected.contains(Metric::Cyclomatic));
             assert!(pruned.cyclomatic.is_none());
         });
+    }
+
+    // -----------------------------------------------------------------
+    // Stack-depth regression tests (#1056)
+    //
+    // The #700 / #709 small-stack tests cover the *dump* walk and build
+    // `FuncSpace` values by hand, so nothing exercised the wire
+    // conversion or `Serialize`. These drive `analyze` and then convert /
+    // serialize, because the hazard scales with `FuncSpace` nesting, not
+    // AST depth — nested parentheses reach depth 200 000 while opening a
+    // single space, so testing the wrong shape looks like a pass.
+    // -----------------------------------------------------------------
+
+    /// The size of a `bca` consumer thread and of a `tokio` blocking
+    /// thread — the stack the guarded limits are dimensioned against.
+    const PRODUCTION_STACK: usize = 2 * 1024 * 1024;
+
+    /// Deliberately far below `PRODUCTION_STACK`: a re-recursed `From` or
+    /// `Drop` fails loudly here instead of riding on the test runner's
+    /// generous stack.
+    const TIGHT_STACK: usize = 512 * 1024;
+
+    /// Rust source nesting `depth` functions, one `FuncSpace` per level
+    /// below the file-level `Unit`.
+    fn nested_functions(depth: usize) -> String {
+        use std::fmt::Write as _;
+        let mut source = String::with_capacity(depth * 14);
+        for level in 0..depth {
+            let _ = writeln!(source, "fn f{level}() {{");
+        }
+        for _ in 0..depth {
+            source.push_str("}\n");
+        }
+        source
+    }
+
+    /// Analyses [`nested_functions`], computing only `loc` so the cost of
+    /// unrelated metrics does not dominate a deep fixture.
+    fn analyze_nested(depth: usize) -> crate::FuncSpace {
+        crate::analyze(
+            crate::Source::new(crate::LANG::Rust, nested_functions(depth).as_bytes())
+                .with_name(Some("nested.rs".to_owned())),
+            crate::MetricsOptions::default().with_only(&[Metric::Loc]),
+        )
+        .expect("nested-function fixture must analyse")
+    }
+
+    /// Longest chain of nested spaces in `space`, measured without
+    /// recursing so the measurement cannot overflow before the code
+    /// under test does.
+    fn wire_nesting_depth(space: &FuncSpace) -> usize {
+        let mut deepest = 0;
+        let mut stack = vec![(space, 1_usize)];
+        while let Some((node, depth)) = stack.pop() {
+            deepest = deepest.max(depth);
+            for child in &node.spaces {
+                stack.push((child, depth + 1));
+            }
+        }
+        deepest
+    }
+
+    /// Runs `body` on a thread with an explicit stack so the result does
+    /// not depend on the test harness's own stack size.
+    fn on_stack<T: Send + 'static>(bytes: usize, body: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(bytes)
+            .spawn(body)
+            .expect("spawn bounded-stack thread")
+            .join()
+            .expect("bounded-stack thread must not overflow")
+    }
+
+    #[test]
+    fn deeply_nested_spaces_convert_to_wire_without_stack_overflow() {
+        // `From<&spaces::FuncSpace>` walks an explicit work stack: the
+        // former `spaces.iter().map(FuncSpace::from).collect()` recursed
+        // once per level and aborted the process at roughly 900 levels on
+        // a 2 MiB thread. Both trees also tear down inside the thread, so
+        // this covers the iterative `Drop` on the compute and wire types.
+        const DEPTH: usize = 8_000;
+        let depth = on_stack(TIGHT_STACK, || {
+            let space = analyze_nested(DEPTH);
+            wire_nesting_depth(&space.to_wire())
+        });
+        // The file-level `Unit` plus one `Function` space per nested `fn`.
+        assert_eq!(depth, DEPTH + 1, "the whole chain must survive conversion");
+    }
+
+    #[test]
+    fn spaces_deeper_than_the_limit_fail_serialization_rather_than_abort() {
+        // The reported symptom: `bca metrics -O json` on ~1 000 nested
+        // functions overflowed the stack, and a stack overflow is a
+        // `SIGABRT`, not a catchable panic — `bca-web`'s `spawn_blocking`
+        // wrapper cannot contain it. It must now be an ordinary error.
+        const DEPTH: usize = 8_000;
+        let message = on_stack(PRODUCTION_STACK, || {
+            let space = analyze_nested(DEPTH);
+            serde_json::to_string(&space)
+                .expect_err("nesting past the limit must fail, not serialize")
+                .to_string()
+        });
+        assert!(
+            message.contains("FuncSpace nesting is deeper than the serialization limit of 128"),
+            "the error must name the type and the limit, got: {message}"
+        );
+    }
+
+    #[test]
+    fn space_nesting_at_the_serialize_limit_is_accepted_and_one_deeper_is_not() {
+        // `depth` counts non-empty child lists, so `n` nested functions
+        // reach depth `n`: the file-level `Unit` down to the last `fn`
+        // that still contains another one.
+        let (accepted, rejected) = on_stack(PRODUCTION_STACK, || {
+            let at_limit = analyze_nested(MAX_SPACE_SERIALIZE_DEPTH);
+            let past_limit = analyze_nested(MAX_SPACE_SERIALIZE_DEPTH + 1);
+            (
+                [
+                    serde_json::to_string(&at_limit).is_ok(),
+                    serde_yaml::to_string(&at_limit).is_ok(),
+                    toml::to_string(&at_limit).is_ok(),
+                    {
+                        let mut bytes = Vec::new();
+                        ciborium::into_writer(&at_limit, &mut bytes).is_ok()
+                    },
+                ],
+                [
+                    serde_json::to_string(&past_limit).is_ok(),
+                    serde_yaml::to_string(&past_limit).is_ok(),
+                    toml::to_string(&past_limit).is_ok(),
+                    {
+                        let mut bytes = Vec::new();
+                        ciborium::into_writer(&past_limit, &mut bytes).is_ok()
+                    },
+                ],
+            )
+        });
+        assert_eq!(
+            accepted, [true; 4],
+            "exactly {MAX_SPACE_SERIALIZE_DEPTH} levels must serialize in every format"
+        );
+        assert_eq!(
+            rejected, [false; 4],
+            "one level past the limit must be refused in every format"
+        );
+    }
+
+    #[test]
+    fn deeply_nested_ops_convert_and_serialize_without_stack_overflow() {
+        // `Ops` mirrors `FuncSpace`'s nesting and had the same recursive
+        // `From` and `Serialize`, so it needs the same coverage.
+        const DEPTH: usize = 8_000;
+        let (converted_depth, message) = on_stack(PRODUCTION_STACK, || {
+            let ops = crate::Ast::parse(crate::Source::new(
+                crate::LANG::Rust,
+                nested_functions(DEPTH).as_bytes(),
+            ))
+            .expect("nested-function fixture must parse")
+            .ops()
+            .expect("nested-function fixture must yield ops");
+            let wire = Ops::from(&ops);
+            let mut deepest = 0;
+            let mut stack = vec![(&wire, 1_usize)];
+            while let Some((node, depth)) = stack.pop() {
+                deepest = deepest.max(depth);
+                for child in &node.spaces {
+                    stack.push((child, depth + 1));
+                }
+            }
+            let message = serde_json::to_string(&ops)
+                .expect_err("nesting past the limit must fail, not serialize")
+                .to_string();
+            (deepest, message)
+        });
+        assert_eq!(converted_depth, DEPTH + 1, "the whole chain must convert");
+        assert!(
+            message.contains("Ops nesting is deeper than the serialization limit of 128"),
+            "the error must name the type and the limit, got: {message}"
+        );
     }
 }

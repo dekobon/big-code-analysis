@@ -772,7 +772,9 @@ pub(crate) fn check_metrics<T: crate::ParserTrait>(
     filename: &str,
     check: fn(crate::CodeMetrics) -> (),
 ) {
-    check_func_space::<T, _>(source, filename, |func_space| check(func_space.metrics));
+    check_func_space::<T, _>(source, filename, |func_space| {
+        check(func_space.metrics.clone());
+    });
 }
 
 /// Analyses `source` **byte-for-byte** and returns its metrics.
@@ -794,6 +796,7 @@ pub(crate) fn metrics_verbatim(
     crate::analyze(crate::Source::new(lang, source), options)
         .expect("verbatim source must analyse")
         .metrics
+        .clone()
 }
 
 /// Asserts that `func_space` has a direct child space named `name` and that

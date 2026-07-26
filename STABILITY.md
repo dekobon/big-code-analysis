@@ -145,6 +145,19 @@ section.
     note below). `SpaceKind` additionally derives `Hash` (#552) so
     it can key a `HashMap`/`HashSet`. These derive additions only
     widen the trait set and are additive.
+
+    `FuncSpace` implements `Drop` (as do `Ops`, `AstNode`, and their
+    `wire` counterparts), so its fields cannot be moved out of a value
+    by name — `let m = space.metrics;` is `E0509`; clone or borrow
+    instead. This is the one source-level shape break landed under a
+    minor bump rather than held for `3.0` (#1056): the
+    compiler-generated `Drop` glue recursed once per nesting level and
+    aborted the process on a tree deep enough to reach through
+    `bca-web`'s body cap, and an explicit `Drop` that flattens
+    descendants into a work list is the only way to break that
+    recursion. Treat the `Drop` impls themselves as an implementation
+    detail — the contract is that these trees tear down in constant
+    stack, not the presence of any particular `Drop` body.
   - `FunctionSpan` in `src/function.rs`.
 - **Offender / catalog enums**
   - `Severity` in `src/output/offenders.rs` (re-exported from the
@@ -468,6 +481,21 @@ back with *this library's* serde stack:
 - `wire::CodeMetrics` round-trips the *selected* metric set: a metric
   absent from the document stays absent, and `wire::CodeMetrics::selected()`
   rebuilds the `MetricSet` from the present keys.
+
+**Nesting is bounded on the way out, too.** `serde` cannot emit a tree
+without one native stack frame per level, and overflowing that stack
+aborts the process instead of raising a catchable panic. Serialization
+therefore stops at `wire::MAX_SPACE_SERIALIZE_DEPTH` (128) nested
+`FuncSpace` / `Ops` levels and `MAX_AST_SERIALIZE_DEPTH` (512) nested
+`AstNode` levels, failing with an ordinary serializer error naming the
+type and the limit (#1056). The space limit mirrors the 128-level
+recursion limit `serde_json`'s `Deserializer` already applies on the
+way in — which, at two JSON levels per space, caps *reading* a document
+back near 61 levels, so the emit limit is the more generous of the two.
+For scale, the deepest space nesting across the 14 450-file corpus
+under `tests/repositories` is 10 levels, and the deepest AST is 188.
+Both limits may be raised in a minor bump; lowering one is a `3.0`
+break.
 
 The bit-exactness of float magnitudes is a property of *this library's*
 parser configuration, not of JSON text in general: a downstream consumer
@@ -1167,8 +1195,11 @@ Every release MUST update [`CHANGELOG.md`][changelog]:
   may also carry an **(breaking)** entry *only* for an MSRV bump
   (see [MSRV policy](#msrv-policy)), which is a toolchain break, not
   a source-level shape break. Treat that as the single permitted
-  exception; any other `(breaking)` entry in a minor section is a
-  bug.
+  routine exception; any other `(breaking)` entry in a minor section
+  needs the justification spelled out in the entry itself. Exactly one
+  such entry exists: the `Drop` impls on the result trees in `2.1.0`
+  (#1056), landed early because holding them for `3.0` would have left
+  a remotely-reachable process abort open.
 - **Patch bumps** list every *known* value change and any
   internal-only refactors that have user-visible effects (e.g. a
   default that flips). A patch bump never carries **(breaking)**.

@@ -57,6 +57,11 @@ pub struct Ops {
     pub operators: Vec<String>,
 }
 
+// Space nesting is caller-controlled, so the compiler-generated `Drop`
+// glue would recurse once per level and abort the process on a deep tree
+// (#1056). See [`crate::recursion`].
+crate::recursion::impl_iterative_drop!(Ops, spaces);
+
 impl Ops {
     /// Project this tree into its [`crate::wire::Ops`] form — the
     /// plain, `Deserialize`-capable record that defines the serialized
