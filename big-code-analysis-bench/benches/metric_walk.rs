@@ -96,6 +96,20 @@ fn bench_corpus(criterion: &mut Criterion, slice: &CorpusSlice) {
         );
         return;
     }
+    // A *partial* drop is the subtler case: `summary()` has already
+    // printed the whole slice, so without this the composition on
+    // screen would describe more files than the numbers underneath it
+    // were taken from — the exact mismatch the summary exists to
+    // prevent.
+    if parsed.len() < slice.files.len() {
+        eprintln!(
+            "note: {} of the {} selected files were dropped before measuring \
+             (their language is not compiled into this build); the composition \
+             printed above overstates what follows.",
+            slice.files.len() - parsed.len(),
+            slice.files.len(),
+        );
+    }
     let bytes = parsed
         .iter()
         .map(|(file, _)| file.source.len() as u64)

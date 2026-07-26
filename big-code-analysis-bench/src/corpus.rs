@@ -22,7 +22,7 @@
 //! quota is filled in that order, so two runs at the same parent
 //! commit select the same files.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -82,7 +82,9 @@ impl Default for Limits {
 
 /// One selected corpus file, with its contents already read.
 pub struct CorpusFile {
-    /// Path relative to the repository root, kept for reporting.
+    /// Absolute path to the file, kept for reporting. Absolute
+    /// because the roots are resolved against
+    /// [`repo_root`], which is derived from `CARGO_MANIFEST_DIR`.
     pub path: PathBuf,
     /// Language resolved from the file extension.
     pub lang: LANG,
@@ -135,8 +137,11 @@ impl CorpusSlice {
         let present: Vec<PathBuf> = roots.iter().filter(|r| r.is_dir()).cloned().collect();
 
         let mut by_lang: Candidates = BTreeMap::new();
+        // Shared across roots: two roots can alias the same tree
+        // through a symlink just as one root can alias itself.
+        let mut visited = HashSet::new();
         for root in &present {
-            collect_candidates(root, &mut by_lang);
+            collect_candidates(root, &mut visited, &mut by_lang);
         }
 
         let mut files = Vec::new();
@@ -262,7 +267,27 @@ type Candidates = BTreeMap<&'static str, (LANG, Vec<PathBuf>)>;
 
 /// Walks `dir` in sorted order, bucketing recognised source files by
 /// language.
-fn collect_candidates(dir: &Path, by_lang: &mut Candidates) {
+///
+/// `visited` holds the canonical path of every directory already
+/// walked, and is shared across roots. `Path::is_dir` follows
+/// symlinks, so without it a symlinked directory is walked a second
+/// time under its link path and every file beneath it enters the
+/// candidate list twice. That is not hypothetical: the corpus ships
+/// `DeepSpeech/tensorflow/native_client -> ../native_client`, which
+/// duplicated the whole Java bucket — [`CorpusSlice::summary`]
+/// reported sixteen files where there were eight, each measured
+/// twice. The same set also bounds the recursion: a symlink cycle
+/// would otherwise descend until the stack overflows, and a stack
+/// overflow aborts rather than unwinds.
+fn collect_candidates(dir: &Path, visited: &mut HashSet<PathBuf>, by_lang: &mut Candidates) {
+    // A directory that cannot be canonicalised is a broken symlink or
+    // one we cannot stat; either way there is nothing to walk.
+    let Ok(canonical) = fs::canonicalize(dir) else {
+        return;
+    };
+    if !visited.insert(canonical) {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -277,7 +302,7 @@ fn collect_candidates(dir: &Path, by_lang: &mut Candidates) {
             continue;
         }
         if path.is_dir() {
-            collect_candidates(&path, by_lang);
+            collect_candidates(&path, visited, by_lang);
         } else if let Some(lang) = get_language_for_file(&path) {
             by_lang
                 .entry(lang.name())
@@ -354,6 +379,59 @@ mod tests {
             slice.files.iter().map(|f| f.path.clone()).collect()
         };
         assert_eq!(paths(&first), paths(&second));
+    }
+
+    /// A symlinked directory does not duplicate the files beneath it.
+    ///
+    /// `Path::is_dir` follows symlinks, so an aliased subtree is
+    /// otherwise walked twice and every file in it enters the
+    /// candidate list under two paths. The corpus ships exactly this
+    /// (`DeepSpeech/tensorflow/native_client -> ../native_client`),
+    /// and it duplicated the entire Java bucket: `summary` claimed
+    /// sixteen files where there were eight, each of them benched
+    /// twice.
+    ///
+    /// Unix-only, and the attribute sits on the function rather than
+    /// inside it: creating a directory symlink needs elevated
+    /// privileges on Windows, and per lesson #40 a `#[cfg]` *inside* a
+    /// test body would make the test pass vacuously there instead of
+    /// visibly not existing.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_directory_is_walked_once() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let real = temp.path().join("real");
+        std::fs::create_dir(&real).expect("mkdir");
+        std::fs::write(real.join("only.rs"), vec![b'\n'; 1_024]).expect("write");
+        std::os::unix::fs::symlink(&real, temp.path().join("alias")).expect("symlink");
+
+        let slice = CorpusSlice::from_roots(&[temp.path().to_path_buf()]);
+        assert_eq!(
+            slice.files.len(),
+            1,
+            "the aliased file was selected {} times: {:?}",
+            slice.files.len(),
+            slice.files.iter().map(|f| &f.path).collect::<Vec<_>>(),
+        );
+    }
+
+    /// A symlink cycle terminates instead of recursing until the stack
+    /// overflows.
+    ///
+    /// A stack overflow raises `SIGABRT` rather than a catchable panic
+    /// (lesson #81), so the failure mode here would be an aborted
+    /// process, not a failing test.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_cycle_terminates() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let nested = temp.path().join("nested");
+        std::fs::create_dir(&nested).expect("mkdir");
+        std::fs::write(nested.join("leaf.rs"), vec![b'\n'; 1_024]).expect("write");
+        std::os::unix::fs::symlink(temp.path(), nested.join("loop")).expect("symlink");
+
+        let slice = CorpusSlice::from_roots(&[temp.path().to_path_buf()]);
+        assert_eq!(slice.files.len(), 1);
     }
 
     /// Hitting the byte ceiling is recorded and reported, not silently

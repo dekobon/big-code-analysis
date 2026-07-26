@@ -157,12 +157,16 @@ Three groups:
 
 The slice is bounded and deterministic: sorted traversal, a per-
 language file quota, and size limits, which given the pinned submodule
-commits select the same files on every run. Before measuring anything,
+commits select the same files on every run. Directories are deduplicated
+by canonical path, because `Path::is_dir` follows symlinks and the
+corpus contains aliased subtrees — without it the same file is selected
+twice under two paths, which is how the Java bucket first reported
+sixteen files that were really eight. Before measuring anything,
 the bench prints what it selected, and says so explicitly when the byte
 ceiling cut a language short. From one run:
 
 ```text
-corpus slice: 182 files, 886 KiB, from 3 root(s)
+corpus slice: 177 files, 903 KiB, from 3 root(s)
   root  .../tests/repositories/serde
   ...
   rust          16 files     224 KiB

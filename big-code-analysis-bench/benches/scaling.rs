@@ -27,6 +27,23 @@ use big_code_analysis_bench::cli::{Action, Mode, USAGE, parse_args};
 use big_code_analysis_bench::scaling;
 use big_code_analysis_bench::shapes::{PROBES, Probe};
 
+/// Exit code for "a probe left its complexity class".
+///
+/// Distinct from [`HARNESS_ERROR`] because
+/// `.github/workflows/benchmark.yml` reacts to the two differently: a
+/// regression is re-measured and then filed as an issue, while a
+/// harness that could not run is an infrastructure failure and must
+/// not open one. Collapsing both onto a bare failure meant any error
+/// that reproduced on the retry filed an issue claiming a complexity
+/// regression.
+const GATE_FAILURE: u8 = 1;
+
+/// Exit code for "the harness could not produce a measurement".
+///
+/// Bad arguments, or a `MetricsError` from a language that is not
+/// compiled into this build.
+const HARNESS_ERROR: u8 = 2;
+
 fn main() -> ExitCode {
     let args = match parse_args(std::env::args().skip(1)) {
         Ok(Action::Run(args)) => args,
@@ -36,7 +53,7 @@ fn main() -> ExitCode {
         }
         Err(message) => {
             eprintln!("{message}\n\n{USAGE}");
-            return ExitCode::FAILURE;
+            return ExitCode::from(HARNESS_ERROR);
         }
     };
 
@@ -67,7 +84,7 @@ fn main() -> ExitCode {
         Ok(report) => report,
         Err(error) => {
             eprintln!("scaling harness could not run: {error}");
-            return ExitCode::FAILURE;
+            return ExitCode::from(HARNESS_ERROR);
         }
     };
     print!("{report}");
@@ -113,5 +130,5 @@ fn main() -> ExitCode {
          min-max spread in the table above means the measurement, not the code, \
          is what changed."
     );
-    ExitCode::FAILURE
+    ExitCode::from(GATE_FAILURE)
 }

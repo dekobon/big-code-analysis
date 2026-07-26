@@ -38,6 +38,9 @@ big-code-analysis = { path = ".." }
 # what makes a measurement reviewable after the fact rather than a
 # number pasted into a commit message.
 criterion = { version = "^0.8", features = ["html_reports"] }
+# Test-only: the corpus-selection tests build symlinked fixture trees
+# rather than depending on the shape of the checked-out submodules.
+tempfile.workspace = true
 
 [[bench]]
 name = "metric_walk"
