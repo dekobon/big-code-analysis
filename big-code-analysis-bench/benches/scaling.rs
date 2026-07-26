@@ -84,18 +84,29 @@ fn main() -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
-    eprintln!(
-        "\n{} probe(s) exceeded their complexity bound:",
-        failures.len()
-    );
+    eprintln!("\n{} probe(s) failed:", failures.len());
     for probe in failures {
-        eprintln!(
-            "  {name}: fitted exponent {exp:.2} > {bound:.2}\n    {rationale}",
-            name = probe.name,
-            exp = probe.exponent,
-            bound = probe.max_exponent,
-            rationale = probe.rationale,
-        );
+        // An abandoned probe is reported by the budget it blew, not by
+        // its exponent: it was fitted over the cells that finished, so
+        // that number is flattering and quoting it reads as a harness
+        // bug rather than as the worst regression the gate can see.
+        if let Some((depth, elapsed)) = probe.over_budget {
+            eprintln!(
+                "  {name}: one walk at depth {depth} took {elapsed:?}, over the \
+                 {budget:?} per-walk budget\n    {rationale}",
+                name = probe.name,
+                budget = scaling::MAX_CELL_WALK,
+                rationale = probe.rationale,
+            );
+        } else {
+            eprintln!(
+                "  {name}: fitted exponent {exp:.2} > {bound:.2}\n    {rationale}",
+                name = probe.name,
+                exp = probe.exponent,
+                bound = probe.max_exponent,
+                rationale = probe.rationale,
+            );
+        }
     }
     eprintln!(
         "\nRe-run on an idle host before treating this as a regression; a wide \

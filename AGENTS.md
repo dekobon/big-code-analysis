@@ -20,6 +20,7 @@ The repository is a Cargo workspace:
 | `big-code-analysis-cli` | `big-code-analysis-cli/` | CLI for invoking the library on files / trees |
 | `big-code-analysis-py` | `big-code-analysis-py/` (excluded from default-members; needs Python headers + maturin) | PyO3 Python bindings |
 | `big-code-analysis-web` | `big-code-analysis-web/` | REST API server wrapping the library |
+| `big-code-analysis-bench` | `big-code-analysis-bench/` (excluded from default-members) | Out-of-band benchmark harness for the metric walk: the complexity-class gate (`make bench-scaling`) and criterion measurements (`make bench-walk`); see [`docs/development/benchmarking.md`](docs/development/benchmarking.md) |
 | `xtask` | `xtask/` (excluded from default-members) | Build-time helper that renders man pages from the live clap definitions (see `man/`) |
 | `enums` | `enums/` (excluded from default workspace) | Code-generation helper for language enums |
 
@@ -277,6 +278,16 @@ the per-PR gate (a full run is tens of minutes per file). Escapes
 auto-file a GitHub issue labelled `mutation-testing`. See
 [`docs/development/mutation_testing.md`](docs/development/mutation_testing.md)
 for local invocation and triage guidance.
+
+**Benchmarking** is the other out-of-band quarterly gate
+(`.github/workflows/benchmark.yml`, `big-code-analysis-bench`). It is
+deliberately not per-PR — shared runners cannot produce stable numbers,
+and a timing assertion in the unit suite already produced false
+failures in four environments. The consequence is that a reintroduced
+quadratic walk makes the unit tests *slow* rather than red, so run
+`make bench-scaling` around any change to AST traversal, `Checker`,
+`Getter`, or a metric's `compute`. See
+[`docs/development/benchmarking.md`](docs/development/benchmarking.md).
 
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.

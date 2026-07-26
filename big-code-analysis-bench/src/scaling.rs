@@ -63,7 +63,6 @@ const _: () = assert!(DEFAULT_ROUNDS % 2 == 1);
 
 /// Rounds discarded before measurement starts.
 ///
-///
 /// The first pass over a cell pays for cold instruction cache, lazy
 /// page faults on the freshly parsed tree, and CPU frequency ramp. Two
 /// throwaway rounds are cheap next to the cost of having them land in
@@ -106,9 +105,12 @@ const MAX_ITERATIONS: u32 = 64;
 /// and tripped a CI timeout instead of reporting a regression.
 ///
 /// Cells are built in increasing depth order, so a probe that blows
-/// past this at its shallowest depth is abandoned before the deeper
-/// ones are attempted, and reported as over budget — which counts as
-/// a failure, since a walk this slow is the regression.
+/// past this at one depth is abandoned before the deeper ones are
+/// attempted, and reported as over budget — which counts as a failure,
+/// since a walk this slow is the regression. The offending cell is
+/// dropped rather than measured: keeping it would multiply its cost by
+/// `rounds + WARMUP_ROUNDS` and reproduce the timeout this budget
+/// exists to avoid.
 pub const MAX_CELL_WALK: Duration = Duration::from_secs(20);
 
 /// One (probe, depth) cell, reduced across rounds.
@@ -148,9 +150,10 @@ pub struct ProbeReport {
     /// self-explanatory without opening the source.
     pub rationale: &'static str,
     /// Set when a single walk exceeded [`MAX_CELL_WALK`], carrying the
-    /// depth it happened at and how long it took. The probe's deeper
-    /// cells were never measured, so [`ProbeReport::exponent`] is
-    /// fitted over fewer points and is not the verdict — this is.
+    /// depth it happened at and how long it took. Neither that cell nor
+    /// the probe's deeper ones were measured, so
+    /// [`ProbeReport::exponent`] is fitted over fewer points and is not
+    /// the verdict — this is.
     pub over_budget: Option<(usize, Duration)>,
 }
 
@@ -173,7 +176,10 @@ pub struct Report {
 }
 
 impl Report {
-    /// Probes whose fitted exponent exceeded their declared bound.
+    /// Probes that did not [`ProbeReport::passed`]: a fitted exponent
+    /// over the declared bound, or a walk abandoned for exceeding
+    /// [`MAX_CELL_WALK`] — the latter can carry a flattering exponent,
+    /// so callers must report both reasons rather than only the bound.
     #[must_use]
     pub fn failures(&self) -> Vec<&ProbeReport> {
         self.probes.iter().filter(|p| !p.passed()).collect()
@@ -286,8 +292,9 @@ pub fn smoke_probes(probes: &[Probe]) -> Vec<Probe> {
 /// round, with the visit order rotated each round so no cell sits at a
 /// fixed position in the schedule.
 ///
-/// A probe whose walk exceeds [`MAX_CELL_WALK`] at one depth is not
-/// measured at the deeper ones, and is reported as over budget.
+/// A probe whose walk exceeds [`MAX_CELL_WALK`] at one depth is
+/// reported as over budget, and neither that cell nor the deeper ones
+/// are measured.
 ///
 /// # Errors
 ///
@@ -295,6 +302,24 @@ pub fn smoke_probes(probes: &[Probe]) -> Vec<Probe> {
 /// shape or walking it — in practice, a language feature disabled in
 /// the build.
 pub fn run(probes: &[Probe], rounds: usize) -> Result<Report, MetricsError> {
+    run_with_budget(probes, rounds, MAX_CELL_WALK)
+}
+
+/// [`run`], with the per-walk budget supplied by the caller.
+///
+/// Exists so the abandon path is testable: a budget of zero abandons
+/// every probe at its shallowest depth in milliseconds, where
+/// reproducing it through [`MAX_CELL_WALK`] would need a walk that
+/// genuinely takes twenty seconds.
+///
+/// # Errors
+///
+/// As [`run`].
+pub fn run_with_budget(
+    probes: &[Probe],
+    rounds: usize,
+    max_cell_walk: Duration,
+) -> Result<Report, MetricsError> {
     let mut pending = Vec::new();
     let mut over_budget: Vec<Option<(usize, Duration)>> = vec![None; probes.len()];
     for (index, probe) in probes.iter().enumerate() {
@@ -311,6 +336,14 @@ pub fn run(probes: &[Probe], rounds: usize) -> Result<Report, MetricsError> {
             let started = Instant::now();
             let space = ast.metrics(options)?;
             let single_walk = started.elapsed();
+            // Checked before the cell is retained: a cell kept here is
+            // walked once per round, so an over-budget one would cost
+            // `rounds + WARMUP_ROUNDS` times its already-excessive
+            // single-walk time.
+            if single_walk > max_cell_walk {
+                over_budget[index] = Some((depth, single_walk));
+                break;
+            }
             pending.push(Pending {
                 probe: index,
                 depth,
@@ -321,10 +354,6 @@ pub fn run(probes: &[Probe], rounds: usize) -> Result<Report, MetricsError> {
                 options,
                 timings: Vec::with_capacity(rounds),
             });
-            if single_walk > MAX_CELL_WALK {
-                over_budget[index] = Some((depth, single_walk));
-                break;
-            }
         }
     }
 
@@ -446,7 +475,9 @@ pub fn fit_exponent(points: &[(f64, f64)]) -> f64 {
 mod tests {
     use std::time::Duration;
 
-    use super::{ProbeReport, Report, SMOKE_DEPTHS, fit_exponent, median, run, smoke_probes};
+    use super::{
+        ProbeReport, Report, SMOKE_DEPTHS, fit_exponent, median, run, run_with_budget, smoke_probes,
+    };
     use crate::shapes::PROBES;
 
     /// Perfectly linear data fits an exponent of 1.
@@ -529,6 +560,37 @@ mod tests {
             format!("{full}").contains("ABANDONED"),
             "the report must say the probe was abandoned:\n{full}",
         );
+    }
+
+    /// An over-budget cell is dropped, not measured.
+    ///
+    /// The budget exists because a reintroduced quadratic walk hangs
+    /// rather than fails; retaining the offending cell would walk it
+    /// once per round and multiply the very cost being escaped. A
+    /// zero budget abandons every probe at its shallowest depth, so
+    /// the invariant is checked without a genuinely slow walk: no
+    /// cells at all, and the run finishes fast enough to sit in the
+    /// unit suite.
+    #[test]
+    fn an_over_budget_cell_is_never_measured() {
+        let probes = smoke_probes(PROBES);
+        let report = run_with_budget(&probes, 3, Duration::ZERO)
+            .expect("every probe language is compiled in");
+        for probe in &report.probes {
+            assert!(
+                probe.cells.is_empty(),
+                "{}: abandoned at depth {:?} but kept {} cell(s) to measure",
+                probe.name,
+                probe.over_budget.map(|(depth, _)| depth),
+                probe.cells.len(),
+            );
+            assert!(
+                probe.over_budget.is_some(),
+                "{}: a zero budget must abandon the shallowest cell",
+                probe.name,
+            );
+            assert!(!probe.passed(), "{}: an abandoned probe fails", probe.name);
+        }
     }
 
     #[test]
