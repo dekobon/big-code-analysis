@@ -32,10 +32,10 @@ use criterion::{Criterion, Throughput};
 
 /// Depth at which each shape is measured in the criterion group.
 ///
-/// The middle depth of the linear probes: deep enough to be the
-/// pathological input the shape exists to represent, shallow enough
-/// that the already-quadratic probes still finish in a criterion
-/// sample.
+/// The shallowest depth of the linear probes, which is also the
+/// deepest of the quadratic ones: deep enough to be the pathological
+/// input the shape exists to represent, shallow enough that the
+/// already-quadratic probes still finish in a criterion sample.
 const SHAPE_BENCH_DEPTH: usize = 1_000;
 
 fn main() {
@@ -84,6 +84,18 @@ fn bench_corpus(criterion: &mut Criterion, slice: &CorpusSlice) {
         return;
     }
     let parsed = parse_slice(slice);
+    // A slice can be non-empty and still retain nothing — selection is
+    // by file extension, so a build without those languages compiled in
+    // drops every file in `parse_slice`. Benching that would time empty
+    // loops and report them as excellent walk numbers.
+    if parsed.is_empty() {
+        eprintln!(
+            "skipping corpus benches: none of the {} selected files could be \
+             parsed and walked; are their languages compiled in?",
+            slice.files.len(),
+        );
+        return;
+    }
     let bytes = parsed
         .iter()
         .map(|(file, _)| file.source.len() as u64)

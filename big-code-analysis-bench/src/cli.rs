@@ -70,7 +70,7 @@ pub enum Action {
 ///
 /// Returns a message suitable for printing above [`USAGE`] when an
 /// option is unknown, or when `--rounds` is missing its value or given
-/// something that is not a positive integer.
+/// something that is not a positive odd integer.
 pub fn parse_args(argv: impl IntoIterator<Item = String>) -> Result<Action, String> {
     let mut rounds = DEFAULT_ROUNDS;
     let mut cargo_bench = false;
@@ -92,6 +92,17 @@ pub fn parse_args(argv: impl IntoIterator<Item = String>) -> Result<Action, Stri
                     .map_err(|_| format!("--rounds: not a positive integer: {value}"))?;
                 if rounds == 0 {
                     return Err("--rounds must be at least 1".to_owned());
+                }
+                // Same invariant the `DEFAULT_ROUNDS` const assert
+                // holds: an even count makes every median the average
+                // of its two middle samples, so one contended round
+                // moves the fit — which is the sensitivity the median
+                // is there to remove.
+                if rounds.is_multiple_of(2) {
+                    return Err(format!(
+                        "--rounds must be odd so each median is an observed \
+                         sample, not an average of two: {rounds}"
+                    ));
                 }
             }
             "--help" | "-h" => return Ok(Action::Help),
@@ -165,6 +176,9 @@ mod tests {
         for bad in [
             vec!["--rounds"],
             vec!["--rounds", "0"],
+            // Even counts make every median an average of two samples,
+            // which `USAGE` forbids and `DEFAULT_ROUNDS` asserts.
+            vec!["--rounds", "10"],
             vec!["--rounds", "many"],
             vec!["--unknown"],
         ] {
