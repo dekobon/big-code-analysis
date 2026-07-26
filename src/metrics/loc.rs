@@ -40,12 +40,39 @@ fn min_or_zero(v: usize) -> u64 {
     if v == usize::MAX { 0 } else { v as u64 }
 }
 
+/// Number of physical source rows covered by a span running from
+/// `start_row` to `(end_row, end_column)`.
+///
+/// A span occupies rows `start_row..=end_row`, so the naive count is
+/// `end_row - start_row + 1`. The exception is a span whose end position
+/// sits at column 0: it stops *before* that row contributes a single
+/// character, so the row belongs to whatever follows and must not be
+/// counted. That case is not exotic — tree-sitter's root node runs to
+/// end-of-input, so every newline-terminated file's unit span ends at
+/// `(last_row + 1, 0)`, and tree-sitter-perl's `function_definition`
+/// swallows the newline after the closing brace of a file's last `sub`.
+///
+/// Keying on the end column rather than on "is this the unit?" is what
+/// fixes issue #1067: the old unit/non-unit split silently assumed the
+/// unit always ends at column 0 (false for un-newline-terminated input,
+/// which then lost a row) and that nothing else ever does (false for
+/// Perl, whose last `sub` gained one).
+///
+/// Requires `end_row >= start_row`, which tree-sitter guarantees for a
+/// single node's own span.
+#[inline]
+fn span_rows(start_row: usize, end_row: usize, end_column: usize) -> usize {
+    (end_row - start_row) + usize::from(end_column > 0)
+}
+
 /// The `SLoc` metric suite.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sloc {
     start: usize,
     end: usize,
-    unit: bool,
+    // Column of the span's end position. See `span_rows`: it decides
+    // whether the final row is really covered by the span.
+    end_column: usize,
     // Physical lines removed from this space's span by `exclude_tests`
     // pruning. `sloc` is the lone loc sub-metric computed by span
     // subtraction rather than node-by-node accumulation, so a pruned
@@ -64,7 +91,7 @@ impl Default for Sloc {
         Self {
             start: 0,
             end: 0,
-            unit: false,
+            end_column: 0,
             excluded_lines: 0,
             sloc_min: usize::MAX,
             sloc_max: 0,
@@ -77,14 +104,10 @@ impl Sloc {
     #[inline]
     #[must_use]
     pub fn sloc(&self) -> u64 {
-        // This metric counts the number of lines in a file
-        // The if construct is needed to count the line of code that represents
-        // the function signature in a function space
-        let span = if self.unit {
-            self.end - self.start
-        } else {
-            (self.end - self.start) + 1
-        };
+        // This metric counts the number of physical lines this space
+        // occupies, including blanks and comments. See `span_rows` for why
+        // the end column decides whether the last row counts.
+        let span = span_rows(self.start, self.end, self.end_column);
         // Subtract the lines belonging to `exclude_tests`-pruned subtrees
         // (issue #722). `saturating_sub` is defensive: `excluded_lines`
         // can never exceed the span (each pruned subtree is contained in
@@ -93,11 +116,11 @@ impl Sloc {
         span.saturating_sub(self.excluded_lines) as u64
     }
 
-    /// Records a pruned (`exclude_tests`) subtree's inclusive row span so
-    /// that `sloc()` drops in step with the node-accumulated loc
-    /// sub-metrics. `start_row`/`end_row` are the pruned node's
-    /// `start_row()`/`end_row()`; both endpoints are real source rows, so
-    /// the line count is `end_row - start_row + 1`.
+    /// Records a pruned (`exclude_tests`) subtree's row span so that
+    /// `sloc()` drops in step with the node-accumulated loc sub-metrics.
+    /// The arguments are the pruned node's own start row and end position;
+    /// its row count follows the same `span_rows` rule the enclosing span
+    /// was measured with, so the subtraction cannot overshoot.
     ///
     /// Pruned subtrees are whole Rust items (`mod`/`fn`/`impl`/…) that
     /// rustfmt places on dedicated rows, so they share no physical line
@@ -106,8 +129,8 @@ impl Sloc {
     /// pruned item is never recorded twice). The counts therefore add
     /// without an interval merge (issue #722).
     #[inline]
-    pub(crate) fn exclude_span(&mut self, start_row: usize, end_row: usize) {
-        self.excluded_lines += (end_row - start_row) + 1;
+    pub(crate) fn exclude_span(&mut self, start_row: usize, end_row: usize, end_column: usize) {
+        self.excluded_lines += span_rows(start_row, end_row, end_column);
     }
 
     /// The `Sloc` metric minimum value. See `min_or_zero` for the
@@ -449,9 +472,11 @@ impl Stats {
     #[cfg(test)]
     pub(crate) fn with_cloc_sloc(code_comment_lines: usize, sloc_end_row: usize) -> Self {
         let mut stats = Stats::default();
-        stats.sloc.unit = false;
         stats.sloc.start = 0;
         stats.sloc.end = sloc_end_row;
+        // Non-zero so the final row counts: the synthetic span models a
+        // real span ending mid-line, giving `sloc == sloc_end_row + 1`.
+        stats.sloc.end_column = 1;
         // Inject `code_comment_lines` distinct synthetic code-comment
         // rows. An offset past `sloc_end_row` keeps them disjoint from
         // any real span row, so `cloc()` (the set's cardinality) equals
@@ -479,14 +504,19 @@ impl Stats {
         self.blank_max = self.blank_max.max(other.blank_max);
     }
 
-    /// Records an `exclude_tests`-pruned subtree spanning rows
-    /// `start_row..=end_row` so this space's `sloc()` excludes those
-    /// physical lines, matching the node-accumulated loc sub-metrics that
-    /// the pruning already drops (issue #722). Called from the walker for
-    /// the space enclosing each skipped subtree.
+    /// Records an `exclude_tests`-pruned subtree's span so this space's
+    /// `sloc()` excludes those physical lines, matching the
+    /// node-accumulated loc sub-metrics that the pruning already drops
+    /// (issue #722). Called from the walker for the space enclosing each
+    /// skipped subtree.
     #[inline]
-    pub(crate) fn exclude_test_span(&mut self, start_row: usize, end_row: usize) {
-        self.sloc.exclude_span(start_row, end_row);
+    pub(crate) fn exclude_test_span(
+        &mut self,
+        start_row: usize,
+        end_row: usize,
+        end_column: usize,
+    ) {
+        self.sloc.exclude_span(start_row, end_row, end_column);
     }
 
     /// The `Sloc` metric.
@@ -673,10 +703,10 @@ impl Stats {
         self.blank_max = self.blank_max.max(self.blank() as usize);
     }
 
-    pub(crate) fn init_unit_span(&mut self, start: usize, end: usize) {
+    pub(crate) fn init_unit_span(&mut self, start: usize, end: usize, end_column: usize) {
         self.sloc.start = start;
         self.sloc.end = end;
-        self.sloc.unit = true;
+        self.sloc.end_column = end_column;
     }
 }
 
@@ -688,7 +718,7 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool);
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool);
 }
 
 mod shared;
@@ -735,7 +765,7 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_metrics, metrics_verbatim};
+    use crate::test_support::{check_metrics, metrics_verbatim, space_verbatim};
 
     use super::*;
 
@@ -9369,10 +9399,10 @@ class A {
     #[test]
     fn blank_clamps_negative_to_zero() {
         let mut stats = Stats::default();
-        // sloc() for a non-unit span is `end - start + 1` => 1 row.
-        stats.sloc.unit = false;
+        // A single-row span ending mid-line => sloc() of 1 row.
         stats.sloc.start = 0;
         stats.sloc.end = 0;
+        stats.sloc.end_column = 1;
         // ploc() is the cardinality of the physical-line set => 1.
         stats.ploc.lines.insert(0);
         // One comment-only line on the same single row.
@@ -9957,5 +9987,198 @@ class A {
         assert_eq!(after_code.ploc(), 1);
         // Lone `\r`, then EOF: no newline consumed, so no discount is owed.
         assert_eq!(rust_loc(b"/// x\r").cloc(), 1);
+    }
+
+    /// One-line, deliberately un-newline-terminated source, one entry per
+    /// language whose `Loc` implementation is not a documented no-op.
+    ///
+    /// `sloc` is computed once, in the shared [`Sloc`], from the unit
+    /// span the grammar hands us — so the only per-language variable is
+    /// where each grammar puts the root node's end position. #1067 was
+    /// possible precisely because that position was assumed rather than
+    /// read, so the sweep is exhaustive rather than a sample: a future
+    /// grammar whose root does *not* run to end-of-input has to show up
+    /// here rather than silently lose a row.
+    ///
+    /// `Preproc` and `Ccomment` are excluded on purpose: their `Loc`
+    /// impls are no-ops (`implement_metric_trait!(Loc, PreprocCode,
+    /// CcommentCode)`), so every LOC sub-metric is 0 by design (#188).
+    const UNTERMINATED_ONE_LINERS: &[(crate::LANG, &[u8])] = &[
+        (crate::LANG::Rust, b"fn main() {}"),
+        (crate::LANG::C, b"int main(void) { return 0; }"),
+        (crate::LANG::Cpp, b"int main() { return 0; }"),
+        (crate::LANG::Mozcpp, b"int main() { return 0; }"),
+        (crate::LANG::Objc, b"int main(void) { return 0; }"),
+        (crate::LANG::Csharp, b"class C { void M() {} }"),
+        (crate::LANG::Java, b"class C { void m() {} }"),
+        (crate::LANG::Kotlin, b"fun main() {}"),
+        (crate::LANG::Groovy, b"def f() {}"),
+        (crate::LANG::Go, b"package main"),
+        (crate::LANG::Javascript, b"function f() {}"),
+        (crate::LANG::Mozjs, b"function f() {}"),
+        (crate::LANG::Typescript, b"function f(): void {}"),
+        (crate::LANG::Tsx, b"function f() {}"),
+        (crate::LANG::Python, b"def f(): pass"),
+        (crate::LANG::Ruby, b"def f; end"),
+        (crate::LANG::Php, b"<?php function f() {}"),
+        (crate::LANG::Perl, b"sub f { return 1; }"),
+        (crate::LANG::Bash, b"f() { echo hi; }"),
+        (crate::LANG::Lua, b"function f() end"),
+        (crate::LANG::Tcl, b"proc f {} {}"),
+        (crate::LANG::Irules, b"proc f {} {}"),
+        (crate::LANG::Elixir, b"defmodule M do end"),
+    ];
+
+    /// #1067: `Sloc::sloc()` derived the unit's row count as `end - start`,
+    /// which is only right when a trailing newline pushes the root node's
+    /// end onto a phantom extra row. Source that stops mid-line — anything
+    /// not newline-terminated — lost its final row, so a one-line file
+    /// reported `sloc == 0`.
+    ///
+    /// Uses [`metrics_verbatim`], not `check_metrics`: the latter trims and
+    /// re-appends a trailing newline, which makes this entire input class
+    /// unreachable and the test vacuous (the same blind spot that hid
+    /// #1051).
+    #[test]
+    fn unterminated_one_line_file_reports_one_source_line() {
+        for (lang, source) in UNTERMINATED_ONE_LINERS {
+            let text = String::from_utf8_lossy(source);
+            let loc = metrics_verbatim(*lang, source, MetricsOptions::default()).loc;
+            assert_eq!(loc.sloc(), 1, "{lang:?} sloc for {text:?}");
+            // The largest space can never be bigger than the file itself.
+            assert_eq!(loc.sloc_max(), 1, "{lang:?} sloc_max for {text:?}");
+            // The invariant documented on `Stats::with_cloc_sloc`: every
+            // physical line is code, comment, both, or blank, so the code
+            // and comment-only tallies cannot together exceed the row
+            // count. `sloc == 0` broke it for any unterminated file whose
+            // last line carried content.
+            assert!(
+                loc.cloc() + loc.ploc() <= loc.sloc(),
+                "{lang:?}: cloc {} + ploc {} exceeds sloc {} for {text:?}",
+                loc.cloc(),
+                loc.ploc(),
+                loc.sloc(),
+            );
+        }
+    }
+
+    /// Whether the last line ends in a newline is a formatting detail, not
+    /// a property of the code — no LOC sub-metric, and therefore no MI
+    /// value, may depend on it. This is the invariant #1067 violated, and
+    /// it pins the fix from both sides: the newline-terminated path (the
+    /// one every in-tree harness exercises) must not move either.
+    #[test]
+    fn trailing_newline_does_not_change_loc_or_mi() {
+        for (lang, source) in UNTERMINATED_ONE_LINERS {
+            let text = String::from_utf8_lossy(source);
+            let bare = metrics_verbatim(*lang, source, MetricsOptions::default());
+            let mut newline_terminated = source.to_vec();
+            newline_terminated.push(b'\n');
+            let terminated =
+                metrics_verbatim(*lang, &newline_terminated, MetricsOptions::default());
+
+            assert_eq!(
+                bare.loc.sloc(),
+                terminated.loc.sloc(),
+                "{lang:?} sloc {text:?}"
+            );
+            assert_eq!(
+                bare.loc.ploc(),
+                terminated.loc.ploc(),
+                "{lang:?} ploc {text:?}"
+            );
+            assert_eq!(
+                bare.loc.cloc(),
+                terminated.loc.cloc(),
+                "{lang:?} cloc {text:?}"
+            );
+            assert_eq!(
+                bare.loc.lloc(),
+                terminated.loc.lloc(),
+                "{lang:?} lloc {text:?}"
+            );
+            assert_eq!(
+                bare.loc.blank(),
+                terminated.loc.blank(),
+                "{lang:?} blank {text:?}"
+            );
+            // The MI knock-on: `mi::inputs_are_empty` short-circuits to
+            // 0.0 on `sloc <= 0`, so before the fix every unterminated
+            // one-liner reported MI 0 while its newline-terminated twin
+            // reported a real score. Inputs are now identical, so the
+            // three formulas agree bit-for-bit.
+            assert_eq!(
+                bare.mi.original(),
+                terminated.mi.original(),
+                "{lang:?} mi {text:?}"
+            );
+            assert_eq!(
+                bare.mi.sei(),
+                terminated.mi.sei(),
+                "{lang:?} mi.sei {text:?}"
+            );
+            assert_eq!(
+                bare.mi.visual_studio(),
+                terminated.mi.visual_studio(),
+                "{lang:?} mi.visual_studio {text:?}",
+            );
+            assert_ne!(bare.mi.original(), 0.0, "{lang:?} mi must not be zeroed");
+        }
+    }
+
+    /// The second #1067 symptom: `b"fn f(){}\n/// x"` reported `sloc == 1`
+    /// with `ploc == 1` *and* `cloc == 1`, so `cloc + ploc > sloc`. The
+    /// file has two rows; only the missing one made the sums disagree.
+    #[test]
+    fn unterminated_trailing_comment_upholds_the_cloc_ploc_invariant() {
+        // expected: row 0 is code, row 1 is comment-only, nothing blank.
+        let loc = rust_loc(b"fn f(){}\n/// x");
+        assert_eq!(loc.sloc(), 2);
+        assert_eq!(loc.ploc(), 1);
+        assert_eq!(loc.cloc(), 1);
+        assert_eq!(loc.blank(), 0);
+    }
+
+    /// Degenerate inputs, pinned so the `end_column` rule cannot drift
+    /// into fabricating rows for files that have none.
+    #[test]
+    fn degenerate_inputs_report_their_real_row_count() {
+        // No bytes, no rows.
+        assert_eq!(rust_loc(b"").sloc(), 0);
+        // One row of whitespace, unterminated: the root node is empty but
+        // sits at column 3, so the row is real and counts as blank.
+        let spaces = rust_loc(b"   ");
+        assert_eq!(spaces.sloc(), 1);
+        assert_eq!(spaces.blank(), 1);
+        // Known limitation, unchanged by #1067: for whitespace-only input
+        // that *is* newline-terminated, tree-sitter collapses the root to a
+        // zero-width node at end-of-input (`(1, 0)..(1, 0)` for `"\n"`), so
+        // there is no span left to attribute rows from. Both rows of
+        // `"\n\n"` are likewise invisible.
+        assert_eq!(rust_loc(b"\n").sloc(), 0);
+        assert_eq!(rust_loc(b"\n\n").sloc(), 0);
+    }
+
+    /// The non-unit half of the same off-by-one. tree-sitter-perl's
+    /// `function_definition` swallows the newline after the closing brace
+    /// of a file's **last** `sub`, so that node's span ends at column 0 of
+    /// a row it does not occupy. The old unconditional `+ 1` credited that
+    /// row, inflating the last sub of every Perl file by one line — here,
+    /// reporting a 3-row `sub` as 4.
+    #[test]
+    fn perl_last_sub_does_not_absorb_the_trailing_newline() {
+        // Two identical 3-row subs; only the second hits the quirk.
+        let space = space_verbatim(
+            crate::LANG::Perl,
+            b"sub f {\n    return 1;\n}\nsub g {\n    return 2;\n}\n",
+            MetricsOptions::default(),
+        );
+        assert_eq!(space.metrics.loc.sloc(), 6, "the file has six rows");
+        let subs: Vec<u64> = space
+            .spaces
+            .iter()
+            .map(|child| child.metrics.loc.sloc())
+            .collect();
+        assert_eq!(subs, vec![3, 3], "both subs occupy three rows");
     }
 }

@@ -14,8 +14,8 @@
 use super::*;
 
 impl Loc for LuaCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
-        let (start, end) = init(node, stats, is_func_space, is_unit);
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+        let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             // Skip root.

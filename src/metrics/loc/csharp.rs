@@ -14,10 +14,10 @@
 use super::*;
 
 impl Loc for CsharpCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
         use Csharp::*;
 
-        let (start, end) = init(node, stats, is_func_space, is_unit);
+        let (start, end) = init(node, stats, is_func_space);
         let kind_id: Csharp = node.kind_id().into();
         match kind_id {
             CompilationUnit => {}

@@ -14,10 +14,10 @@
 use super::*;
 
 impl Loc for RubyCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
         use Ruby as R;
 
-        let (start, end) = init(node, stats, is_func_space, is_unit);
+        let (start, end) = init(node, stats, is_func_space);
         match node.kind_id().into() {
             R::Program => {}
             R::Comment => {

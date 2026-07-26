@@ -84,7 +84,7 @@ macro_rules! implement_metric_trait {
     (Loc, $($code:ident),+) => (
         $(
            impl Loc for $code {
-               fn compute(_node: &Node, _stats: &mut Stats, _is_func_space: bool, _is_unit: bool) {}
+               fn compute(_node: &Node, _stats: &mut Stats, _is_func_space: bool) {}
            }
         )+
     );

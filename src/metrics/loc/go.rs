@@ -14,12 +14,12 @@
 use super::*;
 
 impl Loc for GoCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides with
         // the bare enum name in pattern position under `use Go::*;`.
         use Go as G;
 
-        let (start, end) = init(node, stats, is_func_space, is_unit);
+        let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
             G::SourceFile | G::InterpretedStringLiteral => {}
