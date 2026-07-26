@@ -1,19 +1,24 @@
 [workspace]
 resolver = "3"
 members = [
+  "big-code-analysis-bench",
   "big-code-analysis-cli",
   "big-code-analysis-py",
   "big-code-analysis-web",
   "xtask",
 ]
-# `xtask` and `big-code-analysis-py` are intentionally excluded from
-# `default-members`. `xtask` is a build-time helper that renders man
-# pages from the live clap definitions (see `xtask/src/main.rs` and
-# `man/`); `big-code-analysis-py` is a PyO3 cdylib that requires
-# Python headers and is built via `maturin`, not pure cargo. Both
-# build cleanly under `cargo build --workspace`, but a bare
-# `cargo build` at the repo root should not pull in artefacts that
-# have no shipping counterpart in a Rust-only build.
+# `xtask`, `big-code-analysis-py`, and `big-code-analysis-bench` are
+# intentionally excluded from `default-members`. `xtask` is a
+# build-time helper that renders man pages from the live clap
+# definitions (see `xtask/src/main.rs` and `man/`);
+# `big-code-analysis-py` is a PyO3 cdylib that requires Python headers
+# and is built via `maturin`, not pure cargo;
+# `big-code-analysis-bench` is the out-of-band benchmark harness
+# (#1068, `docs/development/benchmarking.md`), which pulls criterion
+# and is never part of a shipping build. All three build cleanly under
+# `cargo build --workspace`, but a bare `cargo build` at the repo root
+# should not pull in artefacts that have no shipping counterpart in a
+# Rust-only build.
 default-members = [".", "big-code-analysis-cli", "big-code-analysis-web"]
 exclude = [
   "enums",

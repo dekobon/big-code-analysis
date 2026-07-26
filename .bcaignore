@@ -24,6 +24,11 @@
 ./packaging/**
 ./utils/**
 ./xtask/**
+# Dev tooling, same treatment as ./xtask/**: the benchmark harness
+# (#1068) ships nothing, and its report formatters are long runs of
+# `writeln!(...)?` whose `nexits` counts say nothing about production
+# maintainability.
+./big-code-analysis-bench/**
 ./generate-grammars/**
 ./man/**
 ./abuild-keys/**

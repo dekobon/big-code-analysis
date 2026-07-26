@@ -59,7 +59,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
 help:
@@ -111,6 +111,9 @@ help:
 	@echo "  self-scan-write-baseline             Refresh .bca-baseline.toml at the hard thresholds"
 	@echo "  self-scan-write-baseline-headroom    Refresh .bca-baseline.toml at the soft thresholds"
 	@echo "  vcs                                  Change-history (VCS) risk report for this repo"
+	@echo "  bench                                bench-scaling + bench-walk (out-of-band; never in ci)"
+	@echo "  bench-scaling                        Complexity-class gate for the metric walk"
+	@echo "  bench-walk                           Criterion metric-walk benchmarks over a corpus slice"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
@@ -723,6 +726,34 @@ py-stubtest:
 	      --allowlist stubtest-allowlist.txt) || \
 	    { echo "stubtest found stub/runtime drift"; exit 1; }; \
 	else echo "maturin or mypy stubtest not found; skipping py-stubtest"; fi
+
+# ---------------------------------------------------------------------------
+# Benchmark harness (#1068)
+# ---------------------------------------------------------------------------
+# Deliberately NOT wired into `pre-commit` / `ci` / `lint`. Shared
+# runners cannot produce stable numbers, and a timing assertion in the
+# per-PR gate is exactly what this harness replaced — see
+# docs/development/benchmarking.md. The scheduled
+# .github/workflows/benchmark.yml runs `bench-scaling` out of band, and
+# a human runs these around any change to the metric walk.
+#
+#   bench-scaling   complexity-class gate: fits time ~ depth^k per probe
+#                   and fails when k exceeds the probe's bound.
+#   bench-walk      criterion measurements over the corpus slice, per
+#                   metric. Pass criterion flags after `--`, e.g.
+#                   `make bench-walk BENCH_ARGS="--save-baseline before"`.
+#   bench           both.
+BENCH_ARGS ?=
+
+bench: bench-scaling bench-walk
+
+bench-scaling:
+	@echo "Running the metric-walk complexity-class gate..."
+	@cargo bench -p big-code-analysis-bench --bench scaling -- $(BENCH_ARGS)
+
+bench-walk:
+	@echo "Running criterion metric-walk benchmarks..."
+	@cargo bench -p big-code-analysis-bench --bench metric_walk -- $(BENCH_ARGS)
 
 # ---------------------------------------------------------------------------
 # Release/wheel smoke harnesses (#995)

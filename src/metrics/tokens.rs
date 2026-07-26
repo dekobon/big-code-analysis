@@ -445,39 +445,34 @@ mod tests {
         )
     }
 
-    /// Deeply nested input must stay tractable (#1052).
+    /// The token count holds thousands of levels deep (#1052).
     ///
     /// The metric used to walk each leaf's ancestor chain to decide
     /// comment membership. `Node::parent` is itself `O(depth)`, so that
     /// cost `O(leaves × depth²)`: depth 1000 took ~19 s and depth 2000
-    /// over two minutes, which would hang CI rather than fail it. The
-    /// walker now propagates the flag down the traversal in `O(1)` per
-    /// node, and this runs in milliseconds.
+    /// over two minutes. The walker now propagates the flag down the
+    /// traversal in `O(1)` per node, and this runs in milliseconds.
     ///
     /// The count is asserted by formula rather than hand-counted: each
     /// added paren pair contributes exactly two leaves, so the delta
     /// between consecutive depths pins the metric without depending on
     /// how the grammar tokenises the surrounding function.
+    ///
+    /// Counts only. The pre-#1052 implementation produced these *same*
+    /// counts, only quadratically, so this test cannot tell the two
+    /// apart — that job belongs to the `tokens/nested-paren` probe in
+    /// the benchmark harness (#1068), which fits an exponent across
+    /// three depths: `cargo bench -p big-code-analysis-bench --bench
+    /// scaling`. The wall-clock budget that used to sit here was
+    /// calibrated to one machine and this suite also runs under `cargo
+    /// llvm-cov` and on shared Windows / macOS runners; the equivalent
+    /// assertion in `cognitive` produced false failures in four
+    /// separate environments before it was retired.
     #[test]
-    fn tokens_deep_nesting_is_tractable() {
+    fn tokens_count_holds_at_depth() {
         let shallow = tokens_of(&nested_parens(1));
         assert_eq!(tokens_of(&nested_parens(2)), shallow + 2);
-
-        // Bound the wall clock, not just the count: the pre-#1052
-        // implementation produced the *same* counts, only quadratically,
-        // so a count assertion alone turns a reintroduced ancestor walk
-        // into a hung CI job rather than a failure. The budget is ~500x
-        // the observed cost (single-digit ms with `Tokens` alone), so it
-        // discriminates a quadratic blow-up without being timing-flaky.
-        let started = std::time::Instant::now();
         assert_eq!(tokens_of(&nested_parens(2000)), shallow + 2 * 1999);
-        let elapsed = started.elapsed();
-        assert!(
-            elapsed < std::time::Duration::from_secs(5),
-            "depth-2000 token count took {elapsed:?}; the per-leaf \
-             ancestor walk (#1052) is quadratic in nesting depth and \
-             took minutes at this depth"
-        );
     }
 
     /// A comment deep in the tree still contributes nothing.

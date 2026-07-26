@@ -1,0 +1,25 @@
+//! Benchmark harness for the `big-code-analysis` metric walk (#1068).
+//!
+//! The crate is split three ways:
+//!
+//! - [`shapes`] generates the synthetic depth-scaling inputs and pairs
+//!   each with the metric selection that exercises one hot path.
+//! - [`scaling`] measures those inputs and fits an empirical complexity
+//!   exponent, so a regression is caught as a *class* change rather
+//!   than as a wall-clock budget overrun.
+//! - [`corpus`] resolves a deterministic slice of the checked-out
+//!   corpus submodules and reports what it actually contains.
+//!
+//! Two bench targets drive them: `benches/scaling.rs` (the
+//! complexity-class gate) and `benches/metric_walk.rs` (criterion
+//! measurements over the corpus slice, per metric). [`cli`] holds the
+//! former's argument handling, which lives here rather than in the
+//! bench target so it is covered by tests that actually run.
+//!
+//! See `docs/development/benchmarking.md` for invocation and for the
+//! measurement traps this harness exists to prevent.
+
+pub mod cli;
+pub mod corpus;
+pub mod scaling;
+pub mod shapes;
