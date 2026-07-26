@@ -4208,7 +4208,7 @@ harness that contains every other failure cannot contain this one. The
 process dies, taking every in-flight request with it.
 
 **#700 / #709 de-recursed every walk and left the types recursive**
-(#1056, `3fd01c70`). The three small-stack regression tests those issues
+(#1056, `93547880`). The three small-stack regression tests those issues
 left behind all passed, because all three exercise the *dump* walk and
 construct their fixtures by hand. Meanwhile `bca metrics -O json` on
 1 000 nested functions — 11 KB of source — aborted the process, and the
