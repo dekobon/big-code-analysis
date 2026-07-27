@@ -155,9 +155,14 @@ fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
         .operators
         .keys()
         .map(|k| T::Getter::get_operator_id_as_str(*k).to_owned())
-        .chain(maps.primitive_operators.keys().map(|k| bytes_to_string(k)))
+        .chain(
+            maps.primitive_operators
+                .keys()
+                .copied()
+                .map(bytes_to_string),
+        )
         .collect();
-    let mut operands: Vec<String> = maps.operands.keys().map(|k| bytes_to_string(k)).collect();
+    let mut operands: Vec<String> = maps.operands.keys().copied().map(bytes_to_string).collect();
 
     // `HashMap`'s hasher is randomly seeded per instance, so key order
     // differs between two runs — and even between two parses in one
@@ -928,7 +933,15 @@ mod tests {
     /// Assert that every space in the tree carries sorted vocabularies,
     /// and return how many spaces were checked so a caller can prove the
     /// walk actually descended.
+    ///
+    /// The length floor is what keeps this from going quietly vacuous:
+    /// `is_sorted` is trivially true for an empty or single-entry
+    /// vector, so without it a fixture that stopped producing real
+    /// vocabularies would keep passing while covering nothing.
     fn assert_sorted_spaces(ops: &Ops, lang: LANG) -> usize {
+        /// Smallest vocabulary in which an ordering is observable.
+        const MIN_OBSERVABLE: usize = 2;
+
         let mut stack = vec![ops];
         let mut visited = 0;
 
@@ -939,8 +952,9 @@ mod tests {
                 ("operands", &space.operands),
             ] {
                 assert!(
-                    values.is_sorted(),
-                    "{lang:?} {field} of space {:?} (@{}) must be sorted: {values:?}",
+                    values.len() >= MIN_OBSERVABLE && values.is_sorted(),
+                    "{lang:?} {field} of space {:?} (@{}) must hold at least \
+                     {MIN_OBSERVABLE} entries and be sorted: {values:?}",
                     space.name,
                     space.start_line
                 );
@@ -953,19 +967,32 @@ mod tests {
 
     /// Every space's vocabularies come back sorted, in every language.
     ///
-    /// The sources are chosen to exercise both operator maps: the
-    /// token-id-keyed one and the text-keyed `primitive_operators` map
-    /// that C++ / Java primitive types land in — sorting the union is
-    /// what interleaves the two (#1091).
+    /// The operator vocabulary is the union of two maps — one keyed by
+    /// token id, one keyed by text, which is where primitive types such
+    /// as C++ `int` land — and sorting is what interleaves them rather
+    /// than leaving the second concatenated onto the first (#1091). The
+    /// `spans_both_maps` pair per case names one entry from each map, so
+    /// a fixture that stopped exercising the text-keyed map fails here
+    /// instead of silently narrowing the test's reach.
     #[test]
     fn ops_vocabularies_are_sorted_1091() {
-        let cases: &[(LANG, &str, &str)] = &[
+        /// `(language, file name, source, (text-keyed operator,
+        /// token-id-keyed operator that must sort after it))`.
+        type Case = (
+            LANG,
+            &'static str,
+            &'static str,
+            (&'static str, &'static str),
+        );
+
+        let cases: &[Case] = &[
             #[cfg(feature = "rust")]
             (
                 LANG::Rust,
                 "rust.rs",
                 "fn zeta(quux: u32) -> u32 { let mid = quux + 1; \
                  let alpha = |beta: u32| beta * mid; alpha(mid) - quux }\n",
+                ("u32", "|"),
             ),
             #[cfg(feature = "cpp")]
             (
@@ -973,6 +1000,7 @@ mod tests {
                 "cpp.cpp",
                 "int zeta(int quux) { double mid = quux + 1; \
                  char alpha = 'z'; return quux - mid + alpha; }\n",
+                ("int", "return"),
             ),
             #[cfg(feature = "java")]
             (
@@ -980,6 +1008,7 @@ mod tests {
                 "Java.java",
                 "class Zeta { int quux(int mid) { long alpha = mid + 1; \
                  boolean beta = alpha > 2; return beta ? mid : 0; } }\n",
+                ("long", "return"),
             ),
             #[cfg(feature = "python")]
             (
@@ -987,6 +1016,10 @@ mod tests {
                 "python.py",
                 "def zeta(quux):\n    mid = quux + 1\n    \
                  def alpha(beta):\n        return beta * mid\n    return alpha(mid) - quux\n",
+                // Python has no primitive-type operators; both entries
+                // come from the token-id map, so this pair only pins the
+                // ordering, not the interleaving.
+                ("def", "return"),
             ),
             #[cfg(feature = "typescript")]
             (
@@ -994,10 +1027,11 @@ mod tests {
                 "ts.ts",
                 "function zeta(quux: number): number { const mid: number = quux + 1; \
                  const alpha = (beta: number) => beta * mid; return alpha(mid) - quux; }\n",
+                ("number", "return"),
             ),
         ];
 
-        for (lang, file, source) in cases {
+        for (lang, file, source, (from_text_map, sorts_after)) in cases {
             let ops = Ast::parse(
                 Source::new(*lang, source.as_bytes()).with_name(Some((*file).to_owned())),
             )
@@ -1005,10 +1039,23 @@ mod tests {
             .ops()
             .expect("ops walk must yield a top-level Ops");
 
+            let position = |needle: &str| {
+                ops.operators
+                    .iter()
+                    .position(|op| op == needle)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{lang:?} operators must contain {needle:?}: {:?}",
+                            ops.operators
+                        )
+                    })
+            };
             assert!(
-                !ops.operators.is_empty() && !ops.operands.is_empty(),
-                "{lang:?} sample must produce a non-trivial vocabulary"
+                position(from_text_map) < position(sorts_after),
+                "{lang:?} must order {from_text_map:?} before {sorts_after:?}: {:?}",
+                ops.operators
             );
+
             assert!(
                 assert_sorted_spaces(&ops, *lang) > 1,
                 "{lang:?} sample must nest at least one sub-space"
