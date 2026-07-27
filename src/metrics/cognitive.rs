@@ -3522,6 +3522,64 @@ mod tests {
         );
     }
 
+    /// Cognitive cost of a boolean sequence inside a `lambda`, under
+    /// each statement kind that can enclose one.
+    ///
+    /// This pins the scores, not the stop set. `python_boolean_ancestor_
+    /// nesting`'s inner `count_specific_ancestors` stops its
+    /// enclosing-lambda walk at `ExpressionList | IfStatement |
+    /// ForStatement | WhileStatement`, and none of those four arms is
+    /// observable: deleting three of them (or the `ExpressionList` arm
+    /// alone) leaves this test, and the whole 3 097-test lib suite,
+    /// green (#1090). A lambda body is a single expression, so a lambda can
+    /// never be an ancestor of an `if`/`for`/`while` *statement* — there
+    /// is no outer lambda for a missing stop to over-count. Do not
+    /// "strengthen" this test by asserting on the arms; it cannot
+    /// discriminate them. Tracked in #1090.
+    #[test]
+    fn python_boolean_in_lambda_scores_under_each_enclosing_statement() {
+        use crate::test_support::metrics_verbatim;
+
+        let cognitive_sum = |source: &str| {
+            metrics_verbatim(
+                crate::LANG::Python,
+                source.as_bytes(),
+                MetricsOptions::default(),
+            )
+            .cognitive
+            .cognitive_sum()
+        };
+
+        // No enclosing branch statement: +1 boolean sequence, +1 for the
+        // one enclosing lambda = 2.
+        assert_eq!(cognitive_sum("y = (lambda x: x and x)(1)\n"), 2);
+
+        // Each branch statement adds its own +1 nesting on top of that
+        // same 2.
+        for (label, source) in [
+            ("if", "if (lambda x: x and x)(1):\n    pass\n"),
+            ("for", "for i in (lambda x: x and x)(1):\n    pass\n"),
+            ("while", "while (lambda x: x and x)(1):\n    break\n"),
+            (
+                "for over a comma list",
+                "for i in (lambda x: x and x)(1), 2:\n    pass\n",
+            ),
+        ] {
+            assert_eq!(
+                cognitive_sum(source),
+                3,
+                "{label}: +1 statement nesting, +1 lambda, +1 boolean sequence"
+            );
+        }
+
+        // A second enclosing lambda adds one more, which is what the
+        // enclosing-lambda walk is actually for.
+        assert_eq!(
+            cognitive_sum("f = lambda a: ((lambda x: x and x)(1), 2)\n"),
+            3
+        );
+    }
+
     #[test]
     fn python_nested_functions_lambdas() {
         check_metrics::<PythonParser>(

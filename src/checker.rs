@@ -1102,6 +1102,62 @@ mod tests {
         );
     }
 
+    /// The two `is_else_if` implementations that answer a flat `false`
+    /// are a behavioural claim, not a placeholder: the language has no
+    /// `else if` *chain* to collapse, so every `if` it contains is a
+    /// freshly nested branch and pays cognitive nesting.
+    ///
+    /// Neither is reachable from a metric walk — `Preproc` and
+    /// `Ccomment` (which inherit the `Checker` default) have no `if`
+    /// construct at all, and Elixir's branching is `cond do` or nested
+    /// `if/else` — so nothing else in the suite executes them. #1084
+    /// changed both signatures to take `Ancestors`, which is exactly the
+    /// kind of edit that can quietly invert a one-line predicate, so pin
+    /// the contract directly.
+    #[test]
+    fn languages_without_else_if_chains_answer_false() {
+        // The `Checker` default, via the two grammars that do not
+        // override it.
+        let preproc = PreprocParser::new(b"#define A 1\n".to_vec(), &PathBuf::from("a.h"), None);
+        let ccomment = CcommentParser::new(b"/* c */\n".to_vec(), &PathBuf::from("a.c"), None);
+        assert!(
+            !PreprocCode::is_else_if(&preproc.root(), Ancestors::unknown()),
+            "the Checker default must answer false"
+        );
+        assert!(
+            !CcommentCode::is_else_if(&ccomment.root(), Ancestors::unknown()),
+            "the Checker default must answer false"
+        );
+
+        // Elixir's explicit override, asserted on a real `if` node so the
+        // test would catch an impl that started consulting the ancestor
+        // chain and got the answer wrong.
+        let parser = ElixirParser::new(
+            b"defmodule M do\n  def f(a) do\n    if a do\n      if a do\n        :ok\n      end\n    end\n  end\nend\n".to_vec(),
+            std::path::Path::new("m.ex"),
+            None,
+        );
+        let ifs: Vec<_> = parser
+            .root()
+            .preorder()
+            .filter(|n| {
+                n.kind() == "call"
+                    && n.utf8_text(parser.code())
+                        .is_some_and(|t| t.starts_with("if"))
+            })
+            .collect();
+        assert!(
+            ifs.len() >= 2,
+            "fixture must contain a nested if, else the assertion below is vacuous"
+        );
+        for node in &ifs {
+            assert!(
+                !ElixirCode::is_else_if(node, Ancestors::unknown()),
+                "Elixir has no else-if chain; every if is a fresh branch"
+            );
+        }
+    }
+
     // Regression for #301: every language consolidated under
     // `impl_simple_is_string!` must still recognise its canonical
     // string literal via the `"string"` filter (which routes through
