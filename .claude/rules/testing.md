@@ -63,3 +63,50 @@ change does not produce a buildable tree (e.g., the change deleted a
 helper the new test depends on), construct a synthetic input the
 test exercises directly — do not assume the test is correct just
 because it passes against the fixed code.
+
+## When the refactor is compile-time-only, perturb instead of reverting
+
+A newtype or signature refactor that exists purely to make a
+transposition unrepresentable cannot be tested by reverting: undo the
+signature and the new test no longer compiles, so there is nothing to
+observe failing. Perturb the production line instead — transpose the
+two fields the newtype exists to protect — and confirm the new test is
+the **only** failure.
+
+That last clause is the point, not a formality. During #1070, a
+transposed `function_depth` / `lambda` inside
+`python_comprehension_clause_nesting` left **every cognitive test but
+the new one passing** — the whole lib suite reported exactly one
+failure — because every consumer folds the three `Nesting` fields into
+one sum (`conditional + function_depth + lambda`) and none of the
+per-field increments branches on a value. No metric moves under *any*
+transposition of those fields. So the issue's framing — that a swap
+"would be a straightforwardly wrong metric on every Python
+comprehension" — was too strong, and a test asserting a cognitive score
+would have proved nothing. Field-level assertions on the map slot were
+the only coverage such a refactor can have.
+
+Two things follow:
+
+- Run the perturbation against the **whole** suite, not just the new
+  test. A perturbation that fails hundreds of tests is too coarse to
+  isolate anything, and one that fails none means the invariant is
+  currently unobservable — which is worth knowing before you claim the
+  refactor prevents a bug.
+- If the perturbation is unobservable in output, say so in the test's
+  comment. "Correct-by-construction is the only available defense here"
+  is a stronger justification for a newtype than an overstated bug
+  claim, and it stops the next reader from deleting the test as
+  redundant with the metric assertions.
+
+Reconstructing a *removed* branch faithfully is often not worth it.
+In #1067 the pre-fix rule needed an `is_unit` parameter the fix had
+deleted from 23 language modules; restoring it to run one perturbation
+would have been a larger edit than the fix. Where that happens, fall
+back to establishing the old behaviour by inspection (the removed
+arithmetic, plus the issue's own reproducer) and say plainly that the
+evidence is inspection rather than a perturbation run.
+
+See lesson #82 for the related walker case, where the production
+bookkeeping and the test's replica of it are two different things and
+only a debug assertion in the real walker covers the former.
