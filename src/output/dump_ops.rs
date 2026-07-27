@@ -187,6 +187,7 @@ fn dump_ops_values(
 mod tests {
     use super::*;
     use crate::spaces::SpaceKind;
+    use std::io::{ErrorKind, Write as _};
     use termcolor::NoColor;
 
     fn leaf_ops(operators: Vec<String>, operands: Vec<String>) -> Ops {
@@ -206,6 +207,64 @@ mod tests {
         let mut sink = NoColor::new(Vec::new());
         dump_space(ops, &mut sink).expect("dump to in-memory sink");
         String::from_utf8(sink.into_inner()).expect("utf-8 dump")
+    }
+
+    /// A [`WriteColor`] that succeeds for `budget` operations and then
+    /// fails every later one with [`ErrorKind::BrokenPipe`].
+    ///
+    /// Both `write` and `set_color` are counted. The walk reaches its
+    /// writer two ways — `write!` / `writeln!`, and [`color`] /
+    /// [`intense_color`], which are `set_color` calls — so counting only
+    /// one of them would leave half the `?` sites unreachable.
+    ///
+    /// `attempts` keeps counting past the failure, which is what lets a
+    /// caller tell "the walk stopped at the first error" from "the walk
+    /// swallowed it and kept writing".
+    struct FailAfter {
+        budget: usize,
+        attempts: usize,
+    }
+
+    impl FailAfter {
+        fn new(budget: usize) -> Self {
+            Self {
+                budget,
+                attempts: 0,
+            }
+        }
+
+        fn step(&mut self) -> std::io::Result<()> {
+            self.attempts += 1;
+            if self.attempts > self.budget {
+                return Err(std::io::Error::new(ErrorKind::BrokenPipe, "sink closed"));
+            }
+            Ok(())
+        }
+    }
+
+    impl std::io::Write for FailAfter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.step()?;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.step()
+        }
+    }
+
+    impl WriteColor for FailAfter {
+        fn supports_color(&self) -> bool {
+            true
+        }
+
+        fn set_color(&mut self, _spec: &termcolor::ColorSpec) -> std::io::Result<()> {
+            self.step()
+        }
+
+        fn reset(&mut self) -> std::io::Result<()> {
+            self.step()
+        }
     }
 
     #[test]
@@ -344,5 +403,83 @@ mod tests {
             handle.join().expect("dump thread must not overflow"),
             "deep space nesting must dump successfully"
         );
+    }
+
+    /// Every write position in the walk surfaces an I/O error, and the
+    /// walk stops there.
+    ///
+    /// `dump_ops` documents that it propagates any `std::io::Error` the
+    /// writer produces — `bca ops | head` closes the pipe mid-stream, so
+    /// this is a real path, not a hypothetical. Sweeping the failure
+    /// across every operation the dump performs is what makes the test
+    /// discriminating: a single `let _ = write!(..)` anywhere in
+    /// `dump_space` / `dump_space_ops` / `dump_ops_values` leaves exactly
+    /// one budget in the sweep returning `Ok`, and a swallow that let the
+    /// walk continue shows up as extra attempts after the failure.
+    #[test]
+    fn every_write_position_propagates_an_io_error() {
+        // Two levels, and both op blocks populated at both levels, so the
+        // sweep reaches the nested-space descent, both block headers, and
+        // the per-entry lines with both connector glyphs.
+        let space = Ops {
+            name: Some("u".to_string()),
+            name_was_lossy: false,
+            start_line: 1,
+            end_line: 2,
+            kind: SpaceKind::Unit,
+            spaces: vec![Ops {
+                name: Some("inner".to_string()),
+                name_was_lossy: false,
+                start_line: 2,
+                end_line: 2,
+                kind: SpaceKind::Function,
+                spaces: vec![],
+                operators: vec!["*".to_string()],
+                operands: vec!["b".to_string()],
+            }],
+            operators: vec!["+".to_string(), "-".to_string()],
+            operands: vec!["a".to_string()],
+        };
+
+        // `flush` and `reset` are counted like any other fallible
+        // operation even though this walk happens to use neither today,
+        // so the sweep keeps its reach if one is ever added. Pinning that
+        // here also keeps the harness from silently becoming a writer
+        // that cannot fail in two of its five entry points.
+        let mut harness = FailAfter::new(1);
+        assert!(harness.supports_color());
+        harness
+            .flush()
+            .expect("the first operation is within budget");
+        assert_eq!(
+            harness.reset().map_err(|e| e.kind()),
+            Err(ErrorKind::BrokenPipe),
+            "reset past the budget must fail like any other operation"
+        );
+
+        let mut unlimited = FailAfter::new(usize::MAX);
+        dump_space(&space, &mut unlimited).expect("an unlimited sink must not fail");
+        let total = unlimited.attempts;
+        assert!(
+            total > 20,
+            "fixture must exercise many write positions, got {total}"
+        );
+
+        for budget in 0..total {
+            let mut sink = FailAfter::new(budget);
+            let Err(err) = dump_space(&space, &mut sink) else {
+                panic!("failing operation #{budget} of {total} must surface as an error");
+            };
+            assert_eq!(
+                err.kind(),
+                ErrorKind::BrokenPipe,
+                "operation #{budget} must propagate the writer's own error kind"
+            );
+            assert_eq!(
+                sink.attempts,
+                budget + 1,
+                "the walk must stop at operation #{budget}, not keep writing past it"
+            );
+        }
     }
 }
