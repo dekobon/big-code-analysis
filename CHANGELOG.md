@@ -149,20 +149,29 @@ for historical reference.
   `cloc + ploc > sloc` for input such as `b"fn f(){}\n/// x"`. The row
   count now comes from the span's end column, which is correct in both
   directions.
-  **Metric drift, all languages:** library callers passing bytes with
-  no trailing newline through `Source` / `Ast::parse` now see `sloc`
-  (and `blank`, `sloc_max`, the `*_average` values, and all three MI
-  formulas) increase by one line's worth; whitespace-only unterminated
-  files move from `sloc 0` to `sloc 1` / `blank 1`. The CLI, web
-  server, and Python bindings read through `read_file_with_eol`, which
-  appends a trailing newline, so they are unaffected on this axis.
-  **Metric drift, Perl:** the same rule corrects the opposite error for
-  `tree-sitter-perl`, whose `function_definition` swallows the newline
-  after the closing brace of a file's last `sub`. That sub's `sloc` was
-  inflated by one row — it could exceed the whole file's `sloc` — and
-  now drops by one, along with the file's `sloc_max` / `blank_max`
-  where that sub was the maximum. This drift does reach the CLI, web
-  server, and Python bindings.
+  **Metric drift, all languages:** callers passing bytes with no
+  trailing newline now see `sloc` (and `blank`, `sloc_max`, the
+  `*_average` values, and all three MI formulas) increase by one
+  line's worth; whitespace-only unterminated files move from `sloc 0`
+  to `sloc 1` / `blank 1`. This reaches every entry point that does
+  not normalise its input: the Rust `Source` / `Ast::parse` API and
+  the Python `Ast.parse(code, language)` staticmethod, which passes
+  its bytes through verbatim. Entry points that read through
+  `read_file_with_eol` / `normalize_eol` — the CLI, the web server's
+  metrics endpoints, `analyze()`, and `Ast.from_path` — append a
+  trailing newline and are unaffected on this axis.
+  **Metric drift, per-function spans:** the same rule corrects the
+  opposite error wherever a grammar ends a func-space node at column 0
+  of a row it does not occupy — a span that used to be credited one
+  row too many. `tree-sitter-perl` does this to the last `sub` of a
+  file, whose `function_definition` swallows the newline after the
+  closing brace; that sub's `sloc` could exceed the whole file's, and
+  now drops by one along with the file's `sloc_max` / `blank_max`
+  where it was the maximum. `tree-sitter-bash` does the same to some
+  `function_definition`s (one file in the in-tree corpus:
+  `parse_valgrind_suppressions.sh`, whose function drops from `sloc 9`
+  to `8` and moves `mi.sei` from 37.4 to 49.1). This drift does reach
+  the CLI, web server, and Python bindings.
 - `wire::FuncSpace::from` and `wire::Ops::from` no longer recurse
   (#1056). Both projected a nested tree with
   `spaces.iter().map(Self::from).collect()`, one stack frame per nesting
