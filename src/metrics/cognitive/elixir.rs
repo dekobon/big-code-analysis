@@ -64,6 +64,7 @@ impl Cognitive for ElixirCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {

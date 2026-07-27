@@ -51,11 +51,12 @@ pub fn nested_whiles(depth: usize) -> String {
 
 /// C: `int main(){ if (a) { … 1; … } }`.
 ///
-/// `Checker::is_else_if` calls `Node::parent` for every
-/// `if_statement`, and `tree_sitter`'s parent lookup is itself
-/// `O(depth)` because the tree stores no parent pointer. The shape is
-/// therefore quadratic today — the probe pins how quadratic, so a
-/// further degradation is still caught.
+/// `Checker::is_else_if` asks every `if_statement` whether its parent
+/// is an `else` clause. It reads that parent off the ancestor chain the
+/// walker hands down, so the answer is `O(1)`; recovering it with
+/// `Node::parent` instead costs `O(depth)`, because `tree_sitter` stores
+/// no parent pointer and resolves a parent by descending from the root.
+/// This probe is what keeps that regression (#1084) from returning.
 #[must_use]
 pub fn nested_ifs(depth: usize) -> String {
     format!(
@@ -71,9 +72,10 @@ pub fn nested_ifs(depth: usize) -> String {
 /// each declaration's logical-line contribution with
 /// `Node::count_specific_ancestors`, whose `stop` predicate is
 /// `compound_statement` — the brace directly above every declaration
-/// here. The probe pins that the stop predicate keeps the walk `O(1)`
-/// per declaration; dropping or widening it turns this shape
-/// quadratic.
+/// here. The probe pins two things at once: that the stop predicate
+/// keeps the walk to one step per declaration, and that the step reads
+/// the walker's ancestor chain rather than calling `Node::parent`
+/// (#1084). Losing either turns this shape quadratic.
 #[must_use]
 pub fn nested_declarations(depth: usize) -> String {
     format!(
@@ -90,8 +92,10 @@ pub fn nested_declarations(depth: usize) -> String {
 /// rather than a definition. That predicate walks the ancestor chain
 /// reading each ancestor's call keyword out of the source bytes. It
 /// short-circuits on the first `quote` ancestor, so a `def` directly
-/// inside one costs `O(1)`; if the short-circuit is lost, every level
-/// walks to the root and the shape turns quadratic.
+/// inside one costs `O(1)` — provided the steps come off the walker's
+/// chain and not from `Node::parent`, which is `O(depth)` each (#1084).
+/// Lose either the short-circuit or the chain and the shape turns
+/// quadratic.
 ///
 /// One `def` sits *outside* the nesting so the metric has something
 /// to count — every `def` inside a `quote` is correctly not a
@@ -168,45 +172,32 @@ pub struct Probe {
 /// job the retired wall-clock assertions were guarding against.
 const LINEAR_DEPTHS: [usize; 3] = [1_000, 2_000, 4_000];
 
-/// Depths for the probes whose walk is already quadratic.
-///
-/// Scaled down by 4x from [`LINEAR_DEPTHS`] so the deepest cell costs
-/// about the same wall clock as a linear probe's deepest cell.
-const QUADRATIC_DEPTHS: [usize; 3] = [250, 500, 1_000];
-
 /// Bound for a probe expected to be linear in nesting depth.
 ///
 /// Set from measurement, not from theory. A genuinely linear walk does
 /// not fit exactly 1.0 over these depths: the tree outgrows cache as
 /// depth rises, so per-byte cost drifts up by roughly a quarter from
-/// the shallowest cell to the deepest and the linear probes fit
-/// 0.94-1.17 on an idle host. The quadratic probes fit 1.95-2.01. The
-/// midpoint of those two observed bands is the cut.
+/// the shallowest cell to the deepest and every probe here fits
+/// 0.94-1.31 on an idle host. Before #1084 the three ancestor-walk
+/// probes fit 1.95-2.01; the midpoint of those two bands is the cut,
+/// and it is now the only bound in the set.
 const LINEAR_BOUND: f64 = 1.5;
-
-/// Bound for a probe whose walk is quadratic today (#1084).
-///
-/// Not an endorsement — it pins the known-bad path so a *third* factor
-/// of depth is still caught. Midway between the observed quadratic
-/// band (1.95-2.01) and the cubic it would become. When #1084 lands,
-/// the probes carrying this bound move to [`LINEAR_BOUND`] in the same
-/// change.
-const QUADRATIC_BOUND: f64 = 2.5;
 
 /// The depth-scaling probe set.
 ///
-/// One entry per hot path identified during the #1052 / #1062 work,
-/// plus the controls that make those readings interpretable:
+/// One entry per hot path identified during the #1052 / #1062 / #1084
+/// work, plus the controls that make those readings interpretable:
 ///
 /// - a *metric* control, `nom/nested-while`. `Cognitive` declares
 ///   `Nom` as a dependency, so the cognitive-attributable cost is the
 ///   difference between the two `nested-while` rows, not `cognitive`
 ///   alone.
 /// - two *shape* controls, `cognitive/nested-while` and
-///   `loc/nested-while`. Each is the same nesting as the quadratic
-///   probe below it with the one node that triggers an ancestor walk
-///   removed, which is what attributes the quadratic reading to that
-///   call rather than to nesting in general.
+///   `loc/nested-while`. Each is the same nesting as the ancestor-walk
+///   probe below it with the one node that triggers the walk removed.
+///   That pairing is what attributed the pre-#1084 quadratic readings
+///   to those calls rather than to nesting in general, and it is what
+///   would localise a future regression the same way.
 pub const PROBES: &[Probe] = &[
     Probe {
         name: "tokens/nested-paren",
@@ -258,12 +249,13 @@ pub const PROBES: &[Probe] = &[
         metrics: &[Metric::Cognitive],
         render: nested_ifs,
         reading: |m| m.cognitive.cognitive_sum(),
-        depths: QUADRATIC_DEPTHS,
-        max_exponent: QUADRATIC_BOUND,
-        rationale: "`Checker::is_else_if` calls `Node::parent` per \
-                    `if_statement`, and that lookup is itself `O(depth)`. \
-                    Quadratic today (#1084) across the 13 languages with \
-                    an `is_else_if` impl.",
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1084: `Checker::is_else_if` reads the enclosing \
+                    `else` clause off the walker's ancestor chain. \
+                    Recovering it with `Node::parent` is `O(depth)` per \
+                    `if_statement`, which was quadratic across the 13 \
+                    languages with an `is_else_if` impl.",
     },
     Probe {
         name: "loc/nested-while",
@@ -283,17 +275,16 @@ pub const PROBES: &[Probe] = &[
         metrics: &[Metric::Loc],
         render: nested_declarations,
         reading: |m| m.loc.lloc(),
-        depths: QUADRATIC_DEPTHS,
-        max_exponent: QUADRATIC_BOUND,
-        rationale: "`loc`'s C-family arm calls \
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1084: `loc`'s C-family arm calls \
                     `Node::count_specific_ancestors` for every \
                     `declaration`. Its `stop` predicate fires on the \
                     enclosing `compound_statement` immediately, so the \
-                    walk is one step — but that one step is \
-                    `Node::parent`, which `tree_sitter` resolves by \
-                    descending from the root. Quadratic today (#1084); \
-                    `loc/nested-while` is the same nesting without a \
-                    declaration and stays linear.",
+                    walk is one step, and that step now indexes the \
+                    walker's ancestor chain instead of calling \
+                    `Node::parent`. `loc/nested-while` is the same \
+                    nesting without a declaration.",
     },
     Probe {
         name: "nom/nested-quote",
@@ -301,15 +292,13 @@ pub const PROBES: &[Probe] = &[
         metrics: &[Metric::Nom],
         render: nested_quotes,
         reading: |m| m.nom.total(),
-        depths: QUADRATIC_DEPTHS,
-        max_exponent: QUADRATIC_BOUND,
-        rationale: "Elixir's `is_func` asks `elixir_is_inside_quote_block` \
-                    for every `def`. The predicate short-circuits on the \
-                    first `quote` ancestor, so it takes one step — but \
-                    each step is a `Node::parent` call, which \
-                    `tree_sitter` resolves by descending from the root. \
-                    Quadratic today (#1084); the bound pins how \
-                    quadratic.",
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1084: Elixir's `is_func` asks \
+                    `elixir_is_inside_quote_block` for every `def`. The \
+                    predicate short-circuits on the first `quote` \
+                    ancestor, and each step now indexes the walker's \
+                    ancestor chain rather than calling `Node::parent`.",
     },
     Probe {
         name: "nom/nested-fn",

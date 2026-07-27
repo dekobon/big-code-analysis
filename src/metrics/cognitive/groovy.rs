@@ -17,6 +17,7 @@ impl Cognitive for GroovyCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -29,7 +30,7 @@ impl Cognitive for GroovyCode {
         } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement if !Self::is_else_if(node) => {
+            IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `for_in_statement` is the dekobon grammar's distinct node

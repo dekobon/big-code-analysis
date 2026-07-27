@@ -233,8 +233,12 @@ where
     /// only a source-text lookup can recognise, so its `is_func_with_code`
     /// override now classifies them as functions instead of leaving
     /// `functions_sum` permanently at 0 (#696).
-    fn compute(node: &Node, code: &[u8], stats: &mut Stats) {
-        if Self::is_func_with_code(node, code) {
+    ///
+    /// `ancestors` is the chain the walker descended through; Elixir's
+    /// `is_func_with_code` needs it to spot a `def` inside a `quote`
+    /// template in `O(1)` per step rather than `O(depth)` (#1084).
+    fn compute<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func_with_code(node, code, ancestors) {
             stats.functions += 1;
             return;
         }

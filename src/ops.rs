@@ -9,7 +9,7 @@
 use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
-use crate::node::Node;
+use crate::node::{Ancestors, Node};
 use crate::spaces::{SpaceKind, push_children};
 
 use crate::halstead::{Halstead, HalsteadMaps};
@@ -126,7 +126,9 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     node: &Node,
     code: &[u8],
 ) {
-    if T::Getter::get_space_kind_with_code(node, code) != SpaceKind::Unit {
+    // `Ancestors::unknown()`: `node` is the tree root here, so it has
+    // no ancestors to hand over either way.
+    if T::Getter::get_space_kind_with_code(node, code, Ancestors::unknown()) != SpaceKind::Unit {
         state_stack.push(State {
             ops: Ops::new::<T::Getter>(node, code, SpaceKind::Unit),
             halstead_maps: HalsteadMaps::new(),

@@ -115,11 +115,11 @@ impl Checker for PhpCode {
     // for parity with the PHP cyclomatic/ABC/cognitive dispatch which list
     // both clause variants.
     #[inline]
-    fn is_else_if(node: &Node) -> bool {
+    fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         let kind = node.kind_id();
         matches!(kind.into(), Php::ElseIfClause | Php::ElseIfClause2)
             || (kind == Php::IfStatement
-                && node.parent().is_some_and(|parent| {
+                && ancestors.parent(node).is_some_and(|parent| {
                     matches!(parent.kind_id().into(), Php::ElseClause | Php::ElseClause2)
                 }))
     }

@@ -17,6 +17,7 @@ impl Cognitive for ObjcCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -30,7 +31,7 @@ impl Cognitive for ObjcCode {
         } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement if !Self::is_else_if(node) => {
+            IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `@catch` (the `catch_clause` node) nests like a C++ catch.

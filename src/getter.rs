@@ -205,8 +205,16 @@ pub(crate) trait Getter {
     /// `defmodule` / `def` / `defp` / `defmacro` / `defmacrop` Calls)
     /// override this so the walker can attribute the correct
     /// `SpaceKind` to each promoted func space (#275).
+    ///
+    /// `ancestors` is the chain the caller descended through; Elixir
+    /// needs it to see whether the `Call` sits inside a `quote`
+    /// template without paying `Node::parent`'s `O(depth)` (#1084).
     #[inline]
-    fn get_space_kind_with_code(node: &Node, _code: &[u8]) -> SpaceKind {
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
         Self::get_space_kind(node)
     }
 

@@ -29,6 +29,7 @@ impl Cognitive for RubyCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -47,7 +48,7 @@ impl Cognitive for RubyCode {
             // `If` inside the outer one, so the `is_else_if` guard is
             // defensive only — mirrors the equivalent pattern in the
             // Lua impl.
-            R::If if !Self::is_else_if(node) => {
+            R::If if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             R::Unless

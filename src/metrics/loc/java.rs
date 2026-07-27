@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for JavaCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Java::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -40,6 +40,7 @@ impl Loc for JavaCode {
             }
             LocalVariableDeclaration => {
                 if node.count_specific_ancestors::<JavaCode>(
+                    ancestors,
                     |node| node.kind_id() == ForStatement,
                     |node| node.kind_id() == Block,
                 ) == 0

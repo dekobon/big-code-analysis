@@ -17,6 +17,7 @@ impl Cognitive for TclCode {
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -31,7 +32,7 @@ impl Cognitive for TclCode {
         match node.kind_id().into() {
             // Guard kept for defensive consistency with sibling impls; Tcl's dedicated
             // Elseif node means this guard is always true in practice.
-            If if !Self::is_else_if(node) => {
+            If if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // elseif adds +1 without increasing nesting for its own children.

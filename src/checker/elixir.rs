@@ -31,7 +31,11 @@ impl Checker for ElixirCode {
         false
     }
 
-    fn is_func_space_with_code(node: &Node, code: &[u8]) -> bool {
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         use crate::metrics::cognitive::{
             elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
             elixir_is_method_macro,
@@ -49,20 +53,24 @@ impl Checker for ElixirCode {
         // `quote do … end` template does NOT declare a method of any
         // enclosing module — the syntax tree there is a code template
         // emitted later, on macro expansion (#310).
-        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)
+        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
     }
 
-    fn is_func_with_code(node: &Node, code: &[u8]) -> bool {
+    fn is_func_with_code<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
         use crate::metrics::cognitive::{
             elixir_call_keyword, elixir_is_inside_quote_block, elixir_is_method_macro,
         };
         let Some(kw) = elixir_call_keyword(node, code) else {
             return false;
         };
-        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)
+        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
     }
 
-    fn promotes_to_func_space_with_code(node: &Node, code: &[u8]) -> bool {
+    fn promotes_to_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         use crate::metrics::cognitive::{
             elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
             elixir_is_method_macro,
@@ -81,7 +89,7 @@ impl Checker for ElixirCode {
         if elixir_is_class_macro(kw) {
             return true;
         }
-        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)
+        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
     }
 
     fn is_closure(node: &Node) -> bool {
@@ -106,7 +114,7 @@ impl Checker for ElixirCode {
     // `stab_clause`s, each `+1` nesting in cognitive) or nested
     // `if/else`. No tail-recursive chain to collapse here.
     #[inline]
-    fn is_else_if(_: &Node) -> bool {
+    fn is_else_if(_: &Node, _: Ancestors<'_, '_>) -> bool {
         false
     }
 }

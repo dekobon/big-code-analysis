@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::checker::Checker;
 use crate::getter::Getter;
 use crate::metric_set::Metric;
-use crate::node::Node;
+use crate::node::{Ancestors, Node};
 use crate::traits::ParserTrait;
 
 /// Resolve a sub-metric threshold name (e.g. `cyclomatic.modified`,
@@ -599,7 +599,10 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
         // `is_func_with_code` rather than `is_func`: C/C++ identify
         // functions only via the code-aware predicate, and the default
         // impl delegates to `is_func` for every other language.
-        let child_enclosing = if T::Checker::is_func_with_code(&node, code) {
+        // `Ancestors::unknown()`: this marker scan is its own walk and
+        // keeps no ancestor chain. Only Elixir's override climbs, and it
+        // does so once per `def`-shaped `Call`, not per node (#1088).
+        let child_enclosing = if T::Checker::is_func_with_code(&node, code, Ancestors::unknown()) {
             T::Getter::get_func_name(&node, code).or(enclosing)
         } else {
             enclosing

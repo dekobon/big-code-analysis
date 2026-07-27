@@ -17,6 +17,7 @@ impl Cognitive for RustCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -29,7 +30,7 @@ impl Cognitive for RustCode {
         } = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfExpression if !Self::is_else_if(node) => {
+            IfExpression if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForExpression | WhileExpression | LoopExpression | MatchExpression => {

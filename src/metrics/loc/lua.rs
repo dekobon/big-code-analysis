@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for LuaCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {

@@ -726,7 +726,10 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool);
+    /// `ancestors` is the chain the walker descended through: the
+    /// C-family and JVM-family arms read it to tell a declaration in a
+    /// loop header from one in the loop body (#1084).
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool);
 }
 
 mod shared;
