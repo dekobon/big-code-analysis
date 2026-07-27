@@ -113,7 +113,11 @@ section.
     functions (`function`, `find`, `count`, `rm_comments`) are
     `pub(crate)`, not part of the public surface, and the
     parser-generic `operands_and_operators` function was removed in
-    favour of `Ast::ops`.
+    favour of `Ast::ops`. `Ops::operators` and `Ops::operands` are
+    sorted in byte-lexicographic order as of the `2.1` line; before
+    that they were documented as arbitrary and did in fact vary run
+    to run. The order is part of the contract now — callers may diff
+    or hash `ops` output — and will not change before `3.0`.
   - `NumJobs` in `src/concurrent_files.rs` (added in 1.x, #560): the
     shared `<N|auto>` worker-count selector for `ConcurrentRunner`,
     used by both the `bca` CLI and the `bca-web` server. A

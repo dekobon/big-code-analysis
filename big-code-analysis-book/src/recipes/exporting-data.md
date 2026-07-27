@@ -169,6 +169,10 @@ bca ops \
 
 Each output file mirrors the input path under `/tmp/ops/`.
 
+Both lists are sorted, so re-running `ops` over unchanged sources
+produces byte-identical output — safe to diff between runs, check into
+a repository, or use as a cache key.
+
 ## Strip comments from a tree
 
 `strip-comments` rewrites source so that downstream tools that don't

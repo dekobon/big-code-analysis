@@ -704,8 +704,8 @@ const SPECS: &[DictSpec] = &[
     DictSpec {
         class: "OpsDict",
         doc: "A Halstead operator/operand tree node returned by \
-              `Ast.ops()`: the deduplicated `operators` (n1) and `operands` \
-              (n2) for a space, with nested `spaces`.",
+              `Ast.ops()`: the sorted, deduplicated `operators` (n1) and \
+              `operands` (n2) for a space, with nested `spaces`.",
         fields: &[
             req("name", OptStr),
             opt("name_was_lossy", Bool),

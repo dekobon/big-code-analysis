@@ -139,6 +139,20 @@ for historical reference.
 
 ### Fixed
 
+- `Ops::operators` and `Ops::operands` are now sorted in
+  byte-lexicographic order, so `bca ops` produces identical bytes for
+  identical input (#1091). Both vectors were collected from `HashMap`
+  keys, and `RandomState` reseeds per map instance, so the listings
+  were reordered on every run — and even between two parses within one
+  process. That made `bca ops` output impossible to diff between runs,
+  check into a repository, or use as a cache key, in the tree renderer
+  and in every serialized format alike. The fields were documented as
+  "arbitrary order", so pinning them down is additive for callers; no
+  metric value moves, since Halstead's `n1` / `n2` are set
+  cardinalities. Sorting costs `O(n log n)` per space over the space's
+  vocabulary and is paid only on the `ops` seam — the metric walk does
+  not run it.
+
 - The `dump` AST walk no longer rebuilds its indentation prefix per
   node, and no longer resolves a node's parent per node (#1054). Each
   queued node carried an owned copy of its ancestors' box-drawing

@@ -590,8 +590,8 @@ class FunctionSpanDict(TypedDict):
 
 
 class OpsDict(TypedDict):
-    """A Halstead operator/operand tree node returned by `Ast.ops()`: the deduplicated `operators`
-    (n1) and `operands` (n2) for a space, with nested `spaces`.
+    """A Halstead operator/operand tree node returned by `Ast.ops()`: the sorted, deduplicated
+    `operators` (n1) and `operands` (n2) for a space, with nested `spaces`.
     """
 
     name: str | None
