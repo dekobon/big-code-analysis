@@ -178,13 +178,17 @@ fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
     state.ops.operands = operands;
 }
 
+/// Close up to `diff_level` open spaces, folding each into its parent.
+///
+/// Only the states this pops get their vocabularies computed. The
+/// bottom state is never popped here, so the root's vocabulary is built
+/// once by [`ops_inner`] after the final drain — computing it on every
+/// call would rebuild (and, since #1091, re-sort) the whole file's
+/// vocabulary once per level-drop in the walk, and every result but the
+/// last would be overwritten.
 fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
-    if state_stack.is_empty() {
-        return;
-    }
-
     for _ in 0..diff_level {
-        if state_stack.len() == 1 {
+        if state_stack.len() < 2 {
             break;
         }
         let mut state = state_stack
@@ -201,13 +205,6 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
         // Merge child's Halstead maps into parent and record child space.
         last_state.halstead_maps.merge(&state.halstead_maps);
         last_state.ops.spaces.push(state.ops);
-    }
-
-    // Compute ops for the remaining parent from its fully-merged
-    // HalsteadMaps. This runs once instead of per-iteration, and
-    // produces the deduplicated union of all operators/operands.
-    if let Some(last_state) = state_stack.last_mut() {
-        compute_operators_and_operands::<T>(last_state);
     }
 }
 
@@ -286,6 +283,9 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     // variant rather than a bare `None`. See `MetricsError::EmptyRoot`
     // for the matching variant doc.
     let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
+    // The root is the one state `finalize` never pops, so its vocabulary
+    // is built here — once, from the fully-merged maps.
+    compute_operators_and_operands::<T>(&mut state);
     state.ops.name = name;
     Ok(state.ops)
 }
