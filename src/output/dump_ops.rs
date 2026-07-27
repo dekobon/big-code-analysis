@@ -267,11 +267,21 @@ mod tests {
     }
 
     #[test]
-    fn dump_ops_empty_operators_and_operands_does_not_panic() {
-        // Regression: `ops.len() - 1` underflowed (usize) when ops was empty,
-        // then `ops.last().unwrap()` panicked. A space with no Halstead
-        // operators or operands is a realistic input.
-        assert!(dump_ops(&leaf_ops(vec![], vec![])).is_ok());
+    fn dump_ops_empty_operators_and_operands_renders_bare_headers() {
+        // Regression: `ops.len() - 1` underflowed (usize) when ops was
+        // empty, then `ops.last().unwrap()` panicked. A space with no
+        // Halstead operators or operands is a realistic input. Asserting
+        // the rendered text rather than `dump_ops(..).is_ok()` keeps the
+        // no-panic guard while also pinning what an empty block looks
+        // like — and keeps the test off the process's real stdout.
+        assert_eq!(
+            render(&leaf_ops(vec![], vec![])),
+            concat!(
+                "`- unit: unit (@1)\n",
+                "   |- operators\n",
+                "   `- operands\n",
+            )
+        );
     }
 
     #[test]

@@ -354,14 +354,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dump_node_non_utf8_source_does_not_panic() {
-        // Regression: `stdout.write_all(code).unwrap()` panicked when the raw-bytes
-        // fallback branch was taken for non-UTF-8 source content.
+    fn dump_node_non_utf8_source_emits_the_raw_snippet() {
+        // Regression: `stdout.write_all(code).unwrap()` panicked when the
+        // raw-bytes fallback branch was taken for non-UTF-8 source
+        // content. Reaching the assertion at all covers the panic; the
+        // assertion itself covers the other half — that the fallback
+        // *writes* the bytes. A bare `is_ok()` here passed even with the
+        // fallback arm stubbed out to `Ok(())`, silently dropping the
+        // snippet it exists to render.
         let code = b"char c = '\xff';";
         let path = PathBuf::from("test.c");
         let parser = CppParser::new(code.to_vec(), &path, None);
-        let root = parser.root();
-        assert!(dump_node(code, &root, -1, None, None).is_ok());
+        let out = render_raw(code, &parser.root(), -1, None, None);
+        assert!(
+            out.contains(&0xff),
+            "the non-UTF-8 snippet must reach the output: {out:?}"
+        );
     }
 
     #[test]
@@ -437,15 +445,16 @@ mod tests {
         assert_eq!(render(code, &parser.root(), -1), expected);
     }
 
-    /// Render `node` to an in-memory sink under the given line filter, the
-    /// way the CLI would minus the color escapes.
-    fn render_range(
+    /// Render `node` to an in-memory sink under the given line filter and
+    /// return the raw bytes. Not necessarily UTF-8: a non-UTF-8 source
+    /// snippet is written through verbatim by `write_node_snippet`.
+    fn render_raw(
         code: &[u8],
         node: &Node,
         depth: i32,
         line_start: Option<usize>,
         line_end: Option<usize>,
-    ) -> String {
+    ) -> Vec<u8> {
         let mut sink = NoColor::new(Vec::new());
         {
             let mut state = DumpState {
@@ -456,7 +465,19 @@ mod tests {
             };
             dump_tree_helper(&mut state, node, depth).expect("dump to in-memory sink");
         }
-        String::from_utf8(sink.into_inner()).expect("dump output is utf-8")
+        sink.into_inner()
+    }
+
+    /// [`render_raw`] as text, for the (usual) UTF-8 case.
+    fn render_range(
+        code: &[u8],
+        node: &Node,
+        depth: i32,
+        line_start: Option<usize>,
+        line_end: Option<usize>,
+    ) -> String {
+        String::from_utf8(render_raw(code, node, depth, line_start, line_end))
+            .expect("dump output is utf-8")
     }
 
     /// [`render_range`] with the filter disabled — the `bca dump` default.
