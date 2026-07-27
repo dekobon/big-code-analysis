@@ -417,6 +417,31 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         Self(Some(chain))
     }
 
+    /// [`Ancestors::known`], but in debug builds first checks that
+    /// `chain` really is `node`'s ancestry.
+    ///
+    /// The parity test below proves the walker's truncate/push rule on a
+    /// *replica* walker, so it cannot see `metrics_inner` itself
+    /// desynchronising — a `chain.push` moved ahead of the per-node
+    /// computes, say, or a `continue` inserted above the truncate.
+    /// [`Ancestors::parent`] trusts `chain.last()` unvalidated, so such a
+    /// drift would feed every predicate a wrong ancestor silently rather
+    /// than fail. Walkers that maintain a chain should construct through
+    /// here; [`Ancestors::known`] stays unchecked for the callers that
+    /// deliberately pair a chain with a foreign node.
+    ///
+    /// Debug-only, because [`Node::parent`] is the `O(depth)` lookup
+    /// #1084 exists to remove and must never run in a release build.
+    pub(crate) fn checked(chain: &'chain [Node<'tree>], node: &Node<'tree>) -> Self {
+        debug_assert_eq!(
+            chain.last().map(Node::id),
+            node.parent().map(|parent| parent.id()),
+            "ancestor chain desynchronised on a {} node",
+            node.kind()
+        );
+        Self::known(chain)
+    }
+
     /// `node`'s parent.
     pub(crate) fn parent(self, node: &Node<'tree>) -> Option<Node<'tree>> {
         match self.0 {

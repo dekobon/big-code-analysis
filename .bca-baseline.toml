@@ -975,7 +975,7 @@ path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 start_line = 507
 metric = "halstead.effort"
-value = 123702.93348164707
+value = 124910.02765596088
 
 [[entry]]
 path = "src/suppression.rs"
