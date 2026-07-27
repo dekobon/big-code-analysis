@@ -635,7 +635,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             continue;
         }
 
-        let ancestors = Ancestors::known(&chain);
+        let ancestors = Ancestors::checked(&chain, &node);
         let func_space = T::Checker::promotes_to_func_space_with_code(&node, code, ancestors);
 
         let new_level = if func_space {
