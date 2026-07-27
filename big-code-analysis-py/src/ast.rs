@@ -247,7 +247,7 @@ impl PyAst {
     }
 
     /// Return the Halstead operator/operand tree for the file (an `OpsDict`),
-    /// the deduplicated operators (`n1`) and operands (`n2`) per space.
+    /// the sorted, deduplicated operators (`n1`) and operands (`n2`) per space.
     fn ops<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let ops = py
             .detach(|| self.inner.ops())

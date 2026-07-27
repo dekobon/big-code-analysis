@@ -882,35 +882,35 @@ value = 60471.77938561803
 [[entry]]
 path = "src/output/dump_metrics.rs"
 qualified = "dump_metrics"
-start_line = 138
+start_line = 149
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
 qualified = "dump_space"
-start_line = 95
+start_line = 105
 metric = "nexits"
 value = 9.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
 qualified = "dump_value"
-start_line = 217
+start_line = 242
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "src/output/dump_ops.rs"
 qualified = "dump_ops_values"
-start_line = 121
+start_line = 141
 metric = "nexits"
 value = 12.0
 
 [[entry]]
 path = "src/output/dump_ops.rs"
 qualified = "dump_space"
-start_line = 66
+start_line = 76
 metric = "nexits"
 value = 9.0
 

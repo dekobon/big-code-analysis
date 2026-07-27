@@ -47,13 +47,13 @@ pub struct Ops {
     pub spaces: Vec<Ops>,
     /// The **distinct** operands of a space — the deduplicated Halstead
     /// operand vocabulary (`n2`), one entry per unique operand, not every
-    /// occurrence. Backed by the keys of a `HashMap`, so entries are
-    /// unique and returned in arbitrary order.
+    /// occurrence. Sorted in byte-lexicographic order, so the same input
+    /// always yields the same sequence (#1091).
     pub operands: Vec<String>,
     /// The **distinct** operators of a space — the deduplicated Halstead
     /// operator vocabulary (`n1`), one entry per unique operator, not
-    /// every occurrence. Backed by the keys of a `HashMap`, so entries
-    /// are unique and returned in arbitrary order.
+    /// every occurrence. Sorted in byte-lexicographic order, so the same
+    /// input always yields the same sequence (#1091).
     pub operators: Vec<String>,
 }
 
@@ -146,28 +146,36 @@ fn bytes_to_string(b: &[u8]) -> String {
 }
 
 fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
-    state.ops.operators = state
-        .halstead_maps
+    let maps = &state.halstead_maps;
+
+    // Primitive-type operators live in a second map (keyed by text rather
+    // than by token id), so the operator vocabulary is the concatenation
+    // of both key sets.
+    let mut operators: Vec<String> = maps
         .operators
         .keys()
         .map(|k| T::Getter::get_operator_id_as_str(*k).to_owned())
+        .chain(maps.primitive_operators.keys().map(|k| bytes_to_string(k)))
         .collect();
+    let mut operands: Vec<String> = maps.operands.keys().map(|k| bytes_to_string(k)).collect();
 
-    // Add primitive-type operators (stored by text in HalsteadMaps)
-    state.ops.operators.extend(
-        state
-            .halstead_maps
-            .primitive_operators
-            .keys()
-            .map(|k| bytes_to_string(k)),
-    );
+    // `HashMap`'s hasher is randomly seeded per instance, so key order
+    // differs between two runs — and even between two parses in one
+    // process. Without a canonical order the same input renders and
+    // serializes differently every time, which makes `bca ops` output
+    // undiffable and unusable as a cache key (#1091).
+    //
+    // Byte-lexicographic, not first-appearance, order: `finalize` merges
+    // a child space's maps into its parent, so an insertion-ordered map
+    // would give the parent "what it saw directly, then whatever each
+    // child contributed" — a walk artifact that shifts when nesting
+    // changes. Sorting is also stable across platforms and hasher
+    // versions, which insertion order via a different map type is not.
+    operators.sort_unstable();
+    operands.sort_unstable();
 
-    state.ops.operands = state
-        .halstead_maps
-        .operands
-        .keys()
-        .map(|k| bytes_to_string(k))
-        .collect();
+    state.ops.operators = operators;
+    state.ops.operands = operands;
 }
 
 fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
@@ -294,6 +302,7 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     clippy::too_many_lines
 )]
 mod tests {
+    use super::Ops;
     use crate::{Ast, LANG, Source};
 
     #[inline]
@@ -311,19 +320,18 @@ mod tests {
             .ops()
             .expect("ops walk must yield a top-level Ops");
 
-        let mut operators_str: Vec<&str> = ops.operators.iter().map(AsRef::as_ref).collect();
-        let mut operands_str: Vec<&str> = ops.operands.iter().map(AsRef::as_ref).collect();
+        let operators_str: Vec<&str> = ops.operators.iter().map(AsRef::as_ref).collect();
+        let operands_str: Vec<&str> = ops.operands.iter().map(AsRef::as_ref).collect();
 
-        // Sorting out operators because they are returned in arbitrary order
-        operators_str.sort_unstable();
+        // Only the *expectations* are sorted here: `Ops` is documented to
+        // come back byte-lexicographically ordered (#1091), so comparing
+        // against a sorted expectation without re-sorting the actual value
+        // makes every `check_ops` caller an ordering regression test for
+        // its language.
         correct_operators.sort_unstable();
-
         assert_eq!(&operators_str[..], correct_operators);
 
-        // Sorting out operands because they are returned in arbitrary order
-        operands_str.sort_unstable();
         correct_operands.sort_unstable();
-
         assert_eq!(&operands_str[..], correct_operands);
     }
 
@@ -915,5 +923,139 @@ mod tests {
             unique_operands.len(),
             "Ops::operands must be the distinct operand vocabulary (n2)"
         );
+    }
+
+    /// Assert that every space in the tree carries sorted vocabularies,
+    /// and return how many spaces were checked so a caller can prove the
+    /// walk actually descended.
+    fn assert_sorted_spaces(ops: &Ops, lang: LANG) -> usize {
+        let mut stack = vec![ops];
+        let mut visited = 0;
+
+        while let Some(space) = stack.pop() {
+            visited += 1;
+            for (field, values) in [
+                ("operators", &space.operators),
+                ("operands", &space.operands),
+            ] {
+                assert!(
+                    values.is_sorted(),
+                    "{lang:?} {field} of space {:?} (@{}) must be sorted: {values:?}",
+                    space.name,
+                    space.start_line
+                );
+            }
+            stack.extend(space.spaces.iter());
+        }
+
+        visited
+    }
+
+    /// Every space's vocabularies come back sorted, in every language.
+    ///
+    /// The sources are chosen to exercise both operator maps: the
+    /// token-id-keyed one and the text-keyed `primitive_operators` map
+    /// that C++ / Java primitive types land in — sorting the union is
+    /// what interleaves the two (#1091).
+    #[test]
+    fn ops_vocabularies_are_sorted_1091() {
+        let cases: &[(LANG, &str, &str)] = &[
+            #[cfg(feature = "rust")]
+            (
+                LANG::Rust,
+                "rust.rs",
+                "fn zeta(quux: u32) -> u32 { let mid = quux + 1; \
+                 let alpha = |beta: u32| beta * mid; alpha(mid) - quux }\n",
+            ),
+            #[cfg(feature = "cpp")]
+            (
+                LANG::Cpp,
+                "cpp.cpp",
+                "int zeta(int quux) { double mid = quux + 1; \
+                 char alpha = 'z'; return quux - mid + alpha; }\n",
+            ),
+            #[cfg(feature = "java")]
+            (
+                LANG::Java,
+                "Java.java",
+                "class Zeta { int quux(int mid) { long alpha = mid + 1; \
+                 boolean beta = alpha > 2; return beta ? mid : 0; } }\n",
+            ),
+            #[cfg(feature = "python")]
+            (
+                LANG::Python,
+                "python.py",
+                "def zeta(quux):\n    mid = quux + 1\n    \
+                 def alpha(beta):\n        return beta * mid\n    return alpha(mid) - quux\n",
+            ),
+            #[cfg(feature = "typescript")]
+            (
+                LANG::Typescript,
+                "ts.ts",
+                "function zeta(quux: number): number { const mid: number = quux + 1; \
+                 const alpha = (beta: number) => beta * mid; return alpha(mid) - quux; }\n",
+            ),
+        ];
+
+        for (lang, file, source) in cases {
+            let ops = Ast::parse(
+                Source::new(*lang, source.as_bytes()).with_name(Some((*file).to_owned())),
+            )
+            .expect("language feature enabled")
+            .ops()
+            .expect("ops walk must yield a top-level Ops");
+
+            assert!(
+                !ops.operators.is_empty() && !ops.operands.is_empty(),
+                "{lang:?} sample must produce a non-trivial vocabulary"
+            );
+            assert!(
+                assert_sorted_spaces(&ops, *lang) > 1,
+                "{lang:?} sample must nest at least one sub-space"
+            );
+        }
+    }
+
+    /// Two parses of the same bytes in one process must agree exactly.
+    ///
+    /// `RandomState` bumps its thread-local seed per instance, so the
+    /// pre-fix code could — and did — order two `HashMap`s built from
+    /// identical keys differently within a single run. This is the
+    /// in-process form of the cross-run churn in #1091.
+    #[test]
+    #[cfg(feature = "rust")]
+    fn ops_are_stable_across_repeated_parses_1091() {
+        use std::fmt::Write as _;
+
+        // Enough distinct operands, in enough distinct spaces, that
+        // agreement by coincidence is not a plausible explanation for a
+        // pass.
+        let mut src = String::new();
+        for i in 0..40 {
+            writeln!(src, "fn name{i}(arg{i}: u32) -> u32 {{ arg{i} + {i} }}")
+                .expect("writing to a String cannot fail");
+        }
+
+        let parse = || {
+            Ast::parse(Source::new(LANG::Rust, src.as_bytes()).with_name(Some("foo.rs".to_owned())))
+                .expect("rust feature enabled")
+                .ops()
+                .expect("ops walk must yield a top-level Ops")
+        };
+
+        let (first, second) = (parse(), parse());
+        assert!(
+            first.operands.len() >= 40 && first.spaces.len() >= 40,
+            "sample must have a wide vocabulary across many spaces, got {} operands \
+             in {} spaces",
+            first.operands.len(),
+            first.spaces.len()
+        );
+        // `Ops` has no `PartialEq`, and the nested spaces are the half a
+        // top-level vector comparison would miss, so compare the whole
+        // serialized tree.
+        let render =
+            |ops: &Ops| serde_json::to_string(&ops.to_wire()).expect("wire Ops serializes to JSON");
+        assert_eq!(render(&first), render(&second));
     }
 }
