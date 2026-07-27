@@ -182,7 +182,6 @@ fn start_connector(node: &Node) -> Connector {
 /// which is inherent to the tree drawing.
 fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> std::io::Result<()> {
     let mut prefix = String::new();
-    let mut children: Vec<Node<'a>> = Vec::new();
     let mut stack: Vec<Frame<'a>> = vec![Frame {
         node: *node,
         prefix_len: 0,
@@ -213,40 +212,46 @@ fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> s
             continue;
         }
 
-        children.clear();
-        children.extend(frame.node.children());
         prefix.push_str(pref_child);
-        push_children(&mut stack, &children, prefix.len(), frame.depth - 1);
+        push_children(
+            &mut stack,
+            frame.node.children(),
+            prefix.len(),
+            frame.depth - 1,
+        );
     }
 
     Ok(())
 }
 
 /// Queue `children` so `pop()` visits them in source order, matching the
-/// recursive form's pre-order traversal.
+/// recursive form's pre-order traversal. The frames go on in source order
+/// and the new tail is then reversed in place, so the walk needs no
+/// separate staging buffer and copies each node once.
 ///
-/// Last-child detection uses the number of children actually walked, not
+/// Last-child detection uses the child actually walked last, not
 /// `Node::child_count`: [`crate::node::Children`] is cursor-driven and
 /// documents that the two can disagree on a malformed tree, in which case
 /// counting from `child_count` would leave the real last child rendering
 /// as `├─` with a dangling bar below it.
 fn push_children<'a>(
     stack: &mut Vec<Frame<'a>>,
-    children: &[Node<'a>],
+    children: impl Iterator<Item = Node<'a>>,
     prefix_len: usize,
     depth: i32,
 ) {
-    for (i, child) in children.iter().enumerate().rev() {
-        stack.push(Frame {
-            node: *child,
-            prefix_len,
-            connector: if i + 1 == children.len() {
-                Connector::Last
-            } else {
-                Connector::Inner
-            },
-            depth,
-        });
+    let first_pushed = stack.len();
+    stack.extend(children.map(|node| Frame {
+        node,
+        prefix_len,
+        connector: Connector::Inner,
+        depth,
+    }));
+    stack[first_pushed..].reverse();
+    // After the reversal the source-order-last child sits at the bottom
+    // of the new tail, so it is popped last and closes the subtree.
+    if let Some(last_child) = stack.get_mut(first_pushed) {
+        last_child.connector = Connector::Last;
     }
 }
 
@@ -314,7 +319,7 @@ fn write_node_location(stdout: &mut dyn WriteColor, node: &Node) -> std::io::Res
 /// Source snippet for single-row nodes only. Multi-row nodes return
 /// without writing (the caller still emits the trailing newline).
 /// Non-UTF-8 spans fall back to raw bytes — regression guard
-/// `dump_node_non_utf8_source_does_not_panic`.
+/// `dump_node_non_utf8_source_emits_the_raw_snippet`.
 fn write_node_snippet(
     stdout: &mut dyn WriteColor,
     code: &[u8],
