@@ -215,8 +215,8 @@ mod tests {
         // a top-level sibling that follows `outer`'s deeper subtree, so a
         // truncation bug leaves it (and its op blocks) indented under
         // `inner`'s rail instead of back at the unit's. Built by hand so
-        // the op lists are ordered `Vec`s — the parsed `Ops` iteration
-        // order is not stable run to run.
+        // the tree shape and the op lists are exactly what the expected
+        // rails below spell out, independent of any grammar's parse.
         //
         // The expected rails match what the pre-#1054 binary emits for
         // the equivalent parsed tree (`function outer(){function
