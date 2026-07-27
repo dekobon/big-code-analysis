@@ -4311,3 +4311,178 @@ it: the overflow is an abort, and no panic-catching layer above it will
 help.
 
 ---
+
+## 82. When several predicates need an ancestor, propagate the chain, not a flag per predicate
+
+`tree_sitter` stores no parent pointer: `Node::parent` restarts at the
+root and descends, so it costs `O(depth)`. Any predicate in a walk that
+asks a node for an ancestor is therefore `O(depth)` per node and
+quadratic over a deeply nested file, however few steps it takes. The
+standard fix is to propagate state downward, since the walker visits
+parents before children — but *what* you propagate decides how far the
+fix generalises. Propagating a derived boolean works when one predicate
+owns the state. When several unrelated predicates each want a different
+ancestor fact, a flag apiece means one downward fold to design and one
+equivalence to verify per predicate, and the cost of adding the next one
+never falls. Propagating the chain itself costs one equivalence total,
+and every predicate keeps its original logic — only the source of the
+ancestor changes.
+
+**The same root cause was fixed three times before the general form
+appeared** (#1052, #1062, #1084). #1052 (`tokens`' per-leaf ancestor
+walk, filed as a DoS vector) and #1062 (`cognitive`'s
+`get_nesting_from_map`) each propagated a derived flag, which resolved
+those two call sites and left the pattern intact everywhere else. The
+benchmark harness added in #1068 then measured three more walks as
+quadratic — `Checker::is_else_if` (16 language impls consult an
+ancestor: 9 via `impl_is_else_if_parent_clause!`, 4 via
+`impl_is_else_if_prev_sibling!`, and hand-written ones in `go.rs`,
+`python.rs`, `php.rs`), `Node::count_specific_ancestors` (reached from
+`loc` in 8 languages, plus `checker.rs`'s JS `check_if_func`,
+`checker/python.rs`, `checker/php.rs`, `cognitive/python.rs`), and
+`elixir_is_inside_quote_block` — fitting `time ~ depth^k` at 1.97, 1.95
+and 2.01, against linear controls at 0.99–1.01 in the same run that
+isolate the parent lookup as the cause.
+
+**A chain type with an "unknown" variant makes the blast radius a
+choice** (#1084). `Ancestors` wraps either a known slice — where the
+parent is `chain.last()` and each ancestor's own chain is the prefix
+before it, so a predicate applied one level up stays as cheap as one
+applied to the node — or `unknown()`, which climbs with `Node::parent`
+for callers that reached a node some other way. Call sites that cannot
+supply a chain stay correct at the old cost, so the 64-file change
+stopped where its evidence did; the climbs left behind are enumerated
+in #1088 rather than blocking the fix — `increment_function_depth`
+alone would have added 19 more call sites, 18 of them in per-language
+modules and one in the JS-family macro body. The walker maintains the chain with
+`truncate(depth)` on arrival and `push(node)` after the per-node
+computes, which is correct for a LIFO pre-order because every node
+popped between a parent and its child sits at a strictly greater depth.
+
+**Lesson:** Before propagating a flag to kill an `O(depth)` ancestor
+lookup, count the predicates that want ancestry. One, and a flag is
+right. Several, and propagate the chain — then verify the one
+equivalence that matters (a known chain answers exactly what climbing
+answers) node-by-node against `Node::parent`, on a fixture per grammar
+family that actually consults an ancestor. Give the chain type an
+unknown/fallback variant so unconverted callers stay correct, and pin
+the walker's own bookkeeping with a debug-only assertion: a chain type
+that trusts `chain.last()` unvalidated turns a desynchronised walker
+into wrong answers rather than a failure, and a parity test written
+against a replica walker cannot see the real one drift. Related to
+lesson #67 (compute-it-once is the wrong altitude when consumers do not
+share the transform's parameters) — the same question, asked about
+ancestry instead of about a shared transform.
+
+---
+
+## 83. A categorical proxy for a positional property is wrong in both directions
+
+When a computation needs a positional fact about a span — does it end
+mid-line, does it start at a boundary — it is tempting to key on a
+category that usually correlates with it: "is this the root?", "is this
+the unit?", "is this a top-level item?". The correlation holds for the
+inputs on hand, so the proxy ships. It then fails twice: for members of
+the category where the property does not hold, and for non-members where
+it does. Both failures are silent, because the value stays a plausible
+number. Worse, the two errors have opposite sign, so an aggregate over
+mixed input can look untroubled while individual entries are wrong.
+
+**`Sloc` keyed its row count on `is_unit` instead of on the span's end
+column** (#1067). The unit branch computed `end - start` and every other
+span `end - start + 1`; both are proxies for "does the end position sit
+at column 0, meaning the final row contributes no characters?". The unit
+branch was correct only because a trailing newline pushes tree-sitter's
+root onto a phantom extra row — so source that stops mid-line lost its
+last row, a one-line unterminated file reported `sloc == 0`,
+`mi::inputs_are_empty` short-circuited all three MI formulas to `0.0`
+for a real file, and `cloc + ploc > sloc` for input as ordinary as
+`b"fn f(){}\n/// x"`. The other direction was already in the repository
+and had never been questioned: tree-sitter-perl's `function_definition`
+swallows the newline after the closing brace of a file's last `sub`, so
+the unconditional `+ 1` credited a row that sub does not occupy. Two
+accepted snapshots recorded a per-function `sloc` **larger than the
+whole file's** — an impossible value, checked in and passing.
+tree-sitter-bash reaches the same shape for a function whose body ends
+in a compound statement.
+
+**The input class was unreachable from every in-tree harness, which is
+why it survived** (#1067, #1051). `check_func_space` trims trailing
+newlines and re-appends exactly one; the integration suites route
+through `read_file_with_eol`, whose `normalize_line_endings` ends with
+an unconditional `data.push(b'\n')`. A regression test written through
+either passes vacuously. Only `metrics_verbatim` / `space_verbatim`,
+which analyse byte-for-byte, can reach it — and the documented rustdoc
+example at `src/spaces.rs` was itself demonstrating the bug in the
+published docs.
+
+**Lesson:** Ask what property the computation actually depends on and
+read *that*, even when a category is already in hand and agrees on
+every input you have. When you replace a proxy, check both directions
+before sizing the fix: a one-line `debug_assert` probe inserted into
+the shared path and run over the whole suite (`cargo test --workspace
+2>&1 | rg -o "PROBE \w+"`) enumerates which grammars really reach a
+supposedly-unreachable branch, and here it turned a single-branch patch
+into a correct unified rule and found the Perl half. Treat "this
+per-part value exceeds the whole" as a hard invariant worth asserting
+outright — it was visible in checked-in snapshots for as long as the
+bug existed and nothing was looking. Related to lesson #76, which covers
+the other way `sloc` goes wrong: being span-derived, it misses
+traversal-level filters that the node-accumulated metrics honour.
+
+---
+
+## 84. A factual claim in prose is untested code
+
+Comments, doc comments, changelog entries, and configuration
+annotations routinely assert things about the code: this can panic,
+that option does not affect this metric, these bindings are unaffected,
+four call sites remain. No gate checks any of it. `cargo test` does not
+read prose, clippy does not evaluate it, and a reviewer's eye slides
+over a plausible sentence — especially a *rationale*, where the reader
+checks that the guard exists rather than that its stated reason is
+possible. So a false claim can sit for months, and the reader who
+believes it makes a decision on it.
+
+**Eight wrong claims in one batch, none caught by any gate**
+(#1059, #1066, #1067, #1084). `node_text`'s safety comment described a
+UTF-8 char-boundary panic that cannot occur for its `&[u8]` parameter —
+byte slicing has no such precondition — and cited hazard paths
+(incremental reparse, VCS per-function re-slice) this crate does not
+have (#1059). The fix for that issue shipped two *new* false claims of
+the same kind: that `get_func_space_name` returns `None` for a nameless
+node (it returns `Some("<anonymous>")`), and that `node_text` is
+reached only through that one default (26 call sites across 10 language
+modules, plus the default itself). `bca.toml`'s `exclude_tests` comment
+stated the option does not lower
+`loc.sloc`; measurement gave 779 with the manifest against 845 with
+`--no-config`, and #722 had made it do exactly that (#1066). A test's
+exclusion rationale claimed the no-op `Loc` grammars have every LOC
+sub-metric at 0; `sloc` is span-derived, so they drift like everything
+else (#1067). A changelog drift note said the Python bindings were
+unaffected, but `PyAst::parse` passes bytes to `Source::from_bytes`
+verbatim while only `analyze_source` calls `normalize_eol` — and
+described the per-function drift as Perl-only when Bash shares the
+shape (#1067). A benchmarking doc said four `Node::parent` climbs
+remained; the real figure was higher (#1084).
+
+**The cost is a wrong decision, not a wrong sentence** (#1066). The
+`bca.toml` comment was load-bearing: the file it annotates carries the
+`loc.sloc` cap that gates the build, and the issue's own words are that
+"anyone budgeting a file against the 800 cap from that comment will get
+it wrong."
+
+**Lesson:** Treat any sentence that states a checkable fact about the
+code as an assertion you owe evidence for, and get the evidence the
+same way you would for a test: read the parameter type, run the
+measurement both ways, enumerate the call sites with `rg`, verify the
+panic actually panics. It is cheap — each of the six above took under
+five minutes to settle — and the alternative is not "a slightly wrong
+comment" but a reader who trusts it. Be most suspicious of prose in a
+change that is *itself* fixing a wrong claim, and of counts ("four call
+sites", "13 languages"), which are correct when written and rot
+silently. When a claim is expensive to verify or cannot be pinned,
+write what was measured and under which conditions rather than the
+generalisation it suggests.
+
+---
