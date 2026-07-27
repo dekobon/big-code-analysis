@@ -17,6 +17,7 @@ impl Cognitive for IrulesCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -31,7 +32,7 @@ impl Cognitive for IrulesCode {
         match node.kind_id().into() {
             // Defensive guard for parity with sibling impls; iRules' dedicated
             // `Elseif` node means `is_else_if` is never true for an `If`.
-            If if !Self::is_else_if(node) => {
+            If if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `elseif` extends the chain: +1 without increasing nesting.

@@ -588,7 +588,7 @@ value = 8.0
 [[entry]]
 path = "src/ast.rs"
 qualified = "build"
-start_line = 206
+start_line = 239
 metric = "halstead.effort"
 value = 72581.41181251501
 
@@ -637,7 +637,7 @@ value = 54681.01625588078
 [[entry]]
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
-start_line = 123
+start_line = 138
 metric = "halstead.effort"
 value = 48241.44928566978
 
@@ -728,23 +728,44 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 454
+start_line = 475
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 454
+start_line = 475
 metric = "nexits"
 value = 6.0
+
+[[entry]]
+path = "src/metrics/cognitive/csharp.rs"
+qualified = "CsharpCode::compute"
+start_line = 17
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/cognitive/kotlin.rs"
+qualified = "KotlinCode::compute"
+start_line = 36
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/cognitive/php.rs"
+qualified = "PhpCode::compute"
+start_line = 17
+metric = "nargs"
+value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive/ruby.rs"
 qualified = "RubyCode::compute"
 start_line = 29
 metric = "halstead.effort"
-value = 53101.26216241871
+value = 52423.215599473966
 
 [[entry]]
 path = "src/metrics/loc/c.rs"
@@ -786,7 +807,7 @@ path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 start_line = 17
 metric = "halstead.effort"
-value = 47758.10174656215
+value = 53115.849304792464
 
 [[entry]]
 path = "src/metrics/npa/php.rs"
@@ -840,7 +861,7 @@ value = 32.0
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 204
+start_line = 211
 metric = "halstead.effort"
 value = 56640.89870124066
 
@@ -924,7 +945,7 @@ value = 50360.26160456827
 [[entry]]
 path = "src/spaces/ast.rs"
 qualified = "Ast::from_path"
-start_line = 97
+start_line = 101
 metric = "nexits"
 value = 5.0
 
@@ -940,14 +961,21 @@ path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 start_line = 218
 metric = "halstead.effort"
-value = 61523.95778223676
+value = 58315.43211975729
+
+[[entry]]
+path = "src/spaces/compute.rs"
+qualified = "compute_per_node"
+start_line = 218
+metric = "nargs"
+value = 7.0
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 446
+start_line = 507
 metric = "halstead.effort"
-value = 142419.45851755128
+value = 123702.93348164707
 
 [[entry]]
 path = "src/suppression.rs"

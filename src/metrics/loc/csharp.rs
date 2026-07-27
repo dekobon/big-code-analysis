@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for CsharpCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Csharp::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -42,6 +42,7 @@ impl Loc for CsharpCode {
                 // (e.g. `for (int i = 0; i < n; i++)`) shouldn't bump LLOC; the
                 // surrounding `for_statement` already counts.
                 if node.count_specific_ancestors::<CsharpCode>(
+                    ancestors,
                     |n| n.kind_id() == ForStatement,
                     |n| n.kind_id() == Block,
                 ) == 0

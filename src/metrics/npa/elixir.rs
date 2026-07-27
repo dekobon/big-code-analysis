@@ -26,7 +26,12 @@ impl Npa for ElixirCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
 
-        if !stats.is_disabled() || !Self::is_func_space_with_code(node, code) {
+        // `Ancestors::unknown()`: `Npm`/`Npa::compute` take no
+        // ancestor chain, so this pays `Node::parent`'s `O(depth)`
+        // per step for a quoted `def`. Widening the two traits' 20-odd
+        // impls is tracked as #1088.
+        if !stats.is_disabled() || !Self::is_func_space_with_code(node, code, Ancestors::unknown())
+        {
             return;
         }
         if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {

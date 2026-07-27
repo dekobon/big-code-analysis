@@ -87,13 +87,13 @@ impl Checker for PythonCode {
     // accept either via `python_is_block`, the single normalization
     // point for the aliases (issue #419; lesson 2 in
     // `docs/development/lessons_learned.md`).
-    fn is_else_if(node: &Node) -> bool {
+    fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Python::IfStatement
-            && node.parent().is_some_and(|parent| {
+            && ancestors.iter(node).next().is_some_and(|(parent, above)| {
                 crate::metrics::npa::python_is_block(&parent)
                     && parent.children().filter(Node::is_named).count() == 1
-                    && parent
-                        .parent()
+                    && above
+                        .parent(&parent)
                         .is_some_and(|gp| gp.kind_id() == Python::ElseClause)
             })
     }

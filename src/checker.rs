@@ -46,7 +46,14 @@ macro_rules! js_ancestor_walk {
         // `Self` is the enclosing `impl Checker for <Lang>Code` type, so
         // the ancestor walk's `is_else_if` filter is bound directly to the
         // language's own `Checker` (no `ParserTrait` round-trip).
+        //
+        // `Ancestors::unknown()`, so this walk is still `O(depth)` per
+        // step. `is_func` / `is_closure` are called from `Nargs`, `Npm`,
+        // `function`, and `ops` as well as the metric walk, and only the
+        // metric walk holds a chain to hand over; threading one through
+        // all of them is tracked separately (#1088).
         $node.count_specific_ancestors::<Self>(
+            Ancestors::unknown(),
             |node| matches!(node.kind_id().into(), $($up)|+),
             |node| matches!(node.kind_id().into(), $($stop)|+),
         ) > 0
@@ -160,10 +167,10 @@ macro_rules! impl_simple_is_string {
 macro_rules! impl_is_else_if_parent_clause {
     ($lang:ident, $if_kind:ident, $else_clause:ident) => {
         #[inline]
-        fn is_else_if(node: &Node) -> bool {
+        fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             node.kind_id() == $lang::$if_kind
-                && node
-                    .parent()
+                && ancestors
+                    .parent(node)
                     .is_some_and(|parent| parent.kind_id() == $lang::$else_clause)
         }
     };
@@ -176,10 +183,10 @@ macro_rules! impl_is_else_if_parent_clause {
 macro_rules! impl_is_else_if_prev_sibling {
     ($lang:ident, $if_kind:ident, $else_kw:ident) => {
         #[inline]
-        fn is_else_if(node: &Node) -> bool {
+        fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             node.kind_id() == $lang::$if_kind
-                && node
-                    .previous_sibling()
+                && ancestors
+                    .previous_sibling(node)
                     .is_some_and(|prev| prev.kind_id() == $lang::$else_kw)
         }
     };
@@ -193,7 +200,7 @@ macro_rules! impl_is_else_if_prev_sibling {
 macro_rules! impl_is_else_if_clause {
     ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
         #[inline]
-        fn is_else_if(node: &Node) -> bool {
+        fn is_else_if(node: &Node, _ancestors: Ancestors<'_, '_>) -> bool {
             matches!(
                 node.kind_id().into(),
                 $lang::$first $(| $lang::$rest)*
@@ -256,8 +263,16 @@ pub(crate) trait Checker {
     fn is_string(_: &Node) -> bool {
         false
     }
+    /// Whether `node` is the `if` that continues an `else if` chain,
+    /// rather than a freshly nested branch.
+    ///
+    /// `ancestors` is the chain the caller descended through; the
+    /// grammars that model `else if` as nesting need the parent (or the
+    /// preceding `else` token) to tell the two apart, and resolving
+    /// either from the node alone costs `O(depth)` (#1084). Languages
+    /// with a dedicated `elsif` clause node ignore it.
     #[inline]
-    fn is_else_if(_: &Node) -> bool {
+    fn is_else_if(_: &Node, _: Ancestors<'_, '_>) -> bool {
         false
     }
     #[inline]
@@ -290,15 +305,24 @@ pub(crate) trait Checker {
     /// `defmacro` / `defmacrop` / `defmodule` — override this to
     /// disambiguate `Call` nodes by their target identifier text
     /// (#275).
+    ///
+    /// `ancestors` is the chain the caller descended through, so a
+    /// language whose classification depends on an enclosing construct
+    /// (Elixir's `quote` template) can answer without paying
+    /// `Node::parent`'s `O(depth)` per step (#1084).
     #[inline]
-    fn is_func_space_with_code(node: &Node, _code: &[u8]) -> bool {
+    fn is_func_space_with_code<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         Self::is_func_space(node)
     }
 
     /// Source-aware variant of [`is_func`]. Same rationale as
     /// [`is_func_space_with_code`] (#275).
     #[inline]
-    fn is_func_with_code(node: &Node, _code: &[u8]) -> bool {
+    fn is_func_with_code<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         Self::is_func(node)
     }
 
@@ -313,8 +337,13 @@ pub(crate) trait Checker {
     /// `elixir_call_keyword` call answers both halves at once
     /// (#310 follow-on perf).
     #[inline]
-    fn promotes_to_func_space_with_code(node: &Node, code: &[u8]) -> bool {
-        Self::is_func_with_code(node, code) || Self::is_func_space_with_code(node, code)
+    fn promotes_to_func_space_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> bool {
+        Self::is_func_with_code(node, code, ancestors)
+            || Self::is_func_space_with_code(node, code, ancestors)
     }
 }
 
@@ -834,11 +863,11 @@ mod tests {
         }
         let inner = inner.expect("expected an inner if_statement");
         assert!(
-            GroovyCode::is_else_if(&inner),
+            GroovyCode::is_else_if(&inner, Ancestors::unknown()),
             "inner if_statement after `else` must be recognised as else-if"
         );
         assert!(
-            !GroovyCode::is_else_if(&outer),
+            !GroovyCode::is_else_if(&outer, Ancestors::unknown()),
             "outer if_statement must not be recognised as else-if"
         );
     }
@@ -851,7 +880,7 @@ mod tests {
         let parser =
             GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
         let node = find_first_kind(&parser, Groovy::IfStatement as u16).expect("if_statement");
-        assert!(!GroovyCode::is_else_if(&node));
+        assert!(!GroovyCode::is_else_if(&node, Ancestors::unknown()));
     }
 
     #[test]
@@ -930,11 +959,11 @@ mod tests {
         let inner =
             find_python_if_inside_else_block(&parser).expect("inner if_statement under else");
         assert!(
-            PythonCode::is_else_if(&inner),
+            PythonCode::is_else_if(&inner, Ancestors::unknown()),
             "if_statement inside else_clause's block must be recognised as else-if"
         );
         assert!(
-            !PythonCode::is_else_if(&outer),
+            !PythonCode::is_else_if(&outer, Ancestors::unknown()),
             "outer if_statement must not be recognised as else-if"
         );
     }
@@ -946,7 +975,7 @@ mod tests {
         let src = "if a:\n    pass\n";
         let parser = parse_python(src);
         let node = find_first_kind(&parser, Python::IfStatement as u16).expect("if_statement");
-        assert!(!PythonCode::is_else_if(&node));
+        assert!(!PythonCode::is_else_if(&node, Ancestors::unknown()));
     }
 
     #[test]
@@ -959,7 +988,7 @@ mod tests {
         let src = "if a:\n    pass\nelif b:\n    pass\n";
         let parser = parse_python(src);
         let outer = find_first_kind(&parser, Python::IfStatement as u16).expect("if_statement");
-        assert!(!PythonCode::is_else_if(&outer));
+        assert!(!PythonCode::is_else_if(&outer, Ancestors::unknown()));
     }
 
     // Return the inner `if_statement` that sits directly inside an
@@ -988,7 +1017,7 @@ mod tests {
         let inner =
             find_python_if_inside_else_block(&parser).expect("inner if_statement under else");
         assert!(
-            !PythonCode::is_else_if(&inner),
+            !PythonCode::is_else_if(&inner, Ancestors::unknown()),
             "inner if must NOT be recognised as else-if when its block has siblings"
         );
     }

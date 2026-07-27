@@ -49,6 +49,7 @@ macro_rules! implement_metric_trait {
                fn compute<'a>(
                    _node: &Node<'a>,
                    _code: &'a [u8],
+                   _ancestors: crate::Ancestors<'a, '_>,
                    _stats: &mut Stats,
                    _nesting_map: &mut crate::spaces::NestingMap,
                ) {}
@@ -88,7 +89,12 @@ macro_rules! implement_metric_trait {
     (Loc, $($code:ident),+) => (
         $(
            impl Loc for $code {
-               fn compute(_node: &Node, _stats: &mut Stats, _is_func_space: bool) {}
+               fn compute(
+                   _node: &Node,
+                   _ancestors: crate::Ancestors<'_, '_>,
+                   _stats: &mut Stats,
+                   _is_func_space: bool,
+               ) {}
            }
         )+
     );

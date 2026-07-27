@@ -17,6 +17,7 @@ impl Cognitive for PhpCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -36,7 +37,7 @@ impl Cognitive for PhpCode {
             // for later arms (#529). The one-word `elseif` keyword is a
             // dedicated `ElseIfClause` node handled by the branch-extension
             // arm below.
-            IfStatement if !Self::is_else_if(node) => {
+            IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForStatement

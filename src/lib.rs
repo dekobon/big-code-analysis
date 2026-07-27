@@ -278,6 +278,7 @@ pub use crate::output::{
 
 // --- AST plumbing (Node) ---
 mod node;
+pub(crate) use crate::node::Ancestors;
 pub use crate::node::Node;
 
 // --- Language detection / I/O helpers ---

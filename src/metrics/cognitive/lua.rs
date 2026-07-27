@@ -17,6 +17,7 @@ impl Cognitive for LuaCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -32,7 +33,7 @@ impl Cognitive for LuaCode {
             // `is_else_if` returns true for `ElseifStatement`, but Lua's
             // grammar makes that node a child field of `IfStatement` rather
             // than a nested `if_statement`, so the guard is defensive only.
-            IfStatement if !Self::is_else_if(node) => {
+            IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `elseif` adds +1 at the same nesting level as the parent `if`,

@@ -54,7 +54,7 @@ use crate::preproc::PreprocResults;
 
 use crate::checker::Checker;
 use crate::error::MetricsError;
-use crate::node::{Cursor, Node};
+use crate::node::{Ancestors, Cursor, Node};
 use crate::suppression::{
     Suppression, SuppressionKind, SuppressionScope, parse_marker as parse_suppression_marker,
 };

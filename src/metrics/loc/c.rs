@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for CCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use C::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -39,6 +39,7 @@ impl Loc for CCode {
             }
             Declaration => {
                 if node.count_specific_ancestors::<CCode>(
+                    ancestors,
                     |node| {
                         matches!(
                             node.kind_id().into(),

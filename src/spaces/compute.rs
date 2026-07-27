@@ -221,6 +221,7 @@ fn compute_per_node<'a, T: ParserTrait>(
     code: &'a [u8],
     options: MetricsOptions,
     facts: NodeFacts,
+    ancestors: Ancestors<'a, '_>,
     nesting_map: &mut NestingMap,
 ) {
     let NodeFacts {
@@ -230,7 +231,13 @@ fn compute_per_node<'a, T: ParserTrait>(
     let selected = options.metrics;
     let last = &mut state.space;
     if selected.contains(Metric::Cognitive) {
-        T::Cognitive::compute(node, code, &mut last.metrics.cognitive, nesting_map);
+        T::Cognitive::compute(
+            node,
+            code,
+            ancestors,
+            &mut last.metrics.cognitive,
+            nesting_map,
+        );
     }
     if selected.contains(Metric::Cyclomatic) {
         T::Cyclomatic::compute_with_options(
@@ -244,10 +251,10 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Halstead::compute(node, code, &mut state.halstead_maps);
     }
     if selected.contains(Metric::Loc) {
-        T::Loc::compute(node, &mut last.metrics.loc, func_space);
+        T::Loc::compute(node, ancestors, &mut last.metrics.loc, func_space);
     }
     if selected.contains(Metric::Nom) {
-        T::Nom::compute(node, code, &mut last.metrics.nom);
+        T::Nom::compute(node, code, ancestors, &mut last.metrics.nom);
     }
     if selected.contains(Metric::Tokens) {
         T::Tokens::compute(node, &mut last.metrics.tokens, in_comment);
@@ -283,7 +290,9 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     code: &[u8],
     selected: MetricSet,
 ) {
-    if T::Getter::get_space_kind_with_code(node, code) != SpaceKind::Unit {
+    // `Ancestors::unknown()`: `node` is the tree root here, so it has no
+    // ancestors to hand over either way.
+    if T::Getter::get_space_kind_with_code(node, code, Ancestors::unknown()) != SpaceKind::Unit {
         let mut synthetic = FuncSpace::new::<T::Getter>(node, code, SpaceKind::Unit, selected);
         let (end_row, end_column) = node.end_position();
         synthetic
@@ -295,6 +304,31 @@ fn push_synthetic_unit_root<T: ParserTrait>(
             halstead_maps: HalsteadMaps::new(),
         });
     }
+}
+
+/// Pushes a new [`FuncSpace`] frame for `node` and returns the nesting
+/// level its children inherit.
+///
+/// Only called once the walker has decided `node` opens a space, so the
+/// `SpaceKind` lookup stays off the per-node path. That matters for some
+/// languages — notably Elixir, whose `get_space_kind_with_code` runs a
+/// per-`Call` source-text keyword scan, so it is far from a cheap enum
+/// compare (issue #522; the `Loc` unit flag that used to force it on
+/// every node went away with #1067).
+fn open_func_space<'a, T: ParserTrait>(
+    state_stack: &mut Vec<State<'a>>,
+    node: &Node<'a>,
+    code: &'a [u8],
+    ancestors: Ancestors<'a, '_>,
+    level: usize,
+    selected: MetricSet,
+) -> usize {
+    let kind = T::Getter::get_space_kind_with_code(node, code, ancestors);
+    state_stack.push(State {
+        space: FuncSpace::new::<T::Getter>(node, code, kind, selected),
+        halstead_maps: HalsteadMaps::new(),
+    });
+    level + 1
 }
 
 /// Scans a comment node for a suppression marker and applies it against
@@ -346,6 +380,13 @@ fn apply_comment_suppression(
 struct Walk {
     /// Nesting level, used to close func-spaces on the way back up.
     level: usize,
+    /// AST depth — the number of ancestors this node has, so the root
+    /// sits at `0`.
+    ///
+    /// Distinct from `level`, which only advances at func-space
+    /// boundaries. This one indexes the ancestor chain the walk keeps
+    /// for [`Ancestors`], which is why it has to count every step.
+    depth: usize,
     /// Whether an **ancestor** of this node is a comment.
     ///
     /// Deliberately excludes the node itself — the walk ORs in
@@ -470,10 +511,11 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
 ) -> Result<FuncSpace, MetricsError> {
     // bca: suppress(cognitive, abc)
     // The single AST-walk loop. Per-node work is already factored into
-    // push_synthetic_unit_root / finalize / compute_per_node /
-    // apply_comment_suppression / push_children; the residual branches
-    // each guard a distinct walk invariant (#182/#289/#522/#722). There
-    // is no cohesive sub-loop to lift without inventing a `walk_part2`.
+    // push_synthetic_unit_root / finalize / open_func_space /
+    // compute_per_node / apply_comment_suppression / push_children; the
+    // residual branches each guard a distinct walk invariant
+    // (#182/#289/#522/#722/#1084). There is no cohesive sub-loop left to
+    // lift without inventing a `walk_part2`.
     // The suppression-warning diagnostic uses the caller-supplied
     // name when present; otherwise we fall back to a placeholder so
     // the warning still locates the offending line. All path-based
@@ -486,6 +528,11 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut children = Vec::new();
+    // Ancestor chain of the node currently being visited, root first.
+    // Maintained so per-node predicates can read an ancestor as a slice
+    // index instead of through `Node::parent`, which `tree_sitter`
+    // resolves by descending from the root (#1084).
+    let mut chain: Vec<Node<'_>> = Vec::new();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
     // Per-node cognitive nesting, inherited down the walk. Deliberately
@@ -529,11 +576,28 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
         node,
         Walk {
             level: 0,
+            depth: 0,
             in_comment: false,
         },
     ));
 
-    while let Some((node, Walk { level, in_comment })) = stack.pop() {
+    while let Some((
+        node,
+        Walk {
+            level,
+            depth,
+            in_comment,
+        },
+    )) = stack.pop()
+    {
+        // The ancestors of the node about to be visited, root first.
+        // Pre-order guarantees every one of them has already been
+        // visited and appended, so truncating to `depth` drops the
+        // sibling subtree we just finished and leaves exactly this
+        // node's chain (#1084). Correcting it here rather than on the
+        // way out also keeps it right across the `continue` below.
+        chain.truncate(depth);
+
         // Close any spaces left open by a deeper, already-walked subtree
         // before doing anything else with this node. This must run before
         // the test-subtree prune below so that, when we skip a pruned
@@ -571,23 +635,12 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             continue;
         }
 
-        let func_space = T::Checker::promotes_to_func_space_with_code(&node, code);
+        let ancestors = Ancestors::known(&chain);
+        let func_space = T::Checker::promotes_to_func_space_with_code(&node, code, ancestors);
 
         let new_level = if func_space {
-            // `kind` has exactly one consumer left: `FuncSpace::new`.
-            // For some languages — notably Elixir, whose
-            // `get_space_kind_with_code` runs a per-`Call` source-text
-            // keyword scan — this lookup is far from a cheap enum
-            // compare, so it stays inside the `func_space` branch
-            // (issue #522; the `Loc` unit flag that used to force it on
-            // every node went away with #1067).
-            let kind = T::Getter::get_space_kind_with_code(&node, code);
-            let state = State {
-                space: FuncSpace::new::<T::Getter>(&node, code, kind, selected),
-                halstead_maps: HalsteadMaps::new(),
-            };
-            state_stack.push(state);
-            last_level = level + 1;
+            last_level =
+                open_func_space::<T>(&mut state_stack, &node, code, ancestors, level, selected);
             last_level
         } else {
             level
@@ -616,15 +669,19 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
                     func_space,
                     in_comment: subtree_in_comment,
                 },
+                ancestors,
                 &mut nesting_map,
             );
         }
+
+        chain.push(node);
 
         let pushed = push_children(
             &mut cursor,
             &node,
             Walk {
                 level: new_level,
+                depth: depth + 1,
                 in_comment: subtree_in_comment,
             },
             &mut children,

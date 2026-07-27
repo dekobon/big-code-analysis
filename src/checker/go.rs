@@ -37,10 +37,10 @@ impl Checker for GoCode {
     impl_simple_is_string!(Go, InterpretedStringLiteral, RawStringLiteral);
 
     #[inline]
-    fn is_else_if(node: &Node) -> bool {
+    fn is_else_if<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Go::IfStatement
-            && node
-                .parent()
+            && ancestors
+                .parent(node)
                 .is_some_and(|p| p.kind_id() == Go::IfStatement)
     }
 }

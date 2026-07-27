@@ -175,9 +175,16 @@ where
     /// the source text (the `target` field is an `Identifier`). This
     /// matches the `Cyclomatic` / `Halstead` / `Exit` pattern of
     /// taking `code` so the same source-text dispatch can run here.
+    ///
+    /// `ancestors` is the chain the walker descended through. The
+    /// grammars that spell `else if` as a nested `if` need an ancestor
+    /// to recognise the continuation, and Python needs one to find the
+    /// outermost operator of a boolean chain; resolving either from the
+    /// node alone costs `O(depth)` per node (#1084).
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     );
@@ -315,6 +322,7 @@ macro_rules! js_cognitive {
         fn compute<'a>(
             node: &Node<'a>,
             _code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
             stats: &mut Stats,
             nesting_map: &mut NestingMap,
         ) {
@@ -326,7 +334,7 @@ macro_rules! js_cognitive {
         } = get_nesting_from_map(node, nesting_map);
 
             match node.kind_id().into() {
-                IfStatement if !Self::is_else_if(node) => {
+                IfStatement if !Self::is_else_if(node, ancestors) => {
                     increase_nesting(stats, &mut nesting, depth, lambda);
                 }
                 ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause | TernaryExpression => {
@@ -553,18 +561,19 @@ pub(crate) fn elixir_is_class_macro(kw: &str) -> bool {
 // quoted Calls as methods inflates `Wmc` and disagrees with `Npm`'s
 // direct-children classification (#310).
 //
-// Walks the parent chain looking for a `quote` Call ancestor. Stops at
-// the first match (true) or at the root (false). O(depth); each step is
-// a single `child_by_field_name("target")` + identifier byte compare.
-pub(crate) fn elixir_is_inside_quote_block(node: &Node<'_>, code: &[u8]) -> bool {
-    let mut current = node.parent();
-    while let Some(n) = current {
-        if elixir_call_keyword(&n, code) == Some("quote") {
-            return true;
-        }
-        current = n.parent();
-    }
-    false
+// Walks the ancestor chain looking for a `quote` Call ancestor. Stops at
+// the first match (true) or at the root (false). Each step is a single
+// `child_by_field_name("target")` + identifier byte compare, so the cost
+// is O(steps) when `ancestors` is known — with `Ancestors::unknown` each
+// step additionally pays `Node::parent`'s O(depth) (#1084).
+pub(crate) fn elixir_is_inside_quote_block<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors
+        .iter(node)
+        .any(|(n, _)| elixir_call_keyword(&n, code) == Some("quote"))
 }
 
 // Iterates the direct-child `Call` nodes inside the `do_block` of an
@@ -599,6 +608,51 @@ mod tests {
 
     use super::*;
 
+    /// The walker must hand `is_else_if` the node's own parent at every
+    /// AST depth.
+    ///
+    /// A bare `{ … }` block carries no cognitive weight in either
+    /// language, so burying an `if / else if / else if` chain under more
+    /// of them cannot move the score — unless the chain of ancestors the
+    /// walker propagates (#1084) drifts. Then the inner `if`s stop
+    /// reading as continuations of the branch above, each pays a fresh
+    /// nesting penalty, and the total climbs with depth.
+    ///
+    /// Both `is_else_if` shapes are covered: C resolves the enclosing
+    /// `else_clause` through the parent, Java through the preceding
+    /// `else` token, which the chain answers by scanning the parent's
+    /// children.
+    #[test]
+    fn else_if_is_recognised_at_every_nesting_depth() {
+        use crate::test_support::metrics_verbatim;
+
+        // 1 for the `if`, plus 1 for each `else if` as a branch
+        // extension. No nesting penalty: an `else if` continues the
+        // chain rather than nesting inside it.
+        const CHAIN_COGNITIVE: u64 = 3;
+
+        let chain = "if (a) { } else if (b) { } else if (c) { }";
+        for depth in 0..=6 {
+            let (open, close) = ("{ ".repeat(depth), " }".repeat(depth));
+            for (lang, source) in [
+                (LANG::C, format!("void f() {{ {open}{chain}{close} }}\n")),
+                (
+                    LANG::Java,
+                    format!("class A {{ void m() {{ {open}{chain}{close} }} }}\n"),
+                ),
+            ] {
+                let metrics = metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default());
+                assert_eq!(
+                    metrics.cognitive.cognitive_sum(),
+                    CHAIN_COGNITIVE,
+                    "{lang:?}: `else if` chain under {depth} plain blocks scored \
+                     {} instead of {CHAIN_COGNITIVE}",
+                    metrics.cognitive.cognitive_sum(),
+                );
+            }
+        }
+    }
+
     /// `SEEDS_NESTING` must say what `compute` actually does.
     ///
     /// The walker trusts the const twice over: `true` means the map is
@@ -618,6 +672,7 @@ mod tests {
             T::Cognitive::compute(
                 &parser.root(),
                 parser.code(),
+                Ancestors::known(&[]),
                 &mut Stats::default(),
                 &mut nesting_map,
             );

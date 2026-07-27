@@ -52,7 +52,11 @@ impl Getter for ElixirCode {
     // this method labels the promoted space with the right `SpaceKind`
     // so `Wmc` / `Npm` / `Npa` see a Class for `defmodule` and a
     // Function for the method-defining macros.
-    fn get_space_kind_with_code(node: &Node, code: &[u8]) -> SpaceKind {
+    fn get_space_kind_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> SpaceKind {
         use crate::metrics::cognitive::{
             elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
             elixir_is_method_macro,
@@ -65,7 +69,10 @@ impl Getter for ElixirCode {
             Some(kw) if elixir_is_class_macro(kw) => SpaceKind::Class,
             // Method-defining macros nested inside a `quote do … end`
             // template are not real method declarations (#310).
-            Some(kw) if elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code) => {
+            Some(kw)
+                if elixir_is_method_macro(kw)
+                    && !elixir_is_inside_quote_block(node, code, ancestors) =>
+            {
                 SpaceKind::Function
             }
             _ => SpaceKind::Unknown,
@@ -99,10 +106,18 @@ impl Getter for ElixirCode {
         // The Class kind always names its head; for method macros we
         // additionally require the Call NOT to be inside a `quote`
         // template, matching the func-space promotion rule (#310).
+        //
+        // `Ancestors::unknown()` — `get_func_space_name` runs once per
+        // *promoted* space, and a quoted `def` is never promoted, so
+        // the climbing lookup is off the per-node path that #1084 was
+        // about. Giving it a chain would mean widening the whole
+        // `Getter::get_func_space_name` surface (23 impls) for a call
+        // that fires a handful of times per file (#1088).
         if node.kind_id() == E::Call as u16
             && let Some(kw) = elixir_call_keyword(node, code)
             && (elixir_is_class_macro(kw)
-                || (elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)))
+                || (elixir_is_method_macro(kw)
+                    && !elixir_is_inside_quote_block(node, code, Ancestors::unknown())))
         {
             let target_id = node.child_by_field_name("target").map(|t| t.id());
             if let Some(name) = node

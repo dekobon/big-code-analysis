@@ -69,19 +69,25 @@ fn python_comprehension_clause_nesting(
 /// already counted, so the `== 0` guard skips it. The outermost operator
 /// then adds one structural unit per enclosing control construct
 /// (`expression_list`, `if`/`for`/`while`) up to the nearest lambda.
-fn python_apply_boolean_operator(node: &Node, stats: &mut Stats) {
+fn python_apply_boolean_operator<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
     use Python::*;
     if node.count_specific_ancestors::<PythonCode>(
+        ancestors,
         |node| node.kind_id() == BooleanOperator,
         python_is_lambda,
     ) == 0
     {
-        stats.structural += node.count_specific_ancestors::<PythonCode>(python_is_lambda, |node| {
-            matches!(
-                node.kind_id().into(),
-                ExpressionList | IfStatement | ForStatement | WhileStatement
-            )
-        });
+        stats.structural +=
+            node.count_specific_ancestors::<PythonCode>(ancestors, python_is_lambda, |node| {
+                matches!(
+                    node.kind_id().into(),
+                    ExpressionList | IfStatement | ForStatement | WhileStatement
+                )
+            });
     }
     compute_booleans(node, stats, And, Or);
 }
@@ -90,6 +96,7 @@ impl Cognitive for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -107,7 +114,7 @@ impl Cognitive for PythonCode {
             // in an `else_clause`; `Self::is_else_if` flags that shape
             // so the nesting increment lands only on the outer chain
             // (matching the `elif_clause` accounting one arm below).
-            IfStatement if !Self::is_else_if(node) => {
+            IfStatement if !Self::is_else_if(node, ancestors) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForStatement | WhileStatement | ConditionalExpression | MatchStatement => {
@@ -184,7 +191,7 @@ impl Cognitive for PythonCode {
             ExpressionList | ExpressionStatement | Tuple => {
                 stats.boolean_seq.reset();
             }
-            BooleanOperator => python_apply_boolean_operator(node, stats),
+            BooleanOperator => python_apply_boolean_operator(node, ancestors, stats),
             // `Lambda` (196) is the emitted lambda; `Lambda2` (197) is the
             // hidden alias `python_is_lambda` also accepts. A match arm
             // cannot route through the predicate, so the alias set is

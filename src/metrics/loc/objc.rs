@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for ObjcCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Objc::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -63,6 +63,7 @@ impl Loc for ObjcCode {
                 // so it must not add a second one. Mirrors the C / C++
                 // gating exactly.
                 if node.count_specific_ancestors::<ObjcCode>(
+                    ancestors,
                     |node| {
                         matches!(
                             node.kind_id().into(),

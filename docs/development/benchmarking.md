@@ -101,23 +101,26 @@ Read it as follows.
 | `tokens/nested-paren` | Rust | inherited in-comment flag (#1052) | linear |
 | `cognitive/nested-while` | C | `get_nesting_from_map` (#1062) | linear |
 | `nom/nested-while` | C | metric control for the row above | linear |
-| `cognitive/nested-if` | C | `Checker::is_else_if` | quadratic |
+| `cognitive/nested-if` | C | `Checker::is_else_if` | linear |
 | `loc/nested-while` | C | shape control for the row below | linear |
-| `loc/nested-declaration` | C | `Node::count_specific_ancestors` | quadratic |
-| `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | quadratic |
+| `loc/nested-declaration` | C | `Node::count_specific_ancestors` | linear |
+| `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | linear |
 | `nom/nested-fn` | Rust | `increment_function_depth`, `FuncSpace` nesting | linear |
 
-The three quadratic probes share one cause: `tree_sitter` stores no
-parent pointer, so `Node::parent` resolves by descending from the root
-and is itself `O(depth)`. Any predicate in the walk that asks a node
-for its parent is therefore `O(depth)` per node and `O(depth^2)` over a
-deeply nested file, however few steps it takes. That is tracked as
-[#1084][parent-walk]; their bounds here pin the current class rather
-than endorsing it, so a further degradation is still caught. When that
-issue is fixed, those probes move to the linear bound in the same
-change.
+Three of these were quadratic when the harness landed, and they shared
+one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
+resolves by descending from the root and is itself `O(depth)`. Any
+predicate in the walk that asked a node for its parent was therefore
+`O(depth)` per node and `O(depth^2)` over a deeply nested file, however
+few steps it took. [#1084][parent-walk] fixed all three by having the
+metric walk carry the ancestor chain down with it (`Ancestors` in
+`src/node.rs`), so a predicate reads an ancestor as a slice index. Their
+bounds moved to the linear bound in that same change, which is what now
+catches a relapse. Four `Node::parent` climbs outside those probes were
+left as they were and are tracked in [#1088][remaining-climbs].
 
 [parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
+[remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
 
 The three control probes are what make the other readings mean
 something.
@@ -127,11 +130,13 @@ something.
   cognitive-attributable cost is the difference between the two rows,
   not `cognitive` alone.
 - `loc/nested-while` and `cognitive/nested-while` are **shape**
-  controls: each is the same nesting as the quadratic probe it sits
-  next to, with the one node that triggers an ancestor walk removed.
-  Each fits near 1.0 where its quadratic counterpart fits near 2.0,
-  which is what attributes the quadratic behaviour to that call rather
-  than to nesting in general.
+  controls: each is the same nesting as the ancestor-walk probe it sits
+  next to, with the one node that triggers the walk removed. Before
+  [#1084][parent-walk] each fitted near 1.0 where its counterpart
+  fitted near 2.0, which is what attributed the quadratic cost to
+  that call rather than to nesting in general. Now that all eight fit near 1.0, the pair
+  is what would localise a relapse: a probe drifting up while its
+  control holds means the ancestor lookup, not the shape.
 
 ### Adding a probe
 

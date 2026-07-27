@@ -153,7 +153,8 @@ impl<'a> Node<'a> {
     /// metric `O(leaves × depth²)`, so a 2 KB file of nested parentheses
     /// took ~19 s. Prefer inheriting state downward through the
     /// traversal (see `Walk` in `spaces::compute`) over rediscovering it
-    /// upward. Remaining known instances are tracked in #1062.
+    /// upward, and where a predicate genuinely needs an ancestor, take
+    /// an [`Ancestors`] rather than calling this (#1084).
     pub(crate) fn parent(&self) -> Option<Node<'a>> {
         self.0.parent().map(Node)
     }
@@ -302,21 +303,29 @@ impl<'a> Node<'a> {
         Some(node)
     }
 
+    /// Counts this node's ancestors satisfying `check`, walking upward
+    /// from the parent and stopping at (and excluding) the first
+    /// ancestor satisfying `stop`. An ancestor that is the `if` of an
+    /// `else if` chain never counts — it is a continuation of the
+    /// branch above it, not a new enclosing one.
+    ///
+    /// `ancestors` is the chain the caller descended through. Passing
+    /// [`Ancestors::unknown`] is always correct and answers identically;
+    /// it just pays `O(depth)` per step instead of `O(1)`.
     pub(crate) fn count_specific_ancestors<C: Checker>(
         &self,
+        ancestors: Ancestors<'a, '_>,
         check: fn(&Node) -> bool,
         stop: fn(&Node) -> bool,
     ) -> usize {
         let mut count = 0;
-        let mut node = *self;
-        while let Some(parent) = node.parent() {
+        for (parent, above_parent) in ancestors.iter(self) {
             if stop(&parent) {
                 break;
             }
-            if check(&parent) && !C::is_else_if(&parent) {
+            if check(&parent) && !C::is_else_if(&parent, above_parent) {
                 count += 1;
             }
-            node = parent;
         }
         count
     }
@@ -374,6 +383,112 @@ impl<'a> Node<'a> {
         self.preorder()
             .filter(|node| kinds.contains(&node.kind()))
             .collect()
+    }
+}
+
+/// The chain of a node's ancestors, root first, as recorded by a walker
+/// that descended to that node.
+///
+/// `tree_sitter` stores no parent pointer: [`Node::parent`] restarts at
+/// the tree root and descends, so it costs `O(depth)`. A predicate that
+/// asks a node for its parent is therefore `O(depth)` per node and
+/// `O(depth²)` over a deeply nested file, however few parent steps it
+/// takes (#1084). A walker that visits parents before children already
+/// holds the chain, and handing it down turns each step into a slice
+/// index — the upward counterpart of the downward flag propagation
+/// #1052 and #1062 used.
+///
+/// Callers that reached a node some other way pass
+/// [`Ancestors::unknown`], which climbs with [`Node::parent`]: the same
+/// answers at the original cost.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Ancestors<'tree, 'chain>(Option<&'chain [Node<'tree>]>);
+
+impl<'tree, 'chain> Ancestors<'tree, 'chain> {
+    /// No chain is available; every query climbs with [`Node::parent`].
+    pub(crate) const fn unknown() -> Self {
+        Self(None)
+    }
+
+    /// `chain` lists every ancestor of the node about to be queried,
+    /// root first — so `chain.last()` is its parent and an empty chain
+    /// means the node is the root.
+    pub(crate) const fn known(chain: &'chain [Node<'tree>]) -> Self {
+        Self(Some(chain))
+    }
+
+    /// `node`'s parent.
+    pub(crate) fn parent(self, node: &Node<'tree>) -> Option<Node<'tree>> {
+        match self.0 {
+            Some(chain) => chain.last().copied(),
+            None => node.parent(),
+        }
+    }
+
+    /// The sibling immediately before `node`, or `None` when `node` is
+    /// its parent's first child or has no parent.
+    ///
+    /// `tree_sitter`'s own `prev_sibling` resolves the parent first
+    /// (`ts_node__prev_sibling` opens with `ts_node_parent`), so it
+    /// carries the same `O(depth)` cost [`Node::parent`] does. With a
+    /// known chain the parent is free and what remains is a cursor walk
+    /// over the siblings.
+    pub(crate) fn previous_sibling(self, node: &Node<'tree>) -> Option<Node<'tree>> {
+        let Some(chain) = self.0 else {
+            return node.previous_sibling();
+        };
+        let parent = chain.last()?;
+        let mut previous = None;
+        for child in parent.children() {
+            if child.id() == node.id() {
+                return previous;
+            }
+            previous = Some(child);
+        }
+        // `node` is not among `parent.children()`, so this chain does
+        // not describe `node`. Answering `None` would claim "no
+        // previous sibling", which is a different (and wrong) answer;
+        // fall back to the authoritative lookup instead.
+        node.previous_sibling()
+    }
+
+    /// `node`'s ancestors, nearest first, each paired with *its* own
+    /// ancestry so a predicate applied to an ancestor stays as cheap as
+    /// one applied to `node`.
+    pub(crate) fn iter(self, node: &Node<'tree>) -> AncestorIter<'tree, 'chain> {
+        match self.0 {
+            Some(chain) => AncestorIter::Chain(chain),
+            None => AncestorIter::Climb(node.parent()),
+        }
+    }
+}
+
+/// Ancestor iterator returned by [`Ancestors::iter`], nearest first.
+pub(crate) enum AncestorIter<'tree, 'chain> {
+    /// The not-yet-yielded prefix of a known chain. Its last element is
+    /// the next ancestor, and the prefix before it is that ancestor's
+    /// own chain — so splitting from the back hands out both at once.
+    Chain(&'chain [Node<'tree>]),
+    /// The next ancestor to yield, reached by climbing.
+    Climb(Option<Node<'tree>>),
+}
+
+impl<'tree, 'chain> Iterator for AncestorIter<'tree, 'chain> {
+    type Item = (Node<'tree>, Ancestors<'tree, 'chain>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Chain(remaining) => {
+                let (&nearest, above) = remaining.split_last()?;
+                *remaining = above;
+                Some((nearest, Ancestors::known(above)))
+            }
+            Self::Climb(next) => {
+                let nearest = (*next)?;
+                *next = nearest.parent();
+                Some((nearest, Ancestors::unknown()))
+            }
+        }
     }
 }
 
@@ -859,6 +974,204 @@ mod tests {
             named < walked,
             "fixture must contain anonymous tokens, else the assertion \
              above cannot distinguish a named-only count"
+        );
+    }
+
+    /// Visits `code`'s tree in pre-order, maintaining the ancestor chain
+    /// exactly as `spaces::compute::metrics_inner` does, and hands each
+    /// node to `check` together with that chain.
+    ///
+    /// Keeping the bookkeeping identical to the walker's is the point:
+    /// a test that built the chain some other way would prove
+    /// [`Ancestors`] self-consistent without proving the walker feeds it
+    /// the right slice.
+    fn for_each_node_with_chain<L: LanguageInfo>(
+        code: &[u8],
+        mut check: impl FnMut(&Node<'_>, &[Node<'_>]),
+    ) -> usize {
+        let tree = Tree::new::<L>(code);
+        let root = tree.get_root();
+        assert!(
+            !root.has_error(),
+            "fixture must parse cleanly, else the walk covers error recovery"
+        );
+
+        let mut chain: Vec<Node<'_>> = Vec::new();
+        let mut stack = vec![(root, 0_usize)];
+        let mut visited = 0;
+        while let Some((node, depth)) = stack.pop() {
+            chain.truncate(depth);
+            check(&node, &chain);
+            visited += 1;
+            chain.push(node);
+            let first = stack.len();
+            stack.extend(node.children().map(|child| (child, depth + 1)));
+            stack[first..].reverse();
+        }
+        visited
+    }
+
+    /// Ancestor ids yielded by `ancestors`, nearest first.
+    fn ancestor_ids(ancestors: Ancestors<'_, '_>, node: &Node<'_>) -> Vec<usize> {
+        ancestors.iter(node).map(|(a, _)| a.id()).collect()
+    }
+
+    /// A known chain must answer every ancestor question exactly as
+    /// climbing with `Node::parent` does — that equivalence is the whole
+    /// premise of #1084, and it is what lets the predicates keep their
+    /// original logic while dropping the `O(depth)` lookup.
+    ///
+    /// Checked node-by-node over one fixture per grammar family that
+    /// actually consults an ancestor: C-family (`is_else_if` via the
+    /// parent clause, `loc`'s declaration gate), JVM-family
+    /// (`is_else_if` via the preceding `else` token), Python (the
+    /// grandparent shape), and Elixir (`quote` templates).
+    #[test]
+    fn a_known_chain_answers_exactly_what_climbing_answers() {
+        fn assert_parity<L: LanguageInfo>(label: &str, code: &[u8]) {
+            let visited = for_each_node_with_chain::<L>(code, |node, chain| {
+                let known = Ancestors::known(chain);
+                let climbing = Ancestors::unknown();
+                assert_eq!(
+                    known.parent(node).map(|p| p.id()),
+                    climbing.parent(node).map(|p| p.id()),
+                    "{label}: parent of {} disagrees",
+                    node.kind()
+                );
+                assert_eq!(
+                    known.previous_sibling(node).map(|p| p.id()),
+                    climbing.previous_sibling(node).map(|p| p.id()),
+                    "{label}: previous sibling of {} disagrees",
+                    node.kind()
+                );
+                assert_eq!(
+                    ancestor_ids(known, node),
+                    ancestor_ids(climbing, node),
+                    "{label}: ancestor chain of {} disagrees",
+                    node.kind()
+                );
+                // Each ancestor is handed *its* own chain, so a
+                // predicate applied one level up stays as cheap and as
+                // correct as one applied to the node itself.
+                for (ancestor, above) in known.iter(node) {
+                    assert_eq!(
+                        above.parent(&ancestor).map(|p| p.id()),
+                        ancestor.parent().map(|p| p.id()),
+                        "{label}: sub-chain handed to {} is not its own",
+                        ancestor.kind()
+                    );
+                }
+            });
+            assert!(visited > 20, "{label}: fixture is too small to prove much");
+        }
+
+        assert_parity::<crate::langs::CCode>(
+            "c",
+            b"int main() { if (a) { int x; } else if (b) { for (int i = 0; i < 2; i++) x; } }",
+        );
+        assert_parity::<crate::langs::JavaCode>(
+            "java",
+            b"class A { void m() { if (a) {} else if (b) {} else {} for (int i = 0; i < 2; i++) {} } }",
+        );
+        assert_parity::<crate::langs::PythonCode>(
+            "python",
+            b"def f(a, b):\n    if a:\n        pass\n    else:\n        if b:\n            pass\n    return a and b or a\n",
+        );
+        assert_parity::<crate::langs::ElixirCode>(
+            "elixir",
+            b"defmodule M do\n  def g do\n    :ok\n  end\n  quote do\n    def f do\n      :ok\n    end\n  end\nend\n",
+        );
+    }
+
+    /// `previous_sibling` must not answer "no previous sibling" when the
+    /// chain it was handed belongs to a different node.
+    ///
+    /// The known path finds the answer by scanning the chain's last
+    /// entry for `node`; a miss means the caller paired the two wrongly.
+    /// Reporting `None` there would be a wrong answer dressed as a
+    /// legitimate one, so the fallback re-asks the tree.
+    #[test]
+    fn previous_sibling_falls_back_on_a_chain_that_is_not_this_nodes() {
+        let code = b"int main() { int a; int b; }";
+        let tree = Tree::new::<crate::langs::CCode>(code);
+        let root = tree.get_root();
+        let body = root
+            .preorder()
+            .find(|n| n.kind() == "compound_statement")
+            .expect("fixture has a function body");
+        let declarations: Vec<Node<'_>> = body
+            .children()
+            .filter(|n| n.kind() == "declaration")
+            .collect();
+        assert_eq!(declarations.len(), 2, "fixture has two declarations");
+
+        let second = declarations[1];
+        let expected = second
+            .previous_sibling()
+            .map(|p| p.id())
+            .expect("the second declaration has a previous sibling");
+        // A chain ending in the *root* does not describe `second`, whose
+        // parent is the function body.
+        let foreign = [root];
+        assert_eq!(
+            Ancestors::known(&foreign)
+                .previous_sibling(&second)
+                .map(|p| p.id()),
+            Some(expected),
+            "a mismatched chain must fall back, not report `None`"
+        );
+        assert!(
+            Ancestors::known(&[]).previous_sibling(&second).is_none(),
+            "an empty chain means `second` is the root, which has no siblings"
+        );
+    }
+
+    /// `count_specific_ancestors` must return the same count whichever
+    /// way it reaches the ancestors. Uses `loc`'s real C predicate pair
+    /// (`while`/`for`/`if` header, stopping at the enclosing block), so
+    /// the fixture exercises both the counted case (the `for`-header
+    /// declaration) and the stopped case (the block-scoped ones).
+    #[test]
+    fn count_specific_ancestors_agrees_between_known_and_climbing() {
+        let code =
+            b"int main() { int a; if (x) { int b; } for (int i = 0; i < 2; i++) { int c; } }";
+        let mut counted = 0;
+        let mut nonzero = 0;
+        let visited = for_each_node_with_chain::<crate::langs::CCode>(code, |node, chain| {
+            if node.kind() != "declaration" {
+                return;
+            }
+            let check: fn(&Node) -> bool = |n| {
+                matches!(
+                    n.kind(),
+                    "while_statement" | "for_statement" | "if_statement"
+                )
+            };
+            let stop: fn(&Node) -> bool = |n| n.kind() == "compound_statement";
+            let known = node.count_specific_ancestors::<crate::langs::CCode>(
+                Ancestors::known(chain),
+                check,
+                stop,
+            );
+            let climbing = node.count_specific_ancestors::<crate::langs::CCode>(
+                Ancestors::unknown(),
+                check,
+                stop,
+            );
+            assert_eq!(
+                known,
+                climbing,
+                "declaration at row {}: known chain counted {known}, climbing counted {climbing}",
+                node.start_row()
+            );
+            counted += 1;
+            nonzero += usize::from(known > 0);
+        });
+        assert!(visited > 20);
+        assert_eq!(counted, 4, "fixture must hold four declarations");
+        assert_eq!(
+            nonzero, 1,
+            "only the `for`-header declaration sits under a header with no block between"
         );
     }
 }

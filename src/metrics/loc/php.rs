@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for PhpCode {
-    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Php::*;
 
         let (start, end) = init(node, stats, is_func_space);
