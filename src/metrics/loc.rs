@@ -10011,9 +10011,17 @@ class A {
     /// grammar whose root does *not* run to end-of-input has to show up
     /// here rather than silently lose a row.
     ///
-    /// `Preproc` and `Ccomment` are excluded on purpose: their `Loc`
-    /// impls are no-ops (`implement_metric_trait!(Loc, PreprocCode,
-    /// CcommentCode)`), so every LOC sub-metric is 0 by design (#188).
+    /// `Preproc` and `Ccomment` are excluded, but not because they are
+    /// exempt from the rule. Their `Loc` impls are no-ops
+    /// (`implement_metric_trait!(Loc, PreprocCode, CcommentCode)`, #188),
+    /// so the *node-accumulated* sub-metrics are 0 by design — yet
+    /// `sloc` is not node-accumulated: the walker's synthetic Unit root
+    /// calls `init_unit_span` for them like any other grammar, so they
+    /// carry a real span and drift with #1067 exactly as the languages
+    /// below do. What they cannot join is the second sweep, whose final
+    /// `mi != 0` assertion is unreachable with `ploc == 0`. They get
+    /// their own check in
+    /// `no_op_loc_grammars_still_count_their_unterminated_row`.
     const UNTERMINATED_ONE_LINERS: &[(crate::LANG, &[u8])] = &[
         (crate::LANG::Rust, b"fn main() {}"),
         (crate::LANG::C, b"int main(void) { return 0; }"),
@@ -10070,6 +10078,36 @@ class A {
                 loc.ploc(),
                 loc.sloc(),
             );
+        }
+    }
+
+    /// The two grammars whose `Loc` impl is the macro's no-op still get a
+    /// `sloc`, so they drift with #1067 like everything else.
+    ///
+    /// Their root is not a `SpaceKind::Unit`, so `metrics_inner` pushes a
+    /// synthetic Unit and seeds it with `init_unit_span` — a span the
+    /// no-op `compute` never touches but `Sloc::sloc()` still measures.
+    /// Before #1067 an unterminated one-liner measured `0` rows here too.
+    /// Kept apart from [`UNTERMINATED_ONE_LINERS`] only because the
+    /// `mi != 0` half of the sweep below cannot hold with `ploc == 0`.
+    #[test]
+    fn no_op_loc_grammars_still_count_their_unterminated_row() {
+        for (lang, source) in [
+            (crate::LANG::Preproc, &b"#define A 1"[..]),
+            (crate::LANG::Ccomment, &b"/* c */"[..]),
+        ] {
+            let bare = metrics_verbatim(lang, source, MetricsOptions::default()).loc;
+            assert_eq!(bare.sloc(), 1, "{lang:?} unterminated sloc");
+            let mut terminated = source.to_vec();
+            terminated.push(b'\n');
+            let terminated = metrics_verbatim(lang, &terminated, MetricsOptions::default()).loc;
+            assert_eq!(
+                bare.sloc(),
+                terminated.sloc(),
+                "{lang:?} sloc must not depend on the trailing newline"
+            );
+            // The node-accumulated sub-metrics are the ones #188 zeroes.
+            assert_eq!((bare.ploc(), bare.cloc(), bare.lloc()), (0, 0, 0));
         }
     }
 
