@@ -354,6 +354,7 @@ mod tests {
 
     use termcolor::NoColor;
 
+    use crate::output::test_support::assert_io_error_propagates_at_every_write;
     use crate::{CppParser, ParserTrait};
 
     use super::*;
@@ -656,5 +657,40 @@ mod tests {
 
         // depth = 0: nothing renders at all.
         assert!(render(code, &root, 0).is_empty(), "depth=0 renders nothing");
+    }
+
+    /// Every write position in the AST walk surfaces an I/O error, and
+    /// the walk stops there.
+    ///
+    /// `dump_node` documents that it propagates any `std::io::Error` the
+    /// writer produces — `bca dump | head` closes the pipe mid-stream —
+    /// but every existing test writes into an infallible `Vec`, leaving
+    /// the failure half of each `?` in `dump_tree_helper`, `paint`,
+    /// `write_node_line`, `write_node_header`, `write_node_location`, and
+    /// `write_node_snippet` unexercised.
+    ///
+    /// The fixture is deliberately the smallest tree that still nests:
+    /// the sweep re-runs the whole dump once per write position, so cost
+    /// is quadratic in the node count.
+    #[test]
+    fn every_write_position_propagates_an_io_error() {
+        let code = b"int a = 42;\n";
+        let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
+        let root = parser.root();
+        let (line_start, line_end) = (None, None);
+
+        // 40: the eight nodes of this tree cost several operations each
+        // (connector, header, location, snippet). A floor well under the
+        // real count catches a fixture that collapsed to a leaf without
+        // churning on an exact number.
+        assert_io_error_propagates_at_every_write(40, |sink| {
+            let mut state = DumpState {
+                code,
+                line_start: &line_start,
+                line_end: &line_end,
+                stdout: sink,
+            };
+            dump_tree_helper(&mut state, &root, -1)
+        });
     }
 }
