@@ -139,6 +139,32 @@ for historical reference.
 
 ### Fixed
 
+- The `dump` AST walk no longer rebuilds its indentation prefix per
+  node, and no longer resolves a node's parent per node (#1054). Each
+  queued node carried an owned copy of its ancestors' box-drawing
+  prefix — a string that grows ~3 bytes per nesting level — so a
+  wide-and-deep tree held O(depth²) resident bytes and copied O(depth)
+  per node; separately, the flush-left check called
+  `tree_sitter::Node::parent`, which resolves by descending from the
+  root, once per node. The walk now keeps one shared prefix buffer that
+  is extended on descent and truncated on the next visit, and carries
+  each node's connector glyph on the work stack so only the node the
+  walk starts from needs a parent lookup. On the issue's fixture
+  (`int main(){return ((((…1…))));}`) `bca dump` goes from 1.18 s to
+  0.05 s at nesting depth 4000 with peak RSS falling from 66 MB to
+  13 MB; on a wide-and-deep JavaScript fixture (1500 nested functions,
+  two siblings each) it goes from 4.00 s to 0.05 s. The rendered text
+  is byte-identical — verified across 300 files spanning the corpus
+  submodules — and the *emitted* size stays O(nodes × depth), which is
+  inherent to a tree drawing where every line carries its own
+  indentation. The mirrored `metrics` and `ops` text dumps
+  (`dump_metrics`, `dump_ops`) carried the same per-entry owned prefix
+  and got the same shared-buffer treatment; their measured cost is
+  unchanged on the fixtures tried — a nested-closure chain keeps only
+  one stack entry alive at a time, so the quadratic term needs a tree
+  that is wide *and* deep — but the O(depth) copy per rendered line is
+  gone and the three walks no longer differ in shape.
+
 - `loc.sloc` no longer drops the final line of source that is not
   newline-terminated (#1067). `Sloc` derived its row count from an
   "is this the unit span?" flag; the unit branch was correct only

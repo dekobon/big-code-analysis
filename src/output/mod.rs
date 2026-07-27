@@ -31,3 +31,16 @@ pub use code_climate::write_code_climate;
 
 pub mod warning_line;
 pub use warning_line::{write_clang_warning, write_msvc_warning};
+
+/// The `(child, own)` ASCII prefix pair for one line of the `metrics` and
+/// `ops` text trees: what the node contributes to its children's
+/// indentation, and the connector on its own line. `` `-  `` closes a
+/// subtree, `|- ` continues it.
+///
+/// Shared by [`dump_metrics`] and [`dump_ops`], which render the same
+/// glyph vocabulary over two different trees, so the two mirrored walks
+/// cannot drift apart. The AST dump ([`dump`]) deliberately uses Unicode
+/// box-drawing glyphs instead and has its own connector type.
+pub(crate) const fn branch_glyphs(last: bool) -> (&'static str, &'static str) {
+    if last { ("   ", "`- ") } else { ("|  ", "|- ") }
+}

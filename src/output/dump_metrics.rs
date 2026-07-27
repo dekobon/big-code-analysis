@@ -26,8 +26,8 @@ use termcolor::{Color, StandardStream, WriteColor};
 
 use serde_json::Value;
 
-use crate::output::ColorMode;
 use crate::output::numfmt::F64_SAFE_INT_BOUND;
+use crate::output::{ColorMode, branch_glyphs};
 use crate::spaces::{CodeMetrics, FuncSpace};
 use crate::wire;
 
@@ -80,11 +80,21 @@ pub fn dump_root(space: &FuncSpace) -> std::io::Result<()> {
 pub fn dump_root_with_color(space: &FuncSpace, color_mode: ColorMode) -> std::io::Result<()> {
     let stdout = StandardStream::stdout(color_mode.to_color_choice());
     let mut stdout = stdout.lock();
-    dump_space(space, "", true, &mut stdout)?;
+    dump_space(space, &mut stdout)?;
     color(&mut stdout, Color::White)?;
 
     Ok(())
 }
+
+/// One pending space in the walk: the space, the length its indentation
+/// prefix has in the shared buffer, and whether it is its parent's last
+/// child.
+///
+/// The prefix is a *length* rather than an owned copy (#1054): prefixes
+/// only grow as the walk descends, so the first `prefix_len` bytes stay
+/// this space's prefix until it is popped. Owning one prefix per stack
+/// entry cost O(depth²) resident bytes on a deep closure nest.
+type SpaceFrame<'a> = (&'a FuncSpace, usize, bool);
 
 /// Dump the `FuncSpace` metric tree with an explicit work stack rather
 /// than recursion, so a pathologically deep space nesting (closures
@@ -92,16 +102,17 @@ pub fn dump_root_with_color(space: &FuncSpace, color_mode: ColorMode) -> std::io
 /// uncatchable abort, forbidden by the no-panic rule (#700). Traversal
 /// order and per-node glyphs are byte-identical to the prior recursive
 /// form.
-fn dump_space(
-    space: &FuncSpace,
-    prefix: &str,
-    last: bool,
-    stdout: &mut dyn WriteColor,
-) -> std::io::Result<()> {
-    let mut stack: Vec<(&FuncSpace, String, bool)> = vec![(space, prefix.to_owned(), last)];
+fn dump_space(space: &FuncSpace, stdout: &mut dyn WriteColor) -> std::io::Result<()> {
+    let mut prefix = String::new();
+    let mut stack: Vec<SpaceFrame> = vec![(space, 0, true)];
 
-    while let Some((space, prefix, last)) = stack.pop() {
-        let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
+    while let Some((space, prefix_len, last)) = stack.pop() {
+        // Truncating on every visit — rather than on the way back up —
+        // is what lets a frame carry a bare length: whatever a sibling's
+        // subtree appended is dropped here. Recorded lengths always sit
+        // on a char boundary because only whole glyph runs are appended.
+        prefix.truncate(prefix_len);
+        let (pref_child, pref) = branch_glyphs(last);
 
         color(stdout, Color::Blue)?;
         write!(stdout, "{prefix}{pref}")?;
@@ -115,33 +126,33 @@ fn dump_space(
         intense_color(stdout, Color::Red)?;
         writeln!(stdout, " (@{})", space.start_line)?;
 
-        let child_prefix = format!("{prefix}{pref_child}");
-        dump_metrics(
-            &space.metrics,
-            &child_prefix,
-            space.spaces.is_empty(),
-            stdout,
-        )?;
+        prefix.push_str(pref_child);
+        let child_prefix_len = prefix.len();
+        dump_metrics(&space.metrics, &mut prefix, space.spaces.is_empty(), stdout)?;
 
         // Push children in reverse so `pop()` visits them in source
         // order; the final child carries `last = true` for the closing
         // `` `- `` glyph, matching the recursive `split_last` form.
         let count = space.spaces.len();
         for (i, child) in space.spaces.iter().enumerate().rev() {
-            stack.push((child, child_prefix.clone(), i + 1 == count));
+            stack.push((child, child_prefix_len, i + 1 == count));
         }
     }
 
     Ok(())
 }
 
+/// Render a space's `metrics` subtree. `prefix` is the shared
+/// indentation buffer; it is extended in place for the metric groups and
+/// left extended — every caller either truncates back or is the space
+/// walk, which re-truncates on its next visit.
 fn dump_metrics(
     metrics: &CodeMetrics,
-    prefix: &str,
+    prefix: &mut String,
     last: bool,
     stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
+    let (pref_child, pref) = branch_glyphs(last);
 
     color(stdout, Color::Blue)?;
     write!(stdout, "{prefix}{pref}")?;
@@ -159,10 +170,12 @@ fn dump_metrics(
         return Ok(());
     };
 
-    let prefix = format!("{prefix}{pref_child}");
+    prefix.push_str(pref_child);
+    let group_prefix_len = prefix.len();
     let last_index = groups.len().saturating_sub(1);
     for (index, (name, value)) in groups.iter().enumerate() {
-        dump_group(name, value, &prefix, index == last_index, stdout)?;
+        prefix.truncate(group_prefix_len);
+        dump_group(name, value, prefix, index == last_index, stdout)?;
     }
     Ok(())
 }
@@ -171,14 +184,17 @@ fn dump_metrics(
 /// subtree, then walk its leaves. A nested object leaf (e.g.
 /// `cyclomatic.modified`) recurses as its own subtree, so the rendered
 /// shape always mirrors the JSON nesting.
+///
+/// Extends the shared `prefix` in place for the group's leaves and leaves
+/// it extended; callers truncate back before the next sibling.
 fn dump_group(
     name: &str,
     value: &Value,
-    prefix: &str,
+    prefix: &mut String,
     last: bool,
     stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
-    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
+    let (pref_child, pref) = branch_glyphs(last);
 
     color(stdout, Color::Blue)?;
     write!(stdout, "{prefix}{pref}")?;
@@ -186,21 +202,30 @@ fn dump_group(
     intense_color(stdout, Color::Green)?;
     writeln!(stdout, "{name}")?;
 
-    let prefix = format!("{prefix}{pref_child}");
-    dump_object(value, &prefix, stdout)
+    prefix.push_str(pref_child);
+    dump_object(value, prefix, stdout)
 }
 
 /// Walk the leaves of a metric object, emitting one `name: value` line
 /// per scalar and recursing into any nested object (rendered as a green
 /// subtree, matching the JSON nesting). A non-object value is ignored
 /// (the wire metric groups are always objects).
-fn dump_object(value: &Value, prefix: &str, stdout: &mut dyn WriteColor) -> std::io::Result<()> {
+///
+/// Truncating the shared `prefix` back to this object's level before each
+/// field is what keeps a nested group from indenting its siblings.
+fn dump_object(
+    value: &Value,
+    prefix: &mut String,
+    stdout: &mut dyn WriteColor,
+) -> std::io::Result<()> {
     let Value::Object(fields) = value else {
         return Ok(());
     };
+    let field_prefix_len = prefix.len();
     let last_index = fields.len().saturating_sub(1);
     for (index, (name, leaf)) in fields.iter().enumerate() {
         let last = index == last_index;
+        prefix.truncate(field_prefix_len);
         if leaf.is_object() {
             dump_group(name, leaf, prefix, last, stdout)?;
         } else {
@@ -280,8 +305,123 @@ mod tests {
 
     fn render(space: &FuncSpace) -> String {
         let mut buf = termcolor::NoColor::new(Vec::new());
-        dump_space(space, "", true, &mut buf).expect("dump to in-memory buffer");
+        dump_space(space, &mut buf).expect("dump to in-memory buffer");
         String::from_utf8(buf.into_inner()).expect("utf-8 dump")
+    }
+
+    #[test]
+    fn fields_after_a_nested_metric_object_resume_the_group_rail() {
+        // `cyclomatic.modified` is the one metric group that nests
+        // another object, and `sum` / `value` follow it. Rendering the
+        // nested group extends the shared indentation buffer (#1054), so
+        // those two trailing fields only land back on the `cyclomatic`
+        // rail if `dump_object` truncates before each field, and the
+        // group *after* cyclomatic only lands back on the metrics rail
+        // if the group loop truncates too. Nothing else in the suite
+        // exercises a nested group's siblings.
+        //
+        // The whole block is compared as a line sequence rather than
+        // with per-rail `contains` checks: `sum` and `value` are fields
+        // of several groups, and a deeper rail ends with the shallower
+        // one, so a substring search accepts both the wrong group and
+        // the exact mis-indentation this test exists to catch.
+        let space = analyze(
+            Source::new(LANG::Cpp, b"int a = 42;"),
+            MetricsOptions::default(),
+        )
+        .expect("snippet has a top-level FuncSpace");
+        let out = render(&space);
+
+        // Values are dropped: this pins indentation, not metric numbers.
+        let rails: Vec<&str> = out
+            .lines()
+            .skip_while(|line| *line != "      |- cyclomatic")
+            .take_while(|line| !line.starts_with("      |- halstead"))
+            .map(|line| line.split_once(": ").map_or(line, |(rail, _)| rail))
+            .collect();
+        assert_eq!(
+            rails,
+            vec![
+                "      |- cyclomatic",
+                "      |  |- average",
+                "      |  |- max",
+                "      |  |- min",
+                "      |  |- modified",
+                "      |  |  |- average",
+                "      |  |  |- max",
+                "      |  |  |- min",
+                "      |  |  |- sum",
+                "      |  |  `- value",
+                "      |  |- sum",
+                "      |  `- value",
+            ],
+            "cyclomatic's rails must survive the nested `modified` \
+             object:\n{out}"
+        );
+        assert!(
+            out.lines().any(|line| line == "      |- halstead"),
+            "the group after cyclomatic must be back on the metrics \
+             rail:\n{out}"
+        );
+    }
+
+    #[test]
+    fn sibling_space_after_a_nested_one_resumes_its_own_rail() {
+        // The walk keeps one shared indentation buffer that is extended
+        // on descent and truncated on the next visit (#1054), and the
+        // metric groups under each space extend it further still. `after`
+        // is a top-level sibling that follows `outer`'s deeper subtree
+        // and its whole metrics block, so a truncation bug leaves it
+        // indented under `inner`'s rail. Built by hand — `FuncSpace` has
+        // an iterative `Drop` (#1056), so struct-update syntax cannot
+        // move fields out of it.
+        //
+        // The expected rails are what the pre-#1054 binary emits for the
+        // equivalent parsed tree (`function outer(){function inner(){}}
+        // function after(){}`).
+        use crate::spaces::SpaceKind;
+        let func = |name: &str, line: usize, spaces: Vec<FuncSpace>| FuncSpace {
+            name: Some(name.to_string()),
+            start_line: line,
+            end_line: line,
+            kind: SpaceKind::Function,
+            spaces,
+            metrics: CodeMetrics::default(),
+            suppressed: crate::SuppressionScope::default(),
+        };
+        let space = FuncSpace {
+            name: Some("u".to_string()),
+            start_line: 1,
+            end_line: 4,
+            kind: SpaceKind::Unit,
+            spaces: vec![
+                func("outer", 1, vec![func("inner", 2, vec![])]),
+                func("after", 4, vec![]),
+            ],
+            metrics: CodeMetrics::default(),
+            suppressed: crate::SuppressionScope::default(),
+        };
+
+        let out = render(&space);
+        let rails: Vec<&str> = out
+            .lines()
+            .filter(|line| line.contains("(@") || line.ends_with("- metrics"))
+            .collect();
+        assert_eq!(
+            rails,
+            vec![
+                "`- unit: u (@1)",
+                "   |- metrics",
+                "   |- function: outer (@1)",
+                "   |  |- metrics",
+                "   |  `- function: inner (@2)",
+                "   |     `- metrics",
+                "   `- function: after (@4)",
+                "      `- metrics",
+            ],
+            "space and metric-block rails must survive the shared prefix \
+             buffer's truncate/extend cycle:\n{out}"
+        );
     }
 
     #[test]
@@ -364,8 +504,14 @@ mod tests {
                     cursor.spaces.push(leaf());
                     cursor = cursor.spaces.last_mut().expect("just pushed");
                 }
-                let mut sink = termcolor::NoColor::new(Vec::new());
-                let ok = dump_space(&root, "", true, &mut sink).is_ok();
+                // Discard the bytes rather than buffering them: a
+                // depth-8000 chain renders ~8000 metric blocks, each
+                // line carrying ~3 x depth bytes of indentation, so a
+                // `Vec` sink held ~10 GB and made the unit suite an
+                // out-of-memory hazard. Nothing here asserts on the
+                // text, and every write still runs.
+                let mut sink = termcolor::NoColor::new(std::io::sink());
+                let ok = dump_space(&root, &mut sink).is_ok();
                 // `root` drops here without flattening: `FuncSpace`'s
                 // `Drop` is iterative as of #1056, so teardown costs no
                 // stack depth and cannot mask the dump result.
@@ -410,7 +556,7 @@ mod tests {
         .expect("snippet has a top-level FuncSpace");
 
         let mut buf = termcolor::NoColor::new(Vec::new());
-        dump_space(&space, "", true, &mut buf).expect("dump to in-memory buffer");
+        dump_space(&space, &mut buf).expect("dump to in-memory buffer");
         let out = String::from_utf8(buf.into_inner()).expect("utf-8 dump");
 
         assert_ne!(
@@ -438,7 +584,7 @@ mod tests {
         .expect("snippet has a top-level FuncSpace");
 
         let mut buf = termcolor::NoColor::new(Vec::new());
-        dump_space(&space, "", true, &mut buf).expect("dump to in-memory buffer");
+        dump_space(&space, &mut buf).expect("dump to in-memory buffer");
         let out = String::from_utf8(buf.into_inner()).expect("utf-8 dump");
 
         assert!(

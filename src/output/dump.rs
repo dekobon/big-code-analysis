@@ -87,7 +87,7 @@ pub fn dump_node_with_color(
         line_end: &line_end,
         stdout: &mut stdout,
     };
-    let ret = dump_tree_helper(&mut state, node, "", true, depth);
+    let ret = dump_tree_helper(&mut state, node, depth);
 
     color(&mut stdout, Color::White)?;
 
@@ -107,15 +107,64 @@ struct DumpState<'a> {
     stdout: &'a mut dyn WriteColor,
 }
 
-/// One pending node in the iterative AST walk: the node, the box-drawing
-/// prefix accumulated from its ancestors, whether it is the last child of
-/// its parent (which selects its connector glyph), and the remaining
-/// depth budget.
+/// One pending node in the iterative AST walk: the node, the length its
+/// ancestors' box-drawing prefix has in the shared prefix buffer, the
+/// connector glyph it renders with, and the remaining depth budget.
+///
+/// The prefix is stored as a *length* rather than an owned `String`
+/// (#1054). Prefixes only grow by appending as the walk descends, so the
+/// first `prefix_len` bytes of the shared buffer are exactly this node's
+/// prefix for as long as the frame is queued: nothing visited between the
+/// push and the pop can rewrite them (every other queued frame sits at
+/// this level or deeper, so it truncates to `prefix_len` or beyond). One
+/// owned prefix per frame made a depth-`d` chain cost O(d²) resident
+/// bytes plus an O(d) copy per node.
 struct Frame<'a> {
     node: Node<'a>,
-    prefix: String,
-    last: bool,
+    prefix_len: usize,
+    connector: Connector,
     depth: i32,
+}
+
+/// Which box-drawing connector a node renders with.
+///
+/// Deriving this when the node is *pushed* keeps [`Node::parent`] — an
+/// O(depth) walk in tree-sitter — off the per-node path (#1054): only the
+/// node a walk starts from can lack a parent, and every other node is
+/// reached as a child of a node already on the stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Connector {
+    /// No parent: renders flush left, with no glyphs of its own.
+    Flush,
+    /// Last child of its parent, so nothing continues below it.
+    Last,
+    /// Has at least one following sibling, whose line the trailing bar
+    /// must reach.
+    Inner,
+}
+
+impl Connector {
+    /// The `(child, own)` prefix pair: what this node contributes to its
+    /// children's indentation, and the glyph run on its own line.
+    const fn glyphs(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Flush => ("", ""),
+            Self::Last => ("   ", "╰─ "),
+            Self::Inner => ("│  ", "├─ "),
+        }
+    }
+}
+
+/// The connector for the node a walk starts from — the only node whose
+/// parent has to be looked up. A start node with a parent renders as a
+/// last child (`bca find` dumps a matched node this way), matching the
+/// `last = true` the recursive form passed for the root.
+fn start_connector(node: &Node) -> Connector {
+    if node.parent().is_none() {
+        Connector::Flush
+    } else {
+        Connector::Last
+    }
 }
 
 /// Render the subtree rooted at `node` with an explicit work stack rather
@@ -125,73 +174,79 @@ struct Frame<'a> {
 /// — an uncatchable abort, forbidden by the no-panic rule. The traversal
 /// order, per-node glyphs, and depth semantics are byte-identical to the
 /// prior recursive form (#700).
-fn dump_tree_helper(
-    state: &mut DumpState,
-    node: &Node,
-    prefix: &str,
-    last: bool,
-    depth: i32,
-) -> std::io::Result<()> {
-    let mut stack: Vec<Frame> = vec![Frame {
+///
+/// The indentation prefix lives in one buffer that is pushed on descent
+/// and truncated back on the next visit, so the walk costs O(depth)
+/// bytes rather than O(depth²) (#1054). The emitted output stays
+/// O(nodes × depth) — every rendered line contains its own indentation,
+/// which is inherent to the tree drawing.
+fn dump_tree_helper<'a>(state: &mut DumpState, node: &Node<'a>, depth: i32) -> std::io::Result<()> {
+    let mut prefix = String::new();
+    let mut children: Vec<Node<'a>> = Vec::new();
+    let mut stack: Vec<Frame<'a>> = vec![Frame {
         node: *node,
-        prefix: prefix.to_owned(),
-        last,
+        prefix_len: 0,
+        connector: start_connector(node),
         depth,
     }];
 
-    while let Some(Frame {
-        node,
-        prefix,
-        last,
-        depth,
-    }) = stack.pop()
-    {
-        if depth == 0 {
+    while let Some(frame) = stack.pop() {
+        if frame.depth == 0 {
             continue;
         }
 
-        let (pref_child, pref) = branch_glyphs(&node, last);
+        // Truncating on every visit — not on the way back up — is what
+        // lets a frame carry a bare length: whatever a sibling's subtree
+        // appended is dropped here. Every recorded length came from
+        // `String::len` after appending a whole glyph run, so it is
+        // always a char boundary.
+        prefix.truncate(frame.prefix_len);
+        let (pref_child, pref) = frame.connector.glyphs();
 
-        if line_in_range(node.start_row() + 1, state.line_start, state.line_end) {
-            write_node_line(state.stdout, state.code, &node, &prefix, pref)?;
+        if line_in_range(frame.node.start_row() + 1, state.line_start, state.line_end) {
+            write_node_line(state.stdout, state.code, &frame.node, &prefix, pref)?;
         }
 
-        let count = node.child_count();
-        if count == 0 {
+        // Leaves are roughly half the nodes and `child_count` is O(1),
+        // so check it before building a cursor for the child walk.
+        if frame.node.child_count() == 0 {
             continue;
         }
 
-        // Children share one extended prefix. Push them in reverse so
-        // `pop()` visits them in source order, matching the recursive
-        // form's pre-order traversal. `Children` is not a
-        // `DoubleEndedIterator`, so collect first, then walk the indices
-        // backwards.
-        let child_prefix = format!("{prefix}{pref_child}");
-        let child_depth = depth - 1;
-        let children: Vec<Node> = node.children().collect();
-        for (i, child) in children.into_iter().enumerate().rev() {
-            stack.push(Frame {
-                node: child,
-                prefix: child_prefix.clone(),
-                last: i + 1 == count,
-                depth: child_depth,
-            });
-        }
+        children.clear();
+        children.extend(frame.node.children());
+        prefix.push_str(pref_child);
+        push_children(&mut stack, &children, prefix.len(), frame.depth - 1);
     }
 
     Ok(())
 }
 
-/// Box-drawing prefixes for `node` as `(pref_child, pref)`. The root
-/// (no parent) renders flush-left regardless of `last`; this check must
-/// stay first because `dump_node` passes `last = true` for the root.
-fn branch_glyphs(node: &Node, last: bool) -> (&'static str, &'static str) {
-    if node.parent().is_none() {
-        ("", "")
-    } else if last {
-        ("   ", "╰─ ")
-    } else {
-        ("│  ", "├─ ")
+/// Queue `children` so `pop()` visits them in source order, matching the
+/// recursive form's pre-order traversal.
+///
+/// Last-child detection uses the number of children actually walked, not
+/// `Node::child_count`: [`crate::node::Children`] is cursor-driven and
+/// documents that the two can disagree on a malformed tree, in which case
+/// counting from `child_count` would leave the real last child rendering
+/// as `├─` with a dangling bar below it.
+fn push_children<'a>(
+    stack: &mut Vec<Frame<'a>>,
+    children: &[Node<'a>],
+    prefix_len: usize,
+    depth: i32,
+) {
+    for (i, child) in children.iter().enumerate().rev() {
+        stack.push(Frame {
+            node: *child,
+            prefix_len,
+            connector: if i + 1 == children.len() {
+                Connector::Last
+            } else {
+                Connector::Inner
+            },
+            depth,
+        });
     }
 }
 
@@ -333,20 +388,31 @@ mod tests {
     }
 
     #[test]
-    fn branch_glyphs_root_is_flush_left_regardless_of_last() {
+    fn connector_glyphs_are_stable() {
+        // The rendered tree is these three pairs and nothing else; the
+        // byte-exact walk tests below depend on them verbatim.
+        assert_eq!(Connector::Flush.glyphs(), ("", ""));
+        assert_eq!(Connector::Last.glyphs(), ("   ", "╰─ "));
+        assert_eq!(Connector::Inner.glyphs(), ("│  ", "├─ "));
+    }
+
+    #[test]
+    fn start_connector_distinguishes_parentless_from_parented() {
+        // `start_connector` is the walk's only `Node::parent` call
+        // (#1054), so it carries the whole "is this flush-left?"
+        // decision. A parentless node renders flush left; a start node
+        // that *does* have a parent — how `bca find` dumps a matched
+        // node — renders as a last child.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
         let root = parser.root();
-        // The root has no parent: empty prefixes whatever `last` says.
-        assert_eq!(branch_glyphs(&root, true), ("", ""));
-        assert_eq!(branch_glyphs(&root, false), ("", ""));
+        assert_eq!(start_connector(&root), Connector::Flush);
 
         let child = root
             .children()
             .next()
             .expect("translation_unit has a child");
-        assert_eq!(branch_glyphs(&child, true), ("   ", "╰─ "));
-        assert_eq!(branch_glyphs(&child, false), ("│  ", "├─ "));
+        assert_eq!(start_connector(&child), Connector::Last);
     }
 
     #[test]
@@ -357,21 +423,6 @@ mod tests {
         // ANSI). Expected values were captured from the pre-split code.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
-        let root = parser.root();
-
-        let no_start: Option<usize> = None;
-        let no_end: Option<usize> = None;
-        let mut sink = NoColor::new(Vec::new());
-        {
-            let mut state = DumpState {
-                code,
-                line_start: &no_start,
-                line_end: &no_end,
-                stdout: &mut sink,
-            };
-            dump_tree_helper(&mut state, &root, "", true, -1).expect("dump to in-memory sink");
-        }
-        let rendered = String::from_utf8(sink.into_inner()).expect("dump output is utf-8");
 
         let expected = concat!(
             "{translation_unit:219} from (1, 1) to (2, 1) \n",
@@ -383,7 +434,103 @@ mod tests {
             "   │  ╰─ {number_literal:158} from (1, 9) to (1, 11) : 42 \n",
             "   ╰─ {;:42} from (1, 11) to (1, 12) : ; \n",
         );
+        assert_eq!(render(code, &parser.root(), -1), expected);
+    }
+
+    /// Render `node` to an in-memory sink under the given line filter, the
+    /// way the CLI would minus the color escapes.
+    fn render_range(
+        code: &[u8],
+        node: &Node,
+        depth: i32,
+        line_start: Option<usize>,
+        line_end: Option<usize>,
+    ) -> String {
+        let mut sink = NoColor::new(Vec::new());
+        {
+            let mut state = DumpState {
+                code,
+                line_start: &line_start,
+                line_end: &line_end,
+                stdout: &mut sink,
+            };
+            dump_tree_helper(&mut state, node, depth).expect("dump to in-memory sink");
+        }
+        String::from_utf8(sink.into_inner()).expect("dump output is utf-8")
+    }
+
+    /// [`render_range`] with the filter disabled — the `bca dump` default.
+    fn render(code: &[u8], node: &Node, depth: i32) -> String {
+        render_range(code, node, depth, None, None)
+    }
+
+    #[test]
+    fn dump_output_restores_prefix_after_nested_subtree() {
+        // The walk keeps one shared prefix buffer that is appended to on
+        // descent and truncated back on the next visit (#1054), so a
+        // sibling that follows a deeper subtree is where a truncation
+        // bug shows up. Here `+` and the second `number_literal` follow
+        // the three-level `parenthesized_expression` subtree, and the
+        // trailing `;` follows the whole `init_declarator` subtree —
+        // each must resume its own level's indentation exactly.
+        //
+        // Expected text was captured from the pre-#1054 binary (`bca
+        // dump --color never`) on this same source, so it pins byte
+        // identity across the change rather than re-recording whatever
+        // the new walk emits.
+        let code = b"int a = (1) + 2;\n";
+        let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
+        let rendered = render(code, &parser.root(), -1);
+
+        let expected = concat!(
+            "{translation_unit:219} from (1, 1) to (2, 1) \n",
+            "╰─ {declaration:255} from (1, 1) to (1, 17) : int a = (1) + 2; \n",
+            "   ├─ {primitive_type:96} from (1, 1) to (1, 4) : int \n",
+            "   ├─ {init_declarator:294} from (1, 5) to (1, 16) : a = (1) + 2 \n",
+            "   │  ├─ {identifier:1} from (1, 5) to (1, 6) : a \n",
+            "   │  ├─ {=:74} from (1, 7) to (1, 8) : = \n",
+            "   │  ╰─ {binary_expression:341} from (1, 9) to (1, 16) : (1) + 2 \n",
+            "   │     ├─ {parenthesized_expression:363} from (1, 9) to (1, 12) : (1) \n",
+            "   │     │  ├─ {(:5} from (1, 9) to (1, 10) : ( \n",
+            "   │     │  ├─ {number_literal:158} from (1, 10) to (1, 11) : 1 \n",
+            "   │     │  ╰─ {):8} from (1, 11) to (1, 12) : ) \n",
+            "   │     ├─ {+:25} from (1, 13) to (1, 14) : + \n",
+            "   │     ╰─ {number_literal:158} from (1, 15) to (1, 16) : 2 \n",
+            "   ╰─ {;:42} from (1, 16) to (1, 17) : ; \n",
+        );
         assert_eq!(rendered, expected);
+    }
+
+    #[test]
+    fn dump_output_from_a_parented_start_node_indents_as_a_last_child() {
+        // `bca find` dumps the matched node, not the file root, so the
+        // start node usually has a parent and renders `╰─` with its
+        // subtree indented under it. `start_connector` is the only place
+        // that distinction is made now that the walk carries connectors
+        // on the stack (#1054) — this pins it end to end.
+        let code = b"int a = (1) + 2;\n";
+        let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
+        let root = parser.root();
+        let paren = root
+            .descendants_by_kind(&["parenthesized_expression"])
+            .into_iter()
+            .next()
+            .expect("source has a parenthesized expression");
+
+        let expected = concat!(
+            "╰─ {parenthesized_expression:363} from (1, 9) to (1, 12) : (1) \n",
+            "   ├─ {(:5} from (1, 9) to (1, 10) : ( \n",
+            "   ├─ {number_literal:158} from (1, 10) to (1, 11) : 1 \n",
+            "   ╰─ {):8} from (1, 11) to (1, 12) : ) \n",
+        );
+        assert_eq!(render(code, &paren, -1), expected);
+
+        // Depth 1 is what `bca find` actually passes: the matched node
+        // alone, still as a last child.
+        assert_eq!(
+            render(code, &paren, 1),
+            "╰─ {parenthesized_expression:363} from (1, 9) to (1, 12) : (1) \n"
+        );
     }
 
     #[test]
@@ -392,21 +539,7 @@ mod tests {
         // exercising `line_in_range` end to end through the walk.
         let code = b"int a = 1;\nint b = 2;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
-        let root = parser.root();
-
-        let start: Option<usize> = Some(2);
-        let end: Option<usize> = Some(2);
-        let mut sink = NoColor::new(Vec::new());
-        {
-            let mut state = DumpState {
-                code,
-                line_start: &start,
-                line_end: &end,
-                stdout: &mut sink,
-            };
-            dump_tree_helper(&mut state, &root, "", true, -1).expect("dump to in-memory sink");
-        }
-        let rendered = String::from_utf8(sink.into_inner()).expect("dump output is utf-8");
+        let rendered = render_range(code, &parser.root(), -1, Some(2), Some(2));
 
         // Row-1 nodes (`int a = 1;` and the root, which starts on row 1)
         // are filtered out; only row-2 nodes survive.
@@ -445,14 +578,18 @@ mod tests {
                 let root = parser.root();
                 let no_start: Option<usize> = None;
                 let no_end: Option<usize> = None;
-                let mut sink = NoColor::new(Vec::new());
+                // Discard the bytes rather than buffering them: every
+                // line of a depth-4000 chain carries ~3 x depth bytes of
+                // indentation, so a `Vec` sink held ~140 MB for a test
+                // that only asserts the walk completes.
+                let mut sink = NoColor::new(std::io::sink());
                 let mut state = DumpState {
                     code: &src,
                     line_start: &no_start,
                     line_end: &no_end,
                     stdout: &mut sink,
                 };
-                dump_tree_helper(&mut state, &root, "", true, -1).is_ok()
+                dump_tree_helper(&mut state, &root, -1).is_ok()
             })
             .expect("spawn dump thread");
         assert!(
@@ -474,21 +611,9 @@ mod tests {
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
         let root = parser.root();
-        let no_start: Option<usize> = None;
-        let no_end: Option<usize> = None;
 
-        // depth = 1: the root renders, but recursion stops before children.
-        let mut sink = NoColor::new(Vec::new());
-        {
-            let mut state = DumpState {
-                code,
-                line_start: &no_start,
-                line_end: &no_end,
-                stdout: &mut sink,
-            };
-            dump_tree_helper(&mut state, &root, "", true, 1).expect("dump to in-memory sink");
-        }
-        let rendered = String::from_utf8(sink.into_inner()).expect("dump output is utf-8");
+        // depth = 1: the root renders, but the walk stops before children.
+        let rendered = render(code, &root, 1);
         assert!(
             rendered.contains("{translation_unit:"),
             "depth=1 should render the root:\n{rendered}"
@@ -504,16 +629,6 @@ mod tests {
         );
 
         // depth = 0: nothing renders at all.
-        let mut sink_zero = NoColor::new(Vec::new());
-        {
-            let mut state = DumpState {
-                code,
-                line_start: &no_start,
-                line_end: &no_end,
-                stdout: &mut sink_zero,
-            };
-            dump_tree_helper(&mut state, &root, "", true, 0).expect("dump to in-memory sink");
-        }
-        assert!(sink_zero.into_inner().is_empty(), "depth=0 renders nothing");
+        assert!(render(code, &root, 0).is_empty(), "depth=0 renders nothing");
     }
 }
