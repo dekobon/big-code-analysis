@@ -15,7 +15,7 @@
 # After re-running `./generate-grammars/generate-{mozjs,mozcpp}.sh`
 # and committing the regenerated sources, refresh the entry below
 # in the same commit. Easiest path:
-#     ./check-grammar-marker-sync.py --update
+#     ./utils/check-grammar-marker-sync.py --update
 # That command updates `marker` and `version` in place,
 # preserving the per-section audit notes that follow each
 # section's body.

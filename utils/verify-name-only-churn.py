@@ -28,8 +28,8 @@ value-sets — is unreachable by a relabeling refactor that never touches
 metric computation.
 
 Usage:
-    ./verify-name-only-churn.py [ROOT ...]      # default roots: . and the submodule
-    ./verify-name-only-churn.py --self-test     # prove the verifier itself
+    ./utils/verify-name-only-churn.py [ROOT ...]      # default roots: . and the submodule
+    ./utils/verify-name-only-churn.py --self-test     # prove the verifier itself
 Exit status: 0 if every changed snapshot is name-only; 1 otherwise.
 """
 

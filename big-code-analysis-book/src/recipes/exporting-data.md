@@ -119,7 +119,7 @@ unless the opt-in `--exit-code` flag is passed, which exits 2 when
 the filtered diff is non-empty.
 It replaces the former `json-minimal-tests` + `split-minimal-tests.py`
 chain used to validate that a grammar bump did not regress metrics; the
-`check-grammar-crate.py` helper now calls `bca diff` internally.
+`utils/check-grammar-crate.py` helper now calls `bca diff` internally.
 
 ## Pull a single metric across an entire tree
 

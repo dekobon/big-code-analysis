@@ -21,15 +21,15 @@ set -euo pipefail
 # string and reporting drift on a non-existent path.
 shopt -s nullglob
 
-# `ROOT` is the directory containing the script (which is also
-# the directory containing `enums/`, `src/`, etc.). Using
-# `BASH_SOURCE` dirname rather than `git rev-parse
-# --show-toplevel` keeps the gate hermetic: it doesn't matter
-# what the caller's cwd is (e.g., a different git repo or
-# `/tmp` in test fixtures), the script always operates on its
-# own sibling directories. This also works under release
+# `ROOT` is the repository root: the parent of `utils/`, where
+# this script lives, and so the directory containing `enums/`,
+# `src/`, etc. Using `BASH_SOURCE` dirname rather than `git
+# rev-parse --show-toplevel` keeps the gate hermetic: it doesn't
+# matter what the caller's cwd is (e.g., a different git repo or
+# `/tmp` in test fixtures), the script always operates on the
+# tree it was invoked from. This also works under release
 # tarballs / packaging-script invocations that have no `.git`.
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Use a script-local variable name (NOT `TMPDIR`) so the caller's
 # `$TMPDIR` env var is preserved for cargo / rustfmt / etc. The

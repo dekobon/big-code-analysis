@@ -53,7 +53,7 @@ fi
 pushd /cache/gecko-dev && git pull origin master && popd
 
 # Compute metrics
-./check-grammar-crate.py compute-ci-metrics -p /cache/gecko-dev -g "$TREE_SITTER_CRATE"
+./utils/check-grammar-crate.py compute-ci-metrics -p /cache/gecko-dev -g "$TREE_SITTER_CRATE"
 
 # Count files in metrics directories
 OLD=$(find "/tmp/$TREE_SITTER_CRATE-old" -mindepth 1 -maxdepth 1 | wc -l)
@@ -80,7 +80,7 @@ fi
 # minimal-test files per metric, a different axis that bca diff's
 # per-metric bucketing makes unnecessary).
 MIN_CHANGE=0
-./check-grammar-crate.py compare-metrics -g "$TREE_SITTER_CRATE" -t "$MIN_CHANGE"
+./utils/check-grammar-crate.py compare-metrics -g "$TREE_SITTER_CRATE" -t "$MIN_CHANGE"
 
 # Create artifact to be uploaded (if there is any diff output)
 COMPARE=/tmp/$TREE_SITTER_CRATE-compare

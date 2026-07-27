@@ -57,7 +57,7 @@ gate. In one parallel pass it runs, among other stages:
   (`rumdl`, `taplo`, `shellcheck`, `shfmt`, `checkmake`,
   `actionlint`).
 - The man-page drift gate and the `bca` self-scan threshold gates.
-- `./check-snapshot-anchors.py` (see "Snapshot anchors" below).
+- `./utils/check-snapshot-anchors.py` (see "Snapshot anchors" below).
 - The Python lint / type-check / test stages (see below), skipped
   per stage when a tool is absent.
 
@@ -153,7 +153,7 @@ Each new snapshot assertion must carry one of:
   re-deriving the metric from scratch.
 
 The policy is enforced automatically by
-`./check-snapshot-anchors.py`, which `make pre-commit`, `make ci`,
+`./utils/check-snapshot-anchors.py`, which `make pre-commit`, `make ci`,
 the pre-commit hooks, and the `lint` job in
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) all invoke.
 The per-file baseline of pre-existing unanchored snapshots lives in

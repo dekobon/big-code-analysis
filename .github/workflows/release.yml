@@ -150,7 +150,7 @@ jobs:
       # ccomment leaf at the workspace-pinned version (probing one
       # leaf is enough because every owned crate in this repo shares
       # one version per the Lockstep version policy in RELEASING.md,
-      # enforced by ./check-versions.py in `make pre-commit`).
+      # enforced by ./utils/check-versions.py in `make pre-commit`).
       # Once that leaf is on crates.io the bootstrap has happened and
       # the parent dry-run becomes a hard gate again.
       - name: Dry-run cargo publish for big-code-analysis

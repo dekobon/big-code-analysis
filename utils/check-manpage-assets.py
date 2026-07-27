@@ -35,7 +35,9 @@ import pathlib
 import sys
 import tomllib
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
+# `parents[1]`, not `parent`: these gates live in `utils/` but every
+# path they read or write is anchored at the repository root.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAN_DIR = REPO_ROOT / "man"
 CLI_MANIFEST = REPO_ROOT / "big-code-analysis-cli" / "Cargo.toml"
 WEB_MANIFEST = REPO_ROOT / "big-code-analysis-web" / "Cargo.toml"

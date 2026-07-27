@@ -2,16 +2,17 @@
 """Tests for check-grammar-marker-sync.py.
 
 Each test stages a synthetic mini-repo in a tempdir (the script
-plus the two vendored Cargo.toml stubs plus an optional baseline)
-and runs the script as a subprocess. Subprocess invocation is the
-most representative shape — the script's behaviour is keyed off
-`pathlib.Path(__file__).resolve().parent`, so co-locating with
-the fixture is enough to redirect every path.
+under `utils/` plus the two vendored Cargo.toml stubs plus an
+optional baseline) and runs the script as a subprocess.
+Subprocess invocation is the most representative shape — the
+script's behaviour is keyed off
+`pathlib.Path(__file__).resolve().parents[1]`, so staging the
+copy one level below the fixture root redirects every path.
 
 Run with:
-    python3 -m unittest -q check-grammar-marker-sync-test.py
+    python3 -m unittest -q utils/check-grammar-marker-sync-test.py
 Or:
-    python3 check-grammar-marker-sync-test.py
+    python3 utils/check-grammar-marker-sync-test.py
 """
 
 from __future__ import annotations
@@ -23,8 +24,11 @@ import sys
 import tempfile
 import unittest
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
-SCRIPT_SRC = REPO_ROOT / "check-grammar-marker-sync.py"
+# The gate under test is a sibling in `utils/`. Its own paths are
+# anchored at the repository root one level above, which is why the
+# fixtures below stage a copy into `<tmpdir>/utils/`.
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+SCRIPT_SRC = UTILS_DIR / "check-grammar-marker-sync.py"
 
 
 _MOZJS_BARE = (
@@ -59,7 +63,11 @@ def _make_fixture(
     omit the marker line entirely. Returns the path to the
     staged script.
     """
-    script_path = tmpdir / SCRIPT_SRC.name
+    # The script derives `REPO_ROOT` as the *parent* of its own
+    # directory, so the staged copy has to sit in `tmpdir/utils/`
+    # for `tmpdir` itself to stand in for the repository root.
+    script_path = tmpdir / "utils" / SCRIPT_SRC.name
+    script_path.parent.mkdir()
     shutil.copy(SCRIPT_SRC, script_path)
 
     mozjs_dir = tmpdir / "tree-sitter-mozjs"

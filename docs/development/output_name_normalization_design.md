@@ -125,7 +125,7 @@ pub struct WalkFile {
   arm, so the emitted document name, baseline key, diff key, and
   exclude-match target all used the one canonical `name`.
 - The four anchoring helpers and `with_cwd` were deleted.
-- A reusable safety tool, `verify-name-only-churn.py`, was written to
+- A reusable safety tool, `utils/verify-name-only-churn.py`, was written to
   prove the bulk snapshot regen was value-preserving (it is kept; it is
   generally useful and is the one artifact of this attempt worth
   retaining on the main branch).
@@ -314,7 +314,7 @@ the three configurations the gate's uniformity hid:
   CWD read`).
 - The correct, retained consumer-side fixes for #497 Bug A/B are on the
   main work branch as `f0b83a7d`.
-- `verify-name-only-churn.py` (kept): proves a bulk snapshot regen is
+- `utils/verify-name-only-churn.py` (kept): proves a bulk snapshot regen is
   name-only/value-preserving; reusable for whichever round-two option
   touches emitted paths.
 - Related: STABILITY.md (the `2.0` deferral list), issues

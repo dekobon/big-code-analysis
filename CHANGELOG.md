@@ -101,6 +101,25 @@ for historical reference.
   a reachable remote process abort open until `3.0`. The mechanical fix
   at each call site is a `.clone()` or a borrow; 13 sites inside this
   repository needed it.
+- Repository layout, no shipped-library change: the twelve helper
+  scripts that used to sit in the repository root moved into `utils/`,
+  joining `check-tools.sh` and `deploy-book-to-gh-pages.sh`. This
+  covers every gate run by `make pre-commit` / `make ci`
+  (`check-versions.py`, `check-snapshot-anchors.py`,
+  `check-manpage-assets.py`, `check-grammar-marker-sync.py`,
+  `check-enums-codegen-drift.sh`, `check-grammar-crate.py`), the
+  scripts coupled to them (`check-grammars-crates.sh` and each gate's
+  `*-test.py` self-tests), and `verify-name-only-churn.py`. Each script
+  now resolves the repository root as `parents[1]` of its own location
+  rather than `parent`, so it still runs correctly from any cwd, and
+  the two self-tests that stage a copy of their gate into a tempdir
+  stage it under `<tmpdir>/utils/` so the tempdir keeps standing in for
+  the repository root. Callers were updated in lockstep: the
+  `Makefile`, `.pre-commit-config.yaml` (both the `entry:` commands and
+  the `^`-anchored `files:` triggers), `.github/workflows/ci.yml`, and
+  `.taskcluster.yml` now invoke them as `utils/<name>`. Contributors
+  invoking a gate by hand need the new prefix, e.g.
+  `./utils/check-snapshot-anchors.py --update`.
 - Internal, no behaviour change: the crate's shared `#[cfg(test)]`
   helpers moved out of `src/tools.rs` into a new test-only
   `src/test_support.rs`, retiring that file's `loc.sloc` baseline entry

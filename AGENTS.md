@@ -57,9 +57,17 @@ and `cargo run -p big-code-analysis-web --`.
 - `big-code-analysis-book/` — mdBook documentation source.
 - `enums/` — separate workspace member (excluded from the root workspace)
   that generates language enum tables.
-- Helper scripts: `check-grammar-crate.py`, `check-grammars-crates.sh`,
-  `recreate-grammars.sh`, `generate-grammars/`. (The grammar-bump diff
-  step now uses the native `bca diff`; the former
+- `utils/` — repo-maintenance helper scripts, including the gates run
+  by `make pre-commit` / `make ci`: `check-versions.py`,
+  `check-snapshot-anchors.py`, `check-manpage-assets.py`,
+  `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
+  `check-grammar-crate.py`, `check-grammars-crates.sh`,
+  `verify-name-only-churn.py`, and each gate's `*-test.py` self-tests.
+  Each resolves the repository root from its own location
+  (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
+  runs correctly from anywhere; callers invoke them as `utils/<name>`.
+- Other helper scripts: `recreate-grammars.sh`, `generate-grammars/`.
+  (The grammar-bump diff step now uses the native `bca diff`; the former
   `split-minimal-tests.py` + external `json-minimal-tests` chain was
   retired in #487.)
 
@@ -329,12 +337,12 @@ This policy is enforced automatically. `make snapshot-anchors` (run
 as part of `make pre-commit` and `make ci`, the
 `.pre-commit-config.yaml` hooks, and the `lint` job in
 `.github/workflows/ci.yml`) invokes
-`./check-snapshot-anchors.py`, which scans every
+`./utils/check-snapshot-anchors.py`, which scans every
 `insta::assert_json_snapshot!(metric.…)` call under `src/metrics/`
 and counts the unanchored ones per file. The current per-file
 counts are checked in at `.snapshot-anchor-baseline.txt`; CI fails
 on any *increase*. Decreases are silent and may be locked in with
-`./check-snapshot-anchors.py --update`, which regenerates the
+`./utils/check-snapshot-anchors.py --update`, which regenerates the
 baseline from the working tree.
 
 **Integration snapshots live in the `big-code-analysis-output`

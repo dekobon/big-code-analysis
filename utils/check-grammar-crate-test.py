@@ -9,7 +9,7 @@ anti-drift guard for #869: the old table had gone stale across the
 key, phantom globs), so a grammar bump tested the wrong file set.
 
 Run with:
-    python3 -m unittest -q check-grammar-crate-test.py
+    python3 -m unittest -q utils/check-grammar-crate-test.py
 """
 
 from __future__ import annotations
@@ -19,8 +19,11 @@ import pathlib
 import re
 import unittest
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
-SCRIPT_SRC = REPO_ROOT / "check-grammar-crate.py"
+# The gate under test is a sibling in `utils/`; every path it reads
+# or writes is anchored at the repository root one level above.
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+REPO_ROOT = UTILS_DIR.parent
+SCRIPT_SRC = UTILS_DIR / "check-grammar-crate.py"
 LANGS_RS = REPO_ROOT / "src" / "langs.rs"
 
 # The tree-sitter function token in `mk_langs!` maps 1:1 to the grammar
