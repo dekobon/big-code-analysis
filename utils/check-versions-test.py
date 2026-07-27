@@ -13,7 +13,7 @@ Two kinds of test live here:
   asserts a clean tree reports lockstep.
 
 Run with:
-    python3 -m unittest -q check-versions-test.py
+    python3 -m unittest -q utils/check-versions-test.py
 """
 
 from __future__ import annotations
@@ -24,8 +24,11 @@ import subprocess
 import sys
 import unittest
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
-SCRIPT_SRC = REPO_ROOT / "check-versions.py"
+# The gate under test is a sibling in `utils/`; every path it reads
+# or writes is anchored at the repository root one level above.
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+REPO_ROOT = UTILS_DIR.parent
+SCRIPT_SRC = UTILS_DIR / "check-versions.py"
 
 
 def _load_module():  # type: ignore[no-untyped-def]

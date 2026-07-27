@@ -515,13 +515,13 @@ jobs:
       # explicitly so a regression in `make lint` cannot silently disable
       # this check.
       - name: snapshot anchors (explicit)
-        run: python3 check-snapshot-anchors.py
+        run: python3 utils/check-snapshot-anchors.py
       # Defensive twin to the snapshot-anchors gate above: `make lint`
       # already invokes check-versions, but pinning it here guarantees
       # the lockstep version invariant is enforced even if a future
       # refactor drops it from the aggregate recipe.
       - name: check-versions (explicit)
-        run: python3 check-versions.py
+        run: python3 utils/check-versions.py
       # Defensive twin for the man-page packaging gate (#446): a bca
       # subcommand man page that drops out of the hand-maintained
       # deb/rpm asset lists ships an artifact without its page (the
@@ -529,7 +529,7 @@ jobs:
       # it here guarantees enforcement even if a future refactor drops
       # it from the aggregate recipe.
       - name: check-manpage-assets (explicit)
-        run: python3 check-manpage-assets.py
+        run: python3 utils/check-manpage-assets.py
       # Defensive twin for the grammar-marker-sync gate (#400): bumping
       # the notification-only marker in tree-sitter-{mozjs,mozcpp}/
       # Cargo.toml without re-running the matching generate-*.sh
@@ -539,12 +539,12 @@ jobs:
       # in the `make lint` aggregate cannot silently disable this
       # check.
       - name: grammar-marker-sync (explicit)
-        run: python3 check-grammar-marker-sync.py
+        run: python3 utils/check-grammar-marker-sync.py
       # Run the gate's own unittests as their own explicit step
       # so a refactor that breaks the script can't disable the
       # gate without surfacing the regression in CI.
       - name: grammar-marker-sync self-tests (explicit)
-        run: python3 -m unittest -q check-grammar-marker-sync-test.py
+        run: python3 -m unittest -q utils/check-grammar-marker-sync-test.py
       # Defensive twin for the enums-codegen-drift gate (#405):
       # running any grammar regen previously regenerated
       # `src/c_langs_macros/*.rs` to a pre-optimization form
@@ -552,12 +552,12 @@ jobs:
       # checked-in files; running it explicitly here guards
       # against `make lint` ever dropping it from the aggregate.
       - name: enums-codegen-drift (explicit)
-        run: bash check-enums-codegen-drift.sh
+        run: bash utils/check-enums-codegen-drift.sh
       # Run the gate's own unittests as their own explicit step
       # so a refactor that breaks the script can't disable the
       # gate without surfacing the regression in CI.
       - name: enums-codegen-drift self-tests (explicit)
-        run: python3 -m unittest -q check-enums-codegen-drift-test.py
+        run: python3 -m unittest -q utils/check-enums-codegen-drift-test.py
       # Defensive: the prior `make lint` step already runs enums-check
       # as part of its aggregate. Repeating it here protects against a
       # regression to that aggregate (e.g., enums-check accidentally

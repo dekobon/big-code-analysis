@@ -212,7 +212,7 @@ drift. A version bump touches:
 9. A new `## [<new>]` section in `CHANGELOG.md` (the unreleased
    block is collapsed into it at release time).
 
-Run `./check-versions.py` (also wired into `make pre-commit` and
+Run `./utils/check-versions.py` (also wired into `make pre-commit` and
 the `lint` job in `.github/workflows/ci.yml`) after editing to
 catch any item the human eye missed.
 
@@ -527,7 +527,7 @@ diverge: after the post-tag bump, `Cargo.toml` reads ahead of every
 documentation example, and that is correct. When in doubt, apply the
 reader test: if someone copies this line today, does it resolve?
 
-`./check-versions.py` (`make check-versions`, wired into
+`./utils/check-versions.py` (`make check-versions`, wired into
 `make pre-commit` and the CI lint job) enforces the two automatable
 categories: dependency-example pins must equal the latest released
 `## [X.Y.Z]` section of `CHANGELOG.md`, and the `recipes/ci.md`

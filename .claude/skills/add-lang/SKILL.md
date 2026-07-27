@@ -966,7 +966,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
 RUSTFLAGS="-D warnings" cargo clippy --manifest-path enums/Cargo.toml \
   --all-targets --locked -- -D warnings
-./check-snapshot-anchors.py
+./utils/check-snapshot-anchors.py
 ```
 
 If `pre-commit` is installed, also run `pre-commit run --all-files`.

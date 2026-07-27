@@ -76,8 +76,8 @@ repos:
       - id: snapshot-anchors
         name: snapshot-anchors
         language: system
-        files: '^(src/metrics/.*\.rs|\.snapshot-anchor-baseline\.txt|check-snapshot-anchors\.py)$'
-        entry: python3 check-snapshot-anchors.py
+        files: '^(src/metrics/.*\.rs|\.snapshot-anchor-baseline\.txt|utils/check-snapshot-anchors\.py)$'
+        entry: python3 utils/check-snapshot-anchors.py
         pass_filenames: false
 
       # Block grammar-marker bumps in tree-sitter-{mozjs,mozcpp}
@@ -92,8 +92,8 @@ repos:
       - id: grammar-marker-sync
         name: grammar-marker-sync
         language: system
-        files: '^(tree-sitter-(mozjs|mozcpp)/Cargo\.toml|\.grammar-marker-baseline\.toml|check-grammar-marker-sync\.py)$'
-        entry: python3 check-grammar-marker-sync.py
+        files: '^(tree-sitter-(mozjs|mozcpp)/Cargo\.toml|\.grammar-marker-baseline\.toml|utils/check-grammar-marker-sync\.py)$'
+        entry: python3 utils/check-grammar-marker-sync.py
         pass_filenames: false
 
       # Self-tests for the grammar-marker-sync gate itself. Runs
@@ -104,8 +104,8 @@ repos:
       - id: grammar-marker-sync-test
         name: grammar-marker-sync-test
         language: system
-        files: '^check-grammar-marker-sync(-test)?\.py$'
-        entry: python3 -m unittest -q check-grammar-marker-sync-test.py
+        files: '^utils/check-grammar-marker-sync(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-grammar-marker-sync-test.py
         pass_filenames: false
 
       # Self-tests for the lockstep-version gate. Runs on edits to the
@@ -114,8 +114,8 @@ repos:
       - id: check-versions-test
         name: check-versions-test
         language: system
-        files: '^check-versions(-test)?\.py$'
-        entry: python3 -m unittest -q check-versions-test.py
+        files: '^utils/check-versions(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-versions-test.py
         pass_filenames: false
 
       # Sync-test for check-grammar-crate.py's EXTENSIONS table against
@@ -124,8 +124,8 @@ repos:
       - id: check-grammar-crate-test
         name: check-grammar-crate-test
         language: system
-        files: '^(check-grammar-crate(-test)?\.py|src/langs\.rs)$'
-        entry: python3 -m unittest -q check-grammar-crate-test.py
+        files: '^(utils/check-grammar-crate(-test)?\.py|src/langs\.rs)$'
+        entry: python3 -m unittest -q utils/check-grammar-crate-test.py
         pass_filenames: false
 
       # Block enums codegen drift (#405). Runs the codegen into a
@@ -141,8 +141,8 @@ repos:
       - id: enums-codegen-drift
         name: enums-codegen-drift
         language: system
-        files: '^(enums/(src|templates|data)/.+|enums/Cargo\.toml|src/c_langs_macros/[^/]+\.rs|src/languages/language_[^/]+\.rs|check-enums-codegen-drift\.sh)$'
-        entry: bash check-enums-codegen-drift.sh
+        files: '^(enums/(src|templates|data)/.+|enums/Cargo\.toml|src/c_langs_macros/[^/]+\.rs|src/languages/language_[^/]+\.rs|utils/check-enums-codegen-drift\.sh)$'
+        entry: bash utils/check-enums-codegen-drift.sh
         pass_filenames: false
 
       # Self-tests for the enums-codegen-drift gate. Runs on edits
@@ -153,8 +153,8 @@ repos:
       - id: enums-codegen-drift-test
         name: enums-codegen-drift-test
         language: system
-        files: '^check-enums-codegen-drift(-test\.py|\.sh)$'
-        entry: python3 -m unittest -q check-enums-codegen-drift-test.py
+        files: '^utils/check-enums-codegen-drift(-test\.py|\.sh)$'
+        entry: python3 -m unittest -q utils/check-enums-codegen-drift-test.py
         pass_filenames: false
 
       # Catch clap-vs-man-page drift before push. The
@@ -189,8 +189,8 @@ repos:
       - id: check-versions
         name: check-versions
         language: system
-        files: '(Cargo\.toml|/Cargo\.toml|/bindings/rust/README\.md|^README\.md|^STABILITY\.md|big-code-analysis-book/src/library/(quick-start|cargo-features|stability)\.md|big-code-analysis-book/src/recipes/ci\.md|check-versions\.py)$'
-        entry: python3 check-versions.py
+        files: '(Cargo\.toml|/Cargo\.toml|/bindings/rust/README\.md|^README\.md|^STABILITY\.md|big-code-analysis-book/src/library/(quick-start|cargo-features|stability)\.md|big-code-analysis-book/src/recipes/ci\.md|utils/check-versions\.py)$'
+        entry: python3 utils/check-versions.py
         pass_filenames: false
 
       # Man-page packaging gate — every man/bca*.1 page (the top-level
@@ -201,8 +201,8 @@ repos:
       - id: check-manpage-assets
         name: check-manpage-assets
         language: system
-        files: '^(man/bca.*\.1|big-code-analysis-cli/Cargo\.toml|big-code-analysis-web/Cargo\.toml|check-manpage-assets\.py)$'
-        entry: python3 check-manpage-assets.py
+        files: '^(man/bca.*\.1|big-code-analysis-cli/Cargo\.toml|big-code-analysis-web/Cargo\.toml|utils/check-manpage-assets\.py)$'
+        entry: python3 utils/check-manpage-assets.py
         pass_filenames: false
 
       # The `enums/` crate is workspace-excluded, so the workspace

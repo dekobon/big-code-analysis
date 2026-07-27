@@ -18,7 +18,7 @@ entry in `.grammar-marker-baseline.toml`. Any divergence fails.
 
 Regenerate the baseline after a verified regen with:
 
-    ./check-grammar-marker-sync.py --update
+    ./utils/check-grammar-marker-sync.py --update
 
 `--update` rewrites both the `marker` and `version` values of
 existing sections in place, preserving per-section audit
@@ -60,7 +60,9 @@ except ImportError:
         sys.exit(2)
 
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
+# `parents[1]`, not `parent`: these gates live in `utils/` but every
+# path they read or write is anchored at the repository root.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASELINE_PATH = REPO_ROOT / ".grammar-marker-baseline.toml"
 
 # `--update` produced invalid TOML for a tree that load_baseline
@@ -685,7 +687,7 @@ def main() -> int:
             "    commit the regenerated `src/parser.c` (+ scanner.c /\n"
             "    grammar.json / node-types.json) in the same PR, then\n"
             "    refresh the baseline:\n"
-            "        ./check-grammar-marker-sync.py --update\n"
+            "        ./utils/check-grammar-marker-sync.py --update\n"
             "  - The sources were regenerated but the baseline was not\n"
             "    refreshed. Run the --update command above.\n"
             "\nSee AGENTS.md and #400 for context.\n"

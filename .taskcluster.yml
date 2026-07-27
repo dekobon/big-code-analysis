@@ -186,7 +186,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-mozcpp
+              ./utils/check-grammars-crates.sh tree-sitter-mozcpp
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:
@@ -220,7 +220,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-mozjs
+              ./utils/check-grammars-crates.sh tree-sitter-mozjs
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:
@@ -254,7 +254,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-rust
+              ./utils/check-grammars-crates.sh tree-sitter-rust
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:
@@ -288,7 +288,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-java
+              ./utils/check-grammars-crates.sh tree-sitter-java
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:
@@ -322,7 +322,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-kotlin
+              ./utils/check-grammars-crates.sh tree-sitter-kotlin
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:
@@ -356,7 +356,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-python
+              ./utils/check-grammars-crates.sh tree-sitter-python
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:
@@ -390,7 +390,7 @@ tasks:
               git clone --quiet ${repository}
               cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
-              ./check-grammars-crates.sh tree-sitter-typescript
+              ./utils/check-grammars-crates.sh tree-sitter-typescript
           cache:
             big-code-analysis-mozilla-central-repository: /cache
           artifacts:

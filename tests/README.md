@@ -207,7 +207,7 @@ Every `insta::assert_json_snapshot!` call must be **anchored** — see
 `AGENTS.md` "snapshot-anchor policy". Either inline the expected block,
 add a positive `assert_eq!` on an integer accessor immediately above,
 or include a `// expected: …` derivation comment. `make pre-commit`
-runs `./check-snapshot-anchors.py` against
+runs `./utils/check-snapshot-anchors.py` against
 `.snapshot-anchor-baseline.txt` and fails on any increase.
 
 ### A new synthetic fixture (Pattern B)

@@ -12,7 +12,7 @@ The shared cargo target cache (`enums/target/`) is warmed once
 in `setUpClass`, so per-test invocations hit a hot build.
 
 Run with:
-    python3 -m unittest -q check-enums-codegen-drift-test.py
+    python3 -m unittest -q utils/check-enums-codegen-drift-test.py
 """
 
 from __future__ import annotations
@@ -25,8 +25,21 @@ import sys
 import tempfile
 import unittest
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
-SCRIPT_SRC = REPO_ROOT / "check-enums-codegen-drift.sh"
+# The gate under test is a sibling in `utils/`; every path it reads
+# or writes is anchored at the repository root one level above.
+UTILS_DIR = pathlib.Path(__file__).resolve().parent
+REPO_ROOT = UTILS_DIR.parent
+SCRIPT_SRC = UTILS_DIR / "check-enums-codegen-drift.sh"
+
+
+def _staged(tmpdir: pathlib.Path) -> pathlib.Path:
+    """Where the staged copy of the drift script must live.
+
+    The script derives its `$ROOT` as the *parent* of its own
+    directory, so the copy has to sit in `tmpdir/utils/` for
+    `tmpdir` itself to stand in for the repository root.
+    """
+    return tmpdir / "utils" / SCRIPT_SRC.name
 
 
 def _run(
@@ -34,7 +47,7 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     """Run the drift script from `tmpdir` (its $ROOT)."""
     return subprocess.run(
-        ["bash", str(tmpdir / SCRIPT_SRC.name), *args],
+        ["bash", str(_staged(tmpdir)), *args],
         capture_output=True,
         text=True,
         check=False,
@@ -86,12 +99,13 @@ class DriftGateTest(unittest.TestCase):
                 REPO_ROOT / "src" / sub,
                 self.tmpdir / "src" / sub,
             )
-        # Copy the script itself so `$BASH_SOURCE` and
-        # `dirname "$BASH_SOURCE"` resolve to the tempdir.
-        # (`git rev-parse --show-toplevel` fails here — not a
-        # git tree — and the script falls back to BASH_SOURCE
-        # dirname, which is exactly what we want.)
-        shutil.copy(SCRIPT_SRC, self.tmpdir / SCRIPT_SRC.name)
+        # Copy the script itself so `dirname "$BASH_SOURCE"/..`
+        # resolves to the tempdir. (`git rev-parse
+        # --show-toplevel` fails here — not a git tree — and the
+        # script falls back to BASH_SOURCE dirname, which is
+        # exactly what we want.)
+        _staged(self.tmpdir).parent.mkdir()
+        shutil.copy(SCRIPT_SRC, _staged(self.tmpdir))
 
     def tearDown(self) -> None:
         # Symlink under self.tmpdir is removed by rmtree without
@@ -229,7 +243,7 @@ class DriftGateTest(unittest.TestCase):
         env = os.environ.copy()
         env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
         return subprocess.run(
-            ["bash", str(self.tmpdir / SCRIPT_SRC.name)],
+            ["bash", str(_staged(self.tmpdir))],
             capture_output=True,
             text=True,
             check=False,
@@ -307,7 +321,7 @@ class DriftGateTest(unittest.TestCase):
         env = os.environ.copy()
         env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
         result = subprocess.run(
-            ["bash", str(self.tmpdir / SCRIPT_SRC.name)],
+            ["bash", str(_staged(self.tmpdir))],
             capture_output=True,
             text=True,
             check=False,

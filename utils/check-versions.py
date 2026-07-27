@@ -29,7 +29,9 @@ import pathlib
 import re
 import sys
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
+# `parents[1]`, not `parent`: these gates live in `utils/` but every
+# path they read or write is anchored at the repository root.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Owned crates that carry an own `[package].version` line (i.e. do
 # not inherit via `version.workspace = true`). Each must match the

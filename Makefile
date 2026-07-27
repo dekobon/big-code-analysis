@@ -283,7 +283,7 @@ actionlint:
 
 snapshot-anchors:
 	@echo "Checking insta snapshot anchors..."
-	@python3 $(BASE_DIR)check-snapshot-anchors.py
+	@python3 $(BASE_DIR)utils/check-snapshot-anchors.py
 
 # Grammar-marker-sync gate. Blocks the failure mode from #400:
 # bumping the notification-only `tree-sitter-{javascript,cpp}`
@@ -292,7 +292,7 @@ snapshot-anchors:
 # Static lint — no network, no cargo, runs in milliseconds.
 grammar-marker-sync:
 	@echo "Checking grammar-marker sync against baseline..."
-	@python3 $(BASE_DIR)check-grammar-marker-sync.py
+	@python3 $(BASE_DIR)utils/check-grammar-marker-sync.py
 
 # Enums-codegen drift gate. Closes #405: running any
 # `recreate-grammars.sh` invocation silently regenerated
@@ -301,7 +301,7 @@ grammar-marker-sync:
 # and diffs against the checked-in files; drift fails.
 enums-codegen-drift:
 	@echo "Checking enums codegen drift..."
-	@bash $(BASE_DIR)check-enums-codegen-drift.sh
+	@bash $(BASE_DIR)utils/check-enums-codegen-drift.sh
 
 # Self-tests for the enums-codegen-drift gate. Kept separate from
 # the gate target so the gate stays a one-line invariant check
@@ -309,7 +309,7 @@ enums-codegen-drift:
 # get their own clean parallel-arm output in the pre-commit/CI DAG.
 enums-codegen-drift-test:
 	@echo "Running enums-codegen-drift self-tests..."
-	@(cd $(BASE_DIR) && python3 -m unittest -q check-enums-codegen-drift-test.py)
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-enums-codegen-drift-test.py)
 
 # Self-tests for the grammar-marker-sync gate. Kept separate from
 # the gate target so the gate stays a one-line invariant check
@@ -318,7 +318,7 @@ enums-codegen-drift-test:
 # the pre-commit/CI DAG.
 grammar-marker-sync-test:
 	@echo "Running grammar-marker-sync self-tests..."
-	@(cd $(BASE_DIR) && python3 -m unittest -q check-grammar-marker-sync-test.py)
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-grammar-marker-sync-test.py)
 
 # Regenerate the man pages under `man/` from the live clap schema.
 # Auto-fix flavour: `cargo xtask` rewrites every `.1` file so a
@@ -349,7 +349,7 @@ manpages-check:
 # `RELEASING.md` "Lockstep version policy" and `check-versions.py`.
 check-versions:
 	@echo "Checking lockstep version invariant..."
-	@python3 $(BASE_DIR)check-versions.py
+	@python3 $(BASE_DIR)utils/check-versions.py
 
 # Self-tests for the lockstep-version gate. Kept separate from the
 # gate target (matching the grammar-marker-sync-test pattern) so the
@@ -357,7 +357,7 @@ check-versions:
 # their own clean parallel-arm output in the pre-commit/CI DAG.
 check-versions-test:
 	@echo "Running check-versions self-tests..."
-	@(cd $(BASE_DIR) && python3 -m unittest -q check-versions-test.py)
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-versions-test.py)
 
 # Man-page packaging gate. Blocks the failure mode from #444:
 # a bca subcommand man page that drops out of the hand-maintained
@@ -365,7 +365,7 @@ check-versions-test:
 # lint — no network, no cargo, runs in milliseconds. See #446.
 check-manpage-assets:
 	@echo "Checking man-page packaging asset lists..."
-	@python3 $(BASE_DIR)check-manpage-assets.py
+	@python3 $(BASE_DIR)utils/check-manpage-assets.py
 
 # Sync gate for check-grammar-crate.py's EXTENSIONS table. Re-derives
 # the grammar -> extension mapping from src/langs.rs `mk_langs!` and
@@ -374,7 +374,7 @@ check-manpage-assets:
 # other helper-script self-tests.
 check-grammar-crate-test:
 	@echo "Running check-grammar-crate self-tests..."
-	@(cd $(BASE_DIR) && python3 -m unittest -q check-grammar-crate-test.py)
+	@(cd $(BASE_DIR) && python3 -m unittest -q utils/check-grammar-crate-test.py)
 
 # The `enums/` crate is listed in `[workspace].exclude` (it ships a
 # non-published codegen binary used only by `recreate-grammars.sh`), so

@@ -29,7 +29,9 @@ import re
 import sys
 from collections import OrderedDict
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent
+# `parents[1]`, not `parent`: these gates live in `utils/` but every
+# path they read or write is anchored at the repository root.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 METRICS_DIR = REPO_ROOT / "src" / "metrics"
 DEFAULT_BASELINE = REPO_ROOT / ".snapshot-anchor-baseline.txt"
 
@@ -271,7 +273,7 @@ def write_baseline(path: pathlib.Path, counts: dict[str, int]) -> None:
         "# Bare insta::assert_json_snapshot! call counts per metric file.",
         "# Maintained by check-snapshot-anchors.py; see AGENTS.md.",
         "# Lower-or-equal current counts pass; any increase fails CI.",
-        "# Regenerate with: ./check-snapshot-anchors.py --update",
+        "# Regenerate with: ./utils/check-snapshot-anchors.py --update",
         "",
     ]
     for rel, count in counts.items():
@@ -406,7 +408,7 @@ def main() -> int:
             "  - // expected: <derivation> comment (within 5 non-blank lines)\n"
             "See AGENTS.md \"Validation gates\". If the increase is intentional\n"
             "(e.g. new tests already anchored differently), regenerate the\n"
-            "baseline with: ./check-snapshot-anchors.py --update\n"
+            "baseline with: ./utils/check-snapshot-anchors.py --update\n"
         )
         return 1
 
