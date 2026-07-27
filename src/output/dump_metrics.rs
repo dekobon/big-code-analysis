@@ -453,28 +453,37 @@ mod tests {
         // dynamic by the wire projection in #674). For a non-class C
         // dump, the wmc/npm/npa class-only groups are elided, so the last
         // group line under the root `metrics` subtree must end the
-        // subtree with `` `- ``. We locate the final group connector
-        // (a `<rail>`- ` or `<rail>|- ` line whose label is a top-level
-        // group, i.e. indented directly under `metrics`) and assert it is
-        // the closing form.
+        // subtree with `` `- ``.
         let space = analyze(
             Source::new(LANG::Cpp, b"int a = 42;"),
             MetricsOptions::default(),
         )
         .expect("snippet has a top-level FuncSpace");
         let out = render(&space);
-        // The root metrics subtree indents its groups under `   ` (root
-        // is the last/only space). The last such group line must use
-        // `` `- ``; if any group dangled, the final group line would read
-        // `|- `.
+
+        // Group lines sit six columns in: three for the root space's own
+        // `` `- `` (it is the only space) and three more for the
+        // `metrics` line's. Filtering at three columns instead matched
+        // only the `metrics` line itself, so this test passed even with
+        // every group rendering `|-`.
         let group_lines: Vec<&str> = out
             .lines()
-            .filter(|l| l.starts_with("   |- ") || l.starts_with("   `- "))
+            .filter(|line| line.starts_with("      |- ") || line.starts_with("      `- "))
             .collect();
+        assert!(
+            group_lines.len() > 1,
+            "expected several metric groups under the root:\n{out}"
+        );
         let last_group = group_lines.last().expect("at least one metric group");
         assert!(
-            last_group.starts_with("   `- "),
+            last_group.starts_with("      `- "),
             "the last emitted metric group must use the closing connector, got: {last_group:?}\n{out}"
+        );
+        assert!(
+            group_lines[..group_lines.len() - 1]
+                .iter()
+                .all(|line| line.starts_with("      |- ")),
+            "every group but the last must use the mid-child connector:\n{out}"
         );
     }
 
