@@ -861,9 +861,9 @@ value = 32.0
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 211
+start_line = 216
 metric = "halstead.effort"
-value = 56640.89870124066
+value = 58764.00971804493
 
 [[entry]]
 path = "src/output/checkstyle.rs"

@@ -115,6 +115,18 @@ for historical reference.
 
 ### Performance
 
+- The `ops` walk builds the file-level vocabulary once instead of once
+  per closing space. `finalize` rebuilt the innermost still-open space's
+  operator and operand lists on every call — that is, every time the
+  walk left a function — and every result but the last was immediately
+  overwritten, so a file with F function spaces rebuilt the root's whole
+  vocabulary F times. Only the root needs the trailing rebuild, and it
+  now happens once, in `ops_inner`, after the walk drains. On
+  `hlo_instruction.cc` (4 057 lines, ~180 spaces) `bca ops -O json`
+  drops from ~39 ms to ~27 ms per run — faster than before the #1091
+  sort was added, which the redundant rebuilds would otherwise have run
+  F times over. Output is byte-identical.
+
 - The metric walk carries its ancestor chain down the traversal instead
   of rediscovering it with `Node::parent`, which `tree_sitter` resolves
   by descending from the root (#1084). `Checker::is_else_if` (13
