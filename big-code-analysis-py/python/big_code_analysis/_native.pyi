@@ -271,7 +271,7 @@ class Ast:
         """Return each function's name and 1-based line range."""
 
     def ops(self) -> OpsDict:
-        """Return the Halstead operator/operand tree (deduplicated
+        """Return the Halstead operator/operand tree (sorted, deduplicated
         ``operators`` / ``operands`` per space).
         """
 
