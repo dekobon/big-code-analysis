@@ -112,13 +112,13 @@ struct DumpState<'a> {
 /// connector glyph it renders with, and the remaining depth budget.
 ///
 /// The prefix is stored as a *length* rather than an owned `String`
-/// (#1054). Prefixes only grow by appending as the walk descends, so the
-/// first `prefix_len` bytes of the shared buffer are exactly this node's
-/// prefix for as long as the frame is queued: nothing visited between the
-/// push and the pop can rewrite them (every other queued frame sits at
-/// this level or deeper, so it truncates to `prefix_len` or beyond). One
-/// owned prefix per frame made a depth-`d` chain cost O(d²) resident
-/// bytes plus an O(d) copy per node.
+/// (#1054). Prefixes only grow by appending as the walk descends, so
+/// `prefix_len` is non-decreasing from the bottom of the stack to the
+/// top: every frame popped before this one truncates to `prefix_len` or
+/// beyond, so the first `prefix_len` bytes of the shared buffer stay
+/// exactly this node's prefix until it is popped. One owned prefix per
+/// frame made a depth-`d` chain cost O(d²) resident bytes plus an O(d)
+/// copy per node.
 struct Frame<'a> {
     node: Node<'a>,
     prefix_len: usize,
