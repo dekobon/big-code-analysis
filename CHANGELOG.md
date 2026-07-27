@@ -47,8 +47,8 @@ for historical reference.
   (`Checker::is_else_if`, `Node::count_specific_ancestors` from `loc`,
   and `elixir_is_inside_quote_block` from `nom`), all through
   `Node::parent`, which `tree_sitter` resolves by descending from the
-  root; their bounds pin the current behaviour rather than endorsing
-  it, and the underlying cost is tracked as #1084.
+  root; all three are fixed in this release (#1084) and their probes
+  now sit at the harness's linear bound.
 - Japanese localization of the documentation. The mdBook is now
   translated through the gettext workflow from `mdbook-i18n-helpers`
   (`big-code-analysis-book/po/ja.po`; untranslated or stale entries
@@ -101,9 +101,68 @@ for historical reference.
   a reachable remote process abort open until `3.0`. The mechanical fix
   at each call site is a `.clone()` or a borrow; 13 sites inside this
   repository needed it.
+- Internal, no behaviour change: the crate's shared `#[cfg(test)]`
+  helpers moved out of `src/tools.rs` into a new test-only
+  `src/test_support.rs`, retiring that file's `loc.sloc` baseline entry
+  (#1066); `python_comprehension_clause_nesting` takes the `Nesting`
+  struct rather than three positional `usize` parameters, completing
+  the threading started in #1062 (#1070); and `node_text`'s safety
+  documentation no longer describes a UTF-8 char-boundary panic that
+  cannot occur for a `&[u8]` parameter, with the same-parse
+  precondition now stated on the `Getter` trait (#1059). `bca.toml`'s
+  `exclude_tests` comment, which claimed the option does not lower
+  `loc.sloc`, was corrected — #722 made it do exactly that (#1066).
+
+### Performance
+
+- The metric walk carries its ancestor chain down the traversal instead
+  of rediscovering it with `Node::parent`, which `tree_sitter` resolves
+  by descending from the root (#1084). `Checker::is_else_if` (13
+  languages), `Loc`'s declaration gate (8 languages), Python's
+  `cognitive` boolean-operator walk, and Elixir's `quote`-template
+  lookup in `Nom` each cost `O(depth)` per node and were therefore
+  quadratic in nesting depth. The three depth-scaling probes covering
+  them fit `time ~ depth^k` at 1.97 / 1.95 / 2.01 before and
+  1.14 / 1.12 / 1.02 after, and moved from the harness's quadratic
+  bound to its linear one; at depth 1000, `nom` on nested Elixir
+  `quote` blocks drops from ~260 ms to ~2 ms and `loc` on nested C
+  declarations from ~62 ms to ~1 ms. Metric values are unchanged for
+  every language.
+- `Loc`'s per-line sets and the cognitive nesting map no longer pay for
+  SipHash and incremental rehashing (#1069). The line-number sets and
+  the node-id keyed nesting map are keyed by integers this crate
+  produces itself, so hash-flooding resistance buys nothing; both now
+  use the crate's fast integer hasher, and the nesting map is sized up
+  front from the subtree's node count. `corpus/walk/loc` measured 7%
+  faster and the depth-1000 cognitive shape 12% faster on an
+  interleaved paired benchmark; output is bit-identical.
 
 ### Fixed
 
+- `loc.sloc` no longer drops the final line of source that is not
+  newline-terminated (#1067). `Sloc` derived its row count from an
+  "is this the unit span?" flag; the unit branch was correct only
+  because a trailing newline pushes tree-sitter's root node onto a
+  phantom extra row, so a one-line unterminated file reported
+  `sloc == 0`, `mi.original` / `mi.sei` / `mi.visual_studio`
+  short-circuited to `0.0` through `mi::inputs_are_empty`, and
+  `cloc + ploc > sloc` for input such as `b"fn f(){}\n/// x"`. The row
+  count now comes from the span's end column, which is correct in both
+  directions.
+  **Metric drift, all languages:** library callers passing bytes with
+  no trailing newline through `Source` / `Ast::parse` now see `sloc`
+  (and `blank`, `sloc_max`, the `*_average` values, and all three MI
+  formulas) increase by one line's worth; whitespace-only unterminated
+  files move from `sloc 0` to `sloc 1` / `blank 1`. The CLI, web
+  server, and Python bindings read through `read_file_with_eol`, which
+  appends a trailing newline, so they are unaffected on this axis.
+  **Metric drift, Perl:** the same rule corrects the opposite error for
+  `tree-sitter-perl`, whose `function_definition` swallows the newline
+  after the closing brace of a file's last `sub`. That sub's `sloc` was
+  inflated by one row — it could exceed the whole file's `sloc` — and
+  now drops by one, along with the file's `sloc_max` / `blank_max`
+  where that sub was the maximum. This drift does reach the CLI, web
+  server, and Python bindings.
 - `wire::FuncSpace::from` and `wire::Ops::from` no longer recurse
   (#1056). Both projected a nested tree with
   `spaces.iter().map(Self::from).collect()`, one stack frame per nesting
