@@ -162,12 +162,9 @@ impl<'a> Node<'a> {
     /// Returns `true` if this node's parent has any direct child with
     /// the given grammar `kind_id` (the parent's children include this
     /// node itself, so a self-match counts). Delegates to [`wraps_any`]
-    /// on the parent so the scan reuses the allocation-free `child(0)` +
-    /// `next_sibling()` walk rather than `children(&mut parent.walk())`,
-    /// which heap-allocates a `TreeCursor` per call. This sits on the
-    /// JS/TS arrow-function closure-classification hot path
-    /// (`check_if_arrow_func!`), the same path #217 optimized for
-    /// `wraps_any` / `is_child` but missed here. See #521.
+    /// on the parent. This sits on the JS/TS arrow-function
+    /// closure-classification hot path (`check_if_arrow_func!`); see
+    /// #521.
     ///
     /// [`wraps_any`]: Self::wraps_any
     #[inline]
@@ -182,13 +179,8 @@ impl<'a> Node<'a> {
     }
 
     /// Returns `true` if any direct child has the given grammar
-    /// `kind_id`. Walks via `child(0)` + `next_sibling()` instead of
-    /// `children(&mut self.0.walk())` so the implementation avoids
-    /// the per-call `TreeCursor` heap allocation that the iterator
-    /// form requires. Each `next_sibling()` is O(1) (tree-sitter
-    /// stores siblings as a linked list), so total cost is O(n)
-    /// without cursor overhead. See #217 for the motivating perf
-    /// finding from the JS/TS template-literal hot path.
+    /// `kind_id`. See #217 for the motivating perf finding from the
+    /// JS/TS template-literal hot path.
     #[inline]
     pub(crate) fn is_child(&self, id: u16) -> bool {
         self.wraps_any(&[id])
@@ -196,23 +188,31 @@ impl<'a> Node<'a> {
 
     /// Returns `true` if any direct child matches one of the given
     /// grammar `kind_id`s. The single-id [`is_child`] delegates here, so
-    /// both share one allocation-free sibling walk (the `#[inline]` makes
-    /// the single-element `contains` collapse to an equality check — the
-    /// #217 hot-path optimization is preserved). Generalizing the check to
-    /// a set lets the shared string-interpolation operand skip declare its
-    /// rule once (issue #420).
+    /// both share one child scan (the `#[inline]` makes the
+    /// single-element `contains` collapse to an equality check).
+    /// Generalizing the check to a set lets the shared
+    /// string-interpolation operand skip declare its rule once (issue
+    /// #420).
+    ///
+    /// # Why a cursor rather than `child(0)` + `next_sibling()`
+    ///
+    /// #217 replaced the cursor walk with a `next_sibling()` chain to
+    /// dodge the `TreeCursor` heap allocation, on the premise that a
+    /// sibling step is `O(1)`. It is not: `ts_node_next_sibling`
+    /// resolves the parent first, and `tree_sitter` stores no parent
+    /// pointer — it descends from the root — so each step cost
+    /// `O(depth)` and the scan `O(children × depth)`. That made every
+    /// caller of this method `O(depth)` per node, which is the same
+    /// defect #1084 removed from the predicates that ask for an
+    /// ancestor outright. The cursor iterator is `O(children)` after one
+    /// allocation, and measured faster on real input as well as on a
+    /// pathological one: a metric walk over the 384-file `pdf.js`
+    /// corpus dropped from ~443 ms to ~370 ms (#1088).
     ///
     /// [`is_child`]: Self::is_child
     #[inline]
     pub(crate) fn wraps_any(&self, ids: &[u16]) -> bool {
-        let mut cur = self.0.child(0);
-        while let Some(c) = cur {
-            if ids.contains(&c.kind_id()) {
-                return true;
-            }
-            cur = c.next_sibling();
-        }
-        false
+        self.children().any(|c| ids.contains(&c.kind_id()))
     }
 
     pub(crate) fn child_count(&self) -> usize {
@@ -688,22 +688,32 @@ mod tests {
     use super::*;
     use crate::langs::MozjsCode;
 
-    /// The cursor-free [`Node::has_sibling`] (issue #521) must yield the
-    /// exact same result as the original `parent.children(&mut
-    /// parent.walk()).any(...)` form for every node and every kind in a
-    /// real tree: same child set (named + anonymous), same order, same
-    /// short-circuit. Comparing against the literal old logic node-by-node
-    /// proves equivalence without hardcoding grammar `kind_id`s.
-    fn old_has_sibling(node: OtherNode, id: u16) -> bool {
+    /// The `child(0)` + `next_sibling()` chain [`Node::wraps_any`] used
+    /// between #217 and #1088, kept here as the reference the cursor
+    /// walk that replaced it is checked against.
+    ///
+    /// The swap was made for cost, not for behaviour: a sibling step
+    /// resolves its parent, and `tree_sitter` resolves a parent by
+    /// descending from the root, so the chain was `O(children × depth)`
+    /// where the cursor is `O(children)`. Nothing about the *set* of
+    /// children was supposed to change, and this is what says so —
+    /// node-by-node over a real tree, same order and same short-circuit,
+    /// without hardcoding grammar `kind_id`s.
+    fn sibling_chain_has_sibling(node: OtherNode, id: u16) -> bool {
         node.parent().is_some_and(|parent| {
-            parent
-                .children(&mut parent.walk())
-                .any(|child| child.kind_id() == id)
+            let mut cur = parent.child(0);
+            while let Some(c) = cur {
+                if c.kind_id() == id {
+                    return true;
+                }
+                cur = c.next_sibling();
+            }
+            false
         })
     }
 
     #[test]
-    fn has_sibling_matches_cursor_iterator_form() {
+    fn has_sibling_matches_the_retired_sibling_chain() {
         // Arrow functions exercise the `check_if_arrow_func!` call site
         // that motivated #521 (PropertyIdentifier siblings on the JS/TS
         // closure-classification hot path).
@@ -733,8 +743,8 @@ mod tests {
             for &id in kinds.iter().chain(std::iter::once(&absent_id)) {
                 assert_eq!(
                     wrapped.has_sibling(id),
-                    old_has_sibling(n, id),
-                    "has_sibling diverged from cursor-iterator form at node kind {} for id {id}",
+                    sibling_chain_has_sibling(n, id),
+                    "has_sibling diverged from the retired sibling chain at node kind {} for id {id}",
                     n.kind(),
                 );
             }
