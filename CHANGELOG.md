@@ -277,9 +277,9 @@ for historical reference.
 
   `cognitive`'s second `Node::parent` site is gone with it:
   `increment_function_depth` asked every function node whether a
-  function encloses it by climbing the ancestor chain, which kept the
+  function encloses it by climbing with `node.parent()`, which kept the
   metric `O(depth²)` on nested definitions across the 19 languages that
-  call it. It now reads the chain the walker hands down (the #1084
+  call it. It now reads the ancestor chain the walker hands down (the #1084
   mechanism, deferred out of that change), and a new
   `cognitive/nested-fn` depth-scaling probe covers it: `time ~ depth^k`
   fits 2.04 against the climb and 1.21 against the chain, and at depth

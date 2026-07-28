@@ -9771,6 +9771,19 @@ end",
                 .cognitive_sum()
         }
 
+        // Every row must parse cleanly. Several of these snippets lean
+        // on a grammar's less-travelled corners — GNU nested functions
+        // in C, a `function` statement inside another in Lua, a `proc`
+        // inside a `proc` in iRules — and a grammar bump that stopped
+        // accepting one would leave that row measuring `tree_sitter`'s
+        // error recovery while still reporting 1 and 2. Verified: with
+        // trailing garbage appended to the C source, the costs below
+        // are unmoved and the test stays green without this check.
+        fn parses_cleanly(lang: LANG, source: &str) -> bool {
+            crate::Ast::parse(crate::Source::new(lang, source.as_bytes()))
+                .is_ok_and(|ast| !ast.as_tree_sitter().root_node().has_error())
+        }
+
         // C and Objective-C: a GNU nested function definition.
         const C_FLAT: &str = "void f(int a) { if (a) { } }\n";
         const C_NESTED: &str = "void f(int a) { void g(int b) { if (b) { } } }\n";
@@ -9810,10 +9823,16 @@ end",
             // `assert_eq!` stops at the first language, and when this
             // walk breaks it breaks for all of them at once — the list
             // of which languages moved is the diagnostic.
-            let (flat, nested) = (cognitive_of(lang, flat), cognitive_of(lang, nested));
-            if (flat, nested) != (1, 2) {
+            for (label, source) in [("flat", flat), ("nested", nested)] {
+                assert!(
+                    parses_cleanly(lang, source),
+                    "{lang:?}: the {label} source must parse without an ERROR node:\n{source}",
+                );
+            }
+            let (flat_cost, nested_cost) = (cognitive_of(lang, flat), cognitive_of(lang, nested));
+            if (flat_cost, nested_cost) != (1, 2) {
                 wrong.push(format!(
-                    "{lang:?}: expected 1 then 2, got {flat} then {nested}"
+                    "{lang:?}: expected 1 then 2, got {flat_cost} then {nested_cost}"
                 ));
             }
         }
