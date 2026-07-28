@@ -9812,8 +9812,7 @@ end",
         const TCL_NESTED: &str =
             "proc outer {x} {\nproc inner {y} {\nif {$y > 0} {\nputs positive\n}\n}\n}\n";
 
-        let mut wrong = Vec::new();
-        for (lang, flat, nested) in [
+        let rows = [
             (LANG::C, C_FLAT, C_NESTED),
             (LANG::Objc, OBJC_FLAT, OBJC_NESTED),
             (LANG::Mozcpp, CPP_FLAT, CPP_NESTED),
@@ -9825,29 +9824,32 @@ end",
             (LANG::Lua, LUA_FLAT, LUA_NESTED),
             (LANG::Bash, BASH_FLAT, BASH_NESTED),
             (LANG::Irules, TCL_FLAT, TCL_NESTED),
-        ] {
-            for (label, source) in [("flat", flat), ("nested", nested)] {
-                assert!(
-                    parses_cleanly(lang, source),
-                    "{lang:?}: the {label} source must parse without an ERROR node:\n{source}",
-                );
-            }
-            // Costs are collected rather than asserted per row: a bare
-            // `assert_eq!` stops at the first language, and when this
-            // walk breaks it breaks for all of them at once — the list
-            // of which languages moved is the diagnostic.
-            let (flat_cost, nested_cost) = (cognitive_of(lang, flat), cognitive_of(lang, nested));
-            if (flat_cost, nested_cost) != (1, 2) {
-                wrong.push(format!(
-                    "{lang:?}: expected 1 then 2, got {flat_cost} then {nested_cost}"
-                ));
-            }
-        }
-        assert!(
-            wrong.is_empty(),
-            "an `if` must cost 1 in a top-level function and 2 one \
-             function deeper:\n{}",
-            wrong.join("\n"),
+        ];
+
+        // Whole vectors rather than a per-row `assert_eq!`: when this
+        // shared walk breaks it breaks for every language at once, and
+        // comparing the columns shows all of them instead of stopping
+        // at the first. Hand-rolling that diagnostic with a `wrong`
+        // accumulator would work too, but its `push` arm is a branch no
+        // passing run ever takes — dead weight that reads as a coverage
+        // hole and never gets exercised.
+        let measured: Vec<(LANG, u64, u64)> = rows
+            .iter()
+            .map(|&(lang, flat, nested)| {
+                for (label, source) in [("flat", flat), ("nested", nested)] {
+                    assert!(
+                        parses_cleanly(lang, source),
+                        "{lang:?}: the {label} source must parse without an ERROR node:\n{source}",
+                    );
+                }
+                (lang, cognitive_of(lang, flat), cognitive_of(lang, nested))
+            })
+            .collect();
+        let expected: Vec<(LANG, u64, u64)> = rows.iter().map(|&(lang, ..)| (lang, 1, 2)).collect();
+
+        assert_eq!(
+            measured, expected,
+            "an `if` must cost 1 in a top-level function and 2 one function deeper",
         );
     }
 }
