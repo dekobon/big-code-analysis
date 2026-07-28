@@ -266,7 +266,13 @@ impl FuncSpace {
         crate::wire::FuncSpace::from(self)
     }
 
-    fn new<T: Getter>(node: &Node, code: &[u8], kind: SpaceKind, selected: MetricSet) -> Self {
+    fn new<'a, T: Getter>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kind: SpaceKind,
+        selected: MetricSet,
+    ) -> Self {
         let (start_position, end_position) = match kind {
             SpaceKind::Unit => {
                 if node.child_count() == 0 {
@@ -283,7 +289,7 @@ impl FuncSpace {
         // it here is wasted work. Other kinds keep the AST-derived name.
         let name = (kind != SpaceKind::Unit)
             .then(|| {
-                T::get_func_space_name(node, code)
+                T::get_func_space_name(node, code, ancestors)
                     .map(|name| name.split_whitespace().collect::<Vec<_>>().join(" "))
             })
             .flatten();

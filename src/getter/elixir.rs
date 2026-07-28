@@ -96,7 +96,11 @@ impl Getter for ElixirCode {
     // Falls back to the trait default behaviour (`<anonymous>` for
     // nodes without a `name` field) when the Call is not one we
     // recognise.
-    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
         use Elixir as E;
 
         use crate::metrics::cognitive::{
@@ -107,17 +111,17 @@ impl Getter for ElixirCode {
         // additionally require the Call NOT to be inside a `quote`
         // template, matching the func-space promotion rule (#310).
         //
-        // `Ancestors::unknown()` — `get_func_space_name` runs once per
-        // *promoted* space, and a quoted `def` is never promoted, so
-        // the climbing lookup is off the per-node path that #1084 was
-        // about. Giving it a chain would mean widening the whole
-        // `Getter::get_func_space_name` surface (23 impls) for a call
-        // that fires a handful of times per file (#1088).
+        // The quote-block lookup reads the caller's chain rather than
+        // climbing with `Node::parent` (#1088). This fires once per
+        // *promoted* space rather than per node, so the win is smaller
+        // than at the walk's per-node sites — but `bca function` and the
+        // suppression scan reach it through `get_func_name` on every
+        // function node, where the climb was `O(depth)` apiece.
         if node.kind_id() == E::Call as u16
             && let Some(kw) = elixir_call_keyword(node, code)
             && (elixir_is_class_macro(kw)
                 || (elixir_is_method_macro(kw)
-                    && !elixir_is_inside_quote_block(node, code, Ancestors::unknown())))
+                    && !elixir_is_inside_quote_block(node, code, ancestors)))
         {
             let target_id = node.child_by_field_name("target").map(|t| t.id());
             if let Some(name) = node

@@ -30,11 +30,11 @@ impl Checker for RustCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Rust::FunctionItem
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Rust::ClosureExpression
     }
 

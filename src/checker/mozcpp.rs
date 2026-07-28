@@ -37,7 +37,7 @@ impl Checker for MozcppCode {
 
     // Issue #285 contract: keep this in sync with `is_func_space` and
     // the C++ getters — see comment above `is_func_space`.
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             Mozcpp::FunctionDefinition
@@ -47,7 +47,7 @@ impl Checker for MozcppCode {
         )
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Mozcpp::LambdaExpression
     }
 

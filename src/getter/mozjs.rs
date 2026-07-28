@@ -20,13 +20,17 @@ impl Getter for MozjsCode {
         }
     }
 
-    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
         if let Some(name) = node.child_by_field_name("name") {
             node_text(code, &name)
         } else {
             // We can be in a pair: foo: function() {}
             // Or in a variable declaration: var aFun = function() {}
-            if let Some(parent) = node.parent() {
+            if let Some(parent) = ancestors.parent(node) {
                 match parent.kind_id().into() {
                     Mozjs::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {

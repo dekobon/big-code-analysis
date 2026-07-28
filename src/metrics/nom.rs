@@ -242,7 +242,7 @@ where
             stats.functions += 1;
             return;
         }
-        if Self::is_closure(node) {
+        if Self::is_closure(node, ancestors) {
             stats.closures += 1;
         }
     }

@@ -22,14 +22,14 @@ impl Checker for KotlinCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             Kotlin::FunctionDeclaration | Kotlin::SecondaryConstructor
         )
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             Kotlin::LambdaLiteral | Kotlin::AnonymousFunction

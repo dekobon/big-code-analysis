@@ -19,14 +19,14 @@ impl Checker for LuaCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             Lua::FunctionDeclaration | Lua::FunctionDeclaration2 | Lua::FunctionDeclaration3
         )
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Lua::FunctionDefinition
     }
 

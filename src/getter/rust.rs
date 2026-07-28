@@ -4,7 +4,11 @@
 use super::*;
 
 impl Getter for RustCode {
-    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
         // we're in a function or in a class or an impl
         // for an impl: we've  'impl ... type {...'
         if let Some(name) = node

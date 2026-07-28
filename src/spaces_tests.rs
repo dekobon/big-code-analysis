@@ -1,4 +1,5 @@
 use crate::MetricsOptions;
+use crate::node::Ancestors;
 use crate::spaces::metrics_inner;
 use crate::test_support::check_func_space;
 use crate::{CppParser, ParserTrait, SpaceKind};
@@ -68,7 +69,7 @@ fn cpp_function_definition_is_classified_as_function() {
         .expect("parse must produce a function_definition node");
 
     assert!(
-        CppCode::is_func(&fn_node),
+        CppCode::is_func(&fn_node, Ancestors::unknown()),
         "is_func must return true for a function_definition"
     );
     assert!(
@@ -81,7 +82,7 @@ fn cpp_function_definition_is_classified_as_function() {
         "get_space_kind must classify function_definition as Function"
     );
     assert_eq!(
-        CppCode::get_func_space_name(&fn_node, source.as_bytes()),
+        CppCode::get_func_space_name(&fn_node, source.as_bytes(), Ancestors::unknown()),
         Some("the_func"),
         "get_func_space_name must extract the declarator identifier"
     );

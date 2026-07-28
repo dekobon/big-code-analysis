@@ -182,11 +182,25 @@ macro_rules! impl_js_family_get_op_type {
 /// are not.
 #[doc(hidden)]
 pub(crate) trait Getter {
-    fn get_func_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
-        Self::get_func_space_name(node, code)
+    fn get_func_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
+        Self::get_func_space_name(node, code, ancestors)
     }
 
-    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+    /// Names the space `node` opens.
+    ///
+    /// `ancestors` is the chain the caller descended through. Elixir
+    /// needs it: its `def` / `defmodule` heads are ordinary `Call`
+    /// nodes, and one inside a `quote` template names no space at all,
+    /// which is a question about what encloses the call (#1088).
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
         // we're in a function or in a class
         if let Some(name) = node.child_by_field_name("name") {
             node_text(code, &name)
@@ -343,5 +357,88 @@ mod node_text_tests {
         let root = parser.root();
         assert_eq!(root.end_byte(), src.len());
         assert_eq!(node_text(parser.code(), &root), None);
+    }
+}
+
+#[cfg(test)]
+mod ancestor_tests {
+    use super::Getter;
+    use crate::node::{Ancestors, Node};
+    use crate::test_support::for_each_node_with_chain;
+    use crate::traits::LanguageInfo;
+
+    /// `get_func_space_name` must name a space the same whether it reads
+    /// the walker's ancestor chain or climbs with `Node::parent`.
+    ///
+    /// Two grammars consult an ancestor here, for different reasons:
+    /// the JS family names an anonymous `function` / arrow from the
+    /// `pair` or `variable_declarator` holding it, and Elixir skips
+    /// naming a `def` that sits inside a `quote` template. #1088 moved
+    /// both onto the chain.
+    fn assert_name_parity<L: LanguageInfo + Getter>(
+        label: &str,
+        code: &[u8],
+        expect_named: &[&str],
+    ) {
+        let mut seen: Vec<&str> = Vec::new();
+        let visited = for_each_node_with_chain::<L>(code, |node: &Node<'_>, chain| {
+            let known = L::get_func_space_name(node, code, Ancestors::known(chain));
+            let climbing = L::get_func_space_name(node, code, Ancestors::unknown());
+            assert_eq!(
+                known,
+                climbing,
+                "{label}: name of {} at row {} disagrees",
+                node.kind(),
+                node.start_row()
+            );
+            if let Some(name) = known
+                && expect_named.contains(&name)
+                && !seen.contains(&name)
+            {
+                seen.push(name);
+            }
+        });
+        assert!(visited > 20, "{label}: fixture is too small to prove much");
+        for name in expect_named {
+            assert!(
+                seen.contains(name),
+                "{label}: no node resolved to {name:?}, so the fixture no longer \
+                 exercises the ancestor-derived naming it was added for"
+            );
+        }
+    }
+
+    #[test]
+    fn func_space_name_agrees_between_known_and_climbing() {
+        // `outer` and `keyed` are only reachable through the parent:
+        // the function expressions themselves carry no `name` field.
+        //
+        // All four JS-family grammars are exercised, not just
+        // JavaScript: their `get_func_space_name` impls are separate
+        // copies of the same body against four distinct `kind_id`
+        // enums, so a `Pair` / `VariableDeclarator` id that drifted in
+        // one grammar would be invisible here if only one were checked.
+        let js_source =
+            b"var outer = function () { return 1; };\nvar o = { keyed: function () { return 2; } };\n";
+        assert_name_parity::<crate::langs::JavascriptCode>(
+            "javascript",
+            js_source,
+            &["outer", "keyed"],
+        );
+        assert_name_parity::<crate::langs::MozjsCode>("mozjs", js_source, &["outer", "keyed"]);
+        assert_name_parity::<crate::langs::TypescriptCode>(
+            "typescript",
+            js_source,
+            &["outer", "keyed"],
+        );
+        assert_name_parity::<crate::langs::TsxCode>("tsx", js_source, &["outer", "keyed"]);
+        // `multi` is named from its `Call` head; the `def a` inside the
+        // `quote` template is not a definition, so it falls through to
+        // the field-less default.
+        assert_name_parity::<crate::langs::ElixirCode>(
+            "elixir",
+            b"defmodule Foo do\n  defmacro multi do\n    quote do\n      def a, do: 1\n    end\n  end\nend\n",
+            &["Foo", "multi"],
+        );
     }
 }

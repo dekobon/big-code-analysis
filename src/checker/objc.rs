@@ -39,7 +39,7 @@ impl Checker for ObjcCode {
     // A `method_definition` is the `@implementation`-side method with a
     // body; the `@interface`-side `method_declaration` has no body and
     // is therefore not a function.
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             Objc::FunctionDefinition | Objc::FunctionDefinition2 | Objc::MethodDefinition
@@ -47,7 +47,7 @@ impl Checker for ObjcCode {
     }
 
     // ObjC blocks `^{ … }` are the language's closures.
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Objc::BlockLiteral
     }
 

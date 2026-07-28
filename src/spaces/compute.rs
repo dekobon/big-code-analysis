@@ -260,7 +260,7 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Tokens::compute(node, &mut last.metrics.tokens, in_comment);
     }
     if selected.contains(Metric::Nargs) {
-        T::NArgs::compute(node, &mut last.metrics.nargs);
+        T::NArgs::compute(node, ancestors, &mut last.metrics.nargs);
     }
     if selected.contains(Metric::Nexits) {
         T::Exit::compute(node, code, &mut last.metrics.nexits);
@@ -293,7 +293,13 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     // `Ancestors::unknown()`: `node` is the tree root here, so it has no
     // ancestors to hand over either way.
     if T::Getter::get_space_kind_with_code(node, code, Ancestors::unknown()) != SpaceKind::Unit {
-        let mut synthetic = FuncSpace::new::<T::Getter>(node, code, SpaceKind::Unit, selected);
+        let mut synthetic = FuncSpace::new::<T::Getter>(
+            node,
+            code,
+            Ancestors::unknown(),
+            SpaceKind::Unit,
+            selected,
+        );
         let (end_row, end_column) = node.end_position();
         synthetic
             .metrics
@@ -325,7 +331,7 @@ fn open_func_space<'a, T: ParserTrait>(
 ) -> usize {
     let kind = T::Getter::get_space_kind_with_code(node, code, ancestors);
     state_stack.push(State {
-        space: FuncSpace::new::<T::Getter>(node, code, kind, selected),
+        space: FuncSpace::new::<T::Getter>(node, code, ancestors, kind, selected),
         halstead_maps: HalsteadMaps::new(),
     });
     level + 1

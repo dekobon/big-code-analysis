@@ -182,3 +182,34 @@ fn dump_span_ansi_layout_error_branch() {
         &["   `- ", "error: ", "from line ", "7", " to line ", "8.\n"],
     );
 }
+
+/// The span walk must find every named function and name the ones whose
+/// name lives on an ancestor rather than on the node.
+///
+/// `outer` and `keyed` are `function_expression`s with no `name` field:
+/// the JS getter recovers both from the enclosing `variable_declarator`
+/// / `pair`, which #1088 moved onto the walk's ancestor chain. This is
+/// also the only lib-level exercise of that chain — `act_on_node`
+/// constructs it through `Ancestors::checked`, so a bookkeeping slip
+/// trips the debug assertion here rather than only in the web crate's
+/// endpoint tests.
+#[test]
+fn js_function_spans_name_expressions_from_their_binding() {
+    use crate::langs::JavascriptParser;
+    use crate::traits::ParserTrait;
+
+    let source = concat!(
+        "var outer = function () { return 1; };\n",
+        "var o = { keyed: function () { return 2; } };\n",
+        "function plain() { return 3; }\n",
+    );
+    let parser = JavascriptParser::new(source.as_bytes().to_vec(), &PathBuf::from("t.js"), None);
+    let spans = function(&parser);
+    let names: Vec<Option<&str>> = spans.iter().map(|s| s.name.as_deref()).collect();
+    assert_eq!(
+        names,
+        vec![Some("outer"), Some("keyed"), Some("plain")],
+        "each named function must be found, in source order, with the \
+         name its binding gives it"
+    );
+}

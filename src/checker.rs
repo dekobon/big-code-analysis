@@ -39,6 +39,7 @@ static RE: OnceLock<Regex> = OnceLock::new();
 macro_rules! js_ancestor_walk {
     (
         $node:ident,
+        $ancestors:ident,
         [$($up:ident)|+],
         [$($stop:ident)|+],
         $extra:expr $(,)?
@@ -47,13 +48,22 @@ macro_rules! js_ancestor_walk {
         // the ancestor walk's `is_else_if` filter is bound directly to the
         // language's own `Checker` (no `ParserTrait` round-trip).
         //
-        // `Ancestors::unknown()`, so this walk is still `O(depth)` per
-        // step. `is_func` / `is_closure` are called from `Nargs`, `Npm`,
-        // `function`, and `ops` as well as the metric walk, and only the
-        // metric walk holds a chain to hand over; threading one through
-        // all of them is tracked separately (#1088).
+        // `$ancestors` is the chain the caller descended through, so each
+        // step is a slice index. The walk stops at the first frame that
+        // proves positional use — an enclosing block, `return`, `new`, or
+        // call — so on ordinary JS it takes one or two steps. That is
+        // what made the pre-#1088 cost surprising: `Node::parent` is
+        // `O(depth)` per step whatever the count, so even a two-step walk
+        // was quadratic over a deeply nested file, which is what the
+        // `nom/nested-arrow` probe measures.
+        //
+        // A chain of *expression*-bodied arrows (`a => b => c => …`) is
+        // the one shape no chain can flatten: no `$stop` kind intervenes,
+        // so the walk itself is `O(depth)` long. The chain takes it from
+        // `O(depth^2)` per node to `O(depth)`; it stays quadratic overall
+        // and would need a different rule, not a cheaper lookup, to fix.
         $node.count_specific_ancestors::<Self>(
-            Ancestors::unknown(),
+            $ancestors,
             |node| matches!(node.kind_id().into(), $($up)|+),
             |node| matches!(node.kind_id().into(), $($stop)|+),
         ) > 0
@@ -62,9 +72,10 @@ macro_rules! js_ancestor_walk {
 }
 
 macro_rules! check_if_func {
-    ($node: ident) => {
+    ($node: ident, $ancestors: ident) => {
         js_ancestor_walk!(
             $node,
+            $ancestors,
             [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
             [StatementBlock | ReturnStatement | NewExpression | Arguments],
             $node.is_child(Identifier as u16),
@@ -73,33 +84,34 @@ macro_rules! check_if_func {
 }
 
 macro_rules! check_if_arrow_func {
-    ($node: ident) => {
+    ($node: ident, $ancestors: ident) => {
         js_ancestor_walk!(
             $node,
+            $ancestors,
             [VariableDeclarator | AssignmentExpression | LabeledStatement],
             [StatementBlock | ReturnStatement | NewExpression | CallExpression],
-            $node.has_sibling(PropertyIdentifier as u16),
+            $node.has_sibling($ancestors, PropertyIdentifier as u16),
         )
     };
 }
 
 macro_rules! is_js_func {
-    ($node: ident) => {
+    ($node: ident, $ancestors: ident) => {
         match $node.kind_id().into() {
             FunctionDeclaration | MethodDefinition => true,
-            FunctionExpression => check_if_func!($node),
-            ArrowFunction => check_if_arrow_func!($node),
+            FunctionExpression => check_if_func!($node, $ancestors),
+            ArrowFunction => check_if_arrow_func!($node, $ancestors),
             _ => false,
         }
     };
 }
 
 macro_rules! is_js_closure {
-    ($node: ident) => {
+    ($node: ident, $ancestors: ident) => {
         match $node.kind_id().into() {
             GeneratorFunction | GeneratorFunctionDeclaration => true,
-            FunctionExpression => !check_if_func!($node),
-            ArrowFunction => !check_if_arrow_func!($node),
+            FunctionExpression => !check_if_func!($node, $ancestors),
+            ArrowFunction => !check_if_arrow_func!($node, $ancestors),
             _ => false,
         }
     };
@@ -108,15 +120,15 @@ macro_rules! is_js_closure {
 macro_rules! is_js_func_and_closure_checker {
     ($language: ident) => {
         #[inline]
-        fn is_func(node: &Node) -> bool {
+        fn is_func<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             use $language::*;
-            is_js_func!(node)
+            is_js_func!(node, ancestors)
         }
 
         #[inline]
-        fn is_closure(node: &Node) -> bool {
+        fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
             use $language::*;
-            is_js_closure!(node)
+            is_js_closure!(node, ancestors)
         }
     };
 }
@@ -243,12 +255,27 @@ pub(crate) trait Checker {
     fn is_func_space(_: &Node) -> bool {
         false
     }
+    /// Whether `node` is a *named* function definition.
+    ///
+    /// `ancestors` is the chain the caller descended through. The
+    /// JS-family grammars have no distinct production for a named
+    /// function: `const f = () => …` and `g(() => …)` share one
+    /// `arrow_function` node, and only what encloses it says which is
+    /// which. Those steps come off the chain, because `Node::parent`
+    /// costs `O(depth)` each however few of them a walk takes (#1088).
+    /// Every other grammar answers `is_func` from the node's own kind
+    /// and ignores the parameter.
     #[inline]
-    fn is_func(_: &Node) -> bool {
+    fn is_func<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
+    /// Whether `node` is an anonymous function — the complement of
+    /// [`is_func`] on the grammars that express both. Takes `ancestors`
+    /// for the same reason, plus one of its own: Ruby's `{ … }` block is
+    /// a closure only when its parent is not the `Lambda` that already
+    /// counted it.
     #[inline]
-    fn is_closure(_: &Node) -> bool {
+    fn is_closure<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
     #[inline]
@@ -322,8 +349,8 @@ pub(crate) trait Checker {
     /// Source-aware variant of [`is_func`]. Same rationale as
     /// [`is_func_space_with_code`] (#275).
     #[inline]
-    fn is_func_with_code<'a>(node: &Node<'a>, _code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
-        Self::is_func(node)
+    fn is_func_with_code<'a>(node: &Node<'a>, _code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        Self::is_func(node, ancestors)
     }
 
     /// Combined predicate the walker uses to decide whether to promote
@@ -494,8 +521,10 @@ mod tests {
     use super::*;
     use crate::count::count;
     use crate::langs::{
-        BashParser, JavascriptParser, MozjsParser, PhpParser, TsxParser, TypescriptParser,
+        BashParser, JavascriptCode, JavascriptParser, MozjsParser, PhpParser, TsxParser,
+        TypescriptParser,
     };
+    use crate::test_support::for_each_node_with_chain;
     use std::path::PathBuf;
 
     fn parse(source: &str) -> BashParser {
@@ -1088,7 +1117,7 @@ mod tests {
             "python_is_lambda must accept the emitted Lambda node",
         );
         assert!(
-            PythonCode::is_closure(&lambda),
+            PythonCode::is_closure(&lambda, Ancestors::unknown()),
             "is_closure must agree with python_is_lambda on the same lambda node",
         );
 
@@ -1591,6 +1620,121 @@ mod tests {
             count_string_matches_for_kind(&parser, rune_id, GoCode::is_string),
             0,
             "Go rune_literal must not match is_string (a rune is a char, not a string)",
+        );
+    }
+
+    /// Asserts `is_func` / `is_closure` answer the same off a known
+    /// chain as off a `Node::parent` climb, for every node of `code`.
+    /// Returns the `(functions, closures)` the chain path counted, so a
+    /// caller can additionally pin what the predicates actually decided.
+    ///
+    /// Both predicates fold their ancestor lookups into one boolean, so
+    /// a wrong ancestor does not fail — it silently moves a function
+    /// into the closure column. The counters keep a fixture honest: both
+    /// answers have to occur, for both predicates, or the parity holds
+    /// only over nodes the predicates never classify.
+    fn assert_func_parity<L: crate::traits::LanguageInfo + Checker>(
+        label: &str,
+        code: &[u8],
+    ) -> (usize, usize) {
+        let mut funcs = 0;
+        let mut closures = 0;
+        let visited = for_each_node_with_chain::<L>(code, |node, chain| {
+            let known = Ancestors::known(chain);
+            let climbing = Ancestors::unknown();
+            assert_eq!(
+                L::is_func(node, known),
+                L::is_func(node, climbing),
+                "{label}: is_func disagrees on {} at row {}",
+                node.kind(),
+                node.start_row()
+            );
+            assert_eq!(
+                L::is_closure(node, known),
+                L::is_closure(node, climbing),
+                "{label}: is_closure disagrees on {} at row {}",
+                node.kind(),
+                node.start_row()
+            );
+            funcs += usize::from(L::is_func(node, known));
+            closures += usize::from(L::is_closure(node, known));
+        });
+        assert!(visited > 20, "{label}: fixture is too small to prove much");
+        assert!(
+            funcs > 0 && closures > 0,
+            "{label}: fixture must contain both a named function and a closure, \
+             else parity holds over nodes the walk never classifies: \
+             {funcs} functions, {closures} closures"
+        );
+        (funcs, closures)
+    }
+
+    /// The JS-family `is_func` / `is_closure` must classify a node the
+    /// same whether they read the walker's ancestor chain or climb with
+    /// `Node::parent` (#1088).
+    ///
+    /// These are the predicates with the longest ancestor lookup: an
+    /// upward walk, its `is_else_if` filter, and a `has_sibling`
+    /// adjacency check.
+    #[test]
+    fn js_func_and_closure_agree_between_known_and_climbing() {
+        // One of each shape the walk distinguishes: an arrow bound to a
+        // name, an arrow passed positionally, a `function` expression
+        // named by an object `pair`, and a nested arrow whose only
+        // enclosing frame is a `statement_block`.
+        //
+        // The returned object literal is load-bearing. It is the one
+        // shape here where the trailing `has_sibling` adjacency check
+        // decides the answer: the upward walk stops at the `return`
+        // having counted no binding, so whether the arrow is a *named*
+        // function rests entirely on the `property_identifier` beside
+        // it. Everywhere else a binding is found first and the adjacency
+        // check is never reached, which would leave a wrong parent
+        // lookup invisible.
+        let code = concat!(
+            "const f = a => { g(() => 1); a => 2; };\n",
+            "const o = { m: function () { return 1; } };\n",
+            "function h() { return { k: (a) => a + 1 }; }\n",
+            "function i() { return function () { return 2; }; }\n",
+        )
+        .as_bytes();
+        // `is_js_func_and_closure_checker!` expands separately against
+        // each grammar's own `kind_id` enum, so the four impls are four
+        // distinct variant lists rather than one shared body. Checking
+        // only JavaScript would leave a drifted id in any of the other
+        // three uncovered.
+        assert_func_parity::<crate::langs::JavascriptCode>("javascript", code);
+        assert_func_parity::<crate::langs::MozjsCode>("mozjs", code);
+        assert_func_parity::<crate::langs::TypescriptCode>("typescript", code);
+        assert_func_parity::<crate::langs::TsxCode>("tsx", code);
+    }
+
+    /// Ruby's `is_closure` is the one non-JS predicate that needs an
+    /// ancestor: a `{ … }` block is a closure unless its parent is the
+    /// `Lambda` that already counted it (#465), so it reads the chain
+    /// for the same reason the JS family does (#1088).
+    ///
+    /// The stabby lambda is the discriminating shape. Its body block is
+    /// the only node here whose answer depends on the parent lookup —
+    /// every other block's parent is a `Call`, which the arm accepts
+    /// whether the lookup is right or wrong.
+    #[test]
+    fn ruby_block_closure_agrees_between_known_and_climbing() {
+        let code = concat!(
+            "def m\n",
+            "  f = ->(z) { z + 1 }\n",
+            "  [1].each { |x| x }\n",
+            "  lambda { 2 }\n",
+            "end\n",
+        )
+        .as_bytes();
+        let (funcs, closures) = assert_func_parity::<crate::langs::RubyCode>("ruby", code);
+        assert_eq!(funcs, 1, "only `def m` is a named function");
+        assert_eq!(
+            closures, 3,
+            "the stabby lambda, the `each` block and the `lambda` block \
+             are three closures — the stabby lambda's own body block must \
+             not add a fourth, which is the answer the parent lookup decides"
         );
     }
 }

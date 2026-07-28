@@ -37,7 +37,7 @@ impl Checker for IrulesCode {
 
     // Handlers count as functions (not closures): `nom.functions` on a
     // typical iRules file is then the handler count, the intuitive metric.
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             Irules::Procedure | Irules::WhenEvent | Irules::OnHandler | Irules::TrapHandler
@@ -45,7 +45,7 @@ impl Checker for IrulesCode {
     }
 
     // iRules has no anonymous lambda node (`apply` is an ordinary command).
-    fn is_closure(_: &Node) -> bool {
+    fn is_closure<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
 

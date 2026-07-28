@@ -107,14 +107,16 @@ Read it as follows.
 | `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | linear |
 | `nom/nested-fn` | Rust | `FuncSpace` nesting; metric control for the row below | linear |
 | `cognitive/nested-fn` | Rust | `increment_function_depth` (#1062) | linear |
+| `nom/nested-declared-function` | JavaScript | shape control for the row below | linear |
+| `nom/nested-arrow` | JavaScript | JS-family `is_func` / `is_closure` (#1088) | linear |
 
-Three of these were quadratic when the harness landed, and they shared
+Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
 resolves by descending from the root and is itself `O(depth)`. Any
 predicate in the walk that asked a node for its parent was therefore
 `O(depth)` per node and `O(depth^2)` over a deeply nested file, however
-few steps it took. [#1084][parent-walk] fixed all three by having the
-metric walk carry the ancestor chain down with it (`Ancestors` in
+few steps it took. [#1084][parent-walk] fixed three of them by having
+the metric walk carry the ancestor chain down with it (`Ancestors` in
 `src/node.rs`), so a predicate reads an ancestor as a slice index. Their
 bounds moved to the linear bound in that same change, which is what now
 catches a relapse. `cognitive/nested-fn` is the fourth of the same
@@ -123,23 +125,44 @@ the same way in [#1062][cognitive-parent], which is also where that
 probe comes from — it fitted 2.04 against the climb and 1.21 against the
 chain.
 
-The remaining `Node::parent` climbs were left alone and are tracked in
-[#1088][remaining-climbs]. Those are more than a handful and no probe
+`nom/nested-arrow` is the fifth, added by [#1088][remaining-climbs] with
+the fix it guards. It cost the same family a second lesson: threading
+the chain into the JS-family predicates was *not enough* to make it
+linear. The walk they run is two steps long on that shape, and the
+remaining `O(depth)` term was hiding in `Node::wraps_any`, which scanned
+a node's children with `child(0)` + `next_sibling()`. A sibling step
+resolves its parent, so that scan was `O(children × depth)` — the same
+defect one level down, in a helper whose doc comment asserted it was
+`O(1)` per step. Moving the scan onto a cursor took the probe from 17.6 s
+to 6.3 ms at depth 4000 (`k` 1.97 to 1.03), and a walk over the 384-file `pdf.js` corpus
+from ~443 ms to ~370 ms. The lesson generalises: a chain-fed predicate
+is only as linear as the primitives it calls.
+
+The remaining `Node::parent` climbs are tracked in
+[#1096][halstead-climbs]. Those are more than a handful and no probe
 covers them. The list below is illustrative, not exhaustive — `rg
 '\.parent\(\)' src/` is the authority:
 
-- the five call sites that pass `Ancestors::unknown()`
-  (`js_ancestor_walk` in `src/checker.rs`, `suppression_markers`,
-  Elixir's `get_func_space_name`, and Elixir's `Npa` / `Npm`);
 - the per-node `node.parent()` calls in the Halstead `get_op_type`
   getters
-  (`src/getter/{python,rust,javascript,typescript,tsx,mozjs,cpp,mozcpp,bash,irules}.rs`)
-  and in `src/metrics/abc/{mozcpp,perl}.rs`;
+  (`src/getter/{python,rust,cpp,mozcpp,bash,irules}.rs`)
+  and in `src/metrics/abc/`;
 - per-node parent checks in several `loc` arms
   (`src/metrics/loc/{python,lua,kotlin,perl,tcl,irules,elixir}.rs`),
   in `src/metrics/npa/` and `src/metrics/npm/`, in
-  `src/metrics/cyclomatic/elixir.rs`, and in
-  `src/checker/{rust,ruby}.rs`.
+  `src/metrics/cyclomatic/elixir.rs`, and in `src/checker/rust.rs`
+  (`is_useful_comment`, which takes no chain). `Npm::compute` /
+  `Npa::compute` take no ancestor chain either, so this group needs the
+  parameter threaded first. Ruby's `Checker::is_closure` was in this
+  list until #1088 gave `is_closure` a chain — it is the one non-JS
+  predicate of that pair that reads an ancestor, so it now reads it
+  from the chain like the JS family does.
+
+The `Ancestors::unknown()` call sites that remain are deliberate rather
+than deferred: the two synthetic-`Unit`-root pushes hand it a node that
+*is* the root, `parser.rs`'s `--filter function` predicate is applied
+outside any walk, and the `Npm` arms that test a node's children cannot
+extend a borrowed slice by one element without allocating.
 
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
@@ -147,8 +170,9 @@ threading, not every `O(depth)` lookup in the crate.
 [parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
 [cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
+[halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
 
-The four control probes are what make the other readings mean
+The five control probes are what make the other readings mean
 something.
 
 - `nom/nested-while` and `nom/nested-fn` are **metric** controls.
@@ -156,14 +180,15 @@ something.
   the cognitive-attributable cost of each `cognitive/…` row is its
   difference from the `nom/…` row on the same shape, not the
   `cognitive` reading alone.
-- `loc/nested-while` and `cognitive/nested-while` are **shape**
-  controls: each is the same nesting as the ancestor-walk probe it sits
-  next to, with the one node that triggers the walk removed. Before
-  [#1084][parent-walk] each fitted near 1.0 where its counterpart
-  fitted near 2.0, which is what attributed the quadratic cost to
-  that call rather than to nesting in general. Now that all nine fit
-  near 1.0, the pair is what would localise a relapse: a probe drifting
-  up while its control holds means the ancestor lookup, not the shape.
+- `loc/nested-while`, `cognitive/nested-while`, and
+  `nom/nested-declared-function` are **shape** controls: each is the same
+  nesting as the ancestor-walk probe it sits next to, with the one node
+  that triggers the walk removed. Before [#1084][parent-walk] each
+  fitted near 1.0 where its counterpart fitted near 2.0, which is what
+  attributed the quadratic cost to that call rather than to nesting in
+  general. Now that all eleven fit near 1.0, the pair is what would
+  localise a relapse: a probe drifting up while its control holds means
+  the ancestor lookup, not the shape.
 
 ### Adding a probe
 

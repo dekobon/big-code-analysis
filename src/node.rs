@@ -166,12 +166,16 @@ impl<'a> Node<'a> {
     /// closure-classification hot path (`check_if_arrow_func!`); see
     /// #521.
     ///
+    /// `ancestors` supplies the parent, because [`Node::parent`] costs
+    /// `O(depth)` — `tree_sitter` stores no parent pointer and resolves
+    /// one by descending from the root (#1088).
+    ///
     /// [`wraps_any`]: Self::wraps_any
     #[inline]
-    pub(crate) fn has_sibling(&self, id: u16) -> bool {
-        self.0
-            .parent()
-            .is_some_and(|parent| Node(parent).is_child(id))
+    pub(crate) fn has_sibling(&self, ancestors: Ancestors<'a, '_>, id: u16) -> bool {
+        ancestors
+            .parent(self)
+            .is_some_and(|parent| parent.is_child(id))
     }
 
     pub(crate) fn previous_sibling(&self) -> Option<Node<'a>> {
@@ -205,9 +209,11 @@ impl<'a> Node<'a> {
     /// caller of this method `O(depth)` per node, which is the same
     /// defect #1084 removed from the predicates that ask for an
     /// ancestor outright. The cursor iterator is `O(children)` after one
-    /// allocation, and measured faster on real input as well as on a
-    /// pathological one: a metric walk over the 384-file `pdf.js`
-    /// corpus dropped from ~443 ms to ~370 ms (#1088).
+    /// allocation, and measured faster on real input as well as on the
+    /// pathological one: the `nom/nested-arrow` probe went from
+    /// quadratic (17.6 s at depth 4000) to linear (6.3 ms), and a walk
+    /// over the 384-file `pdf.js` corpus dropped from ~443 ms to
+    /// ~370 ms (#1088).
     ///
     /// [`is_child`]: Self::is_child
     #[inline]
@@ -648,15 +654,32 @@ impl<'a> Search<'a> for Node<'a> {
         None
     }
 
-    fn act_on_node(&self, action: &mut dyn FnMut(&Node<'a>)) {
+    fn act_on_node(&self, action: &mut dyn FnMut(&Node<'a>, Ancestors<'a, '_>)) {
         let mut cursor = self.cursor();
         let mut stack = Vec::new();
         let mut children = Vec::new();
+        // Ancestor chain of the node being visited, root first. Kept by
+        // the same truncate/push rule as the metric walk, so a predicate
+        // the action applies can read an ancestor as a slice index
+        // rather than through the `O(depth)` `Node::parent` (#1088).
+        //
+        // Seeded with this subtree root's own ancestry rather than left
+        // empty: `Ancestors` reads an empty chain as "this node is the
+        // tree root", so on a subtree an empty seed would report no
+        // parent for `*self` — silently costing e.g. the JS getters the
+        // binding a `function_expression` takes its name from. One
+        // climb, and none at all for the tree root this is called on
+        // today.
+        let mut chain: Vec<Node<'a>> = std::iter::successors(self.parent(), Node::parent).collect();
+        chain.reverse();
+        let depth = chain.len();
 
-        stack.push(*self);
+        stack.push((*self, depth));
 
-        while let Some(node) = stack.pop() {
-            action(&node);
+        while let Some((node, depth)) = stack.pop() {
+            chain.truncate(depth);
+            action(&node, Ancestors::checked(&chain, &node));
+            chain.push(node);
             cursor.reset(&node);
             if cursor.goto_first_child() {
                 loop {
@@ -666,7 +689,7 @@ impl<'a> Search<'a> for Node<'a> {
                     }
                 }
                 for child in children.drain(..).rev() {
-                    stack.push(child);
+                    stack.push((child, depth + 1));
                 }
             }
         }
@@ -687,6 +710,7 @@ impl<'a> Search<'a> for Node<'a> {
 mod tests {
     use super::*;
     use crate::langs::MozjsCode;
+    use crate::test_support::for_each_node_with_chain;
 
     /// The `child(0)` + `next_sibling()` chain [`Node::wraps_any`] used
     /// between #217 and #1088, kept here as the reference the cursor
@@ -738,15 +762,18 @@ mod tests {
         let absent_id = u16::MAX;
 
         let mut stack = vec![ts_tree.root_node()];
+        let mut matched = 0;
         while let Some(n) = stack.pop() {
             let wrapped = Node(n);
             for &id in kinds.iter().chain(std::iter::once(&absent_id)) {
+                let found = wrapped.has_sibling(Ancestors::unknown(), id);
                 assert_eq!(
-                    wrapped.has_sibling(id),
+                    found,
                     sibling_chain_has_sibling(n, id),
                     "has_sibling diverged from the retired sibling chain at node kind {} for id {id}",
                     n.kind(),
                 );
+                matched += usize::from(found);
             }
             let mut child = n.child(0);
             while let Some(c) = child {
@@ -754,13 +781,21 @@ mod tests {
                 child = c.next_sibling();
             }
         }
+        // The comment above claims the collected kinds cover the
+        // present-sibling case; this enforces it. Both sides answering
+        // `false` everywhere would agree without either scan ever
+        // running to a match.
+        assert!(
+            matched > 0,
+            "every answer was `false`, so the sibling scan was never exercised"
+        );
 
         // No-parent node (root) always reports no sibling.
         let root = Node(ts_tree.root_node());
-        assert!(!root.has_sibling(absent_id));
+        assert!(!root.has_sibling(Ancestors::unknown(), absent_id));
         for &id in &kinds {
             assert!(
-                !root.has_sibling(id),
+                !root.has_sibling(Ancestors::unknown(), id),
                 "root node has no parent → no sibling"
             );
         }
@@ -1012,40 +1047,6 @@ mod tests {
         );
     }
 
-    /// Visits `code`'s tree in pre-order, maintaining the ancestor chain
-    /// exactly as `spaces::compute::metrics_inner` does, and hands each
-    /// node to `check` together with that chain.
-    ///
-    /// Keeping the bookkeeping identical to the walker's is the point:
-    /// a test that built the chain some other way would prove
-    /// [`Ancestors`] self-consistent without proving the walker feeds it
-    /// the right slice.
-    fn for_each_node_with_chain<L: LanguageInfo>(
-        code: &[u8],
-        mut check: impl FnMut(&Node<'_>, &[Node<'_>]),
-    ) -> usize {
-        let tree = Tree::new::<L>(code);
-        let root = tree.get_root();
-        assert!(
-            !root.has_error(),
-            "fixture must parse cleanly, else the walk covers error recovery"
-        );
-
-        let mut chain: Vec<Node<'_>> = Vec::new();
-        let mut stack = vec![(root, 0_usize)];
-        let mut visited = 0;
-        while let Some((node, depth)) = stack.pop() {
-            chain.truncate(depth);
-            check(&node, &chain);
-            visited += 1;
-            chain.push(node);
-            let first = stack.len();
-            stack.extend(node.children().map(|child| (child, depth + 1)));
-            stack[first..].reverse();
-        }
-        visited
-    }
-
     /// Ancestor ids yielded by `ancestors`, nearest first.
     fn ancestor_ids(ancestors: Ancestors<'_, '_>, node: &Node<'_>) -> Vec<usize> {
         ancestors.iter(node).map(|(a, _)| a.id()).collect()
@@ -1161,6 +1162,105 @@ mod tests {
             b"def f(x)\n  case x\n  when 1 then 1\n  else 2\n  end\n  def g\n    if x\n    end\n  end\nend\n",
             &["method"],
         );
+
+        // The shape #1088 added as a consumer: the JS-family
+        // `Checker::is_func` / `is_closure` walk upward from an
+        // `arrow_function` / `function_expression` looking for the
+        // binding that names it, and end on `Ancestors::previous_sibling`
+        // through `has_sibling`. None of the fixtures above contains
+        // either node.
+        assert_parity::<crate::langs::JavascriptCode>(
+            "javascript",
+            b"const f = a => { a => { g(() => 1); }; };\nconst o = { m: function () { return 1; } };\n",
+            &["arrow_function"],
+        );
+    }
+
+    /// [`Node::has_sibling`] must answer the same whether its parent
+    /// comes off a known chain or from `Node::parent`.
+    ///
+    /// The parent lookup is the only thing #1088 changed here, and it is
+    /// the half a caller cannot see: `check_if_arrow_func!` folds the
+    /// answer into a disjunction, so a wrong parent would silently
+    /// reclassify an arrow function rather than fail. Checked for every
+    /// node against every kind the fixture contains, plus one that never
+    /// occurs so the absent-sibling answer is covered too.
+    #[test]
+    fn has_sibling_agrees_between_known_and_climbing() {
+        // Object-literal methods and an arrow bound to a property are
+        // the shapes whose `PropertyIdentifier` sibling the JS closure
+        // check asks about.
+        let code = b"const o = { m: (a) => a + 1, n: function () {} };\nconst p = a => a;\n";
+        let mut kinds = std::collections::BTreeSet::new();
+        for_each_node_with_chain::<crate::langs::JavascriptCode>(code, |node, _| {
+            kinds.insert(node.kind_id());
+        });
+        // An id no node in the fixture carries, so the `false` answer is
+        // exercised as well as the `true` one.
+        let absent = u16::MAX;
+        let mut agreed_true = 0;
+        let visited =
+            for_each_node_with_chain::<crate::langs::JavascriptCode>(code, |node, chain| {
+                for &id in kinds.iter().chain(std::iter::once(&absent)) {
+                    let known = node.has_sibling(Ancestors::known(chain), id);
+                    let climbing = node.has_sibling(Ancestors::unknown(), id);
+                    assert_eq!(
+                        known,
+                        climbing,
+                        "has_sibling({id}) on {} disagrees between chain and climb",
+                        node.kind()
+                    );
+                    agreed_true += usize::from(known);
+                }
+            });
+        assert!(visited > 20, "fixture is too small to prove much");
+        assert!(
+            agreed_true > 0,
+            "every answer was `false`, so the sibling scan never ran to a match"
+        );
+    }
+
+    /// [`Search::act_on_node`] must hand each node its true ancestry
+    /// even when the walk starts below the tree root.
+    ///
+    /// The seed is what decides this. [`Ancestors`] reads an empty chain
+    /// as "this node is the root", so seeding empty — which is correct
+    /// for the one caller that exists today, `bca function`, whose walk
+    /// starts at the root — would report no parent for the subtree root
+    /// and shift every answer beneath it. For the JS getters that means
+    /// losing the `variable_declarator` a `function_expression` takes
+    /// its name from, so the space would silently be named
+    /// `<anonymous>`.
+    ///
+    /// No caller passes a subtree yet, so nothing else would catch this;
+    /// the fixture below is the guard, and it fails against an empty
+    /// seed both here and through `Ancestors::checked`'s debug
+    /// assertion.
+    #[test]
+    fn act_on_node_hands_a_subtree_its_real_ancestry() {
+        let code = b"var outer = function () { return 1; };\n";
+        let tree = Tree::new::<MozjsCode>(code);
+        let root = tree.get_root();
+        let subtree = root
+            .preorder()
+            .find(|n| n.kind() == "variable_declarator")
+            .expect("fixture has a variable_declarator");
+        assert!(
+            subtree.parent().is_some(),
+            "the walk must start below the root, else the seed is vacuous"
+        );
+
+        let mut visited = 0;
+        subtree.act_on_node(&mut |node, ancestors| {
+            assert_eq!(
+                ancestors.parent(node).map(|p| p.id()),
+                node.parent().map(|p| p.id()),
+                "parent of {} disagrees with the tree",
+                node.kind()
+            );
+            visited += 1;
+        });
+        assert!(visited > 3, "subtree is too small to prove much");
     }
 
     /// `previous_sibling` must not answer "no previous sibling" when the

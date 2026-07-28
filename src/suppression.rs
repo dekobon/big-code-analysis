@@ -571,48 +571,78 @@ pub struct SuppressionMarker {
 pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<SuppressionMarker> {
     let code = parser.code();
     let mut markers = Vec::new();
+    // Ancestor chain of the node currently being visited, root first.
+    // Maintained by the same truncate/push rule as
+    // `spaces::compute::metrics_inner`: this walk is pre-order, so every
+    // ancestor has already been visited and appended, and truncating to
+    // the node's depth drops the sibling subtree just finished (#1084).
+    let mut chain: Vec<Node<'_>> = Vec::new();
     // Explicit-stack DFS (not recursion) so a pathologically deep AST
     // cannot overflow the call stack. Each frame carries the nearest
     // enclosing function name, borrowed from `code`, so child nodes
-    // inherit it without re-deriving.
-    let mut stack: Vec<(Node<'_>, Option<&str>)> = vec![(parser.root(), None)];
-    while let Some((node, enclosing)) = stack.pop() {
-        if T::Checker::is_comment(&node)
-            && let Some(text) = node.utf8_text(code)
-            && let Ok(Some(suppression)) = parse_marker(text)
-        {
-            // File-scoped markers are whole-file by definition, so the
-            // enclosing function is irrelevant; report `None` to avoid a
-            // misleading "inside fn X" attribution.
-            let function = match suppression.kind {
-                SuppressionKind::Function => enclosing.map(str::to_owned),
-                SuppressionKind::File => None,
-            };
-            markers.push(SuppressionMarker {
-                line: node.start_row() + 1,
-                target: suppression.kind.into(),
-                scope: suppression.scope,
-                dialect: suppression.source.into(),
-                function,
-            });
+    // inherit it without re-deriving, plus the node's depth, which
+    // indexes `chain`.
+    let mut stack: Vec<(Node<'_>, Option<&str>, usize)> = vec![(parser.root(), None, 0)];
+    while let Some((node, enclosing, depth)) = stack.pop() {
+        chain.truncate(depth);
+
+        if let Some(marker) = marker_at::<T>(&node, code, enclosing) {
+            markers.push(marker);
         }
         // `is_func_with_code` rather than `is_func`: C/C++ identify
         // functions only via the code-aware predicate, and the default
-        // impl delegates to `is_func` for every other language.
-        // `Ancestors::unknown()`: this marker scan is its own walk and
-        // keeps no ancestor chain. Only Elixir's override climbs, and it
-        // does so once per `def`-shaped `Call`, not per node (#1088).
-        let child_enclosing = if T::Checker::is_func_with_code(&node, code, Ancestors::unknown()) {
-            T::Getter::get_func_name(&node, code).or(enclosing)
+        // impl delegates to `is_func` for every other language. The
+        // predicates that consult an ancestor — Elixir's `quote`
+        // template check, the JS-family name-binding walk — read it off
+        // `chain` rather than climbing with `Node::parent` (#1088).
+        let ancestors = Ancestors::checked(&chain, &node);
+        let child_enclosing = if T::Checker::is_func_with_code(&node, code, ancestors) {
+            T::Getter::get_func_name(&node, code, ancestors).or(enclosing)
         } else {
             enclosing
         };
+        chain.push(node);
         for child in node.children() {
-            stack.push((child, child_enclosing));
+            stack.push((child, child_enclosing, depth + 1));
         }
     }
     markers.sort_by_key(|m| m.line);
     markers
+}
+
+/// The suppression marker `node` carries, if it is a comment holding a
+/// well-formed one.
+///
+/// `enclosing` names the syntactically nearest enclosing function.
+/// File-scoped markers are whole-file by definition, so the enclosing
+/// function is irrelevant to them and reported as `None` rather than as
+/// a misleading "inside fn X".
+///
+/// A malformed native marker yields `None`: the audit is a read-only
+/// listing of what *is* a marker, and the threshold walk is the surface
+/// that already warns on malformed bodies.
+fn marker_at<T: ParserTrait>(
+    node: &Node<'_>,
+    code: &[u8],
+    enclosing: Option<&str>,
+) -> Option<SuppressionMarker> {
+    if !T::Checker::is_comment(node) {
+        return None;
+    }
+    let Ok(Some(suppression)) = parse_marker(node.utf8_text(code)?) else {
+        return None;
+    };
+    let function = match suppression.kind {
+        SuppressionKind::Function => enclosing.map(str::to_owned),
+        SuppressionKind::File => None,
+    };
+    Some(SuppressionMarker {
+        line: node.start_row() + 1,
+        target: suppression.kind.into(),
+        scope: suppression.scope,
+        dialect: suppression.source.into(),
+        function,
+    })
 }
 
 #[cfg(test)]

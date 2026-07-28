@@ -21,6 +21,7 @@ use crate::loc::Loc;
 use crate::mi::Mi;
 use crate::nargs::NArgs;
 use crate::nexits::Exit;
+use crate::node::Ancestors;
 use crate::node::Node;
 use crate::nom::Nom;
 use crate::npa::Npa;
@@ -74,7 +75,10 @@ pub(crate) trait ParserTrait {
 
 pub(crate) trait Search<'a> {
     fn first_occurrence(&self, pred: fn(u16) -> bool) -> Option<Node<'a>>;
-    fn act_on_node(&self, action: &mut dyn FnMut(&Node<'a>));
+    /// Visits every node of the subtree in source order, handing the
+    /// action each node's ancestor chain alongside it so a predicate it
+    /// applies stays off `Node::parent` (#1088).
+    fn act_on_node(&self, action: &mut dyn FnMut(&Node<'a>, Ancestors<'a, '_>));
     fn first_child(&self, pred: fn(u16) -> bool) -> Option<Node<'a>>;
     fn act_on_child(&self, action: &mut dyn FnMut(&Node<'a>));
 }

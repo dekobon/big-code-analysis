@@ -39,11 +39,11 @@ impl Checker for JavaCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Java::MethodDeclaration || node.kind_id() == Java::ConstructorDeclaration
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Java::LambdaExpression
     }
 
