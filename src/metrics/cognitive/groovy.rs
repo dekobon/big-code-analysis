@@ -89,6 +89,7 @@ impl Cognitive for GroovyCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[MethodDeclaration, ConstructorDeclaration],
                 );
             }

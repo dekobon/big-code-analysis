@@ -728,14 +728,14 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 475
+start_line = 490
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 475
+start_line = 490
 metric = "nexits"
 value = 6.0
 
@@ -765,7 +765,7 @@ path = "src/metrics/cognitive/ruby.rs"
 qualified = "RubyCode::compute"
 start_line = 29
 metric = "halstead.effort"
-value = 52423.215599473966
+value = 53271.17757518335
 
 [[entry]]
 path = "src/metrics/loc/c.rs"
@@ -861,7 +861,7 @@ value = 32.0
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 216
+start_line = 221
 metric = "halstead.effort"
 value = 58764.00971804493
 

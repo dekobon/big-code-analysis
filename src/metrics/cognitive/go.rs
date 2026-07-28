@@ -53,6 +53,7 @@ impl Cognitive for GoCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[G::FunctionDeclaration, G::MethodDeclaration],
                 );
             }

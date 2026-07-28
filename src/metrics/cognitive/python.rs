@@ -203,7 +203,7 @@ impl Cognitive for PythonCode {
             }
             FunctionDefinition => {
                 // Increase depth function nesting if needed
-                increment_function_depth(&mut depth, node, &[FunctionDefinition]);
+                increment_function_depth(&mut depth, node, ancestors, &[FunctionDefinition]);
             }
             _ => {}
         }

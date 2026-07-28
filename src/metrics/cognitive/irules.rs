@@ -72,6 +72,7 @@ impl Cognitive for IrulesCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[Procedure, WhenEvent, OnHandler, TrapHandler],
                 );
             }

@@ -130,7 +130,12 @@ impl Cognitive for RubyCode {
             }
             R::Method | R::SingletonMethod => {
                 nesting = 0;
-                increment_function_depth(&mut depth, node, &[R::Method, R::SingletonMethod]);
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    ancestors,
+                    &[R::Method, R::SingletonMethod],
+                );
             }
             // Blocks, do-blocks and lambdas are the closure/lambda forms.
             R::Block | R::DoBlock | R::Lambda => {

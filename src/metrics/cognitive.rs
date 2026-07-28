@@ -280,14 +280,29 @@ fn get_nesting_from_map(node: &Node, nesting_map: &NestingMap) -> Nesting {
     nesting_map.get(&node.id()).copied().unwrap_or_default()
 }
 
-fn increment_function_depth<T: PartialEq + From<u16>>(depth: &mut usize, node: &Node, stops: &[T]) {
-    let mut child = *node;
-    while let Some(parent) = child.parent() {
-        if stops.contains(&T::from(parent.kind_id())) {
-            *depth += 1;
-            break;
-        }
-        child = parent;
+/// Adds one to `depth` when `node` is lexically nested inside another
+/// function, where `stops` lists the grammar kinds that count as a
+/// function for this language.
+///
+/// The scan reads the walker's ancestor chain. Climbing with
+/// [`Node::parent`] instead costs `O(depth)` per step — tree-sitter
+/// stores no parent pointer — which made `Cognitive` `O(depth²)` on
+/// nested function definitions (#1062, deferred out of #1084). A nested
+/// function's enclosing function is a couple of levels up, so the scan
+/// stops immediately there; a function with *no* enclosing function
+/// scans its whole chain, but each step is a slice index rather than a
+/// descent from the root.
+fn increment_function_depth<'a, T: PartialEq + From<u16>>(
+    depth: &mut usize,
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stops: &[T],
+) {
+    if ancestors
+        .iter(node)
+        .any(|(ancestor, _)| stops.contains(&T::from(ancestor.kind_id())))
+    {
+        *depth += 1;
     }
 }
 
@@ -380,7 +395,7 @@ macro_rules! js_cognitive {
                     nesting = 0;
                     lambda = 0;
                     // Increase depth function nesting if needed
-                    increment_function_depth(&mut depth, node, &[FunctionDeclaration]);
+                    increment_function_depth(&mut depth, node, ancestors, &[FunctionDeclaration]);
                 }
                 ArrowFunction => {
                     lambda += 1;
@@ -9641,10 +9656,12 @@ end",
     /// measurement at three depths, which belongs in a bench target
     /// and not in the unit suite.
     ///
-    /// Uses `while`, deliberately, **not** `if`: `Checker::is_else_if`
-    /// calls `node.parent()` for every `if_statement`, so nested `if`s
-    /// are still quadratic for reasons this fix does not touch. The
-    /// harness measures that shape too, under a quadratic bound.
+    /// Uses `while`, deliberately, **not** `if`: when this test was
+    /// written `Checker::is_else_if` still called `node.parent()` for
+    /// every `if_statement`, so nested `if`s were quadratic for reasons
+    /// that fix did not touch. #1084 moved that predicate onto the
+    /// walker's ancestor chain, and the harness now measures the `if`
+    /// shape under the same linear bound as this one.
     #[test]
     fn cognitive_nesting_is_inherited_at_depth() {
         // Restricted to `Cognitive` — which pulls in `Nom` as a declared
@@ -9673,5 +9690,138 @@ end",
 
         assert_eq!(cognitive_of(&nested_whiles(3)), expected(3), "1 + 2 + 3");
         assert_eq!(cognitive_of(&nested_whiles(2_000)), expected(2_000));
+    }
+
+    /// Function-nesting depth is still counted correctly thousands of
+    /// levels deep (#1062).
+    ///
+    /// `increment_function_depth` asks whether any ancestor of a
+    /// function node is itself a function. It used to climb with
+    /// `node.parent()`, which is `O(depth)` per step, so `Cognitive`
+    /// stayed `O(depth²)` on nested definitions after the nesting-map
+    /// half of #1062 was fixed. The scan now walks the ancestor chain
+    /// the walker hands down.
+    ///
+    /// Both versions answer identically, so what this pins is the
+    /// arithmetic at depth; the *cost* is pinned by the
+    /// `cognitive/nested-fn` probe in the benchmark harness
+    /// (`cargo bench -p big-code-analysis-bench --bench scaling`),
+    /// which asserts the complexity class.
+    #[test]
+    fn cognitive_function_depth_is_inherited_at_depth() {
+        fn cognitive_of(source: &str) -> u64 {
+            crate::test_support::metrics_verbatim(
+                crate::LANG::Rust,
+                source.as_bytes(),
+                crate::MetricsOptions::default().with_only(&[crate::Metric::Cognitive]),
+            )
+            .cognitive
+            .cognitive_sum()
+        }
+
+        // The function at level k has k enclosing functions, so its
+        // `if` costs k + 1 and the file totals 1 + 2 + … + n. The `if`
+        // is what makes the depth observable: a chain of bare functions
+        // scores zero however the depth is computed.
+        let nested_fns = |n: usize| -> String {
+            format!(
+                "{}let x = 1;{}\n",
+                "fn f() { if a {} ".repeat(n),
+                "} ".repeat(n)
+            )
+        };
+        let expected = |n: u64| n * (n + 1) / 2;
+
+        assert_eq!(cognitive_of(&nested_fns(3)), expected(3), "1 + 2 + 3");
+        // Half the depth of `cognitive_nesting_is_inherited_at_depth`:
+        // each level here also opens a `FuncSpace`, and the debug-build
+        // `Ancestors::checked` assertion re-derives every parent with
+        // `Node::parent`, so the unoptimised walk is quadratic even
+        // though the release one is not.
+        assert_eq!(cognitive_of(&nested_fns(1_000)), expected(1_000));
+    }
+
+    /// A function nested inside another makes its `if` cost one more
+    /// than the same `if` at the top level, in every language that can
+    /// express the nesting (#1062).
+    ///
+    /// That surcharge has exactly one source: `increment_function_depth`,
+    /// which asks whether any ancestor of a function node is itself a
+    /// function. #1062 moved the scan off `Node::parent` — `O(depth)` per
+    /// step, and so quadratic over a deeply nested file — and onto the
+    /// ancestor chain the walker hands down. The flat source in each row
+    /// is the control: the same `if` with nothing enclosing its function,
+    /// which must stay at 1, so the pair measures the surcharge and not
+    /// the body.
+    ///
+    /// These are the languages whose function-depth arm had no test of
+    /// its own; C++, C#, Groovy, Java, Kotlin, Perl, PHP, Python, Rust
+    /// and Tcl are covered by dedicated tests elsewhere in this module.
+    /// Go is deliberately absent: its stop set is `function_declaration`
+    /// / `method_declaration` and the grammar allows neither inside a
+    /// function body, so the surcharge is unreachable there — a nested
+    /// Go function is a `func_literal`, which takes the `lambda` path.
+    #[test]
+    fn function_depth_surcharge_holds_across_languages() {
+        use crate::test_support::metrics_verbatim;
+
+        fn cognitive_of(lang: LANG, source: &str) -> u64 {
+            metrics_verbatim(lang, source.as_bytes(), MetricsOptions::default())
+                .cognitive
+                .cognitive_sum()
+        }
+
+        // C and Objective-C: a GNU nested function definition.
+        const C_FLAT: &str = "void f(int a) { if (a) { } }\n";
+        const C_NESTED: &str = "void f(int a) { void g(int b) { if (b) { } } }\n";
+        // C++ has no nested function definitions; a method on a local
+        // struct is the nesting the grammar does admit (see
+        // `cpp_nested_function_resets_nesting_and_adds_depth`).
+        const CPP_FLAT: &str = "struct S { void f(bool a) { if (a) { } } };\n";
+        const CPP_NESTED: &str =
+            "struct S { void f(bool a) { struct I { void g(bool b) { if (b) { } } }; } };\n";
+        const JS_FLAT: &str = "function f(a) { if (a) { } }\n";
+        const JS_NESTED: &str = "function f(a) { function g(b) { if (b) { } } }\n";
+        const RUBY_FLAT: &str = "def f\nif a\nend\nend\n";
+        const RUBY_NESTED: &str = "def f\ndef g\nif a\nend\nend\nend\n";
+        const LUA_FLAT: &str = "function f() if a then end end\n";
+        const LUA_NESTED: &str = "function f() function g() if a then end end end\n";
+        const BASH_FLAT: &str = "f() {\nif [ -n \"$a\" ]; then :; fi\n}\n";
+        const BASH_NESTED: &str = "f() {\ng() {\nif [ -n \"$a\" ]; then :; fi\n}\n}\n";
+        const TCL_FLAT: &str = "proc outer {x} {\nif {$x > 0} {\nputs positive\n}\n}\n";
+        const TCL_NESTED: &str =
+            "proc outer {x} {\nproc inner {y} {\nif {$y > 0} {\nputs positive\n}\n}\n}\n";
+
+        let mut wrong = Vec::new();
+        for (lang, flat, nested) in [
+            (LANG::C, C_FLAT, C_NESTED),
+            (LANG::Objc, C_FLAT, C_NESTED),
+            (LANG::Mozcpp, CPP_FLAT, CPP_NESTED),
+            (LANG::Javascript, JS_FLAT, JS_NESTED),
+            (LANG::Mozjs, JS_FLAT, JS_NESTED),
+            (LANG::Typescript, JS_FLAT, JS_NESTED),
+            (LANG::Tsx, JS_FLAT, JS_NESTED),
+            (LANG::Ruby, RUBY_FLAT, RUBY_NESTED),
+            (LANG::Lua, LUA_FLAT, LUA_NESTED),
+            (LANG::Bash, BASH_FLAT, BASH_NESTED),
+            (LANG::Irules, TCL_FLAT, TCL_NESTED),
+        ] {
+            // Collected rather than asserted per row: a bare
+            // `assert_eq!` stops at the first language, and when this
+            // walk breaks it breaks for all of them at once — the list
+            // of which languages moved is the diagnostic.
+            let (flat, nested) = (cognitive_of(lang, flat), cognitive_of(lang, nested));
+            if (flat, nested) != (1, 2) {
+                wrong.push(format!(
+                    "{lang:?}: expected 1 then 2, got {flat} then {nested}"
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "an `if` must cost 1 in a top-level function and 2 one \
+             function deeper:\n{}",
+            wrong.join("\n"),
+        );
     }
 }

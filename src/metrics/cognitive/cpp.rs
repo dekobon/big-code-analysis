@@ -65,6 +65,7 @@ impl Cognitive for CppCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[
                         FunctionDefinition,
                         FunctionDefinition2,
