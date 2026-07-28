@@ -15,7 +15,7 @@ impl Checker for BashCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Bash::FunctionDefinition
     }
 

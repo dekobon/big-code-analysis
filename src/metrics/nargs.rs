@@ -235,21 +235,21 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             compute_args::<Self>(node, &mut stats.fn_nargs);
             return;
         }
 
-        if Self::is_closure(node) {
+        if Self::is_closure(node, ancestors) {
             compute_args::<Self>(node, &mut stats.closure_nargs);
         }
     }
 }
 
 impl NArgs for CppCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
                 compute_args::<Self>(&new_node, &mut stats.fn_nargs);
@@ -257,7 +257,7 @@ impl NArgs for CppCode {
             return;
         }
 
-        if Self::is_closure(node)
+        if Self::is_closure(node, ancestors)
             && let Some(declarator) = node.child_by_field_name("declarator")
         {
             let new_node = declarator;
@@ -267,8 +267,8 @@ impl NArgs for CppCode {
 }
 
 impl NArgs for CCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
                 compute_args::<Self>(&new_node, &mut stats.fn_nargs);
@@ -276,7 +276,7 @@ impl NArgs for CCode {
             return;
         }
 
-        if Self::is_closure(node)
+        if Self::is_closure(node, ancestors)
             && let Some(declarator) = node.child_by_field_name("declarator")
         {
             let new_node = declarator;
@@ -286,8 +286,8 @@ impl NArgs for CCode {
 }
 
 impl NArgs for MozcppCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             if let Some(declarator) = node.child_by_field_name("declarator") {
                 let new_node = declarator;
                 compute_args::<Self>(&new_node, &mut stats.fn_nargs);
@@ -295,7 +295,7 @@ impl NArgs for MozcppCode {
             return;
         }
 
-        if Self::is_closure(node)
+        if Self::is_closure(node, ancestors)
             && let Some(declarator) = node.child_by_field_name("declarator")
         {
             let new_node = declarator;
@@ -314,7 +314,7 @@ impl NArgs for MozcppCode {
 //   * a block `^(int x){ … }` holds its params in a `parameter_list`
 //     child rather than under a `parameters` field.
 impl NArgs for ObjcCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         match node.kind_id().into() {
             Objc::FunctionDefinition | Objc::FunctionDefinition2 => {
                 if let Some(declarator) = node.child_by_field_name("declarator") {
@@ -376,13 +376,13 @@ fn compute_go_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for GoCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             compute_go_args(node, &mut stats.fn_nargs);
             return;
         }
 
-        if Self::is_closure(node) {
+        if Self::is_closure(node, ancestors) {
             compute_go_args(node, &mut stats.closure_nargs);
         }
     }
@@ -418,13 +418,13 @@ fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for KotlinCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             compute_kotlin_func_args(node, &mut stats.fn_nargs);
             return;
         }
 
-        if Self::is_closure(node) {
+        if Self::is_closure(node, ancestors) {
             if node.kind_id() == Kotlin::LambdaLiteral {
                 compute_kotlin_lambda_args(node, &mut stats.closure_nargs);
             } else {
@@ -445,10 +445,10 @@ fn compute_lua_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for LuaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             compute_lua_args(node, &mut stats.fn_nargs);
-        } else if Self::is_closure(node) {
+        } else if Self::is_closure(node, ancestors) {
             compute_lua_args(node, &mut stats.closure_nargs);
         }
     }
@@ -465,8 +465,8 @@ fn compute_tcl_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for TclCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             compute_tcl_args(node, &mut stats.fn_nargs);
         }
     }
@@ -488,8 +488,8 @@ fn compute_irules_args(node: &Node, nargs: &mut usize) {
 }
 
 impl NArgs for IrulesCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        if Self::is_func(node) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
+        if Self::is_func(node, ancestors) {
             compute_irules_args(node, &mut stats.fn_nargs);
         }
     }
@@ -519,15 +519,15 @@ implement_metric_trait!(
 // for a `parameters` field) misses them. Match the closure_parameters
 // child directly and count its `closure_parameter` grand-children.
 impl NArgs for GroovyCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
         use crate::languages::language_groovy::Groovy;
 
-        if Self::is_func(node) {
+        if Self::is_func(node, ancestors) {
             compute_args::<Self>(node, &mut stats.fn_nargs);
             return;
         }
 
-        if Self::is_closure(node)
+        if Self::is_closure(node, ancestors)
             && let Some(params) = node.first_child(|id| id == Groovy::ClosureParameters)
         {
             params.act_on_child(&mut |n| {

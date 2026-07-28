@@ -28,7 +28,7 @@ impl Checker for CCode {
     }
 
     // Keep in sync with `is_func_space` and the C getters (#285).
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(
             node.kind_id().into(),
             C::FunctionDefinition | C::FunctionDefinition2
@@ -36,7 +36,7 @@ impl Checker for CCode {
     }
 
     // C has no closures/lambdas.
-    fn is_closure(_node: &Node) -> bool {
+    fn is_closure<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
 

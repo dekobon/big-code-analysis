@@ -10,7 +10,9 @@
 
 use std::path::PathBuf;
 
+use crate::node::{Node, Tree};
 use crate::spaces::metrics_inner;
+use crate::traits::LanguageInfo;
 use crate::{
     CodeMetrics, FuncSpace, LANG, MetricsOptions, ParserTrait, Source, SpaceKind, analyze,
 };
@@ -105,4 +107,38 @@ pub(crate) fn child_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a Func
         .iter()
         .find(|s| s.name.as_deref() == Some(name))
         .unwrap_or_else(|| panic!("expected a child FuncSpace named {name:?}"))
+}
+
+/// Visits `code`'s tree in pre-order, maintaining the ancestor chain
+/// exactly as `spaces::compute::metrics_inner` does, and hands each
+/// node to `check` together with that chain.
+///
+/// Keeping the bookkeeping identical to the walker's is the point: a
+/// test that built the chain some other way would prove
+/// [`crate::node::Ancestors`] self-consistent without proving the
+/// walker feeds it the right slice.
+pub(crate) fn for_each_node_with_chain<L: LanguageInfo>(
+    code: &[u8],
+    mut check: impl FnMut(&Node<'_>, &[Node<'_>]),
+) -> usize {
+    let tree = Tree::new::<L>(code);
+    let root = tree.get_root();
+    assert!(
+        !root.has_error(),
+        "fixture must parse cleanly, else the walk covers error recovery"
+    );
+
+    let mut chain: Vec<Node<'_>> = Vec::new();
+    let mut stack = vec![(root, 0_usize)];
+    let mut visited = 0;
+    while let Some((node, depth)) = stack.pop() {
+        chain.truncate(depth);
+        check(&node, &chain);
+        visited += 1;
+        chain.push(node);
+        let first = stack.len();
+        stack.extend(node.children().map(|child| (child, depth + 1)));
+        stack[first..].reverse();
+    }
+    visited
 }

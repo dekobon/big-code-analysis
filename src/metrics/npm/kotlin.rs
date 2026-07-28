@@ -45,7 +45,7 @@ impl Npm for KotlinCode {
         // `declaration` rule layers, so function declarations and
         // secondary constructors appear as direct children of
         // `class_body`. `Self::is_func` recognises both kinds.
-        for func in node.children().filter(|c| Self::is_func(c)) {
+        for func in direct_child_funcs::<Self>(node) {
             if is_interface {
                 stats.interface_nm += 1;
                 stats.interface_npm += 1;

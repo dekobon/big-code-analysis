@@ -28,7 +28,7 @@ impl Npm for GroovyCode {
             ClassBody | EnumBody => {
                 let is_interface_like = groovy_body_is_interface_like(node);
 
-                for method in node.children().filter(|n| Self::is_func(n)) {
+                for method in direct_child_funcs::<Self>(node) {
                     if is_interface_like {
                         stats.interface_nm += 1;
                         stats.interface_npm += 1;

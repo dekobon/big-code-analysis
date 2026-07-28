@@ -215,6 +215,20 @@ impl Stats {
     }
 }
 
+/// The direct children of `node` that `C` classifies as functions.
+///
+/// The class-body arms below all ask the same question — "which of this
+/// body's children are methods?" — and share one reason for answering it
+/// with [`Ancestors::unknown`]: a chain is a borrowed slice, so it cannot
+/// be extended by `node` without allocating one per body. Nothing is lost,
+/// because every grammar that reaches this helper (Java, Groovy, Kotlin,
+/// PHP) decides `is_func` from the node's own kind and never asks for an
+/// ancestor (#1088).
+fn direct_child_funcs<'a, C: Checker>(node: &Node<'a>) -> impl Iterator<Item = Node<'a>> {
+    node.children()
+        .filter(|child| C::is_func(child, Ancestors::unknown()))
+}
+
 #[doc(hidden)]
 /// Per-language counting of public methods.
 pub(crate) trait Npm
@@ -259,7 +273,7 @@ macro_rules! impl_npm_java_like {
 
                 match node.kind_id().into() {
                     ClassBody | EnumBodyDeclarations => {
-                        for method in node.children().filter(|n| Self::is_func(n)) {
+                        for method in direct_child_funcs::<Self>(node) {
                             stats.class_nm += 1;
                             // The first child node contains the list of method modifiers.
                             // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
@@ -272,7 +286,7 @@ macro_rules! impl_npm_java_like {
                         }
                     }
                     InterfaceBody => {
-                        stats.interface_nm += node.children().filter(|n| Self::is_func(n)).count();
+                        stats.interface_nm += direct_child_funcs::<Self>(node).count();
                         stats.interface_npm = stats.interface_nm;
                     }
                     AnnotationTypeBody => {
@@ -3123,6 +3137,37 @@ class C {
                 // Only `defmacro multi` is a method (and public).
                 assert_eq!(metric.npm.class_nm_sum(), 1);
                 assert_eq!(metric.npm.class_npm_sum(), 1);
+            },
+        );
+    }
+
+    /// A `defmodule` inside a `quote` template still opens a class and
+    /// still has its methods counted.
+    ///
+    /// This pins the equivalence the #1088 simplification rests on.
+    /// `Npm::compute` used to gate on `is_func_space_with_code` before
+    /// checking for the `defmodule` keyword, which cost a source-text
+    /// scan per node and — for `def`-shaped calls — an ancestor walk
+    /// asking whether the call sat inside a `quote`. That walk's answer
+    /// was always discarded: `elixir_is_class_macro` is exactly
+    /// `defmodule`, so the keyword check that follows admits precisely
+    /// the nodes the gate would have, and rejects every node the walk
+    /// was consulted for.
+    ///
+    /// The quoted `defmodule Inner` is the shape where a *different*
+    /// reading of "is this a class space?" would show up: if the
+    /// quote-template rule were ever extended to class macros, these
+    /// counts would move.
+    #[test]
+    fn elixir_npm_counts_a_quoted_defmodule_as_a_class() {
+        check_metrics::<ElixirParser>(
+            "defmodule Outer do\n  defmacro gen do\n    quote do\n      defmodule Inner do\n        def a, do: 1\n        defp b, do: 2\n      end\n    end\n  end\nend\n",
+            "outer.ex",
+            |metric| {
+                // `Outer` contributes `defmacro gen`; the quoted `Inner`
+                // contributes `def a` (public) and `defp b` (private).
+                assert_eq!(metric.npm.class_nm_sum(), 3);
+                assert_eq!(metric.npm.class_npm_sum(), 2);
             },
         );
     }

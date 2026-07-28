@@ -12,12 +12,12 @@ impl Checker for TclCode {
         matches!(node.kind_id().into(), Tcl::SourceFile | Tcl::Procedure)
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Tcl::Procedure
     }
 
     // Tcl closures (`apply`) are ordinary commands; the grammar has no distinct closure node.
-    fn is_closure(_: &Node) -> bool {
+    fn is_closure<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
 

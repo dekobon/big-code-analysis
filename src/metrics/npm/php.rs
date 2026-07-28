@@ -23,7 +23,7 @@ impl Npm for PhpCode {
                 };
                 match parent_kind {
                     ClassDeclaration | TraitDeclaration | AnonymousClass => {
-                        for method in node.children().filter(|c| Self::is_func(c)) {
+                        for method in direct_child_funcs::<Self>(node) {
                             stats.class_nm += 1;
                             if super::npa::php_is_explicit_public(&method) {
                                 stats.class_npm += 1;
@@ -32,7 +32,7 @@ impl Npm for PhpCode {
                     }
                     // Interface methods are implicitly public.
                     InterfaceDeclaration => {
-                        let count = node.children().filter(|c| Self::is_func(c)).count();
+                        let count = direct_child_funcs::<Self>(node).count();
                         stats.interface_nm += count;
                         stats.interface_npm = stats.interface_nm;
                     }
@@ -41,7 +41,7 @@ impl Npm for PhpCode {
             }
             // PHP 8.1 enums can declare regular and static methods.
             EnumDeclarationList => {
-                for method in node.children().filter(|c| Self::is_func(c)) {
+                for method in direct_child_funcs::<Self>(node) {
                     stats.class_nm += 1;
                     if super::npa::php_is_explicit_public(&method) {
                         stats.class_npm += 1;

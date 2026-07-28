@@ -23,11 +23,11 @@ impl Checker for RubyCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         matches!(node.kind_id().into(), Ruby::Method | Ruby::SingletonMethod)
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
         match node.kind_id().into() {
             Ruby::Lambda => true,
             // A stabby lambda `->(z) { … }` parses as a `Lambda` node that
@@ -37,8 +37,14 @@ impl Checker for RubyCode {
             // forms `lambda { }` / `proc { }` parse as a `Call` carrying a
             // `Block`/`DoBlock` argument (parent is not a `Lambda`), so they
             // still count exactly once.
-            Ruby::Block | Ruby::DoBlock => node
-                .parent()
+            //
+            // The parent comes off the caller's chain: `is_closure` runs
+            // per node from `Nom` / `NArgs`, and `Node::parent` costs
+            // `O(depth)` because `tree_sitter` resolves it by descending
+            // from the root (#1088). Ruby is the one non-JS grammar whose
+            // closure test is not answerable from the node's own kind.
+            Ruby::Block | Ruby::DoBlock => ancestors
+                .parent(node)
                 .is_none_or(|parent| parent.kind_id() != Ruby::Lambda),
             _ => false,
         }

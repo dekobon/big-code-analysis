@@ -27,7 +27,7 @@ impl Checker for ElixirCode {
         )
     }
 
-    fn is_func(_: &Node) -> bool {
+    fn is_func<'a>(_: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         false
     }
 
@@ -92,7 +92,7 @@ impl Checker for ElixirCode {
         elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code, ancestors)
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Elixir::AnonymousFunction
     }
 

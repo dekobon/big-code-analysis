@@ -4,7 +4,11 @@
 use super::*;
 
 impl Getter for CppCode {
-    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+    fn get_func_space_name<'a, 'tree>(
+        node: &Node<'tree>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'tree, '_>,
+    ) -> Option<&'a str> {
         // Issue #285 contract: every `Cpp::FunctionDefinition*` alias
         // must be enumerated here AND in `get_space_kind` below AND
         // in `is_func` / `is_func_space` (see `src/checker.rs`).

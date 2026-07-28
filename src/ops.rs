@@ -71,7 +71,12 @@ impl Ops {
         crate::wire::Ops::from(self)
     }
 
-    fn new<T: Getter>(node: &Node, code: &[u8], kind: SpaceKind) -> Self {
+    fn new<'a, T: Getter>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+        kind: SpaceKind,
+    ) -> Self {
         let (start_position, end_position) = match kind {
             SpaceKind::Unit => {
                 if node.child_count() == 0 {
@@ -90,7 +95,7 @@ impl Ops {
         // default getter returns. Other kinds keep the AST-derived name.
         // Mirrors the `SpaceKind::Unit` handling in `FuncSpace::new`.
         let name = (kind != SpaceKind::Unit)
-            .then(|| T::get_func_space_name(node, code).map(str::to_owned))
+            .then(|| T::get_func_space_name(node, code, ancestors).map(str::to_owned))
             .flatten();
         Self {
             name,
@@ -130,7 +135,7 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     // no ancestors to hand over either way.
     if T::Getter::get_space_kind_with_code(node, code, Ancestors::unknown()) != SpaceKind::Unit {
         state_stack.push(State {
-            ops: Ops::new::<T::Getter>(node, code, SpaceKind::Unit),
+            ops: Ops::new::<T::Getter>(node, code, Ancestors::unknown(), SpaceKind::Unit),
             halstead_maps: HalsteadMaps::new(),
         });
     }
@@ -213,6 +218,22 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
     }
 }
 
+/// Context the ops walk carries down the tree alongside each node.
+///
+/// A named pair rather than a `(usize, usize)`: the two counts advance
+/// on different events and swapping them is silent — `level` only moves
+/// at space boundaries while `depth` counts every AST step. Mirrors
+/// [`crate::spaces::compute`]'s `Walk`, minus the comment flag this walk
+/// has no use for.
+#[derive(Clone, Copy)]
+struct Walk {
+    /// Nesting level, used to close op-spaces on the way back up.
+    level: usize,
+    /// AST depth — the number of ancestors this node has, so the root
+    /// sits at `0`. Indexes the ancestor chain the walk maintains.
+    depth: usize,
+}
+
 /// Explicit-name core of the operator/operand walk backing the
 /// [`crate::Ast::ops`] `Source`-based seam. The top-level [`Ops::name`]
 /// is whatever the caller passes in `name`; `name_was_lossy` is left at
@@ -227,6 +248,10 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut children = Vec::new();
+    // Ancestor chain of the node currently being visited, root first,
+    // maintained by the same truncate/push rule as
+    // `spaces::compute::metrics_inner` (#1084).
+    let mut chain: Vec<Node<'_>> = Vec::new();
     let mut state_stack: Vec<State> = Vec::new();
     let mut last_level = 0;
 
@@ -237,21 +262,24 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     // succeeds (issue #789).
     push_synthetic_unit_root::<T>(&mut state_stack, &node, code);
 
-    stack.push((node, 0));
+    stack.push((node, Walk { level: 0, depth: 0 }));
 
-    while let Some((node, level)) = stack.pop() {
+    while let Some((node, Walk { level, depth })) = stack.pop() {
+        chain.truncate(depth);
+
         if level < last_level {
             finalize::<T>(&mut state_stack, last_level - level);
             last_level = level;
         }
 
         let kind = T::Getter::get_space_kind(&node);
+        let ancestors = Ancestors::checked(&chain, &node);
 
-        let func_space = T::Checker::is_func(&node) || T::Checker::is_func_space(&node);
+        let func_space = T::Checker::is_func(&node, ancestors) || T::Checker::is_func_space(&node);
 
         let new_level = if func_space {
             let state = State {
-                ops: Ops::new::<T::Getter>(&node, code, kind),
+                ops: Ops::new::<T::Getter>(&node, code, ancestors, kind),
                 halstead_maps: HalsteadMaps::new(),
             };
             state_stack.push(state);
@@ -265,6 +293,8 @@ pub(crate) fn ops_inner<T: ParserTrait>(
             T::Halstead::compute(&node, code, &mut state.halstead_maps);
         }
 
+        chain.push(node);
+
         // Shared with `metrics_inner` (issue #969): `push_children` is
         // State-independent — it only moves the cursor over child nodes —
         // so unlike the local `finalize` / `push_synthetic_unit_root`
@@ -273,7 +303,16 @@ pub(crate) fn ops_inner<T: ParserTrait>(
         // it encapsulates is load-bearing for suppression attribution.
         // The returned child slice is only useful to `metrics_inner`,
         // which seeds their cognitive nesting; `ops` just walks them.
-        push_children(&mut cursor, &node, new_level, &mut children, &mut stack);
+        push_children(
+            &mut cursor,
+            &node,
+            Walk {
+                level: new_level,
+                depth: depth + 1,
+            },
+            &mut children,
+            &mut stack,
+        );
     }
 
     finalize::<T>(&mut state_stack, usize::MAX);
@@ -308,6 +347,7 @@ pub(crate) fn ops_inner<T: ParserTrait>(
 )]
 mod tests {
     use super::Ops;
+    use crate::node::Ancestors;
     use crate::{Ast, LANG, Source};
 
     #[inline]
@@ -850,7 +890,7 @@ mod tests {
         // field, so the default getter would invent `<anonymous>`.
         assert_eq!(SpaceKind::Unit, RustCode::get_space_kind(&root));
 
-        let ops = super::Ops::new::<RustCode>(&root, code, SpaceKind::Unit);
+        let ops = super::Ops::new::<RustCode>(&root, code, Ancestors::unknown(), SpaceKind::Unit);
         assert_eq!(
             ops.name, None,
             "Unit space must preserve name = None, not invent <anonymous>"

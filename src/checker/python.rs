@@ -26,11 +26,11 @@ impl Checker for PythonCode {
         )
     }
 
-    fn is_func(node: &Node) -> bool {
+    fn is_func<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         node.kind_id() == Python::FunctionDefinition
     }
 
-    fn is_closure(node: &Node) -> bool {
+    fn is_closure<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> bool {
         // Route through the single lambda-alias chokepoint so closure
         // detection here and the cognitive lambda-scope walks accept the
         // exact same set: `Lambda` (196, the concrete production emitted

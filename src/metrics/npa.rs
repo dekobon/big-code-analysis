@@ -3672,6 +3672,29 @@ mod tests {
         );
     }
 
+    /// The `Npa` half of the #1088 simplification: a `defmodule` inside
+    /// a `quote` template still opens a class, so its `defstruct` fields
+    /// are still counted.
+    ///
+    /// Same reasoning as `npm::tests::
+    /// elixir_npm_counts_a_quoted_defmodule_as_a_class` — the
+    /// `is_func_space_with_code` gate that used to precede the
+    /// `defmodule` keyword check could not change the outcome, because
+    /// `elixir_is_class_macro` is exactly `defmodule`.
+    #[test]
+    fn elixir_npa_counts_a_quoted_defmodule_as_a_class() {
+        check_metrics::<ElixirParser>(
+            "defmodule Outer do\n  defstruct [:x]\n  defmacro gen do\n    quote do\n      defmodule Inner do\n        defstruct [:a, :b]\n      end\n    end\n  end\nend\n",
+            "outer.ex",
+            |metric| {
+                // `Outer` contributes `x`; the quoted `Inner` contributes
+                // `a` and `b`. Elixir struct fields are all public.
+                assert_eq!(metric.npa.class_na_sum(), 3);
+                assert_eq!(metric.npa.class_npa_sum(), 3);
+            },
+        );
+    }
+
     // ----- Objective-C -----
 
     #[test]

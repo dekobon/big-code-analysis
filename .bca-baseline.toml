@@ -637,7 +637,7 @@ value = 54681.01625588078
 [[entry]]
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
-start_line = 138
+start_line = 142
 metric = "halstead.effort"
 value = 48241.44928566978
 
@@ -845,25 +845,18 @@ metric = "nargs"
 value = 9.0
 
 [[entry]]
-path = "src/metrics/npm/php.rs"
-qualified = "PhpCode::compute"
-start_line = 12
-metric = "nargs"
-value = 7.0
-
-[[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 75
 metric = "nom"
-value = 32.0
+value = 33.0
 
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 221
+start_line = 242
 metric = "halstead.effort"
-value = 58764.00971804493
+value = 73943.73373291224
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -938,9 +931,9 @@ value = 7.0
 [[entry]]
 path = "src/parser.rs"
 qualified = "Parser<T>::filters"
-start_line = 175
+start_line = 176
 metric = "halstead.effort"
-value = 50360.26160456827
+value = 53278.10526315789
 
 [[entry]]
 path = "src/spaces/ast.rs"
@@ -961,7 +954,7 @@ path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 start_line = 218
 metric = "halstead.effort"
-value = 58315.43211975729
+value = 58974.691740375616
 
 [[entry]]
 path = "src/spaces/compute.rs"
@@ -973,7 +966,7 @@ value = 7.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 507
+start_line = 513
 metric = "halstead.effort"
 value = 124910.02765596088
 

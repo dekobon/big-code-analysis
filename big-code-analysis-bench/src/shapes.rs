@@ -134,6 +134,53 @@ pub fn nested_fns(depth: usize) -> String {
     )
 }
 
+/// JavaScript: `function f() { function f() { … 1; … } }`.
+///
+/// The linear control for [`nested_arrows`]: one function per nesting
+/// level and one `FuncSpace` per level, as there, but *declared* rather
+/// than written as an expression. `function_declaration` is a distinct
+/// grammar production, so `Checker::is_func` answers it from the node's
+/// own kind and never starts the ancestor walk. What is left is the
+/// space-nesting bookkeeping the two shapes share.
+///
+/// Named for the distinction that matters — declared vs expression —
+/// rather than for the language, so it does not read as a variant of
+/// [`nested_fns`], which is the Rust shape.
+#[must_use]
+pub fn nested_declared_functions(depth: usize) -> String {
+    format!(
+        "{}1;{}\n",
+        "function f() { ".repeat(depth),
+        "} ".repeat(depth)
+    )
+}
+
+/// JavaScript: `const f = a => { a => { … 1 … } };`.
+///
+/// The JS grammars have no production for "named function": `const f =
+/// () => …` and `g(() => …)` are the same `arrow_function` node, and
+/// `Checker::is_func` tells them apart by walking upward until it meets
+/// either a name binding or a frame that proves positional use. Here
+/// the enclosing `statement_block` stops the walk after two steps —
+/// which is the point. Two steps was still `O(depth)`, because
+/// `Node::parent` descends from the root, and the `PropertyIdentifier`
+/// adjacency check the predicate ends with scanned siblings the same
+/// way; both are why a shape with one arrow per level was quadratic
+/// before #1088 despite every walk being O(1) steps long.
+///
+/// Every level is an arrow function, so `nom` reads `depth`: the
+/// outermost is bound to `f` and counts as a function, the rest are
+/// closures. [`nested_declared_functions`] is the same nesting without
+/// the walk.
+#[must_use]
+pub fn nested_arrows(depth: usize) -> String {
+    format!(
+        "const f = {}1{};\n",
+        "a => { ".repeat(depth),
+        " }".repeat(depth)
+    )
+}
+
 /// One depth-scaling probe: a shape, the metric selection that
 /// exercises the hot path under test, and the complexity class the
 /// walk is expected to stay within.
@@ -340,6 +387,36 @@ pub const PROBES: &[Probe] = &[
                     languages, counting the four the JS-family macro \
                     expands to. `nom/nested-fn` is the same shape without \
                     the cognitive walk.",
+    },
+    Probe {
+        name: "nom/nested-declared-function",
+        lang: LANG::Javascript,
+        metrics: &[Metric::Nom],
+        render: nested_declared_functions,
+        reading: |m| m.nom.total(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `nom/nested-arrow`: one function and \
+                    one `FuncSpace` per level as there, but declared with \
+                    `function`, which `Checker::is_func` answers from the \
+                    node's own kind without an ancestor walk.",
+    },
+    Probe {
+        name: "nom/nested-arrow",
+        lang: LANG::Javascript,
+        metrics: &[Metric::Nom],
+        render: nested_arrows,
+        reading: |m| m.nom.total(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1088: the JS-family `Checker::is_func` / `is_closure` \
+                    decide whether an `arrow_function` is bound to a name by \
+                    walking upward. The enclosing `statement_block` stops \
+                    that walk after two steps, but `Node::parent` is \
+                    `O(depth)` per step, so the shape was quadratic; the \
+                    steps now index the walker's ancestor chain. \
+                    `nom/nested-declared-function` is the same nesting \
+                    without the walk.",
     },
 ];
 

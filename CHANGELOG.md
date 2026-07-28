@@ -29,7 +29,7 @@ for historical reference.
 - Benchmark harness for the metric walk, in the new workspace member
   `big-code-analysis-bench` (#1068). `cargo bench -p
   big-code-analysis-bench --bench scaling` (or `make bench-scaling`)
-  measures nine probes at three doubling nesting depths and fits
+  measures eleven probes at three doubling nesting depths and fits
   `time ~ depth^k`, failing when a probe's exponent leaves its declared
   complexity class; `--bench metric_walk` (`make bench-walk`) runs
   criterion benchmarks per metric over a deterministic, self-reporting
@@ -134,6 +134,40 @@ for historical reference.
 
 ### Performance
 
+- The ancestor chain now reaches the predicates #1084 left climbing, and
+  the `ops`, `bca function`, and suppression-marker walks maintain one of
+  their own (#1088). The JS-family `Checker::is_func` / `is_closure`
+  name-binding walk, Ruby's `Checker::is_closure` block-versus-lambda
+  test, Elixir's `Getter::get_func_space_name`, and the
+  suppression scan each resolved ancestors with `Node::parent`, which
+  `tree_sitter` answers by descending from the root. `Checker::is_func`,
+  `is_closure`, `Getter::get_func_name`, `get_func_space_name`, and
+  `NArgs::compute` gained an `Ancestors` parameter to carry it; all are
+  `pub(crate)`, so the published API is unchanged.
+- Elixir's `Npm` / `Npa::compute` no longer run the class-space
+  classifier at all (#1088). Both opened with
+  `is_func_space_with_code`, which cost a source-text keyword scan per
+  node and, for `def`-shaped calls, an ancestor walk asking whether the
+  call sat inside a `quote` template. That walk's answer was always
+  discarded: the `defmodule` keyword check immediately below admits
+  exactly the nodes the classifier would have, and rejects every node
+  the walk was consulted for. Deleting the call removes the work rather
+  than making it cheaper. Counts are unchanged, pinned by two new tests
+  over a `defmodule` nested inside a `quote`.
+- `Node::wraps_any` — reached from `is_child` and `has_sibling`, and so
+  from every language's checkers and getters — scans a node's children
+  with a cursor instead of chaining `next_sibling()` (#1088). The chain
+  #217 introduced was premised on a sibling step being `O(1)`; it is
+  not, because `ts_node_next_sibling` resolves the parent first, so the
+  scan cost `O(children × depth)`. This was the dominant term behind the
+  JS closure classifier: the new `nom/nested-arrow` probe fits
+  `time ~ depth^k` at **1.97** before and **1.03** after, and at depth
+  4000 `nom` over nested arrow functions drops from ~17.6 s to ~6.3 ms,
+  while its `nom/nested-declared-function` shape control — the same
+  nesting written with `function` declarations, which need no ancestor
+  walk — holds at 1.08 either side. Ordinary input benefits too: a
+  metric walk over the 384-file `pdf.js` corpus drops from ~443 ms to
+  ~370 ms. Metric values are unchanged for every language.
 - The `ops` walk builds the file-level vocabulary once instead of once
   per closing space. `finalize` rebuilt the innermost still-open space's
   operator and operand lists on every call — that is, every time the

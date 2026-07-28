@@ -26,15 +26,15 @@ impl Npa for ElixirCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
 
-        // `Ancestors::unknown()`: `Npm`/`Npa::compute` take no
-        // ancestor chain, so this pays `Node::parent`'s `O(depth)`
-        // per step for a quoted `def`. Widening the two traits' 20-odd
-        // impls is tracked as #1088.
-        if !stats.is_disabled() || !Self::is_func_space_with_code(node, code, Ancestors::unknown())
-        {
-            return;
-        }
-        if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
+        // `is_func_space_with_code` is not consulted: it is implied.
+        // `elixir_is_class_macro` is exactly `kw == "defmodule"`, so it
+        // answers `true` for every node this check lets through, and for
+        // the `def`-shaped calls where it would have consulted the
+        // ancestor chain — the `quote`-template lookup — this check
+        // rejects the node anyway. Calling it cost a source-text keyword
+        // scan per node plus, before #1088, an `O(depth)` climb, and its
+        // answer was discarded either way (#1088).
+        if !stats.is_disabled() || !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
             return;
         }
 

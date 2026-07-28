@@ -55,12 +55,12 @@ pub(crate) fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
     let root = parser.root();
     let code = parser.code();
     let mut spans = Vec::new();
-    root.act_on_node(&mut |n| {
-        if T::Checker::is_func(n) {
+    root.act_on_node(&mut |n, ancestors| {
+        if T::Checker::is_func(n, ancestors) {
             let start_line = n.start_row() + 1;
             let end_line = n.end_row() + 1;
             spans.push(FunctionSpan {
-                name: T::Getter::get_func_name(n, code).map(str::to_string),
+                name: T::Getter::get_func_name(n, code, ancestors).map(str::to_string),
                 start_line,
                 end_line,
             });

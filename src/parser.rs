@@ -19,6 +19,7 @@ use crate::loc::Loc;
 use crate::mi::Mi;
 use crate::nargs::NArgs;
 use crate::nexits::Exit;
+use crate::node::Ancestors;
 use crate::nom::Nom;
 use crate::npa::Npa;
 use crate::npm::Npm;
@@ -182,7 +183,14 @@ impl<
                 "comment" => res.push(Box::new(T::is_comment)),
                 "error" => res.push(Box::new(T::is_error)),
                 "string" => res.push(Box::new(T::is_string)),
-                "function" => res.push(Box::new(T::is_func)),
+                // `Ancestors::unknown()`: a `--filter` predicate is applied
+                // to nodes the dump walk reaches without a chain. Only the
+                // JS-family `is_func` consults one, and it answers the same
+                // either way — a climb costs `O(depth)` rather than `O(1)`
+                // per matched function expression (#1088).
+                "function" => res.push(Box::new(|node: &Node| {
+                    T::is_func(node, Ancestors::unknown())
+                })),
                 _ => {
                     if let Ok(n) = f.parse::<u16>() {
                         // A numeric `-t`/`--type` value matches by raw
