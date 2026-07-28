@@ -9784,9 +9784,16 @@ end",
                 .is_ok_and(|ast| !ast.as_tree_sitter().root_node().has_error())
         }
 
-        // C and Objective-C: a GNU nested function definition.
+        // C: a GNU nested function definition.
         const C_FLAT: &str = "void f(int a) { if (a) { } }\n";
         const C_NESTED: &str = "void f(int a) { void g(int b) { if (b) { } } }\n";
+        // Objective-C reuses C's `function_definition` stop but adds
+        // `method_definition`, which only a real `@implementation`
+        // reaches — running the C source here would duplicate the row
+        // above and leave that extra stop untested.
+        const OBJC_FLAT: &str = "@implementation A\n- (void)m:(int)a { if (a) { } }\n@end\n";
+        const OBJC_NESTED: &str =
+            "@implementation A\n- (void)m:(int)a { void g(int b) { if (b) { } } }\n@end\n";
         // C++ has no nested function definitions; a method on a local
         // struct is the nesting the grammar does admit (see
         // `cpp_nested_function_resets_nesting_and_adds_depth`).
@@ -9808,7 +9815,7 @@ end",
         let mut wrong = Vec::new();
         for (lang, flat, nested) in [
             (LANG::C, C_FLAT, C_NESTED),
-            (LANG::Objc, C_FLAT, C_NESTED),
+            (LANG::Objc, OBJC_FLAT, OBJC_NESTED),
             (LANG::Mozcpp, CPP_FLAT, CPP_NESTED),
             (LANG::Javascript, JS_FLAT, JS_NESTED),
             (LANG::Mozjs, JS_FLAT, JS_NESTED),
@@ -9819,16 +9826,16 @@ end",
             (LANG::Bash, BASH_FLAT, BASH_NESTED),
             (LANG::Irules, TCL_FLAT, TCL_NESTED),
         ] {
-            // Collected rather than asserted per row: a bare
-            // `assert_eq!` stops at the first language, and when this
-            // walk breaks it breaks for all of them at once — the list
-            // of which languages moved is the diagnostic.
             for (label, source) in [("flat", flat), ("nested", nested)] {
                 assert!(
                     parses_cleanly(lang, source),
                     "{lang:?}: the {label} source must parse without an ERROR node:\n{source}",
                 );
             }
+            // Costs are collected rather than asserted per row: a bare
+            // `assert_eq!` stops at the first language, and when this
+            // walk breaks it breaks for all of them at once — the list
+            // of which languages moved is the diagnostic.
             let (flat_cost, nested_cost) = (cognitive_of(lang, flat), cognitive_of(lang, nested));
             if (flat_cost, nested_cost) != (1, 2) {
                 wrong.push(format!(

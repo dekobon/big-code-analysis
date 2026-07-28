@@ -197,10 +197,11 @@ const LINEAR_BOUND: f64 = 1.5;
 /// One entry per hot path identified during the #1052 / #1062 / #1084
 /// work, plus the controls that make those readings interpretable:
 ///
-/// - a *metric* control, `nom/nested-while`. `Cognitive` declares
-///   `Nom` as a dependency, so the cognitive-attributable cost is the
-///   difference between the two `nested-while` rows, not `cognitive`
-///   alone.
+/// - two *metric* controls, `nom/nested-while` and `nom/nested-fn`.
+///   `Cognitive` declares `Nom` as a dependency, so the
+///   cognitive-attributable cost of a `cognitive/…` row is its
+///   difference from the `nom/…` row on the same shape, not the
+///   `cognitive` reading alone.
 /// - two *shape* controls, `cognitive/nested-while` and
 ///   `loc/nested-while`. Each is the same nesting as the ancestor-walk
 ///   probe below it with the one node that triggers the walk removed.
@@ -335,9 +336,10 @@ pub const PROBES: &[Probe] = &[
                     node whether a function encloses it. The answer now \
                     comes off the walker's ancestor chain and is found two \
                     steps up; climbing with `Node::parent` instead cost \
-                    `O(depth)` per step across the 19 languages that call \
-                    it. `nom/nested-fn` is the same shape without the \
-                    cognitive walk.",
+                    `O(depth)` per step across the 19 call sites — 22 \
+                    languages, counting the four the JS-family macro \
+                    expands to. `nom/nested-fn` is the same shape without \
+                    the cognitive walk.",
     },
 ];
 

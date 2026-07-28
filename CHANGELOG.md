@@ -275,23 +275,29 @@ for historical reference.
   grammars whose cognitive impl is a no-op, `preproc` and `ccomment`, now
   build no map at all rather than one entry per AST node.
 
-  `cognitive`'s second `Node::parent` site is gone with it:
+  `cognitive`'s remaining `Node::parent` sites are gone with it.
   `increment_function_depth` asked every function node whether a
   function encloses it by climbing with `node.parent()`, which kept the
-  metric `O(depth²)` on nested definitions across the 19 languages that
-  call it. It now reads the ancestor chain the walker hands down (the #1084
+  metric `O(depth²)` on nested definitions across its 19 call sites (22
+  languages, counting the four the JS-family macro expands to). It now
+  reads the ancestor chain the walker hands down (the #1084
   mechanism, deferred out of that change), and a new
   `cognitive/nested-fn` depth-scaling probe covers it: `time ~ depth^k`
   fits 2.04 against the climb and 1.21 against the chain, and at depth
-  4000 the walk drops from ~150 ms to ~16 ms. Cognitive values are
-  unchanged — the arithmetic is pinned at depth 1000 by
-  `cognitive_function_depth_is_inherited_at_depth`.
+  4000 the walk drops from ~150 ms to ~16 ms. The two remaining
+  per-node climbs inside the metric — Kotlin's `when`-default check and
+  Ruby's `case`-default check, one per `else` node — read the same
+  chain now. Cognitive values are unchanged; the arithmetic is pinned at
+  depth 1000 by `cognitive_function_depth_is_inherited_at_depth` and
+  across languages by
+  `function_depth_surcharge_holds_across_languages`.
 
-  The `Node::parent` climbs that remain are outside `cognitive` and
-  outside the probed walks — five `Ancestors::unknown()` call sites plus
-  the Halstead `get_op_type` getters — and are tracked in #1088.
-  Operators analysing untrusted input should still bound request
-  concurrency and input size.
+  `Node::parent` climbs remain elsewhere in the crate — the five
+  `Ancestors::unknown()` call sites, the Halstead `get_op_type`
+  getters, and per-node lookups in several `loc`, `npa` / `npm`, and
+  `checker` arms — all outside `cognitive` and outside the probed
+  walks, and tracked in #1088. Operators analysing untrusted input
+  should still bound request concurrency and input size.
 
 - Deeply nested source no longer costs quadratic time in the `tokens`
   metric (#1052). `Tokens` decided whether a leaf sat inside a comment by
@@ -372,18 +378,19 @@ for historical reference.
   of deeply nested source could pin a core for minutes against the
   unauthenticated `bca-web` endpoints, whose parse deadline frees the
   client but cannot cancel the blocking task. Two of the quadratic paths
-  are gone — the `tokens` ancestor walk (#1052) and both of `cognitive`'s
-  parent lookups (#1062) — as are the three `Node::parent` predicates the
-  benchmark harness measured as quadratic (#1084); see those entries
-  under **Fixed**. Every walk the depth-scaling gate probes now fits an
-  exponent near 1.0.
+  are gone — the `tokens` ancestor walk (#1052) and every one of
+  `cognitive`'s parent lookups (#1062) — as are the three `Node::parent`
+  predicates the benchmark harness measured as quadratic (#1084); see
+  those entries under **Fixed**. Every walk the depth-scaling gate
+  probes now fits an exponent near 1.0.
 
-  **This is not closed.** The climbs listed in #1088 are unprobed and
-  still resolve a parent by descending from the root: the JS/TS
-  `is_func` / `is_closure` walk, Elixir's `Npa` / `Npm` /
-  `get_func_space_name` / suppression-marker lookups, and the Halstead
-  `get_op_type` getters. Operators analysing untrusted input must still
-  bound request concurrency and input size.
+  **This is not closed.** The climbs tracked in #1088 are unprobed and
+  still resolve a parent by descending from the root, among them the
+  JS/TS `is_func` / `is_closure` walk, Elixir's `Npa` / `Npm` /
+  `get_func_space_name` / suppression-marker lookups, the Halstead
+  `get_op_type` getters, and per-node `Node::parent` calls in several
+  `loc` and `checker` arms. Operators analysing untrusted input must
+  still bound request concurrency and input size.
 - Cleared the two RUSTSEC advisories behind the OpenSSF Scorecard
   Vulnerabilities alert: `anyhow` `1.0.102` → `1.0.103` (unsound
   `Error::downcast_mut()`, RUSTSEC-2026-0190) and `memmap2` `0.9.10`
