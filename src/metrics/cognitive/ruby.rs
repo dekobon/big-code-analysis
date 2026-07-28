@@ -102,8 +102,13 @@ impl Cognitive for RubyCode {
                 // `if`/`elsif` alternative and the `begin/rescue` no-exception
                 // branch — extends the parent branch at +1. Mirrors Kotlin's
                 // single `Else` arm gated on `WhenEntry`.
-                let is_case_default = node
-                    .parent()
+                //
+                // Read off the walker's chain rather than `Node::parent`,
+                // which is `O(depth)` — one climb per `else` keeps the
+                // metric quadratic on a deeply nested `if`/`else` chain,
+                // the shape #1062 exists to make linear.
+                let is_case_default = ancestors
+                    .parent(node)
                     .is_some_and(|p| matches!(p.kind_id().into(), R::Case | R::CaseMatch));
                 if !is_case_default {
                     increment_branch_extension(stats);
