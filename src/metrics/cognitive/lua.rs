@@ -61,6 +61,7 @@ impl Cognitive for LuaCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[
                         FunctionDeclaration,
                         FunctionDeclaration2,

@@ -60,7 +60,7 @@ impl Cognitive for RustCode {
             FunctionItem => {
                 nesting = 0;
                 // Increase depth function nesting if needed
-                increment_function_depth(&mut depth, node, &[FunctionItem]);
+                increment_function_depth(&mut depth, node, ancestors, &[FunctionItem]);
             }
             ClosureExpression => {
                 lambda += 1;

@@ -105,7 +105,8 @@ Read it as follows.
 | `loc/nested-while` | C | shape control for the row below | linear |
 | `loc/nested-declaration` | C | `Node::count_specific_ancestors` | linear |
 | `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | linear |
-| `nom/nested-fn` | Rust | `increment_function_depth`, `FuncSpace` nesting | linear |
+| `nom/nested-fn` | Rust | `FuncSpace` nesting; metric control for the row below | linear |
+| `cognitive/nested-fn` | Rust | `increment_function_depth` (#1062) | linear |
 
 Three of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -116,13 +117,17 @@ few steps it took. [#1084][parent-walk] fixed all three by having the
 metric walk carry the ancestor chain down with it (`Ancestors` in
 `src/node.rs`), so a predicate reads an ancestor as a slice index. Their
 bounds moved to the linear bound in that same change, which is what now
-catches a relapse. The fix stopped at the three probed paths: the
-`Node::parent` climbs outside them were left alone and are tracked in
+catches a relapse. `cognitive/nested-fn` is the fourth of the same
+family: `increment_function_depth` was deferred out of #1084 and fixed
+the same way in [#1062][cognitive-parent], which is also where that
+probe comes from — it fitted 2.04 against the climb and 1.21 against the
+chain.
+
+The remaining `Node::parent` climbs were left alone and are tracked in
 [#1088][remaining-climbs]. Those are more than a handful and no probe
-covers them — the five call sites that now pass `Ancestors::unknown()`
+covers them — the five call sites that pass `Ancestors::unknown()`
 (`js_ancestor_walk` in `src/checker.rs`, `suppression_markers`,
-Elixir's `get_func_space_name`, and Elixir's `Npa` / `Npm`),
-`increment_function_depth` in `src/metrics/cognitive.rs`, and the
+Elixir's `get_func_space_name`, and Elixir's `Npa` / `Npm`) and the
 per-node `node.parent()` calls in the Halstead `get_op_type` getters
 (`src/getter/{python,rust,javascript,typescript,tsx,mozjs,cpp,mozcpp,bash,irules}.rs`)
 and in `src/metrics/abc/{mozcpp,perl}.rs`. Treat the linear bounds
@@ -130,23 +135,25 @@ above as covering the walk's ancestor *chain* threading, not every
 `O(depth)` lookup in the crate.
 
 [parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
+[cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
 
-The three control probes are what make the other readings mean
+The four control probes are what make the other readings mean
 something.
 
-- `nom/nested-while` is a **metric** control. `Cognitive` declares
-  `Nom` as a dependency in `src/metric_set.rs`, so the
-  cognitive-attributable cost is the difference between the two rows,
-  not `cognitive` alone.
+- `nom/nested-while` and `nom/nested-fn` are **metric** controls.
+  `Cognitive` declares `Nom` as a dependency in `src/metric_set.rs`, so
+  the cognitive-attributable cost of each `cognitive/…` row is its
+  difference from the `nom/…` row on the same shape, not the
+  `cognitive` reading alone.
 - `loc/nested-while` and `cognitive/nested-while` are **shape**
   controls: each is the same nesting as the ancestor-walk probe it sits
   next to, with the one node that triggers the walk removed. Before
   [#1084][parent-walk] each fitted near 1.0 where its counterpart
   fitted near 2.0, which is what attributed the quadratic cost to
-  that call rather than to nesting in general. Now that all eight fit near 1.0, the pair
-  is what would localise a relapse: a probe drifting up while its
-  control holds means the ancestor lookup, not the shape.
+  that call rather than to nesting in general. Now that all nine fit
+  near 1.0, the pair is what would localise a relapse: a probe drifting
+  up while its control holds means the ancestor lookup, not the shape.
 
 ### Adding a probe
 

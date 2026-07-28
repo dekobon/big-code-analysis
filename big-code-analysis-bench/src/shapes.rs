@@ -110,17 +110,26 @@ pub fn nested_quotes(depth: usize) -> String {
     )
 }
 
-/// Rust: `fn f() { fn f() { … let x = 1; … } }`.
+/// Rust: `fn f() { if a {} fn f() { … let x = 1; … } }`.
 ///
-/// Each level opens a `FuncSpace`, so this drives `increment_function
-/// _depth`, the space-nesting bookkeeping, and the recursive
-/// `FuncSpace` tree that #1056 had to bound. Inner `fn f` shadows are
-/// legal — each sits in its own block scope.
+/// Each level opens a `FuncSpace`, so this drives the space-nesting
+/// bookkeeping and the recursive `FuncSpace` tree that #1056 had to
+/// bound. Inner `fn f` shadows are legal — each sits in its own block
+/// scope.
+///
+/// The `if` is what makes the shape readable by `cognitive`. A chain of
+/// bare functions carries no cognitive weight at all, so the metric
+/// would score zero at every depth; with one `if` per level the reading
+/// is `n(n+1)/2`, because `increment_function_depth` gives the function
+/// at level *k* a function-nesting depth of *k* and every `if` is
+/// penalised by the depth of the function holding it. That makes the
+/// value column sensitive to the function-depth walk this probe times
+/// (#1062), not only to the walk's cost.
 #[must_use]
 pub fn nested_fns(depth: usize) -> String {
     format!(
         "{}let x = 1;{}\n",
-        "fn f() { ".repeat(depth),
+        "fn f() { if a {} ".repeat(depth),
         "} ".repeat(depth)
     )
 }
@@ -308,9 +317,27 @@ pub const PROBES: &[Probe] = &[
         reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "One `FuncSpace` per level: `increment_function_depth`, \
-                    the space-nesting bookkeeping, and the recursive \
-                    `FuncSpace` tree #1056 had to bound.",
+        rationale: "One `FuncSpace` per level: the space-nesting \
+                    bookkeeping and the recursive `FuncSpace` tree #1056 \
+                    had to bound. Also the metric control for \
+                    `cognitive/nested-fn` below, which selects `Cognitive` \
+                    on the same shape and so pays this row's cost too.",
+    },
+    Probe {
+        name: "cognitive/nested-fn",
+        lang: LANG::Rust,
+        metrics: &[Metric::Cognitive],
+        render: nested_fns,
+        reading: |m| m.cognitive.cognitive_sum(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1062: `increment_function_depth` asks every function \
+                    node whether a function encloses it. The answer now \
+                    comes off the walker's ancestor chain and is found two \
+                    steps up; climbing with `Node::parent` instead cost \
+                    `O(depth)` per step across the 19 languages that call \
+                    it. `nom/nested-fn` is the same shape without the \
+                    cognitive walk.",
     },
 ];
 

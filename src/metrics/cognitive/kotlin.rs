@@ -85,6 +85,7 @@ impl Cognitive for KotlinCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[FunctionDeclaration, SecondaryConstructor],
                 );
             }

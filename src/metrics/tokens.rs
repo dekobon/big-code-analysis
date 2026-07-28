@@ -424,9 +424,12 @@ mod tests {
 
     /// Total token count for `source`, analysed byte-for-byte.
     ///
-    /// Restricted to `Tokens`: with every metric enabled, `cognitive`'s
-    /// own superlinear nesting lookup (#1062) dominates the deep-nesting
-    /// case below and would misattribute a regression.
+    /// Restricted to `Tokens` so the deep-nesting case below measures
+    /// this metric and not the rest of the walk. When it was written,
+    /// `cognitive`'s own parent lookups (#1062) dominated that case and
+    /// would have misattributed a regression; they are linear now, but
+    /// isolating the metric under test is still what makes the reading
+    /// mean something.
     fn tokens_of(source: &str) -> u64 {
         metrics_verbatim(
             crate::LANG::Rust,

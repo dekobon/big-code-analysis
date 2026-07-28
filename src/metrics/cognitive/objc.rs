@@ -67,6 +67,7 @@ impl Cognitive for ObjcCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[FunctionDefinition, FunctionDefinition2, MethodDefinition],
                 );
             }

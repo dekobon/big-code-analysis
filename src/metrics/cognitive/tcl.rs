@@ -63,7 +63,7 @@ impl Cognitive for TclCode {
             }
             Procedure => {
                 nesting = 0;
-                increment_function_depth(&mut depth, node, &[Procedure]);
+                increment_function_depth(&mut depth, node, ancestors, &[Procedure]);
             }
             _ => {}
         }

@@ -29,7 +29,7 @@ for historical reference.
 - Benchmark harness for the metric walk, in the new workspace member
   `big-code-analysis-bench` (#1068). `cargo bench -p
   big-code-analysis-bench --bench scaling` (or `make bench-scaling`)
-  measures eight probes at three doubling nesting depths and fits
+  measures nine probes at three doubling nesting depths and fits
   `time ~ depth^k`, failing when a probe's exponent leaves its declared
   complexity class; `--bench metric_walk` (`make bench-walk`) runs
   criterion benchmarks per metric over a deterministic, self-reporting
@@ -275,21 +275,23 @@ for historical reference.
   grammars whose cognitive impl is a no-op, `preproc` and `ccomment`, now
   build no map at all rather than one entry per AST node.
 
-  **Deeply nested code is still superlinear in general** — this fixes one
-  of several `Node::parent` call sites, and *not* the one users hit most.
-  `Checker::is_else_if` calls `parent()` (or `previous_sibling()`, which
-  is implemented via `parent()`) for every `if`, across 13 languages, so
-  nested and `else if`-chained conditionals remain quadratic: a 4000-deep
-  C `if` chain takes ~3.3 s at depth 8000 where the equivalent `while`
-  chain takes 44 ms. Also outstanding: `Node::count_specific_ancestors`
-  (used by `loc` for C-family, Java, C#, Go, Groovy, Objective-C, and
-  twice per node by Python's boolean-operator handling),
-  `cognitive::increment_function_depth` (4000 nested Rust `fn`s, 55 KB →
-  ~1.9 s), and Elixir's `is_inside_quote_block`, which runs for every
-  node behind no metric selection and so cannot be deselected (4000
-  nested `quote` blocks, 52 KB → ~2.7 s). All tracked in #1062, which
-  stays open; a shared parent lookup owned by the walker would retire
-  them together.
+  `cognitive`'s second `Node::parent` site is gone with it:
+  `increment_function_depth` asked every function node whether a
+  function encloses it by climbing the ancestor chain, which kept the
+  metric `O(depth²)` on nested definitions across the 19 languages that
+  call it. It now reads the chain the walker hands down (the #1084
+  mechanism, deferred out of that change), and a new
+  `cognitive/nested-fn` depth-scaling probe covers it: `time ~ depth^k`
+  fits 2.04 against the climb and 1.21 against the chain, and at depth
+  4000 the walk drops from ~150 ms to ~16 ms. Cognitive values are
+  unchanged — the arithmetic is pinned at depth 1000 by
+  `cognitive_function_depth_is_inherited_at_depth`.
+
+  The `Node::parent` climbs that remain are outside `cognitive` and
+  outside the probed walks — five `Ancestors::unknown()` call sites plus
+  the Halstead `get_op_type` getters — and are tracked in #1088.
+  Operators analysing untrusted input should still bound request
+  concurrency and input size.
 
 - Deeply nested source no longer costs quadratic time in the `tokens`
   metric (#1052). `Tokens` decided whether a leaf sat inside a comment by
@@ -370,15 +372,18 @@ for historical reference.
   of deeply nested source could pin a core for minutes against the
   unauthenticated `bca-web` endpoints, whose parse deadline frees the
   client but cannot cancel the blocking task. Two of the quadratic paths
-  are gone — the `tokens` ancestor walk (#1052) and the `cognitive`
-  nesting lookup (#1062); see those entries under **Fixed**.
+  are gone — the `tokens` ancestor walk (#1052) and both of `cognitive`'s
+  parent lookups (#1062) — as are the three `Node::parent` predicates the
+  benchmark harness measured as quadratic (#1084); see those entries
+  under **Fixed**. Every walk the depth-scaling gate probes now fits an
+  exponent near 1.0.
 
-  **This is not closed.** `Checker::is_else_if` still calls
-  `Node::parent` per `if` across 13 languages, so deeply nested or
-  `else if`-chained conditionals — ordinary generated and state-machine
-  code, not just adversarial input — remain quadratic, along with three
-  further ancestor walks. All tracked in #1062. Operators analysing
-  untrusted input must still bound request concurrency and input size.
+  **This is not closed.** The climbs listed in #1088 are unprobed and
+  still resolve a parent by descending from the root: the JS/TS
+  `is_func` / `is_closure` walk, Elixir's `Npa` / `Npm` /
+  `get_func_space_name` / suppression-marker lookups, and the Halstead
+  `get_op_type` getters. Operators analysing untrusted input must still
+  bound request concurrency and input size.
 - Cleared the two RUSTSEC advisories behind the OpenSSF Scorecard
   Vulnerabilities alert: `anyhow` `1.0.102` → `1.0.103` (unsound
   `Error::downcast_mut()`, RUSTSEC-2026-0190) and `memmap2` `0.9.10`

@@ -39,7 +39,7 @@ impl Cognitive for PerlCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         nesting_map: &mut NestingMap,
     ) {
@@ -103,6 +103,7 @@ impl Cognitive for PerlCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[P::FunctionDefinition, P::FunctionDefinitionWithoutSub],
                 );
             }

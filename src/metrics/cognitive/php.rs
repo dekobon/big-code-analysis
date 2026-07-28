@@ -101,6 +101,7 @@ impl Cognitive for PhpCode {
                 increment_function_depth(
                     &mut depth,
                     node,
+                    ancestors,
                     &[FunctionDefinition, MethodDeclaration],
                 );
             }
