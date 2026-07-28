@@ -125,14 +125,24 @@ chain.
 
 The remaining `Node::parent` climbs were left alone and are tracked in
 [#1088][remaining-climbs]. Those are more than a handful and no probe
-covers them — the five call sites that pass `Ancestors::unknown()`
-(`js_ancestor_walk` in `src/checker.rs`, `suppression_markers`,
-Elixir's `get_func_space_name`, and Elixir's `Npa` / `Npm`) and the
-per-node `node.parent()` calls in the Halstead `get_op_type` getters
-(`src/getter/{python,rust,javascript,typescript,tsx,mozjs,cpp,mozcpp,bash,irules}.rs`)
-and in `src/metrics/abc/{mozcpp,perl}.rs`. Treat the linear bounds
-above as covering the walk's ancestor *chain* threading, not every
-`O(depth)` lookup in the crate.
+covers them. The list below is illustrative, not exhaustive — `rg
+'\.parent\(\)' src/` is the authority:
+
+- the five call sites that pass `Ancestors::unknown()`
+  (`js_ancestor_walk` in `src/checker.rs`, `suppression_markers`,
+  Elixir's `get_func_space_name`, and Elixir's `Npa` / `Npm`);
+- the per-node `node.parent()` calls in the Halstead `get_op_type`
+  getters
+  (`src/getter/{python,rust,javascript,typescript,tsx,mozjs,cpp,mozcpp,bash,irules}.rs`)
+  and in `src/metrics/abc/{mozcpp,perl}.rs`;
+- per-node parent checks in several `loc` arms
+  (`src/metrics/loc/{python,lua,kotlin,perl,tcl,irules,elixir}.rs`),
+  in `src/metrics/npa/` and `src/metrics/npm/`, in
+  `src/metrics/cyclomatic/elixir.rs`, and in
+  `src/checker/{rust,ruby}.rs`.
+
+Treat the linear bounds above as covering the walk's ancestor *chain*
+threading, not every `O(depth)` lookup in the crate.
 
 [parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
 [cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
