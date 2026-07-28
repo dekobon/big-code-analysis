@@ -1053,8 +1053,19 @@ mod tests {
     /// grandparent shape), and Elixir (`quote` templates).
     #[test]
     fn a_known_chain_answers_exactly_what_climbing_answers() {
-        fn assert_parity<L: LanguageInfo>(label: &str, code: &[u8]) {
+        /// `must_nest` names kinds that have to appear *inside another
+        /// node of the same kind* in the fixture. `visited > 20` alone
+        /// does not keep a fixture honest: a grammar bump that flattened
+        /// the nesting a row was added for would leave a large,
+        /// clean-parsing tree that no longer exercises the shape, and
+        /// the parity assertions would keep passing over it.
+        fn assert_parity<L: LanguageInfo>(label: &str, code: &[u8], must_nest: &[&str]) {
+            let mut nested_seen = vec![false; must_nest.len()];
             let visited = for_each_node_with_chain::<L>(code, |node, chain| {
+                for (slot, kind) in nested_seen.iter_mut().zip(must_nest) {
+                    *slot |= node.kind() == *kind
+                        && chain.iter().any(|ancestor| ancestor.kind() == *kind);
+                }
                 let known = Ancestors::known(chain);
                 let climbing = Ancestors::unknown();
                 assert_eq!(
@@ -1088,23 +1099,57 @@ mod tests {
                 }
             });
             assert!(visited > 20, "{label}: fixture is too small to prove much");
+            for (found, kind) in nested_seen.iter().zip(must_nest) {
+                assert!(
+                    found,
+                    "{label}: no `{kind}` sits inside another `{kind}`, so the \
+                     fixture no longer exercises the nesting it was added for"
+                );
+            }
         }
 
         assert_parity::<crate::langs::CCode>(
             "c",
             b"int main() { if (a) { int x; } else if (b) { for (int i = 0; i < 2; i++) x; } }",
+            &[],
         );
         assert_parity::<crate::langs::JavaCode>(
             "java",
             b"class A { void m() { if (a) {} else if (b) {} else {} for (int i = 0; i < 2; i++) {} } }",
+            &[],
         );
         assert_parity::<crate::langs::PythonCode>(
             "python",
             b"def f(a, b):\n    if a:\n        pass\n    else:\n        if b:\n            pass\n    return a and b or a\n",
+            &[],
         );
         assert_parity::<crate::langs::ElixirCode>(
             "elixir",
             b"defmodule M do\n  def g do\n    :ok\n  end\n  quote do\n    def f do\n      :ok\n    end\n  end\nend\n",
+            &["call"],
+        );
+
+        // The shapes #1062 added as consumers, which the four fixtures
+        // above do not contain: a function nested inside a function
+        // (every language's `increment_function_depth` arm walks the
+        // chain looking for one) and the two default-arm checks that
+        // now read `Ancestors::parent` — Kotlin's `else ->` inside a
+        // `when` and Ruby's `else` inside a `case`. Parity over the
+        // machinery is not parity over the shape a caller asks about.
+        assert_parity::<crate::langs::RustCode>(
+            "rust",
+            b"fn f(a: bool) { if a { } else if a { } fn g(b: bool) { if b { } } }\n",
+            &["function_item"],
+        );
+        assert_parity::<crate::langs::KotlinCode>(
+            "kotlin",
+            b"fun f(x: Int) {\n    when (x) {\n        1 -> {}\n        else -> {}\n    }\n    fun g() {\n        if (x > 0) {}\n    }\n}\n",
+            &["function_declaration"],
+        );
+        assert_parity::<crate::langs::RubyCode>(
+            "ruby",
+            b"def f(x)\n  case x\n  when 1 then 1\n  else 2\n  end\n  def g\n    if x\n    end\n  end\nend\n",
+            &["method"],
         );
     }
 
