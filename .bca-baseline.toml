@@ -765,7 +765,7 @@ path = "src/metrics/cognitive/ruby.rs"
 qualified = "RubyCode::compute"
 start_line = 29
 metric = "halstead.effort"
-value = 53271.17757518335
+value = 53802.68593577912
 
 [[entry]]
 path = "src/metrics/loc/c.rs"

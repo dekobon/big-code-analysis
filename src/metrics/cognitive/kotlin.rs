@@ -59,7 +59,14 @@ impl Cognitive for KotlinCode {
                 // Per the SonarSource spec, `else ->` inside a `when`
                 // expression is the default arm of a switch-like construct
                 // and should be +0, not +1.
-                let in_when = node.parent().is_some_and(|p| p.kind_id() == WhenEntry);
+                //
+                // Read off the walker's chain rather than `Node::parent`,
+                // which is `O(depth)` — one climb per `else` keeps the
+                // metric quadratic on a deeply nested `if`/`else` chain,
+                // the shape #1062 exists to make linear.
+                let in_when = ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == WhenEntry);
                 if !in_when {
                     increment_by_one(stats);
                 }
