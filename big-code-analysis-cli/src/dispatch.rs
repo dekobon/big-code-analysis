@@ -672,21 +672,38 @@ mod tests {
         }
     }
 
-    // `Config` wired with both post-walk counters `run_check` consults,
-    // so a test can observe exactly which one a given input bumps.
-    fn counting_config(
-        files_dispatched: &Arc<AtomicUsize>,
-        read_failures: &Arc<AtomicUsize>,
-    ) -> Config {
-        Config {
-            files_dispatched: Some(Arc::clone(files_dispatched)),
-            read_failures: Some(Arc::clone(read_failures)),
-            ..preproc_test_config(None)
-        }
+    // The two post-walk counters `run_check` consults, owned together
+    // with the `Config` that feeds them. Named fields rather than a pair
+    // of `Arc<AtomicUsize>` arguments: transposing them at a call site
+    // would invert the very distinction these tests exist to pin.
+    struct Counters {
+        dispatched: Arc<AtomicUsize>,
+        failures: Arc<AtomicUsize>,
     }
 
-    fn zeroed_counters() -> (Arc<AtomicUsize>, Arc<AtomicUsize>) {
-        (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+    impl Counters {
+        fn new() -> Self {
+            Self {
+                dispatched: Arc::new(AtomicUsize::new(0)),
+                failures: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn config(&self) -> Config {
+            Config {
+                files_dispatched: Some(Arc::clone(&self.dispatched)),
+                read_failures: Some(Arc::clone(&self.failures)),
+                ..preproc_test_config(None)
+            }
+        }
+
+        fn dispatched(&self) -> usize {
+            self.dispatched.load(Ordering::Relaxed)
+        }
+
+        fn failures(&self) -> usize {
+            self.failures.load(Ordering::Relaxed)
+        }
     }
 
     // Regression test for issue #1060: a file the runner cannot read
@@ -700,15 +717,15 @@ mod tests {
     #[test]
     fn unreadable_file_counts_as_read_failure_not_dispatched() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (dispatched, failures) = zeroed_counters();
-        let cfg = counting_config(&dispatched, &failures);
+        let counters = Counters::new();
+        let cfg = counters.config();
 
         let err = validate_and_resolve_file(dir.path().join("missing.py"), &cfg)
             .expect_err("a nonexistent path must surface the read error");
 
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
-        assert_eq!(dispatched.load(Ordering::Relaxed), 0);
-        assert_eq!(failures.load(Ordering::Relaxed), 1);
+        assert_eq!(counters.dispatched(), 0);
+        assert_eq!(counters.failures(), 1);
     }
 
     // The counterpart to the test above: a file that reads cleanly is
@@ -718,14 +735,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("ok.py");
         std::fs::write(&path, "def f():\n    return 1\n").expect("write fixture");
-        let (dispatched, failures) = zeroed_counters();
-        let cfg = counting_config(&dispatched, &failures);
+        let counters = Counters::new();
+        let cfg = counters.config();
 
         let resolved = validate_and_resolve_file(path, &cfg).expect("readable file");
 
         assert!(resolved.is_some(), "a Python file must resolve a language");
-        assert_eq!(dispatched.load(Ordering::Relaxed), 1);
-        assert_eq!(failures.load(Ordering::Relaxed), 0);
+        assert_eq!(counters.dispatched(), 1);
+        assert_eq!(counters.failures(), 0);
     }
 
     // The #1060 reorder moved the `files_dispatched` bump below the
@@ -738,14 +755,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("empty.py");
         std::fs::write(&path, "").expect("write fixture");
-        let (dispatched, failures) = zeroed_counters();
-        let cfg = counting_config(&dispatched, &failures);
+        let counters = Counters::new();
+        let cfg = counters.config();
 
         let resolved = validate_and_resolve_file(path, &cfg).expect("readable file");
 
         assert!(resolved.is_none(), "an empty file is skipped for analysis");
-        assert_eq!(dispatched.load(Ordering::Relaxed), 1);
-        assert_eq!(failures.load(Ordering::Relaxed), 0);
+        assert_eq!(counters.dispatched(), 1);
+        assert_eq!(counters.failures(), 0);
     }
 
     // Regression test for issue #425: a poisoned `preproc_lock` must
