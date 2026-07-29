@@ -98,14 +98,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "emit_check_results"
-start_line = 510
+start_line = 560
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "filter_by_baseline"
-start_line = 321
+start_line = 371
 metric = "nargs"
 value = 8.0
 
@@ -114,7 +114,7 @@ path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 start_line = 13
 metric = "halstead.effort"
-value = 69823.99851963262
+value = 70257.02522730803
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
@@ -196,21 +196,21 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_exemptions"
-start_line = 536
+start_line = 548
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_metrics"
-start_line = 191
+start_line = 203
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_ops"
-start_line = 252
+start_line = 264
 metric = "nargs"
 value = 8.0
 
@@ -266,7 +266,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 519
+start_line = 529
 metric = "halstead.effort"
 value = 59351.805921378844
 

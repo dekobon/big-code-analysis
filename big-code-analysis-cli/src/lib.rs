@@ -181,6 +181,15 @@ struct Config {
     /// no violations) from "no files matched" (counter == 0), so a
     /// typo in `--paths` does not silently pass CI.
     files_dispatched: Option<Arc<AtomicUsize>>,
+    /// Counts input files whose contents could not be read at all —
+    /// permission denied, a broken symlink, a path that vanished
+    /// mid-walk. A failed read deliberately leaves `files_dispatched`
+    /// untouched, so this counter is the only record that the runner
+    /// saw the file. `Action::Check` reads it after the walk and exits
+    /// 1 rather than reporting a gate verdict derived from a partially
+    /// analysed input set (#1060). `None` for flows that do not enforce
+    /// the rule.
+    read_failures: Option<Arc<AtomicUsize>>,
     /// Seeds the user named *explicitly as files* on the command line
     /// (or via `--paths-from` / a manifest `paths` key), in the emitted
     /// path form. A file in this set whose language is unrecognized is a
@@ -299,6 +308,7 @@ impl Config {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
+            read_failures: None,
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
             explicit_unrecognized: None,
             output_produced: None,

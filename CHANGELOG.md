@@ -204,6 +204,22 @@ for historical reference.
 
 ### Fixed
 
+- `bca check` no longer exits `0` when input files could not be read
+  (#1060). The counter backing the "no input files matched" guard was
+  bumped before the read was attempted, so a tree whose every file was
+  unreadable (permission denied, a broken symlink, a container
+  volume-mount mismatch) reported `error processing <path>: …` on
+  stderr and then exited `0` — the worst failure mode a CI gate has.
+  The counter now moves only for files that were actually read, and
+  read failures are tallied separately: any input file that failed to
+  read exits `1` (tool error, distinct from `2` = gate breach) with a
+  summary line, because a partially analysed gate is not a passing
+  gate. Like the pre-existing empty-input guard, the check runs before
+  the gate is evaluated and is not suppressed by `--no-fail`, which
+  suppresses threshold failures rather than broken input. Other
+  subcommands are unchanged for now; extending the same contract past
+  `check` is tracked separately.
+
 - `Ops::operators` and `Ops::operands` are now sorted in
   byte-lexicographic order, so `bca ops` produces identical bytes for
   identical input (#1091). Both vectors were collected from `HashMap`
