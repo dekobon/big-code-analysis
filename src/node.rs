@@ -374,18 +374,26 @@ impl<'a> Node<'a> {
     /// satisfies `grand_pred`. Returns `false` as soon as either link
     /// is absent or its predicate fails, so a misordered predicate
     /// cannot silently degrade to a single-predicate check.
+    ///
+    /// `ancestors` is the chain the caller descended through. Passing
+    /// [`Ancestors::unknown`] is always correct and answers
+    /// identically; it just pays [`Node::parent`]'s `O(depth)` for each
+    /// of the two links, which on a per-node metric arm is quadratic in
+    /// nesting depth (#1096).
     pub(crate) fn parent_grandparent_match(
         &self,
+        ancestors: Ancestors<'a, '_>,
         parent_pred: fn(&Node) -> bool,
         grand_pred: fn(&Node) -> bool,
     ) -> bool {
-        let Some(parent) = self.parent() else {
+        let mut climb = ancestors.iter(self);
+        let Some((parent, _)) = climb.next() else {
             return false;
         };
         if !parent_pred(&parent) {
             return false;
         }
-        let Some(grand) = parent.parent() else {
+        let Some((grand, _)) = climb.next() else {
             return false;
         };
         grand_pred(&grand)
@@ -1379,6 +1387,14 @@ mod tests {
             first_is_none,
             "the first child's `None` is part of what this pins"
         );
+        // One break this cannot see: a scan that never finds `node`
+        // among the children falls back to the authoritative lookup and
+        // so still answers correctly, just at `Node::parent`'s cost.
+        // That failure mode is a perf regression, not a wrong answer,
+        // and the `abc/nested-if` probe is what covers it. Every
+        // *wrong-answer* break does fail here — returning the following
+        // sibling, or the parent's first child, fails on the first
+        // child alone.
     }
 
     /// `count_specific_ancestors` must return the same count whichever

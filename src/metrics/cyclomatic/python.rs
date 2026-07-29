@@ -12,7 +12,7 @@ impl Cyclomatic for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
-        _ancestors: Ancestors<'a, '_>,
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
         use Python::*;
@@ -56,6 +56,7 @@ impl Cyclomatic for PythonCode {
             // counted, so we must NOT fire for `else_clause` parents
             // of `if_statement` — see #229.
             Else if node.parent_grandparent_match(
+                ancestors,
                 |parent| parent.kind_id() == ElseClause,
                 |grand| {
                     matches!(

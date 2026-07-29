@@ -113,6 +113,8 @@ Read it as follows.
 | `halstead/nested-not` | Rust | `Getter::get_op_type`'s parent read (#1096) | linear |
 | `abc/nested-block` | C | shape control for the row below | linear |
 | `abc/nested-if` | C | the C-family ABC container walker (#1096) | linear |
+| `cyclomatic/nested-and` | Python | shape control for the row below | linear |
+| `cyclomatic/nested-ternary` | Python | `Node::parent_grandparent_match` (#1096) | linear |
 | `loc/nested-quote` | Elixir | `loc`'s Elixir catch-all arm (#1096) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
@@ -150,11 +152,15 @@ bodies: the Halstead `get_op_type` getters, every `Abc` impl, and the
 `Halstead::compute`, `Abc::compute`, `Npm::compute`, `Npa::compute`,
 `Cyclomatic::compute`, and `Checker::is_useful_comment` gained an
 `Ancestors` parameter there, and the comment-removal walk grew a chain
-of its own. All three probes fitted 1.99-2.00 before and 0.99-1.14
-after; at depth 4000 `halstead/nested-not` dropped from ~478 ms to
-~0.57 ms, `abc/nested-if` from ~808 ms to ~3.3 ms, and
+of its own. A fourth call the issue had not listed turned up
+during review — Python's `Cyclomatic` `else` arm, reached through
+`Node::parent_grandparent_match`, which no `rg '\.parent\(\)'` sweep
+finds at the call site. All four probes fitted 1.99-2.06 before and
+0.99-1.27 after; at depth 4000 `halstead/nested-not` dropped from
+~478 ms to ~0.57 ms, `abc/nested-if` from ~808 ms to ~3.3 ms,
+`cyclomatic/nested-ternary` from ~1.13 s to ~3.4 ms, and
 `loc/nested-quote` from ~9.6 s to ~9.2 ms. Their controls held at
-0.97-1.18 either side.
+0.97-1.31 either side.
 
 That change also confirmed #1088's lesson a second time from the other
 direction. The ABC condition walkers reach a slot's parent to decide
@@ -179,7 +185,7 @@ threading, not every `O(depth)` lookup in the crate.
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
 [halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
 
-The seven control probes are what make the other readings mean
+The eight control probes are what make the other readings mean
 something.
 
 - `nom/nested-while` and `nom/nested-fn` are **metric** controls.
@@ -188,13 +194,14 @@ something.
   difference from the `nom/…` row on the same shape, not the
   `cognitive` reading alone.
 - `loc/nested-while`, `cognitive/nested-while`,
-  `nom/nested-declared-function`, `halstead/nested-paren`, and
-  `abc/nested-block` are **shape** controls: each is the same nesting as
+  `nom/nested-declared-function`, `halstead/nested-paren`,
+  `abc/nested-block`, and `cyclomatic/nested-and` are **shape**
+  controls: each is the same nesting as
   the ancestor-walk probe it sits next to, with the one node that
   triggers the walk removed. Before [#1084][parent-walk] each fitted
   near 1.0 where its counterpart fitted near 2.0, which is what
   attributed the quadratic cost to that call rather than to nesting in
-  general. Now that all sixteen fit near 1.0, the pair is what would
+  general. Now that all eighteen fit near 1.0, the pair is what would
   localise a relapse: a probe drifting up while its control holds means
   the ancestor lookup, not the shape.
 
