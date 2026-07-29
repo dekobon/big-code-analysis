@@ -29,7 +29,7 @@ for historical reference.
 - Benchmark harness for the metric walk, in the new workspace member
   `big-code-analysis-bench` (#1068). `cargo bench -p
   big-code-analysis-bench --bench scaling` (or `make bench-scaling`)
-  measures sixteen probes at three doubling nesting depths and fits
+  measures eighteen probes at three doubling nesting depths and fits
   `time ~ depth^k`, failing when a probe's exponent leaves its declared
   complexity class; `--bench metric_walk` (`make bench-walk`) runs
   criterion benchmarks per metric over a deterministic, self-reporting
@@ -143,14 +143,18 @@ for historical reference.
   parent from the caller that descended from it; and the
   comment-removal walk behind `bca remove-comments` maintains a chain of
   its own. All are `pub(crate)`, so the published API is unchanged, and
-  metric values are unchanged for every language. Three new probes and
-  two new controls guard the classes: `halstead/nested-not` fits
-  `time ~ depth^k` at **1.99** before and **0.99** after,
-  `abc/nested-if` at **2.00** and **1.14**, and `loc/nested-quote` at
-  **2.00** and **1.03**. At depth 4000 those three drop from ~478 ms to
-  ~0.57 ms, from ~808 ms to ~3.3 ms, and from ~9.6 s to ~9.2 ms; their
-  `halstead/nested-paren` and `abc/nested-block` shape controls hold at
-  0.97-1.18 either side. Per #1088's lesson, the primitives were checked
+  metric values are unchanged for every language. Python's `Cyclomatic`
+  `else` arm went the same way: it climbed two links through
+  `Node::parent_grandparent_match`, which no search for `.parent()`
+  finds at the call site. Four new probes and three new controls guard
+  the classes: `halstead/nested-not` fits `time ~ depth^k` at **1.99**
+  before and **0.99** after, `abc/nested-if` at **2.00** and **1.14**,
+  `cyclomatic/nested-ternary` at **2.06** and **1.27**, and
+  `loc/nested-quote` at **2.00** and **1.03**. At depth 4000 those four
+  drop from ~478 ms to ~0.57 ms, from ~808 ms to ~3.3 ms, from ~1.13 s
+  to ~3.4 ms, and from ~9.6 s to ~9.2 ms; their `halstead/nested-paren`,
+  `abc/nested-block`, and `cyclomatic/nested-and` shape controls hold at
+  0.97-1.31 either side. Per #1088's lesson, the primitives were checked
   too: the ABC walkers' `Node::previous_sibling` carried the same
   `O(depth)` (`ts_node__prev_sibling` opens with `ts_node_parent`) and
   now scans the known parent's children instead, through the new

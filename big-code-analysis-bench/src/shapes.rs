@@ -34,6 +34,39 @@ pub fn nested_parens(depth: usize) -> String {
     )
 }
 
+/// Python: `x = (a and (a and (… a …)))`.
+///
+/// The linear control for [`nested_ternaries`]: one `and` operator per
+/// nesting level, which `Cyclomatic` counts from the token's own kind.
+/// Python's block syntax cannot nest statements without indenting them,
+/// which would make the input grow quadratically; parenthesised
+/// expressions are the only Python shape that nests at constant bytes
+/// per level.
+#[must_use]
+pub fn nested_ands(depth: usize) -> String {
+    format!("x = {}a{}\n", "(a and ".repeat(depth), ")".repeat(depth))
+}
+
+/// Python: `x = (1 if a else (1 if a else … 1 …))`.
+///
+/// One `else` token per nesting level. Python's `Cyclomatic` asks each
+/// one whether it opens a `for` / `while` / `try` else-clause — a
+/// two-link parent/grandparent test that short-circuits on the first
+/// link here, because a conditional expression's `else` has no
+/// `else_clause` parent. That one link was still `O(depth)` while it
+/// went through `Node::parent`, which is what made the shape quadratic
+/// before #1096; it now indexes the walker's ancestor chain.
+/// [`nested_ands`] is the same nesting through an arm that never looks
+/// up.
+#[must_use]
+pub fn nested_ternaries(depth: usize) -> String {
+    format!(
+        "x = {}1{}\n",
+        "(1 if a else ".repeat(depth),
+        ")".repeat(depth)
+    )
+}
+
 /// C: `int main(){ while (a) { … 1; … } }`.
 ///
 /// The linear control for [`nested_ifs`]: structurally identical, but
@@ -430,6 +463,32 @@ pub const PROBES: &[Probe] = &[
                     was `O(depth)` per `if` across all twenty `Abc` \
                     impls. `abc/nested-block` is the same nesting \
                     without a condition slot.",
+    },
+    Probe {
+        name: "cyclomatic/nested-and",
+        lang: LANG::Python,
+        metrics: &[Metric::Cyclomatic],
+        render: nested_ands,
+        reading: |m| m.cyclomatic.cyclomatic_sum(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `cyclomatic/nested-ternary`: the \
+                    same nesting through an arm that counts the token \
+                    from its own kind and never looks up.",
+    },
+    Probe {
+        name: "cyclomatic/nested-ternary",
+        lang: LANG::Python,
+        metrics: &[Metric::Cyclomatic],
+        render: nested_ternaries,
+        reading: |m| m.cyclomatic.cyclomatic_sum(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1096: Python's `Cyclomatic` asks every `else` token \
+                    whether it opens a loop or `try` else-clause, through \
+                    `Node::parent_grandparent_match`. Both links now index \
+                    the walker's ancestor chain. `cyclomatic/nested-and` \
+                    is the same nesting without the lookup.",
     },
     Probe {
         name: "loc/nested-quote",
