@@ -388,261 +388,57 @@ fn compute_halstead<'a, T: Getter + Checker>(
     }
 }
 
-impl Halstead for PythonCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
+// Every language's `Halstead::compute` is the same forward to
+// `compute_halstead`, which classifies each node through the language's
+// own `Getter` / `Checker`. Nothing per-language lives here — it lives
+// in `src/getter/<lang>.rs` — so writing the impls out was 23 copies of
+// one signature. (This is the only metric whose per-language impls are
+// all identical; every other trait has real per-language bodies.)
+macro_rules! impl_halstead_forwarding {
+    ($($code:ty),+ $(,)?) => {
+        $(
+            impl Halstead for $code {
+                fn compute<'a>(
+                    node: &Node<'a>,
+                    code: &'a [u8],
+                    ancestors: Ancestors<'a, '_>,
+                    halstead_maps: &mut HalsteadMaps<'a>,
+                ) {
+                    compute_halstead::<Self>(node, code, ancestors, halstead_maps);
+                }
+            }
+        )+
+    };
 }
 
-impl Halstead for MozjsCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for JavascriptCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for TypescriptCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for TsxCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for RustCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for CppCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for CCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for ObjcCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for MozcppCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for JavaCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for GroovyCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for CsharpCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for GoCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for PerlCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for KotlinCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for LuaCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for PhpCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
+impl_halstead_forwarding!(
+    PythonCode,
+    MozjsCode,
+    JavascriptCode,
+    TypescriptCode,
+    TsxCode,
+    RustCode,
+    CppCode,
+    CCode,
+    ObjcCode,
+    MozcppCode,
+    JavaCode,
+    GroovyCode,
+    CsharpCode,
+    GoCode,
+    PerlCode,
+    KotlinCode,
+    LuaCode,
+    PhpCode,
+    RubyCode,
+    ElixirCode,
+    BashCode,
+    TclCode,
+    IrulesCode,
+);
 
 // Real defaults — no operators / operands to count. Audited in #188.
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
-
-impl Halstead for RubyCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for ElixirCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for BashCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for TclCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
-
-impl Halstead for IrulesCode {
-    fn compute<'a>(
-        node: &Node<'a>,
-        code: &'a [u8],
-        ancestors: Ancestors<'a, '_>,
-        halstead_maps: &mut HalsteadMaps<'a>,
-    ) {
-        compute_halstead::<Self>(node, code, ancestors, halstead_maps);
-    }
-}
 
 #[cfg(test)]
 #[allow(
