@@ -31,7 +31,7 @@ fn php_inspect_container(container_node: &Node, parent: &Node, conditions: &mut 
         BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
     ) || (matches!(parent_kind, ConditionalExpression)
         && node
-            .previous_sibling()
+            .previous_sibling_under(parent)
             .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
 
     loop {
@@ -111,16 +111,21 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             // the last named child to handle both shapes — and skip
             // the rare grammar-error case where Argument has no
             // named children.
-            let inner = if matches!(node_kind, Argument) {
+            // `inner_parent` is carried alongside `inner` because
+            // `php_inspect_container` seeds its boolean-context flag
+            // from the parent kind and must not rediscover it (#1096):
+            // unwrapping an `argument` makes the wrapper the parent,
+            // otherwise it is the list.
+            let (inner, inner_parent) = if matches!(node_kind, Argument) {
                 let Some(value) = php_argument_value(&node) else {
                     if !cursor.goto_next_sibling() {
                         break;
                     }
                     continue;
                 };
-                value
+                (value, node)
             } else {
-                node
+                (node, *list_node)
             };
             let inner_kind = inner.kind_id().into();
 
@@ -129,14 +134,7 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if inner.is_named() {
-                // `inner`'s parent is the `argument` wrapper when one
-                // was unwrapped above, and the list itself otherwise.
-                let inner_parent = if inner.id() == node.id() {
-                    list_node
-                } else {
-                    &node
-                };
-                php_inspect_container(&inner, inner_parent, conditions);
+                php_inspect_container(&inner, &inner_parent, conditions);
             }
 
             if !cursor.goto_next_sibling() {

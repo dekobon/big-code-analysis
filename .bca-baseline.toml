@@ -744,14 +744,7 @@ path = "src/metrics/abc/perl.rs"
 qualified = "perl_inspect_container"
 start_line = 55
 metric = "halstead.effort"
-value = 48499.6860937902
-
-[[entry]]
-path = "src/metrics/abc/php.rs"
-qualified = "php_count_unary_conditions"
-start_line = 95
-metric = "cognitive"
-value = 25.0
+value = 49178.00338181524
 
 [[entry]]
 path = "src/metrics/abc/rust.rs"

@@ -52,7 +52,7 @@ fn kotlin_leading_identifier_len(text: &str) -> usize {
 /// identifier prefix is sufficient; the prefix is the recovered operand
 /// and the remainder is literal text. Only a token with no identifier
 /// prefix (`"price: $5"` → `"5"`) stays literal.
-fn kotlin_is_short_interp_name(node: &Node, code: &[u8]) -> bool {
+fn kotlin_is_short_interp_name(node: &Node, previous: Option<Node<'_>>, code: &[u8]) -> bool {
     use Kotlin::{StringContent, StringContent2, StringContent3};
 
     // The grammar emits three aliased `string_content` kind ids
@@ -67,7 +67,7 @@ fn kotlin_is_short_interp_name(node: &Node, code: &[u8]) -> bool {
     if !STRING_CONTENT_KINDS.contains(&node.kind_id()) {
         return false;
     }
-    let Some(prev) = node.previous_sibling() else {
+    let Some(prev) = previous else {
         return false;
     };
     if !STRING_CONTENT_KINDS.contains(&prev.kind_id()) || prev.utf8_text(code) != Some("$") {
@@ -110,8 +110,15 @@ fn kotlin_short_interp_operand_bytes<'a>(node: &Node, code: &'a [u8]) -> &'a [u8
 fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
     use Kotlin::Interpolation;
 
+    // The scan already holds each child's predecessor, so the short-form
+    // test gets it for free rather than through the `O(depth)`
+    // `Node::previous_sibling` (#1096).
+    let mut previous = None;
     node.children().any(|child| {
-        child.kind_id() == Interpolation as u16 || kotlin_is_short_interp_name(&child, code)
+        let found = child.kind_id() == Interpolation as u16
+            || kotlin_is_short_interp_name(&child, previous, code);
+        previous = Some(child);
+        found
     })
 }
 
@@ -226,7 +233,7 @@ impl Getter for KotlinCode {
             // those are left as literal text rather than emitting a
             // partial-literal operand.
             StringContent | StringContent2 | StringContent3
-                if kotlin_is_short_interp_name(node, code) =>
+                if kotlin_is_short_interp_name(node, ancestors.previous_sibling(node), code) =>
             {
                 HalsteadType::Operand
             }
@@ -245,11 +252,15 @@ impl Getter for KotlinCode {
         }
     }
 
-    fn get_operand_id<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
+    fn get_operand_id<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> &'a [u8] {
         // Narrow a recovered short-interpolation name token to its
         // leading identifier prefix so `"$a $b"` keys operand `"a"`,
         // not `"a "`, matching the long `${a}` form (#454).
-        if kotlin_is_short_interp_name(node, code) {
+        if kotlin_is_short_interp_name(node, ancestors.previous_sibling(node), code) {
             kotlin_short_interp_operand_bytes(node, code)
         } else {
             &code[node.start_byte()..node.end_byte()]

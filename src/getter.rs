@@ -236,11 +236,12 @@ pub(crate) trait Getter {
     ///
     /// `ancestors` is the chain the walker descended through. Six
     /// impls read a parent from it to disambiguate a token whose role
-    /// depends on what encloses it — Python's `not` inside `not in`,
-    /// Rust's `||` inside a binary expression, the C++ namespace
-    /// identifier, Bash's `$name`, and iRules' `$var`. Reaching those
-    /// parents with [`Node::parent`] instead costs `O(depth)` per node
-    /// (#1096).
+    /// depends on what encloses it: Python's `not` / `in` / `is` inside
+    /// the compound `not in` / `is not`, Rust's `||` and `!` inside a
+    /// binary expression rather than a doc-comment marker, the
+    /// namespace identifier in both C++ grammars, Bash's `$name`, and
+    /// iRules' `$var`. Reaching those parents with [`Node::parent`]
+    /// instead costs `O(depth)` per node (#1096).
     fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         HalsteadType::Unknown
     }
@@ -273,7 +274,11 @@ pub(crate) trait Getter {
     /// distinct `"a "` operand and break parity with the long `${a}`
     /// form (#454).
     #[inline]
-    fn get_operand_id<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
+    fn get_operand_id<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> &'a [u8] {
         &code[node.start_byte()..node.end_byte()]
     }
 
