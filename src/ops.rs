@@ -347,7 +347,6 @@ pub(crate) fn ops_inner<T: ParserTrait>(
 )]
 mod tests {
     use super::Ops;
-    use crate::node::Ancestors;
     use crate::{Ast, LANG, Source};
 
     #[inline]
@@ -880,6 +879,7 @@ mod tests {
     #[test]
     fn unit_space_name_is_none_not_anonymous() {
         use crate::getter::Getter;
+        use crate::node::Ancestors;
         use crate::traits::ParserTrait;
         use crate::{RustCode, RustParser, SpaceKind};
 
