@@ -1155,4 +1155,45 @@ mod tests {
         assert!(rust_markers("").is_empty());
         assert!(rust_markers("fn f() {}\n").is_empty());
     }
+
+    /// A comment the parser rejects contributes nothing to the audit,
+    /// and does not stop the walk from collecting the valid markers
+    /// around it.
+    ///
+    /// Two rejections reach [`marker_at`] and both must be silent here.
+    /// `parse_marker` answers `Ok(None)` for an ordinary comment that
+    /// simply is not a marker, and `Err` for one that *looks* like a
+    /// marker but is malformed — an unknown metric name voids the whole
+    /// list (see `native_mixed_valid_and_unknown_metric_voids_whole_marker`).
+    /// The audit is a read-only listing of what *is* a marker; the
+    /// threshold walk is the surface that warns on malformed bodies, so
+    /// dropping them without a diagnostic is the contract, not an
+    /// oversight.
+    ///
+    /// Without this, every comment the collector's tests feed it parses
+    /// successfully, and the reject arm is never taken.
+    #[test]
+    fn collector_skips_comments_that_are_not_valid_markers() {
+        let src = "// an ordinary comment\n\
+                   fn f() {\n\
+                   \x20   // bca: suppress(cyclomatic, no_such_metric)\n\
+                   \x20   // bca: suppress garbage\n\
+                   \x20   // bca: suppress(cognitive)\n\
+                   }\n";
+        let markers = rust_markers(src);
+        assert_eq!(
+            markers.len(),
+            1,
+            "only the well-formed marker is collected, got {markers:?}"
+        );
+        assert_eq!(markers[0].line, 5);
+        assert_eq!(markers[0].function.as_deref(), Some("f"));
+
+        // And a file of nothing but rejected comments yields nothing at
+        // all, rather than a marker with a defaulted scope.
+        assert!(
+            rust_markers("// bca: disable\n// not a marker at all\n").is_empty(),
+            "a rejected marker must not be collected with a fallback scope"
+        );
+    }
 }
