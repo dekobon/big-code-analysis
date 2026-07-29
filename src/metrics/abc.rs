@@ -376,12 +376,14 @@ where
     /// / `Halstead` / `Exit` / `Cognitive` pattern keeps the signature
     /// uniform.
     ///
-    /// `ancestors` is the chain the walker descended through. Most
-    /// languages classify a token by what encloses it somewhere in
-    /// their condition rules — Rust's `<` is a comparison only under a
-    /// `binary_expression`, C's `*` a dereference only under a unary
-    /// one — and reaching that parent with [`Node::parent`] costs
-    /// `O(depth)` per node (#1096).
+    /// `ancestors` is the chain the walker descended through. Nearly
+    /// every language classifies some token by what encloses it: `<`
+    /// and `>` are comparisons only under a binary expression (a type
+    /// -argument list otherwise), and `&&` / `||` reach their operands
+    /// through the enclosing chain node. Reaching that parent with
+    /// [`Node::parent`] costs `O(depth)` per node (#1096). The
+    /// condition-slot walkers take *their* parent as an argument
+    /// instead, because the caller descended from it.
     fn compute<'a>(
         node: &Node<'a>,
         code: &'a [u8],

@@ -155,6 +155,12 @@ impl<'a> Node<'a> {
     /// traversal (see `Walk` in `spaces::compute`) over rediscovering it
     /// upward, and where a predicate genuinely needs an ancestor, take
     /// an [`Ancestors`] rather than calling this (#1084).
+    ///
+    /// As of #1096 no code the metric, `ops`, `bca function`, or
+    /// comment-removal walks reach calls this; the remaining callers are
+    /// `Ancestors` itself (the no-chain fallback), the one-off start
+    /// node of a `dump`, and tests. `rg '\.parent\(\)' src/` is how
+    /// to check that is still true.
     pub(crate) fn parent(&self) -> Option<Node<'a>> {
         self.0.parent().map(Node)
     }
@@ -178,6 +184,14 @@ impl<'a> Node<'a> {
             .is_some_and(|parent| parent.is_child(id))
     }
 
+    /// The sibling immediately before this node.
+    ///
+    /// **`O(depth)`, not `O(1)`**, for [`Node::parent`]'s reason:
+    /// `ts_node__prev_sibling` opens with `ts_node_parent`. Callers on a
+    /// walk should use [`previous_sibling_under`] or
+    /// [`Ancestors::previous_sibling`] instead (#1096).
+    ///
+    /// [`previous_sibling_under`]: Self::previous_sibling_under
     pub(crate) fn previous_sibling(&self) -> Option<Node<'a>> {
         self.0.prev_sibling().map(Node)
     }

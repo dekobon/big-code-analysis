@@ -381,7 +381,7 @@ fn compute_halstead<'a, T: Getter + Checker>(
         HalsteadType::Operand => {
             *halstead_maps
                 .operands
-                .entry(T::get_operand_id(node, code))
+                .entry(T::get_operand_id(node, code, ancestors))
                 .or_insert(0) += 1;
         }
         _ => {}
