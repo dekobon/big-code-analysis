@@ -15,18 +15,17 @@ use crate::*;
 
 // Inspects the content of Java parenthesized expressions
 // and `Not` operators to find unary conditional expressions
-fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn java_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Java::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
 
     // Initializes the flag to true if the container is known to contain a boolean value
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
         TernaryExpression => node
-            .previous_sibling()
+            .previous_sibling_under(parent)
             .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
         _ => false,
     };
@@ -102,7 +101,7 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
                 *conditions += 1.;
             } else {
                 // Checks if the node is a unary condition container
-                java_inspect_container(&node, conditions);
+                java_inspect_container(&node, list_node, conditions);
             }
 
             // Moves the cursor to the next sibling node of the current node
@@ -128,7 +127,7 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // `matches!` guard is needed at the call site.
 fn java_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        java_inspect_container(&child, conditions);
+        java_inspect_container(&child, node, conditions);
     }
 }
 
@@ -186,7 +185,11 @@ fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 // statement switch (`default:`) and arrow switch (`default ->`) both
 // emit the same `Default` token under `switch_label`, so omitting it
 // here covers both forms.
-fn java_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+fn java_count_token_condition<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Java::*;
     match node.kind_id().into() {
         GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
@@ -194,7 +197,7 @@ fn java_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
         }
         // Excludes `<` / `>` used for generic types (`Box<T>`).
         GT | LT => {
-            if let Some(parent) = node.parent()
+            if let Some(parent) = ancestors.parent(node)
                 && !matches!(parent.kind_id().into(), TypeArguments)
             {
                 stats.conditions += 1.;
@@ -205,13 +208,13 @@ fn java_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     true
 }
 
-fn java_walk_for_conditions(node: &Node, stats: &mut Stats) {
+fn java_walk_for_conditions<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
     use Java::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
         // Unary conditions in elements separated by `&&` / `||`.
         AMPAMP | PIPEPIPE => {
-            if let Some(parent) = node.parent() {
+            if let Some(parent) = ancestors.parent(node) {
                 java_count_unary_conditions(&parent, conds);
             }
         }
@@ -241,7 +244,7 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
         match condition.kind_id().into() {
             java_bool_terminal_kinds!() => *conds += 1.,
             ParenthesizedExpression | UnaryExpression => {
-                java_inspect_container(&condition, conds);
+                java_inspect_container(&condition, node, conds);
             }
             _ => {}
         }
@@ -285,7 +288,7 @@ fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
                         stats.conditions += 1.;
                     }
                     ParenthesizedExpression | UnaryExpression => {
-                        java_inspect_container(&cond, &mut stats.conditions);
+                        java_inspect_container(&cond, node, &mut stats.conditions);
                     }
                     _ => {}
                 }
@@ -295,7 +298,7 @@ fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
             stats.conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
-            java_inspect_container(&condition, &mut stats.conditions);
+            java_inspect_container(&condition, node, &mut stats.conditions);
         }
         _ => {}
     }
@@ -315,16 +318,21 @@ impl Abc for JavaCode {
     // one helper. If you add a new arm covering a kind already matched
     // by an earlier helper, the earlier helper's `return` will silently
     // hide it — split the kinds across helpers explicitly instead.
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if java_count_token_assignment(node, stats) {
             return;
         }
         if java_count_token_branch(node, stats) {
             return;
         }
-        if java_count_token_condition(node, stats) {
+        if java_count_token_condition(node, ancestors, stats) {
             return;
         }
-        java_walk_for_conditions(node, stats);
+        java_walk_for_conditions(node, ancestors, stats);
     }
 }

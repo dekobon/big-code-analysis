@@ -30,7 +30,7 @@ impl Loc for JavaCode {
             // is a `multiline_string_fragment` spanning several rows; credit
             // every spanned row to PLOC to match Python's #415 decision (#778).
             StringLiteral => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             AssertStatement | BreakStatement | ContinueStatement | DoStatement
             | EnhancedForStatement | ExpressionStatement | ForStatement | IfStatement

@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for RubyCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Ruby as R;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -27,7 +27,7 @@ impl Loc for RubyCode {
             // body can span several rows; credit every spanned row to PLOC to
             // match Python's #415 decision (#778).
             R::String | R::HeredocBody => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             // LLOC contributors: control-flow constructs, method/class/module
             // declarations, postfix statement modifiers, and the dedicated

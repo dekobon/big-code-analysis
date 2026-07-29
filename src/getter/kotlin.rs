@@ -163,7 +163,7 @@ impl Getter for KotlinCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Kotlin::*;
 
         match node.kind_id().into() {
@@ -206,7 +206,11 @@ impl Getter for KotlinCode {
         }
     }
 
-    fn get_op_type_with_code(node: &Node, code: &[u8]) -> HalsteadType {
+    fn get_op_type_with_code<'a>(
+        node: &Node<'a>,
+        code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> HalsteadType {
         use Kotlin::*;
 
         match node.kind_id().into() {
@@ -237,7 +241,7 @@ impl Getter for KotlinCode {
                     HalsteadType::Operand
                 }
             }
-            _ => Self::get_op_type(node),
+            _ => Self::get_op_type(node, ancestors),
         }
     }
 

@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for CsharpCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Csharp::*;
 
         match node.kind_id().into() {

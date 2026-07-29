@@ -43,7 +43,7 @@ impl Getter for GroovyCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Groovy::*;
         // Mirrors `JavaCode`'s minimal classification — modifiers
         // (`Public`, `Static`, …), declaration keywords (`Class`,

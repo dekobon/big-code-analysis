@@ -98,14 +98,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "emit_check_results"
-start_line = 560
+start_line = 564
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "filter_by_baseline"
-start_line = 371
+start_line = 375
 metric = "nargs"
 value = 8.0
 
@@ -632,35 +632,56 @@ path = "src/getter/bash.rs"
 qualified = "BashCode::get_op_type"
 start_line = 31
 metric = "halstead.effort"
-value = 54681.01625588078
+value = 64170.027458982564
 
 [[entry]]
 path = "src/getter/elixir.rs"
 qualified = "ElixirCode::get_op_type"
 start_line = 142
 metric = "halstead.effort"
-value = 48241.44928566978
+value = 56464.822908007496
+
+[[entry]]
+path = "src/getter/irules.rs"
+qualified = "IrulesCode::get_op_type"
+start_line = 19
+metric = "halstead.effort"
+value = 53163.06867422894
 
 [[entry]]
 path = "src/getter/perl.rs"
 qualified = "PerlCode::get_op_type"
 start_line = 17
 metric = "halstead.effort"
-value = 65994.57830587434
+value = 76538.42828561828
 
 [[entry]]
 path = "src/getter/php.rs"
 qualified = "PhpCode::get_op_type"
 start_line = 31
 metric = "halstead.effort"
-value = 48279.902911067526
+value = 54691.60133906107
+
+[[entry]]
+path = "src/getter/python.rs"
+qualified = "PythonCode::get_op_type"
+start_line = 16
+metric = "halstead.effort"
+value = 48346.66496041094
 
 [[entry]]
 path = "src/getter/ruby.rs"
 qualified = "RubyCode::get_op_type"
 start_line = 21
 metric = "halstead.effort"
-value = 72634.96827369716
+value = 84039.86210807812
+
+[[entry]]
+path = "src/macros/mod.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 768.0
 
 [[entry]]
 path = "src/metrics/abc/c.rs"
@@ -672,21 +693,28 @@ value = 15.0
 [[entry]]
 path = "src/metrics/abc/cpp.rs"
 qualified = "CppCode::compute"
-start_line = 105
+start_line = 104
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc/go.rs"
 qualified = "GoCode::compute"
-start_line = 95
+start_line = 94
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
+path = "src/metrics/abc/go.rs"
+qualified = "GoCode::compute"
+start_line = 94
+metric = "halstead.effort"
+value = 50933.14135135399
+
+[[entry]]
 path = "src/metrics/abc/kotlin.rs"
 qualified = "KotlinCode::compute"
-start_line = 154
+start_line = 156
 metric = "cyclomatic"
 value = 16.0
 
@@ -707,21 +735,28 @@ value = 16.0
 [[entry]]
 path = "src/metrics/abc/perl.rs"
 qualified = "PerlCode::compute"
-start_line = 200
+start_line = 199
 metric = "halstead.effort"
-value = 67862.8313802447
+value = 71163.29612014526
 
 [[entry]]
 path = "src/metrics/abc/perl.rs"
 qualified = "perl_inspect_container"
 start_line = 55
 metric = "halstead.effort"
-value = 53345.08959628053
+value = 48499.6860937902
+
+[[entry]]
+path = "src/metrics/abc/php.rs"
+qualified = "php_count_unary_conditions"
+start_line = 95
+metric = "cognitive"
+value = 25.0
 
 [[entry]]
 path = "src/metrics/abc/rust.rs"
 qualified = "RustCode::compute"
-start_line = 128
+start_line = 127
 metric = "cyclomatic"
 value = 16.0
 
@@ -807,26 +842,47 @@ path = "src/metrics/loc/perl.rs"
 qualified = "PerlCode::compute"
 start_line = 17
 metric = "halstead.effort"
-value = 53115.849304792464
+value = 54303.845454620816
+
+[[entry]]
+path = "src/metrics/loc/shared.rs"
+qualified = "add_multiline_string_ploc"
+start_line = 136
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/npa/csharp.rs"
+qualified = "CsharpCode::compute"
+start_line = 12
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/npa/go.rs"
+qualified = "GoCode::compute"
+start_line = 42
+metric = "nargs"
+value = 7.0
 
 [[entry]]
 path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
 start_line = 12
 metric = "halstead.effort"
-value = 49615.191188139346
+value = 52227.844233305164
 
 [[entry]]
 path = "src/metrics/npa/php.rs"
 qualified = "PhpCode::compute"
 start_line = 12
 metric = "nargs"
-value = 9.0
+value = 10.0
 
 [[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 297
+start_line = 302
 metric = "nexits"
 value = 6.0
 
@@ -835,28 +891,28 @@ path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
 start_line = 12
 metric = "halstead.effort"
-value = 64139.86021318563
+value = 65898.2477704053
 
 [[entry]]
 path = "src/metrics/npm/go.rs"
 qualified = "GoCode::compute"
 start_line = 12
 metric = "nargs"
-value = 9.0
+value = 10.0
 
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 75
 metric = "nom"
-value = 33.0
+value = 34.0
 
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
 start_line = 242
 metric = "halstead.effort"
-value = 73943.73373291224
+value = 74781.76504632097
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -954,7 +1010,7 @@ path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
 start_line = 218
 metric = "halstead.effort"
-value = 58974.691740375616
+value = 62326.31232911353
 
 [[entry]]
 path = "src/spaces/compute.rs"
@@ -966,7 +1022,7 @@ value = 7.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 513
+start_line = 514
 metric = "halstead.effort"
 value = 124910.02765596088
 
@@ -980,7 +1036,7 @@ value = 8.0
 [[entry]]
 path = "src/tools.rs"
 qualified = "read_file_with_eol"
-start_line = 140
+start_line = 141
 metric = "nexits"
 value = 7.0
 

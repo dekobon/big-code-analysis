@@ -33,7 +33,12 @@ use super::*;
 // `self.X = …` lives inside a child `FunctionDefinition` space whose
 // own `npa` stats are not class spaces.
 impl Npa for PythonCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Python::*;
 
         // Gate on `ClassDefinition` specifically: `is_func_space` is

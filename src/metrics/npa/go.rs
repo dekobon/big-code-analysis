@@ -39,7 +39,12 @@ use super::*;
 //   they are method signatures, counted by Npm under
 //   `interface_nm`, not by Npa.
 impl Npa for GoCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Go as G;
 
         if !matches!(node.kind_id().into(), G::StructType) {

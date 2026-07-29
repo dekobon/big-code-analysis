@@ -23,7 +23,12 @@ use super::*;
 // have no Java-style visibility modifier and the runtime exposes every
 // field via pattern matching and `Map.get/2`.
 impl Npa for ElixirCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
 
         // `is_func_space_with_code` is not consulted: it is implied.

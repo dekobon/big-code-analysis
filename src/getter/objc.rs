@@ -72,7 +72,7 @@ impl Getter for ObjcCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Objc::*;
 
         // ObjC is C plus message sends, blocks, and the `@`-directives.

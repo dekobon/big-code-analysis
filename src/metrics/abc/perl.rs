@@ -52,12 +52,11 @@ use crate::*;
 // wrappers (every kind already counted as a branch), and the variable
 // wrappers (`ScalarVariable`, `ArrayVariable`, `HashVariable` plus the
 // access shapes).
-fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn perl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Perl as P;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let parent_kind = parent.kind_id().into();
     let mut has_boolean_content = matches!(
         parent_kind,
@@ -122,7 +121,7 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
 // boolean-literal case.
 fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        perl_inspect_container(&child, conditions);
+        perl_inspect_container(&child, node, conditions);
     }
 }
 
@@ -186,7 +185,7 @@ fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                perl_inspect_container(&node, conditions);
+                perl_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -197,7 +196,12 @@ fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for PerlCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Perl as P;
 
         match node.kind_id().into() {
@@ -242,7 +246,7 @@ impl Abc for PerlCode {
             // outer node has already been counted and this child
             // would double the branch tally.
             P::CallExpressionWithBareword
-                if !node.parent().is_some_and(|p| {
+                if !ancestors.parent(node).is_some_and(|p| {
                     matches!(
                         p.kind_id().into(),
                         P::CallExpressionWithSpacedArgs
@@ -272,7 +276,7 @@ impl Abc for PerlCode {
             // condition (issue #403). Covers `&&`, `||`, `//`,
             // `and`, `or`, `xor`.
             P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     perl_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -298,7 +302,7 @@ impl Abc for PerlCode {
             // conditions). To avoid re-handling condition slots that
             // were already walked through inspect_container, only
             // dispatch when the parent is a call-expression form.
-            P::Array if node.parent().is_some_and(perl_is_call_argument_parent) => {
+            P::Array if ancestors.parent(node).is_some_and(perl_is_call_argument_parent) => {
                 perl_count_unary_conditions(node, &mut stats.conditions);
             }
             _ => {}

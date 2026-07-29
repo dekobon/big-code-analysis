@@ -30,19 +30,18 @@ use crate::*;
 // in an `if` / `while` / ternary slot.
 macro_rules! impl_js_family_unary_walker {
     ($Lang:ident, $inspect:ident, $count:ident, $terminals:path) => {
-        fn $inspect(container_node: &Node, conditions: &mut f64) {
+        fn $inspect(container_node: &Node, parent: &Node, conditions: &mut f64) {
             use $Lang::*;
 
             let mut node = *container_node;
             let mut node_kind = node.kind_id().into();
-            let Some(parent) = node.parent() else { return };
             let parent_kind = parent.kind_id().into();
             let mut has_boolean_content = matches!(
                 parent_kind,
                 BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
             ) || (matches!(parent_kind, TernaryExpression)
                 && node
-                    .previous_sibling()
+                    .previous_sibling_under(parent)
                     .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
 
             loop {
@@ -84,7 +83,7 @@ macro_rules! impl_js_family_unary_walker {
                     if matches!(node_kind, $terminals!()) && matches!(list_kind, BinaryExpression) {
                         *conditions += 1.;
                     } else if node.is_named() {
-                        $inspect(&node, conditions);
+                        $inspect(&node, list_node, conditions);
                     }
 
                     if !cursor.goto_next_sibling() {
@@ -143,7 +142,12 @@ impl_js_family_unary_walker!(
 // expressions (`++`, `--`) always count.
 macro_rules! ts_abc_compute {
     ($lang:ident, $count_unary:path, $inspect_container:path) => {
-        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        fn compute<'a>(
+            node: &Node<'a>,
+            _code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
+            stats: &mut Stats,
+        ) {
             use $lang::*;
 
             match node.kind_id().into() {
@@ -196,7 +200,7 @@ macro_rules! ts_abc_compute {
                 // parameters (`Array<number>`, `class Foo<T> {}`); skip
                 // those, count only comparison usage.
                 GT | LT
-                    if node.parent().is_some_and(|p| {
+                    if ancestors.parent(node).is_some_and(|p| {
                         !matches!(p.kind_id().into(), TypeArguments | TypeParameters)
                     }) =>
                 {
@@ -205,7 +209,7 @@ macro_rules! ts_abc_compute {
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
                 // chain is one condition (issue #403).
                 AMPAMP | PIPEPIPE => {
-                    if let Some(parent) = node.parent() {
+                    if let Some(parent) = ancestors.parent(node) {
                         $count_unary(&parent, &mut stats.conditions);
                     }
                 }
@@ -220,21 +224,21 @@ macro_rules! ts_abc_compute {
                 // parenthesized condition(3), `;`(4)).
                 IfStatement | WhileStatement => {
                     if let Some(cond) = node.child(1) {
-                        $inspect_container(&cond, &mut stats.conditions);
+                        $inspect_container(&cond, node, &mut stats.conditions);
                     }
                 }
                 DoStatement => {
                     // children: `do`(0), body(1), `while`(2),
                     // parenthesized condition(3), `;`(4).
                     if let Some(cond) = node.child(3) {
-                        $inspect_container(&cond, &mut stats.conditions);
+                        $inspect_container(&cond, node, &mut stats.conditions);
                     }
                 }
                 // `return value;` — value at child(1). The bare
                 // `return;` (no value) form has no child(1).
                 ReturnStatement => {
                     if let Some(value) = node.child(1) {
-                        $inspect_container(&value, &mut stats.conditions);
+                        $inspect_container(&value, node, &mut stats.conditions);
                     }
                 }
                 // Method-argument walker for `f(!a, !b)`.
@@ -277,7 +281,12 @@ impl Abc for TsxCode {
 //      assignment of the binding's lifetime.
 macro_rules! js_abc_compute {
     ($lang:ident, $count_unary:path, $inspect_container:path) => {
-        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        fn compute<'a>(
+            node: &Node<'a>,
+            _code: &'a [u8],
+            ancestors: Ancestors<'a, '_>,
+            stats: &mut Stats,
+        ) {
             use $lang::*;
 
             match node.kind_id().into() {
@@ -315,7 +324,7 @@ macro_rules! js_abc_compute {
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
                 // chain is one condition (issue #403).
                 AMPAMP | PIPEPIPE => {
-                    if let Some(parent) = node.parent() {
+                    if let Some(parent) = ancestors.parent(node) {
                         $count_unary(&parent, &mut stats.conditions);
                     }
                 }
@@ -324,19 +333,19 @@ macro_rules! js_abc_compute {
                 // arm-block for the per-child-index rationale.
                 IfStatement | WhileStatement => {
                     if let Some(cond) = node.child(1) {
-                        $inspect_container(&cond, &mut stats.conditions);
+                        $inspect_container(&cond, node, &mut stats.conditions);
                     }
                 }
                 DoStatement => {
                     // children: `do`(0), body(1), `while`(2),
                     // parenthesized condition(3), `;`(4).
                     if let Some(cond) = node.child(3) {
-                        $inspect_container(&cond, &mut stats.conditions);
+                        $inspect_container(&cond, node, &mut stats.conditions);
                     }
                 }
                 ReturnStatement => {
                     if let Some(value) = node.child(1) {
-                        $inspect_container(&value, &mut stats.conditions);
+                        $inspect_container(&value, node, &mut stats.conditions);
                     }
                 }
                 Arguments => {

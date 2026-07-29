@@ -19,7 +19,12 @@ use super::*;
 // `class_npa` unless explicitly annotated `public` — consistent with
 // Groovy's access semantics (we conservatively follow Java).
 impl Npa for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Groovy::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
@@ -28,7 +33,7 @@ impl Npa for GroovyCode {
 
         match node.kind_id().into() {
             ClassBody | EnumBody => {
-                let is_interface_like = groovy_body_is_interface_like(node);
+                let is_interface_like = groovy_body_is_interface_like(node, ancestors);
 
                 for declaration in node
                     .children()

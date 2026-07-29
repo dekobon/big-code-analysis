@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for GoCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides with
         // the bare enum name in pattern position under `use Go::*;`.
         use Go as G;

@@ -25,7 +25,7 @@ impl Loc for CCode {
             // span multiple rows; credit every spanned row to PLOC to match
             // Python's #415 decision (#778).
             StringLiteral => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             Comment => {
                 add_cloc_lines(stats, start, end);

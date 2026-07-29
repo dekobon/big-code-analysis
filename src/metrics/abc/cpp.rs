@@ -24,17 +24,16 @@ use crate::*;
 // rules) — all render to one base name, so a single string arm covers each
 // family: equivalent to the former `Cpp`-enum match for Cpp, and
 // grammar-agnostic for Mozcpp.
-pub(super) fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
+pub(super) fn cpp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     let mut node = *container_node;
     let mut node_kind = node.kind();
-    let Some(parent) = node.parent() else { return };
     let parent_kind = parent.kind();
     let mut has_boolean_content = matches!(
         parent_kind,
         "binary_expression" | "if_statement" | "while_statement" | "do_statement" | "for_statement"
     ) || (parent_kind == "conditional_expression"
         && node
-            .previous_sibling()
+            .previous_sibling_under(parent)
             .is_none_or(|prev| !matches!(prev.kind(), "?" | ":")));
 
     loop {
@@ -75,7 +74,7 @@ pub(super) fn cpp_inspect_container(container_node: &Node, conditions: &mut f64)
 // the paren wrapper provides the unwrap step.
 pub(super) fn cpp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        cpp_inspect_container(&child, conditions);
+        cpp_inspect_container(&child, node, conditions);
     }
 }
 
@@ -91,7 +90,7 @@ pub(super) fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64)
             if matches!(node_kind, cpp_bool_terminal_kinds!()) && list_kind == "binary_expression" {
                 *conditions += 1.;
             } else if node.is_named() {
-                cpp_inspect_container(&node, conditions);
+                cpp_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -102,7 +101,12 @@ pub(super) fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64)
 }
 
 impl Abc for CppCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Cpp::*;
 
         match node.kind_id().into() {
@@ -173,7 +177,7 @@ impl Abc for CppCode {
             // because the C++ grammar emits the same node under two
             // production-rule paths.
             LT | GT
-                if node.parent().is_some_and(|p| {
+                if ancestors.parent(node).is_some_and(|p| {
                     matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
                 }) =>
             {
@@ -182,7 +186,7 @@ impl Abc for CppCode {
             // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
             // `&&` / `||` chain is one condition (issue #403).
             AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -201,7 +205,7 @@ impl Abc for CppCode {
             // attribute precedes it.
             IfStatement | WhileStatement => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    cpp_inspect_container(&cond, &mut stats.conditions);
+                    cpp_inspect_container(&cond, node, &mut stats.conditions);
                 }
             }
             ReturnStatement => {
@@ -247,6 +251,16 @@ mod tests {
         )
     }
 
+    // `cpp_inspect_container` takes the container's parent explicitly
+    // rather than resolving it, because `Node::parent` costs `O(depth)`
+    // on the metric walk (#1096). These tests reach their container by
+    // search rather than by descent, so the authoritative lookup is what
+    // supplies it here.
+    fn parent_of<'a>(node: &Node<'a>) -> Node<'a> {
+        node.parent()
+            .expect("every fixture below places its container under a parent node")
+    }
+
     // First node in pre-order (document order) whose kind name is `kind`.
     fn first_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
         let mut stack = vec![node];
@@ -286,7 +300,7 @@ mod tests {
         let cond = first_of_kind(p.root(), "condition_clause")
             .expect("`if (...)` produces a condition_clause");
         let mut conditions = 0.;
-        cpp_inspect_container(&cond, &mut conditions);
+        cpp_inspect_container(&cond, &parent_of(&cond), &mut conditions);
         assert_eq!(conditions, 1.);
     }
 
@@ -298,7 +312,7 @@ mod tests {
         let cond = first_of_kind(p.root(), "condition_clause")
             .expect("`if (...)` produces a condition_clause");
         let mut conditions = 0.;
-        cpp_inspect_container(&cond, &mut conditions);
+        cpp_inspect_container(&cond, &parent_of(&cond), &mut conditions);
         assert_eq!(conditions, 1.);
     }
 
@@ -311,7 +325,7 @@ mod tests {
         let cond = first_of_kind(p.root(), "condition_clause")
             .expect("`if (...)` produces a condition_clause");
         let mut conditions = 0.;
-        cpp_inspect_container(&cond, &mut conditions);
+        cpp_inspect_container(&cond, &parent_of(&cond), &mut conditions);
         assert_eq!(conditions, 1.);
     }
 
@@ -325,7 +339,7 @@ mod tests {
         let paren = first_of_kind(p.root(), "parenthesized_expression")
             .expect("`(a)` parses to a parenthesized_expression");
         let mut conditions = 0.;
-        cpp_inspect_container(&paren, &mut conditions);
+        cpp_inspect_container(&paren, &parent_of(&paren), &mut conditions);
         assert_eq!(conditions, 0.);
     }
 }

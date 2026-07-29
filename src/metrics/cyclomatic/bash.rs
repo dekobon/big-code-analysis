@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for BashCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             // Standard-only: individual case arms (matches C-family `case:`
             // treatment — only arms contribute, not the container). The

@@ -30,12 +30,11 @@ use crate::*;
 // binary parent from contributing — only direct operands of a
 // `binary_expression` count as unary conditions per Rule 7. See issue
 // #403.
-fn rust_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn rust_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Rust::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         BinaryExpression | IfExpression | WhileExpression | LetChain | LetChain2
@@ -74,19 +73,19 @@ fn rust_inspect_container(container_node: &Node, conditions: &mut f64) {
 // `rust_inspect_container` unwraps until a terminal is found. Mirrors
 // the `java_count_condition` / `java_inspect_child` helper pair used
 // by `java_walk_ternary` / `java_walk_for_statement`.
-fn rust_count_condition(condition: &Node, conditions: &mut f64) {
+fn rust_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Rust::*;
     let kind = condition.kind_id().into();
     if matches!(kind, rust_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
-        rust_inspect_container(condition, conditions);
+        rust_inspect_container(condition, parent, conditions);
     }
 }
 
 fn rust_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        rust_count_condition(&child, conditions);
+        rust_count_condition(&child, node, conditions);
     }
 }
 
@@ -114,7 +113,7 @@ fn rust_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                rust_inspect_container(&node, conditions);
+                rust_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -125,7 +124,12 @@ fn rust_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for RustCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Rust::*;
 
         match node.kind_id().into() {
@@ -179,8 +183,8 @@ impl Abc for RustCode {
             // `BinaryExpression` parent check disambiguates without
             // needing to inspect siblings.
             LT | GT
-                if node
-                    .parent()
+                if ancestors
+                    .parent(node)
                     .is_some_and(|p| matches!(p.kind_id().into(), BinaryExpression)) =>
             {
                 stats.conditions += 1.;
@@ -212,7 +216,7 @@ impl Abc for RustCode {
             // counts the inner pair and the outer operator's pass
             // counts only the new outer operand. See issue #403.
             AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     rust_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -234,7 +238,7 @@ impl Abc for RustCode {
             // in the return slot is not a unary conditional.
             ReturnExpression => {
                 if let Some(value) = node.child(1) {
-                    rust_inspect_container(&value, &mut stats.conditions);
+                    rust_inspect_container(&value, node, &mut stats.conditions);
                 }
             }
             // Method-argument walker: `m(!a, !b)` contributes one

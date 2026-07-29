@@ -14,7 +14,12 @@ use super::{Abc, Stats};
 use crate::*;
 
 impl Abc for CCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use C::*;
 
         match node.kind_id().into() {
@@ -67,7 +72,7 @@ impl Abc for CCode {
             // because the grammar emits the node under two
             // production-rule paths.
             LT | GT
-                if node.parent().is_some_and(|p| {
+                if ancestors.parent(node).is_some_and(|p| {
                     matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
                 }) =>
             {
@@ -76,7 +81,7 @@ impl Abc for CCode {
             // Fitzpatrick Rule 9 (Figure 3): each operand of a
             // `&&` / `||` chain is one condition (issue #403).
             AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -93,7 +98,7 @@ impl Abc for CCode {
             // value field is always at index 1.
             IfStatement | WhileStatement => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    cpp_inspect_container(&cond, &mut stats.conditions);
+                    cpp_inspect_container(&cond, node, &mut stats.conditions);
                 }
             }
             ReturnStatement => {

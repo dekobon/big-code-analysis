@@ -15,7 +15,7 @@ use crate::macros::{
 };
 use crate::*;
 
-fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn csharp_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Csharp::*;
 
     let mut node = *container_node;
@@ -24,11 +24,10 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
     // Seed the boolean-context flag from the parent: known-boolean
     // contexts (loop / if / binary expression) imply the contained
     // expression evaluates as a condition.
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
         ConditionalExpression => node
-            .previous_sibling()
+            .previous_sibling_under(parent)
             .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)),
         _ => false,
     };
@@ -95,7 +94,7 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else {
-                csharp_inspect_container(&node, conditions);
+                csharp_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -164,7 +163,11 @@ fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     false
 }
 
-fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+fn csharp_count_token_condition<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Csharp::*;
     match node.kind_id().into() {
         // The statement `switch` counts its `Case` arms; the `default:`
@@ -193,7 +196,7 @@ fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
         // delimiters of unsafe function-pointer types
         // (`delegate*<int, int>`).
         GT | LT => {
-            if let Some(parent) = node.parent()
+            if let Some(parent) = ancestors.parent(node)
                 && !matches!(
                     parent.kind_id().into(),
                     TypeArgumentList | TypeParameterList | FunctionPointerType
@@ -207,12 +210,16 @@ fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     true
 }
 
-fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
+fn csharp_walk_for_conditions<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
     use Csharp::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
         AMPAMP | PIPEPIPE => {
-            if let Some(parent) = node.parent() {
+            if let Some(parent) = ancestors.parent(node) {
                 csharp_count_unary_conditions(&parent, conds);
             }
         }
@@ -226,7 +233,7 @@ fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
         // condition silently scored 0. See issue #370.
         IfStatement | WhileStatement => {
             if let Some(condition) = node.child(2) {
-                csharp_count_condition(&condition, conds);
+                csharp_count_condition(&condition, node, conds);
             }
         }
         // tree-sitter-c-sharp `do_statement` shape:
@@ -236,7 +243,7 @@ fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
         // of the #370 bug.
         DoStatement => {
             if let Some(condition) = node.child(4) {
-                csharp_count_condition(&condition, conds);
+                csharp_count_condition(&condition, node, conds);
             }
         }
         // `return value;` — child(1) is the value expression.
@@ -262,7 +269,7 @@ fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
 fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
     let conds = &mut stats.conditions;
     if let Some(condition) = node.child(0) {
-        csharp_count_condition(&condition, conds);
+        csharp_count_condition(&condition, node, conds);
     }
     csharp_inspect_child(node, 2, conds);
     csharp_inspect_child(node, 4, conds);
@@ -285,24 +292,29 @@ fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
     } else if matches!(kind, csharp_paren_expr_kinds!())
         || matches!(kind, csharp_prefix_unary_expr_kinds!())
     {
-        csharp_inspect_container(&condition, &mut stats.conditions);
+        csharp_inspect_container(&condition, node, &mut stats.conditions);
     }
 }
 
 impl Abc for CsharpCode {
     // See `impl Abc for JavaCode` for the short-circuit-chain rationale
     // and the cross-helper-exclusivity invariant.
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if csharp_count_token_assignment(node, stats) {
             return;
         }
         if csharp_count_token_branch(node, stats) {
             return;
         }
-        if csharp_count_token_condition(node, stats) {
+        if csharp_count_token_condition(node, ancestors, stats) {
             return;
         }
-        csharp_walk_for_conditions(node, stats);
+        csharp_walk_for_conditions(node, ancestors, stats);
     }
 }
 
@@ -312,17 +324,17 @@ impl Abc for CsharpCode {
 // `csharp_prefix_unary_expr_kinds!()`.
 fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        csharp_inspect_container(&child, conditions);
+        csharp_inspect_container(&child, node, conditions);
     }
 }
 
-fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
+fn csharp_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     let kind = condition.kind_id().into();
     if matches!(kind, csharp_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, csharp_paren_expr_kinds!())
         || matches!(kind, csharp_prefix_unary_expr_kinds!())
     {
-        csharp_inspect_container(condition, conditions);
+        csharp_inspect_container(condition, parent, conditions);
     }
 }

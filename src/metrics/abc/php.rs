@@ -20,12 +20,11 @@ use crate::*;
 // `VariableName` (`$x`), `Boolean` (the named `true` / `false` wrapper),
 // and every call / member-access / subscript form. `ParenthesizedExpression`
 // wraps `if (...)`-style condition slots.
-fn php_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn php_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Php::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let parent_kind = parent.kind_id().into();
     let mut has_boolean_content = matches!(
         parent_kind,
@@ -66,7 +65,7 @@ fn php_inspect_container(container_node: &Node, conditions: &mut f64) {
 // unwrap handles the boolean-literal case (`if (true)` counts 1).
 fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        php_inspect_container(&child, conditions);
+        php_inspect_container(&child, node, conditions);
     }
 }
 
@@ -130,7 +129,14 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if inner.is_named() {
-                php_inspect_container(&inner, conditions);
+                // `inner`'s parent is the `argument` wrapper when one
+                // was unwrapped above, and the list itself otherwise.
+                let inner_parent = if inner.id() == node.id() {
+                    list_node
+                } else {
+                    &node
+                };
+                php_inspect_container(&inner, inner_parent, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -141,7 +147,12 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for PhpCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Php::*;
 
         match node.kind_id().into() {
@@ -206,7 +217,7 @@ impl Abc for PhpCode {
             // the walker so `connect() or die();`-style idiom counts
             // the same as `connect() || die();`.
             AMPAMP | PIPEPIPE | And | Or | Xor => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     php_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }

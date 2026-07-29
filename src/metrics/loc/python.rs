@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for PythonCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Python::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -36,7 +36,9 @@ impl Loc for PythonCode {
                 add_cloc_lines(stats, start, end);
             }
             String => {
-                let Some(parent) = node.parent() else { return };
+                let Some(parent) = ancestors.parent(node) else {
+                    return;
+                };
                 if let ExpressionStatement = parent.kind_id().into() {
                     // A bare string statement is treated as a docstring and
                     // counted as comment lines (see issue #415 for the related

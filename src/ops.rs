@@ -290,7 +290,7 @@ pub(crate) fn ops_inner<T: ParserTrait>(
         };
 
         if let Some(state) = state_stack.last_mut() {
-            T::Halstead::compute(&node, code, &mut state.halstead_maps);
+            T::Halstead::compute(&node, code, ancestors, &mut state.halstead_maps);
         }
 
         chain.push(node);

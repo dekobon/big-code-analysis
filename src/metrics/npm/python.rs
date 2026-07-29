@@ -29,7 +29,12 @@ use super::*;
 // `ClassDefinition` children of a class body are skipped here — they
 // open their own class space, where their methods will be counted.
 impl Npm for PythonCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Python::*;
 
         // Gate on `ClassDefinition` specifically so the flag is not

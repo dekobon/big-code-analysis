@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for RustCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Rust::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -35,7 +35,7 @@ impl Loc for RustCode {
             // rows; credit every spanned row to PLOC to match Python's #415
             // decision (#778).
             StringLiteral | RawStringLiteral => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             BlockComment => {
                 add_cloc_lines(stats, start, end);

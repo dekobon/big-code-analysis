@@ -14,7 +14,12 @@ use crate::macros::irules_bool_terminal_kinds;
 use crate::*;
 
 impl Abc for IrulesCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             // The `set name value` production is a first-class node.
             Irules::Set => {
@@ -62,7 +67,7 @@ impl Abc for IrulesCode {
             // a `&&`/`||`/`and`/`or` chain is one condition (#403). iRules'
             // keyword forms (`and`/`or`) get the same treatment as `&&`/`||`.
             Irules::AMPAMP | Irules::PIPEPIPE | Irules::And | Irules::Or => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     irules_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -91,10 +96,9 @@ fn irules_command_is_assignment(node: &Node, code: &[u8]) -> bool {
 
 // iRules counterpart of `tcl_inspect_container` (Fitzpatrick Rule 9): a
 // negated bare operand (`!$flag`) inside a boolean chain is one condition.
-fn irules_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn irules_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let has_boolean_content = matches!(parent.kind_id().into(), Irules::BinopExpr);
 
     loop {
@@ -135,7 +139,7 @@ fn irules_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                irules_inspect_container(&node, conditions);
+                irules_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {

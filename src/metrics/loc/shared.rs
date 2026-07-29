@@ -133,9 +133,15 @@ pub(crate) fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize
 // row is already attributed to the parent — and rows `start + 1..=end`
 // (the interior and closing rows) are always inserted.
 #[inline]
-pub(crate) fn add_multiline_string_ploc(node: &Node, stats: &mut Stats, start: usize, end: usize) {
-    if node
-        .parent()
+pub(crate) fn add_multiline_string_ploc(
+    node: &Node,
+    ancestors: Ancestors<'_, '_>,
+    stats: &mut Stats,
+    start: usize,
+    end: usize,
+) {
+    if ancestors
+        .parent(node)
         .is_none_or(|parent| parent.start_row() != start)
     {
         check_comment_ends_on_code_line(stats, start);

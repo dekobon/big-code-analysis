@@ -7,6 +7,7 @@
 #![allow(clippy::enum_glob_use, clippy::if_not_else, clippy::wildcard_imports)]
 
 use crate::checker::Checker;
+use crate::node::{Ancestors, Node};
 use crate::traits::ParserTrait;
 
 /// Size of the fast-path newline buffers. A removed multi-line comment span
@@ -88,18 +89,29 @@ pub(crate) fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
     let mut stack = Vec::new();
     let mut cursor = node.cursor();
     let mut spans = Vec::new();
+    // Ancestor chain of the node currently being visited, root first,
+    // maintained by the same truncate/push rule as
+    // `spaces::compute::metrics_inner` (#1096). Rust's
+    // `is_useful_comment` reads the parent off it; `Node::parent` would
+    // cost `O(depth)` per comment.
+    let mut chain: Vec<Node<'_>> = Vec::new();
 
-    stack.push(node);
+    stack.push((node, 0));
 
-    while let Some(node) = stack.pop() {
-        if T::Checker::is_comment(&node) && !T::Checker::is_useful_comment(&node, parser.code()) {
+    while let Some((node, depth)) = stack.pop() {
+        chain.truncate(depth);
+        let ancestors = Ancestors::checked(&chain, &node);
+        if T::Checker::is_comment(&node)
+            && !T::Checker::is_useful_comment(&node, parser.code(), ancestors)
+        {
             let lines = node.end_row() - node.start_row();
             spans.push((node.start_byte(), node.end_byte(), lines));
         } else {
             cursor.reset(&node);
             if cursor.goto_first_child() {
+                chain.push(node);
                 loop {
-                    stack.push(cursor.node());
+                    stack.push((cursor.node(), depth + 1));
                     if !cursor.goto_next_sibling() {
                         break;
                     }
@@ -158,7 +170,7 @@ fn remove_from_code(code: &[u8], mut spans: Vec<(usize, usize, usize)>) -> Vec<u
 mod tests {
     use std::path::PathBuf;
 
-    use crate::{CcommentParser, ParserTrait};
+    use crate::{CcommentParser, ParserTrait, RustParser};
 
     use super::rm_comments;
 
@@ -242,6 +254,33 @@ mod tests {
             lf_count(&no_comments),
             lf_count(crlf_source),
             "comment removal must preserve the CRLF line count, not drop lines"
+        );
+    }
+
+    /// Rust's `Checker::is_useful_comment` keeps a comment that is a
+    /// macro token — one whose parent is a `token_tree` — because
+    /// deleting it would change what the macro expands. It reads that
+    /// parent off the ancestor chain `rm_comments` maintains rather
+    /// than calling `Node::parent` (#1096), so this pins that the chain
+    /// really reaches the comment: a chain that went stale would report
+    /// the wrong parent and strip the token.
+    #[test]
+    fn rust_keeps_a_macro_token_comment_and_strips_an_ordinary_one() {
+        let path = PathBuf::from("foo.rs");
+        let source =
+            "macro_rules! m {\n    () => {};\n}\nfn f() {\n    m!(/* keep */);\n}\n// strip\n";
+        let parser = RustParser::new(source.as_bytes().to_vec(), &path, None);
+
+        let stripped = rm_comments(&parser).expect("the `// strip` comment is removable");
+        let stripped = String::from_utf8(stripped).expect("stripping preserves UTF-8");
+
+        assert!(
+            stripped.contains("/* keep */"),
+            "a comment inside a macro token tree must survive: {stripped:?}"
+        );
+        assert!(
+            !stripped.contains("// strip"),
+            "an ordinary comment must still be stripped: {stripped:?}"
         );
     }
 }

@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for KotlinCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Kotlin::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -28,7 +28,7 @@ impl Loc for KotlinCode {
             // spanning several rows; credit every spanned row to PLOC to match
             // Python's #415 decision (#778).
             MultilineStringLiteral => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             ForStatement | WhileStatement | DoWhileStatement | IfExpression | WhenExpression
             | TryExpression | ThrowExpression | ReturnExpression | Assignment
@@ -41,7 +41,7 @@ impl Loc for KotlinCode {
             // otherwise fall through to ploc so nested calls still count
             // as physical lines.
             CallExpression | NavigationExpression => {
-                if let Some(parent) = node.parent()
+                if let Some(parent) = ancestors.parent(node)
                     && matches!(
                         parent.kind_id().into(),
                         Block | FunctionBody | SourceFile | CatchBlock | FinallyBlock

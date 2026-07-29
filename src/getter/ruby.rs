@@ -18,7 +18,7 @@ impl Getter for RubyCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Ruby as R;
 
         match node.kind_id().into() {

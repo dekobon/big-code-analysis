@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for PhpCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Php::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -30,7 +30,7 @@ impl Loc for PhpCode {
             // nowdoc bodies already reach PLOC through their inner statement
             // nodes, so they are not routed here.
             EncapsedString | String => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             // Statement kinds that contribute one logical line each.
             ExpressionStatement

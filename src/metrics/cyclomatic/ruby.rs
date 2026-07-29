@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for RubyCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Ruby as R;
 
         match node.kind_id().into() {

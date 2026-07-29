@@ -21,9 +21,12 @@ use super::*;
 // modifier. The dekobon grammar models all of these bodies as
 // `class_body`, so the discriminant lives on the parent. Shared with
 // `impl Npm for GroovyCode` (`metrics::npm`).
-pub(crate) fn groovy_body_is_interface_like(body: &Node) -> bool {
+pub(crate) fn groovy_body_is_interface_like<'a>(
+    body: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
     use Groovy::*;
-    body.parent().is_some_and(|p| {
+    ancestors.parent(body).is_some_and(|p| {
         matches!(
             p.kind_id().into(),
             InterfaceDeclaration | TraitDeclaration | AnnotationTypeDeclaration
@@ -416,8 +419,11 @@ pub(crate) fn python_is_block(node: &Node) -> bool {
 // `class_declaration` node; the `class` / `interface` keyword child
 // disambiguates. A `ClassBody` belongs to an interface iff its parent
 // `class_declaration` has an `interface` keyword child.
-pub(crate) fn kotlin_class_body_is_interface(class_body: &Node) -> bool {
-    class_body.parent().is_some_and(|p| {
+pub(crate) fn kotlin_class_body_is_interface<'a>(
+    class_body: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    ancestors.parent(class_body).is_some_and(|p| {
         matches!(p.kind_id().into(), Kotlin::ClassDeclaration)
             && p.first_child(|id| id == Kotlin::Interface).is_some()
     })

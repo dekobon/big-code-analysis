@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for IrulesCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Unlike Tcl, iRules has a dedicated `switch`/`switch_arm` node: each
         // non-`default` arm is a decision point in standard CCN, while modified
         // CCN collapses the whole `switch` to a single container decision. The

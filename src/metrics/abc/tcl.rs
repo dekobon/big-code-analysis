@@ -52,10 +52,9 @@ const TCL_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
 // `simple_word`, the braced / quoted variants, variable substitutions
 // (`$x`), command substitutions (`[cmd]`), the boolean keyword, and
 // the numeric literal.
-fn tcl_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn tcl_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let has_boolean_content = matches!(parent.kind_id().into(), Tcl::BinopExpr);
 
     loop {
@@ -95,7 +94,7 @@ fn tcl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                tcl_inspect_container(&node, conditions);
+                tcl_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -106,7 +105,12 @@ fn tcl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for TclCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             // The `set` production wraps `set name value` as a
             // first-class node distinct from generic commands.
@@ -142,7 +146,7 @@ impl Abc for TclCode {
             // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||`
             // chain inside an `expr` slot is one condition (issue #403).
             Tcl::AMPAMP | Tcl::PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     tcl_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }

@@ -19,10 +19,10 @@ use super::*;
 /// sibling) and report whether it is `node`. Multi-clause `fn`s thus
 /// skip only their first clause; `case`/`cond`/`with` arms have a
 /// `do_block` parent and never match here (issue #776).
-fn elixir_is_anonymous_fn_head_clause(node: &Node) -> bool {
+fn elixir_is_anonymous_fn_head_clause<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> bool {
     use Elixir as E;
 
-    let Some(parent) = node.parent() else {
+    let Some(parent) = ancestors.parent(node) else {
         return false;
     };
     if parent.kind_id() != E::AnonymousFunction as u16 {
@@ -48,7 +48,12 @@ impl Cyclomatic for ElixirCode {
     // `with`/`try`) contribute modified. Single-branch keyword Calls
     // (`if`/`unless`/`for`/`while`) contribute to both. Short-circuit
     // booleans (`&&`, `||`, `and`, `or`) contribute to both.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Elixir as E;
 
         match node.kind_id().into() {
@@ -68,7 +73,7 @@ impl Cyclomatic for ElixirCode {
             // `fn` are real branches. `case`/`cond`/`with` arms have a
             // `do_block` parent — not `anonymous_function` — so they are
             // unaffected and keep counting.
-            E::StabClause if elixir_is_anonymous_fn_head_clause(node) => {}
+            E::StabClause if elixir_is_anonymous_fn_head_clause(node, ancestors) => {}
             E::StabClause => {
                 stats.cyclomatic += 1.;
             }

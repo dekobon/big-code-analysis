@@ -9,7 +9,12 @@
 use super::*;
 
 impl Npa for CppCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Cpp::*;
 
         // Mark class / struct spaces as class spaces so the metric is
@@ -22,7 +27,7 @@ impl Npa for CppCode {
         if !matches!(node.kind_id().into(), FieldDeclarationList) {
             return;
         }
-        let Some(parent) = node.parent() else {
+        let Some(parent) = ancestors.parent(node) else {
             return;
         };
         // C++ `class` defaults to private; `struct` defaults to public.

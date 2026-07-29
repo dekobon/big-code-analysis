@@ -109,6 +109,11 @@ Read it as follows.
 | `cognitive/nested-fn` | Rust | `increment_function_depth` (#1062) | linear |
 | `nom/nested-declared-function` | JavaScript | shape control for the row below | linear |
 | `nom/nested-arrow` | JavaScript | JS-family `is_func` / `is_closure` (#1088) | linear |
+| `halstead/nested-paren` | Rust | shape control for the row below | linear |
+| `halstead/nested-not` | Rust | `Getter::get_op_type`'s parent read (#1096) | linear |
+| `abc/nested-block` | C | shape control for the row below | linear |
+| `abc/nested-if` | C | the C-family ABC container walker (#1096) | linear |
+| `loc/nested-quote` | Elixir | `loc`'s Elixir catch-all arm (#1096) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -138,25 +143,27 @@ to 6.3 ms at depth 4000 (`k` 1.97 to 1.03), and a walk over the 384-file `pdf.js
 from ~443 ms to ~370 ms. The lesson generalises: a chain-fed predicate
 is only as linear as the primitives it calls.
 
-The remaining `Node::parent` climbs are tracked in
-[#1096][halstead-climbs]. Those are more than a handful and no probe
-covers them. The list below is illustrative, not exhaustive — `rg
-'\.parent\(\)' src/` is the authority:
+The last three probes come from [#1096][halstead-climbs], which
+retired the remaining `Node::parent` calls in the per-language metric
+bodies: the Halstead `get_op_type` getters, every `Abc` impl, and the
+`loc` / `npm` / `npa` / `cyclomatic` / `is_useful_comment` arms.
+`Halstead::compute`, `Abc::compute`, `Npm::compute`, `Npa::compute`,
+`Cyclomatic::compute`, and `Checker::is_useful_comment` gained an
+`Ancestors` parameter there, and the comment-removal walk grew a chain
+of its own. All three probes fitted 1.99-2.00 before and 0.99-1.14
+after; at depth 4000 `halstead/nested-not` dropped from ~478 ms to
+~0.57 ms, `abc/nested-if` from ~808 ms to ~3.3 ms, and
+`loc/nested-quote` from ~9.6 s to ~9.2 ms. Their controls held at
+0.97-1.18 either side.
 
-- the per-node `node.parent()` calls in the Halstead `get_op_type`
-  getters
-  (`src/getter/{python,rust,cpp,mozcpp,bash,irules}.rs`)
-  and in `src/metrics/abc/`;
-- per-node parent checks in several `loc` arms
-  (`src/metrics/loc/{python,lua,kotlin,perl,tcl,irules,elixir}.rs`),
-  in `src/metrics/npa/` and `src/metrics/npm/`, in
-  `src/metrics/cyclomatic/elixir.rs`, and in `src/checker/rust.rs`
-  (`is_useful_comment`, which takes no chain). `Npm::compute` /
-  `Npa::compute` take no ancestor chain either, so this group needs the
-  parameter threaded first. Ruby's `Checker::is_closure` was in this
-  list until #1088 gave `is_closure` a chain — it is the one non-JS
-  predicate of that pair that reads an ancestor, so it now reads it
-  from the chain like the JS family does.
+That change also confirmed #1088's lesson a second time from the other
+direction. The ABC condition walkers reach a slot's parent to decide
+whether it sits in boolean context, and the same walkers ask
+`Node::previous_sibling` whether a ternary's `?` / `:` precedes the
+operand — and `ts_node__prev_sibling` opens with `ts_node_parent`, so
+it carries the same `O(depth)`. Passing the parent in and scanning its
+children (`Node::previous_sibling_under`) was needed for the fix to
+hold on a ternary shape, not only on the shapes the probes render.
 
 The `Ancestors::unknown()` call sites that remain are deliberate rather
 than deferred: the two synthetic-`Unit`-root pushes hand it a node that
@@ -172,7 +179,7 @@ threading, not every `O(depth)` lookup in the crate.
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
 [halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
 
-The five control probes are what make the other readings mean
+The seven control probes are what make the other readings mean
 something.
 
 - `nom/nested-while` and `nom/nested-fn` are **metric** controls.
@@ -180,15 +187,22 @@ something.
   the cognitive-attributable cost of each `cognitive/…` row is its
   difference from the `nom/…` row on the same shape, not the
   `cognitive` reading alone.
-- `loc/nested-while`, `cognitive/nested-while`, and
-  `nom/nested-declared-function` are **shape** controls: each is the same
-  nesting as the ancestor-walk probe it sits next to, with the one node
-  that triggers the walk removed. Before [#1084][parent-walk] each
-  fitted near 1.0 where its counterpart fitted near 2.0, which is what
+- `loc/nested-while`, `cognitive/nested-while`,
+  `nom/nested-declared-function`, `halstead/nested-paren`, and
+  `abc/nested-block` are **shape** controls: each is the same nesting as
+  the ancestor-walk probe it sits next to, with the one node that
+  triggers the walk removed. Before [#1084][parent-walk] each fitted
+  near 1.0 where its counterpart fitted near 2.0, which is what
   attributed the quadratic cost to that call rather than to nesting in
-  general. Now that all eleven fit near 1.0, the pair is what would
+  general. Now that all sixteen fit near 1.0, the pair is what would
   localise a relapse: a probe drifting up while its control holds means
   the ancestor lookup, not the shape.
+
+  `loc/nested-quote` is the one #1096 probe with no shape control of its
+  own: its Elixir arm fires for every named node, so there is no version
+  of the shape with the trigger removed. `nom/nested-quote` — the same
+  source under a metric that does not ask for a parent — is the metric
+  control that stands in for one.
 
 ### Adding a probe
 

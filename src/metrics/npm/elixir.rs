@@ -17,7 +17,12 @@ use super::*;
 // ClassBody pattern but unrolled because Elixir lacks a dedicated
 // "class body" grammar production.
 impl Npm for ElixirCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
 
         // The space-opening node for a `defmodule` Call is the node

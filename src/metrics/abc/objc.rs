@@ -28,7 +28,12 @@ use crate::*;
 //     `@throw` is not a condition (the C++ impl likewise does not count
 //     `throw`).
 impl Abc for ObjcCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Objc::*;
 
         match node.kind_id().into() {
@@ -62,20 +67,20 @@ impl Abc for ObjcCode {
             // a `binary_expression`). ObjC has no templates, but the parent
             // check is kept for parity with the C/C++ impl.
             LT | GT
-                if node.parent().is_some_and(|p| {
+                if ancestors.parent(node).is_some_and(|p| {
                     matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
                 }) =>
             {
                 stats.conditions += 1.;
             }
             AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
             IfStatement | WhileStatement => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    cpp_inspect_container(&cond, &mut stats.conditions);
+                    cpp_inspect_container(&cond, node, &mut stats.conditions);
                 }
             }
             ReturnStatement => {

@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for LuaCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
@@ -25,7 +25,7 @@ impl Loc for LuaCode {
             // credit every spanned row to PLOC to match Python's #415
             // decision (#778).
             Lua::String => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
 
             // Skip tokens that are children of comment nodes.
@@ -37,7 +37,9 @@ impl Loc for LuaCode {
             // string nodes, so we guard on the parent kind to avoid skipping them there.
             Lua::DASHDASH | Lua::CommentContent | Lua::CommentContent2 => {}
             Lua::LBRACKLBRACK | Lua::RBRACKRBRACK
-                if node.parent().is_some_and(|p| p.kind_id() == Lua::Comment) => {}
+                if ancestors
+                    .parent(node)
+                    .is_some_and(|p| p.kind_id() == Lua::Comment) => {}
 
             Lua::Comment => {
                 add_cloc_lines(stats, start, end);
@@ -46,7 +48,7 @@ impl Loc for LuaCode {
             // Standalone assignment (`x = 1`). Skip when nested inside a local variable
             // declaration (`local x = 1`) — the parent VariableDeclaration already counts.
             Lua::AssignmentStatement | Lua::AssignmentStatement2
-                if !node.parent().is_some_and(|p| {
+                if !ancestors.parent(node).is_some_and(|p| {
                     matches!(
                         p.kind_id().into(),
                         Lua::VariableDeclaration

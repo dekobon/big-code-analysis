@@ -36,10 +36,9 @@ use crate::*;
 // child is the `not` keyword. Terminal-bool kinds include identifiers,
 // the three keyword literals (`true`, `false`, `nil`), numbers, and
 // every call / indexing form.
-fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn lua_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         Lua::BinaryExpression | Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement
@@ -79,12 +78,12 @@ fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
 // directly: terminal-bool kinds (Identifier, True, False, Nil,
 // FunctionCall, etc.) count at the top level; `(...)` / `not ...`
 // route through `lua_inspect_container`.
-fn lua_count_condition(condition: &Node, conditions: &mut f64) {
+fn lua_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     let kind = condition.kind_id().into();
     if matches!(kind, lua_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, Lua::ParenthesizedExpression | Lua::UnaryExpression) {
-        lua_inspect_container(condition, conditions);
+        lua_inspect_container(condition, parent, conditions);
     }
 }
 
@@ -102,7 +101,7 @@ fn lua_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                lua_inspect_container(&node, conditions);
+                lua_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -113,7 +112,12 @@ fn lua_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for LuaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
                 stats.assignments += 1.;
@@ -134,7 +138,7 @@ impl Abc for LuaCode {
             // Fitzpatrick Rule 9 walker: each operand of an `and` /
             // `or` chain is one condition (issue #403).
             Lua::And | Lua::Or => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     lua_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -149,7 +153,7 @@ impl Abc for LuaCode {
             // shift positional child indices.
             Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    lua_count_condition(&cond, &mut stats.conditions);
+                    lua_count_condition(&cond, node, &mut stats.conditions);
                 }
             }
             // `return value` — Lua wraps return values in

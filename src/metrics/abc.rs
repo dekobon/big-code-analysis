@@ -375,7 +375,19 @@ where
     /// target lives only in the source text. Matching the `Cyclomatic`
     /// / `Halstead` / `Exit` / `Cognitive` pattern keeps the signature
     /// uniform.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
+    ///
+    /// `ancestors` is the chain the walker descended through. Most
+    /// languages classify a token by what encloses it somewhere in
+    /// their condition rules — Rust's `<` is a comparison only under a
+    /// `binary_expression`, C's `*` a dereference only under a unary
+    /// one — and reaching that parent with [`Node::parent`] costs
+    /// `O(depth)` per node (#1096).
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    );
 }
 
 // Shared Phase-2B helper (issue #403): walk every named child of an
@@ -384,14 +396,21 @@ where
 // classifier. Used for `return value1, value2, ...` arms where the
 // values live one level below the return statement under a list
 // wrapper. The classifier receives only named children so that
-// `,` / `;` / `(` / `)` tokens never reach it.
-pub(super) fn for_each_named_child(list: &Node, conditions: &mut f64, f: fn(&Node, &mut f64)) {
+// `,` / `;` / `(` / `)` tokens never reach it, plus `list` itself as
+// the child's parent — the container classifiers seed their
+// boolean-context flag from the parent kind, and reaching it with
+// `Node::parent` would cost `O(depth)` per node (#1096).
+pub(super) fn for_each_named_child(
+    list: &Node,
+    conditions: &mut f64,
+    f: fn(&Node, &Node, &mut f64),
+) {
     let mut cursor = list.cursor();
     if cursor.goto_first_child() {
         loop {
             let child = cursor.node();
             if child.is_named() {
-                f(&child, conditions);
+                f(&child, list, conditions);
             }
             if !cursor.goto_next_sibling() {
                 break;

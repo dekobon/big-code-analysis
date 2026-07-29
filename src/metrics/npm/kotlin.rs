@@ -15,7 +15,12 @@ use super::*;
 // package-private-by-default), so the "no modifier → public" branch is the
 // common case.
 impl Npm for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Kotlin::*;
 
         // Enables the `Npm` metric for any class-like func_space.
@@ -40,7 +45,7 @@ impl Npm for KotlinCode {
         if !matches!(node.kind_id().into(), ClassBody) {
             return;
         }
-        let is_interface = super::npa::kotlin_class_body_is_interface(node);
+        let is_interface = super::npa::kotlin_class_body_is_interface(node, ancestors);
         // tree-sitter-kotlin elides the `class_member_declaration` and
         // `declaration` rule layers, so function declarations and
         // secondary constructors appear as direct children of

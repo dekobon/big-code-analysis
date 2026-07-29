@@ -243,12 +243,13 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Cyclomatic::compute_with_options(
             node,
             code,
+            ancestors,
             &mut last.metrics.cyclomatic,
             options.count_cyclomatic_try,
         );
     }
     if selected.contains(Metric::Halstead) {
-        T::Halstead::compute(node, code, &mut state.halstead_maps);
+        T::Halstead::compute(node, code, ancestors, &mut state.halstead_maps);
     }
     if selected.contains(Metric::Loc) {
         T::Loc::compute(node, ancestors, &mut last.metrics.loc, func_space);
@@ -266,13 +267,13 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Exit::compute(node, code, &mut last.metrics.nexits);
     }
     if selected.contains(Metric::Abc) {
-        T::Abc::compute(node, code, &mut last.metrics.abc);
+        T::Abc::compute(node, code, ancestors, &mut last.metrics.abc);
     }
     if selected.contains(Metric::Npm) {
-        T::Npm::compute(node, code, &mut last.metrics.npm);
+        T::Npm::compute(node, code, ancestors, &mut last.metrics.npm);
     }
     if selected.contains(Metric::Npa) {
-        T::Npa::compute(node, code, &mut last.metrics.npa);
+        T::Npa::compute(node, code, ancestors, &mut last.metrics.npa);
     }
 }
 

@@ -20,12 +20,11 @@ use crate::*;
 // Negation surfaces as `unary_operator` whose child(0) is the `!` token;
 // parenthesised operands parse as `block`. Both are unwrapped by
 // `elixir_inspect_container`.
-fn elixir_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn elixir_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Elixir as E;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
@@ -86,7 +85,7 @@ fn elixir_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                elixir_inspect_container(&node, conditions);
+                elixir_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -129,7 +128,12 @@ impl Abc for ElixirCode {
     //   nodes; they are still `Call` nodes and so contribute one branch
     //   each, matching the issue's "branches = `|>`, function calls"
     //   instruction.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Elixir as E;
 
         match node.kind_id().into() {
@@ -216,7 +220,7 @@ impl Abc for ElixirCode {
             // `if` Call already contributing one condition, `if a && b ||
             // c` reports 4 — consistent with the cyclomatic count.
             E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     elixir_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }

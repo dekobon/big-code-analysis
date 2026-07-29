@@ -14,7 +14,7 @@ impl Getter for PerlCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Perl as P;
 
         match node.kind_id().into() {

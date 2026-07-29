@@ -66,6 +66,37 @@ pub fn nested_ifs(depth: usize) -> String {
     )
 }
 
+/// Rust: `fn f(x: bool) -> bool { !!!…x }`.
+///
+/// One `!` per nesting level, and `Getter::get_op_type`'s `BANG` arm
+/// asks each one whether its parent is an `inner_doc_comment_marker`
+/// (`//!`). That parent now comes off the walker's ancestor chain;
+/// calling `Node::parent` instead is `O(depth)` each, which made
+/// `Halstead` quadratic in nesting depth for the six grammars whose
+/// operator classification consults a parent (#1096).
+/// [`nested_parens`] is the same nesting through an arm that does not.
+#[must_use]
+pub fn nested_nots(depth: usize) -> String {
+    format!("fn f(x: bool) -> bool {{ {}x }}\n", "!".repeat(depth))
+}
+
+/// C: `int main(){ int x; { x = 1; { x = 1; … } } }`.
+///
+/// The linear control for [`nested_ifs`] under `Abc`: one
+/// `assignment_expression` per nesting level, which the metric counts
+/// from the node's own kind. No `if` / `while` head means no condition
+/// slot, so the C-family container walker — the one that reads the
+/// slot's parent to decide whether it sits in boolean context — is
+/// never entered.
+#[must_use]
+pub fn nested_blocks(depth: usize) -> String {
+    format!(
+        "int main(){{ int x; {}x = 1;{} }}\n",
+        "{ x = 1; ".repeat(depth),
+        "} ".repeat(depth)
+    )
+}
+
 /// C: `int main(){ while (a) { int x; … } }`.
 ///
 /// One `declaration` per nesting level. `loc`'s C-family arm resolves
@@ -342,6 +373,78 @@ pub const PROBES: &[Probe] = &[
                     walker's ancestor chain instead of calling \
                     `Node::parent`. `loc/nested-while` is the same \
                     nesting without a declaration.",
+    },
+    Probe {
+        name: "halstead/nested-paren",
+        lang: LANG::Rust,
+        metrics: &[Metric::Halstead],
+        render: nested_parens,
+        reading: |m| m.halstead.length(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `halstead/nested-not`: the same \
+                    nesting through `get_op_type` arms that classify a \
+                    token from its own kind, with no parent read.",
+    },
+    Probe {
+        name: "halstead/nested-not",
+        lang: LANG::Rust,
+        metrics: &[Metric::Halstead],
+        render: nested_nots,
+        reading: |m| m.halstead.length(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1096: `Getter::get_op_type` asks every `!` token \
+                    whether its parent is an inner-doc-comment marker. \
+                    The answer now indexes the walker's ancestor chain; \
+                    `Node::parent` was `O(depth)` per token across the \
+                    six grammars whose operator classification reads a \
+                    parent. `halstead/nested-paren` is the same nesting \
+                    without the read.",
+    },
+    Probe {
+        name: "abc/nested-block",
+        lang: LANG::C,
+        metrics: &[Metric::Abc],
+        render: nested_blocks,
+        reading: |m| m.abc.assignments_sum(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `abc/nested-if`: the same nesting \
+                    with no condition slot, so the C-family container \
+                    walker is never entered.",
+    },
+    Probe {
+        name: "abc/nested-if",
+        lang: LANG::C,
+        metrics: &[Metric::Abc],
+        render: nested_ifs,
+        reading: |m| m.abc.conditions_sum(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1096: every `if (…)` head routes its condition \
+                    through the C-family container walker, which seeds \
+                    its boolean-context flag from the slot's parent. \
+                    That parent is now passed in by the caller that \
+                    descended from it; resolving it with `Node::parent` \
+                    was `O(depth)` per `if` across all twenty `Abc` \
+                    impls. `abc/nested-block` is the same nesting \
+                    without a condition slot.",
+    },
+    Probe {
+        name: "loc/nested-quote",
+        lang: LANG::Elixir,
+        metrics: &[Metric::Loc],
+        render: nested_quotes,
+        reading: |m| m.loc.lloc(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1096: Elixir's `loc` catch-all arm asks every named \
+                    node whether its parent is a statement container, so \
+                    unlike the other group-3 arms it fires per node \
+                    rather than per construct. The parent now comes off \
+                    the walker's ancestor chain. `nom/nested-quote` is \
+                    the same shape under a metric that does not ask.",
     },
     Probe {
         name: "nom/nested-quote",

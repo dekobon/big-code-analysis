@@ -30,7 +30,12 @@ fn kotlin_count_property_attrs(decl: &Node) -> usize {
 }
 
 impl Npa for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Kotlin::*;
 
         // Enables the `Npa` metric for both class and interface spaces
@@ -63,7 +68,7 @@ impl Npa for KotlinCode {
             // func_space (handled by `spaces.rs`), so they do NOT leak
             // attributes into their outer space.
             ClassBody => {
-                let is_interface = kotlin_class_body_is_interface(node);
+                let is_interface = kotlin_class_body_is_interface(node, ancestors);
                 // tree-sitter-kotlin elides the `class_member_declaration`
                 // and `declaration` rule layers when those rules are pure
                 // forwarding choices, so property declarations appear as

@@ -16,7 +16,7 @@ impl Getter for IrulesCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         match node.kind_id().into() {
             // Anonymous keyword tokens (the `*2` aliases are the keyword
             // literals; the unsuffixed high-id variants are the statement
@@ -116,8 +116,8 @@ impl Getter for IrulesCode {
             // parent check, not a kind exclusion (`Id2` here is a different,
             // non-surfacing token).
             Irules::Id => {
-                if node
-                    .parent()
+                if ancestors
+                    .parent(node)
                     .is_some_and(|p| p.kind_id() == Irules::VariableSubstitution as u16)
                 {
                     HalsteadType::Unknown

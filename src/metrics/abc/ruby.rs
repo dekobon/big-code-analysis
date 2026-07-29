@@ -41,12 +41,11 @@ use crate::*;
 // (`Unary`..`Unary5`) whose child(0) is the `!` token; the condition
 // slot may be wrapped in `parenthesized_statements`. Both are unwrapped
 // by `ruby_inspect_container`.
-fn ruby_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn ruby_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Ruby::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         Binary | Binary2 | Binary3 | If | Unless | While | Until
@@ -105,7 +104,7 @@ fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                ruby_inspect_container(&node, conditions);
+                ruby_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -129,7 +128,7 @@ fn ruby_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // bare predicates reported 0 ABC conditions while Ruby's own cyclomatic
 // counted them, breaking the conditions >= decisions invariant
 // (#469/#473/#456); issue #696.
-fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
+fn ruby_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Ruby::*;
     let kind = condition.kind_id().into();
     if matches!(kind, ruby_bool_terminal_kinds!()) {
@@ -138,12 +137,17 @@ fn ruby_count_condition(condition: &Node, conditions: &mut f64) {
         kind,
         ParenthesizedStatements | Unary | Unary2 | Unary3 | Unary4 | Unary5
     ) {
-        ruby_inspect_container(condition, conditions);
+        ruby_inspect_container(condition, parent, conditions);
     }
 }
 
 impl Abc for RubyCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Ruby::*;
 
         match node.kind_id().into() {
@@ -157,7 +161,7 @@ impl Abc for RubyCode {
             If | Unless | While | Until | IfModifier | UnlessModifier | WhileModifier
             | UntilModifier => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    ruby_count_condition(&cond, &mut stats.conditions);
+                    ruby_count_condition(&cond, node, &mut stats.conditions);
                 }
             }
             Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
@@ -182,7 +186,7 @@ impl Abc for RubyCode {
             // (cross-language policy, #395); the keyword forms `and` / `or`
             // get the same treatment as `&&` / `||`.
             AMPAMP | PIPEPIPE | And | Or => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     ruby_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }

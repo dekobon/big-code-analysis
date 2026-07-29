@@ -139,7 +139,7 @@ impl Getter for ElixirCode {
         Some("<anonymous>")
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Elixir as E;
 
         match node.kind_id().into() {
