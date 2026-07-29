@@ -898,3 +898,43 @@ fn read_eol_propagates_non_eof_io_error() {
     let err = read_file_with_eol(&dir).expect_err("reading a directory must error");
     assert_ne!(err.kind(), std::io::ErrorKind::UnexpectedEof);
 }
+
+#[test]
+fn read_eol_reports_tiny_readable_file_as_none() {
+    // The "≤ 3 bytes is not worth parsing" shortcut still holds for a file
+    // the process can read: `Ok(None)`, no error.
+    let path = write_tmp("bca_read_eol_tiny_readable", b"a;\n");
+    assert_eq!(read_file_with_eol(&path).unwrap(), None);
+}
+
+/// #1060: a tiny file the process cannot read must surface the permission
+/// error, not the `Ok(None)` that means "empty, nothing to do". `stat`
+/// succeeds without read permission, so the size-only shortcut made an
+/// unreadable 3-byte file indistinguishable from an empty one — and
+/// `bca check` counted it as analysed and exited 0 on a tree it never
+/// read. Unix-only: it relies on POSIX permission bits.
+#[cfg(unix)]
+#[test]
+fn read_eol_surfaces_permission_error_for_tiny_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // A private `TempDir` rather than the shared `write_tmp` path: an
+    // unreadable file left behind at a fixed name makes the *next* run of
+    // this test fail in setup, and `TempDir` cleans up even when an
+    // assertion panics. Unlinking a mode-000 file needs write permission
+    // on the directory, not the file, so no chmod-back is required.
+    let dir = tempfile::tempdir().unwrap();
+    // 3 bytes, so the file lands inside the too-small shortcut.
+    let path = dir.path().join("tiny.c");
+    write_file(&path, b"a;\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // Probe the real capability rather than the uid: root ignores mode
+    // bits, and then the scenario cannot be staged at all.
+    if std::fs::read(&path).is_ok() {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    }
+
+    let err = read_file_with_eol(&path).expect_err("an unreadable file must error");
+    assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+}

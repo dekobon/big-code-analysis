@@ -220,6 +220,18 @@ for historical reference.
   subcommands are unchanged for now; extending the same contract past
   `check` is tracked separately.
 
+  `read_file_with_eol` is fixed on the same issue: its "≤ 3 bytes is
+  not worth parsing" shortcut returned `Ok(None)` from a bare `stat`,
+  and `stat` succeeds on a file the process cannot open — so a tiny
+  unreadable file was indistinguishable from an empty one and the
+  permission error the function documents never surfaced. `bca check`
+  on a 3-byte unreadable file therefore exited 0 with no diagnostic at
+  all, not even the per-file `error processing` line. The shortcut now
+  confirms readability by opening the file first; the open is skipped
+  for anything that is not a regular file, so the function still never
+  blocks on a FIFO. Behaviour is unchanged for readable files of any
+  size.
+
 - `Ops::operators` and `Ops::operands` are now sorted in
   byte-lexicographic order, so `bca ops` produces identical bytes for
   identical input (#1091). Both vectors were collected from `HashMap`
