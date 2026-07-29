@@ -181,6 +181,11 @@ struct CheckWalk {
 /// `--no-fail` (which suppresses threshold failures, not broken input)
 /// and neither lets `--write-baseline` record a partial run. Mirrors
 /// `enforce_explicit_unrecognized` on the analyze side.
+///
+/// Both messages are prefixed `bca:` rather than `bca check:`: `bca
+/// init` scaffolds its baseline through `run_check`
+/// (`commands::init::scaffold_baseline`), so naming the subcommand here
+/// misattributes the failure to a command the user never ran.
 fn enforce_usable_input(walk: &CheckWalk) {
     if walk.read_failures > 0 {
         // The consumer has already printed one `error processing <path>:
@@ -193,9 +198,8 @@ fn enforce_usable_input(walk: &CheckWalk) {
             "files"
         };
         die(format_args!(
-            "bca check: {} input {noun} could not be read (see the errors \
-             above); refusing to report a gate result for a partially \
-             analysed input set",
+            "bca: {} input {noun} could not be read (see the errors \
+             above); refusing to trust a partially analysed input set",
             walk.read_failures
         ));
     }
@@ -205,7 +209,7 @@ fn enforce_usable_input(walk: &CheckWalk) {
         // filtering. Treat this as a tool error (exit 1), not a clean
         // pass (exit 0): a typo in `--paths` would otherwise silently
         // green-light CI.
-        die("bca check: no input files matched; check --paths, --include, --exclude");
+        die("bca: no input files matched; check --paths, --include, --exclude");
     }
 }
 

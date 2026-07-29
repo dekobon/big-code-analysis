@@ -194,3 +194,44 @@ fn init_no_baseline_writes_empty_placeholder() {
         "--no-baseline must produce empty file with no entries: {baseline}"
     );
 }
+
+/// #1060: `scaffold_baseline` produces its baseline by driving
+/// `run_check`, so `init` inherits the guard that refuses to trust a
+/// partially-read input set. An unreadable file therefore aborts the
+/// run rather than pinning a baseline that silently under-records the
+/// debt in the file it could not read. Unix-only: it relies on POSIX
+/// permission bits.
+#[cfg(unix)]
+#[test]
+fn init_refuses_to_baseline_a_partially_readable_tree() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), TRIVIAL_RUST).unwrap();
+    let locked = dir.path().join("locked.rs");
+    fs::write(&locked, TRIVIAL_RUST).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Probe the real capability rather than the uid: root ignores mode
+    // bits, and then the scenario cannot be staged at all.
+    if fs::read(&locked).is_ok() {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    }
+
+    cli()
+        .current_dir(dir.path())
+        .args(["init"])
+        .assert()
+        .code(1)
+        // The diagnostic names the tool, not `check` — the user ran
+        // `init` and never invoked a subcommand called `check`.
+        .stderr(predicate::str::contains(
+            "error: bca: 1 input file could not be read",
+        ))
+        .stderr(predicate::str::contains("bca check:").not());
+
+    assert!(
+        !dir.path().join(".bca-baseline.toml").exists(),
+        "a partially-read tree must not produce a baseline"
+    );
+}
