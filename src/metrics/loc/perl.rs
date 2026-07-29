@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for PerlCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Perl as P;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -49,7 +49,7 @@ impl Loc for PerlCode {
             | P::StringQqQuoted
             | P::BacktickQuoted
             | P::CommandQxQuoted => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             P::Comments | P::PodStatement => {
                 add_cloc_lines(stats, start, end);
@@ -80,7 +80,7 @@ impl Loc for PerlCode {
                 // rather than emitting a dedicated statement kind), so it
                 // contributes one LLOC. Then fall through to the same PLOC
                 // bookkeeping the catch-all arm does.
-                if let Some(parent) = node.parent()
+                if let Some(parent) = ancestors.parent(node)
                     && matches!(parent.kind_id().into(), P::SourceFile | P::Block)
                 {
                     stats.lloc.logical_lines += 1;

@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for TsxCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Tsx::*;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -28,7 +28,7 @@ impl Loc for TsxCode {
             // A `template_string` (`` `…` ``) can span multiple rows; credit
             // every spanned row to PLOC to match Python's #415 decision (#778).
             TemplateString => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             // `StatementBlock` is deliberately absent — see MozjsCode::compute
             // (#777). It is a brace grouping, not a logical statement.

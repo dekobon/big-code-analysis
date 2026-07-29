@@ -20,7 +20,12 @@ use super::*;
 // C++ impl's marking step). `@property` accessors are auto-generated and
 // carry no `method_declaration` node, so they are not counted here.
 impl Npm for ObjcCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Objc::*;
 
         let is_interface = matches!(node.kind_id().into(), ClassInterface | ProtocolDeclaration);

@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for TclCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Tcl `switch` is a generic `command`, not a dedicated kind, so it is
         // matched out-of-band before the kind dispatch (issue #467). Mirroring
         // the C-family convention (see `impl_cyclomatic_c_family`): each

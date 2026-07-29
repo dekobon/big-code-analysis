@@ -20,7 +20,12 @@ use super::*;
 // `SpaceKind::Namespace`); they do not contribute to `Npm` so a
 // module-only file reports zero methods.
 impl Npm for RubyCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Ruby::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
@@ -30,7 +35,7 @@ impl Npm for RubyCode {
         if !matches!(node.kind_id().into(), BodyStatement | BodyStatement2) {
             return;
         }
-        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+        let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
         if !matches!(parent_kind, Class | SingletonClass) {

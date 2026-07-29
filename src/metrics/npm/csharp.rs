@@ -51,7 +51,12 @@ fn csharp_member_public_method_count(member: &Node) -> usize {
 }
 
 impl Npm for CsharpCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Csharp::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
@@ -61,7 +66,7 @@ impl Npm for CsharpCode {
         if !matches!(node.kind_id().into(), DeclarationList) {
             return;
         }
-        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+        let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
 

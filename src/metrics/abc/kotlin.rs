@@ -29,10 +29,13 @@ use crate::*;
 // child of a `property_declaration` or `class_parameter`, and that parent
 // must carry a `val` keyword child. A `var`/plain declaration initialiser
 // and any standalone `assignment` return false (they count).
-fn kotlin_eq_initializes_immutable_binding(eq_node: &Node) -> bool {
+fn kotlin_eq_initializes_immutable_binding<'a>(
+    eq_node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
     use Kotlin::*;
 
-    let Some(parent) = eq_node.parent() else {
+    let Some(parent) = ancestors.parent(eq_node) else {
         return false;
     };
     if !matches!(
@@ -51,12 +54,11 @@ fn kotlin_eq_initializes_immutable_binding(eq_node: &Node) -> bool {
 // `unary_expression` whose child(0) is the `!` token; the condition slot
 // may also be wrapped in `parenthesized_expression`. Both are unwrapped
 // by `kotlin_inspect_container` to reach the inner bare operand.
-fn kotlin_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn kotlin_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Kotlin::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     // A parenthesised / negated operand only contributes when it sits in
     // a boolean-evaluating slot. The chain wrapper (`binary_expression`)
     // and the control-flow headers all qualify; a `!`-operator anywhere
@@ -116,7 +118,7 @@ fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                kotlin_inspect_container(&node, conditions);
+                kotlin_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -140,18 +142,23 @@ fn kotlin_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // arm, idiomatic Kotlin bare predicates reported 0 ABC conditions while
 // Kotlin's own cyclomatic counted the decision, breaking the
 // conditions >= decisions invariant (#469/#473/#456/#696); issue #773.
-fn kotlin_count_condition(condition: &Node, conditions: &mut f64) {
+fn kotlin_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Kotlin::*;
     let kind = condition.kind_id().into();
     if matches!(kind, kotlin_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
-        kotlin_inspect_container(condition, conditions);
+        kotlin_inspect_container(condition, parent, conditions);
     }
 }
 
 impl Abc for KotlinCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Kotlin::*;
 
         match node.kind_id().into() {
@@ -173,7 +180,7 @@ impl Abc for KotlinCode {
             // stack cleared on `SEMI` (the pre-#455 design) never cleared:
             // the immutable-`val` sentinel leaked and suppressed every later
             // standalone assignment in the same function (issue #455).
-            EQ if !kotlin_eq_initializes_immutable_binding(node) => {
+            EQ if !kotlin_eq_initializes_immutable_binding(node, ancestors) => {
                 stats.assignments += 1.;
             }
             // Branches: every call expression plus object construction.
@@ -213,7 +220,7 @@ impl Abc for KotlinCode {
             // by the token arms above — so no double-count (#773).
             IfExpression | WhileStatement | DoWhileStatement => {
                 if let Some(condition) = node.child_by_field_name("condition") {
-                    kotlin_count_condition(&condition, &mut stats.conditions);
+                    kotlin_count_condition(&condition, node, &mut stats.conditions);
                 }
             }
             // A `when` entry is a decision point except for the `else ->`
@@ -228,13 +235,16 @@ impl Abc for KotlinCode {
             // else-clause and `when`'s `else ->` entry. Only count it
             // when it belongs to an `if_expression`; the `WhenEntry`
             // wrapper above already covers the `when` case.
-            Else if node.parent().is_some_and(|p| p.kind_id() == IfExpression) => {
+            Else if ancestors
+                .parent(node)
+                .is_some_and(|p| p.kind_id() == IfExpression) =>
+            {
                 stats.conditions += 1.;
             }
             // `<` and `>` may appear as type-argument brackets
             // (`List<Int>`); exclude those by checking the parent kind.
             LT | GT
-                if node.parent().is_some_and(|p| {
+                if ancestors.parent(node).is_some_and(|p| {
                     !matches!(p.kind_id().into(), TypeArguments | TypeParameters)
                 }) =>
             {
@@ -246,7 +256,7 @@ impl Abc for KotlinCode {
             // policy, #395); the walker fires off the operator token and
             // inspects the parent `binary_expression`.
             AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     kotlin_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }

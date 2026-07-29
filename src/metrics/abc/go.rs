@@ -18,12 +18,11 @@ use crate::*;
 // selector access (`r.Field`), index access (`xs[i]`), and type
 // assertions (`x.(*T)`) — every kind whose evaluated value is implicitly
 // boolean in idiomatic Go for `if` / `for` conditions.
-fn go_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn go_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Go as G;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         G::BinaryExpression | G::IfStatement | G::ForStatement
@@ -55,13 +54,13 @@ fn go_inspect_container(container_node: &Node, conditions: &mut f64) {
 }
 
 // Phase-2B (issue #403): condition-slot dispatcher for Go.
-fn go_count_condition(condition: &Node, conditions: &mut f64) {
+fn go_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Go as G;
     let kind = condition.kind_id().into();
     if matches!(kind, go_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, G::ParenthesizedExpression | G::UnaryExpression) {
-        go_inspect_container(condition, conditions);
+        go_inspect_container(condition, parent, conditions);
     }
 }
 
@@ -81,7 +80,7 @@ fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if node.is_named() {
-                go_inspect_container(&node, conditions);
+                go_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -92,7 +91,12 @@ fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for GoCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides
         // with the bare enum name in pattern position under
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
@@ -132,8 +136,8 @@ impl Abc for GoCode {
                 stats.conditions += 1.;
             }
             G::LT | G::GT
-                if node
-                    .parent()
+                if ancestors
+                    .parent(node)
                     .is_some_and(|p| matches!(p.kind_id().into(), G::BinaryExpression)) =>
             {
                 stats.conditions += 1.;
@@ -142,7 +146,7 @@ impl Abc for GoCode {
             // one condition (issue #403). The walker iterates immediate
             // children of the parent `binary_expression`.
             G::AMPAMP | G::PIPEPIPE => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     go_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
@@ -154,7 +158,7 @@ impl Abc for GoCode {
             // child(2) (not child(1), which is the init slot).
             G::IfStatement => {
                 if let Some(cond) = node.child_by_field_name("condition") {
-                    go_count_condition(&cond, &mut stats.conditions);
+                    go_count_condition(&cond, node, &mut stats.conditions);
                 }
             }
             // Phase-2B follow-up (findings.md #1): Go's `for` is its
@@ -168,7 +172,7 @@ impl Abc for GoCode {
             // dedicated guard.
             G::ForStatement => {
                 if let Some(cond) = node.child(1) {
-                    go_count_condition(&cond, &mut stats.conditions);
+                    go_count_condition(&cond, node, &mut stats.conditions);
                 }
             }
             // `return value` — Go wraps the return values in an

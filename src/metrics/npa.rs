@@ -239,7 +239,20 @@ where
     /// it. Languages whose visibility rules are encoded purely in
     /// distinct token kinds (Java's `Public` / `Private`, PHP's
     /// `VisibilityModifier`) ignore the parameter.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
+    ///
+    /// `ancestors` is the chain the walker descended through. The
+    /// C-family, C#, PHP, Ruby, Rust, Kotlin, and Groovy impls read a
+    /// parent from it, because their grammars give a class body, an
+    /// interface body, and (for Rust) a free item the same node kind and
+    /// leave the enclosing declaration to disambiguate. Reaching that
+    /// declaration with [`Node::parent`] costs `O(depth)` per node
+    /// (#1096).
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    );
 }
 
 // Java and Groovy share their grammar tokens for class/interface
@@ -266,7 +279,12 @@ where
 macro_rules! impl_npa_java_like {
     ($code:ty, $lang:ident) => {
         impl Npa for $code {
-            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            fn compute<'a>(
+                node: &Node<'a>,
+                _code: &'a [u8],
+                _ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
                 use $lang::*;
 
                 if Self::is_func_space(node) && stats.is_disabled() {
@@ -350,7 +368,12 @@ pub(crate) use shared::*;
 // belong to `npm`.
 macro_rules! ts_npa_compute {
     ($lang:ident) => {
-        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        fn compute<'a>(
+            node: &Node<'a>,
+            _code: &'a [u8],
+            _ancestors: Ancestors<'a, '_>,
+            stats: &mut Stats,
+        ) {
             use $lang::*;
 
             if Self::is_func_space(node) && stats.is_disabled() {
@@ -467,7 +490,12 @@ pub(crate) use ts_member_is_public;
 
 macro_rules! js_npa_compute {
     ($lang:ident) => {
-        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        fn compute<'a>(
+            node: &Node<'a>,
+            _code: &'a [u8],
+            _ancestors: Ancestors<'a, '_>,
+            stats: &mut Stats,
+        ) {
             use $lang::*;
 
             if Self::is_func_space(node) && stats.is_disabled() {

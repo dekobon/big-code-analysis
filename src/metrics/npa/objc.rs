@@ -54,7 +54,12 @@ fn objc_count_instance_variables(block: &Node) -> (usize, usize) {
 // class node itself is visited — the same point `is_class_space` is
 // marked (mirroring the C++ impl's marking step).
 impl Npa for ObjcCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Objc::*;
 
         let is_interface = matches!(node.kind_id().into(), ClassInterface | ProtocolDeclaration);

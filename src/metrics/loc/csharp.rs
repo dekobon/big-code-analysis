@@ -28,7 +28,7 @@ impl Loc for CsharpCode {
             // several rows; credit every spanned row to PLOC to match Python's
             // #415 decision (#778).
             VerbatimStringLiteral | RawStringLiteral => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             BreakStatement | CheckedStatement | ContinueStatement | DoStatement
             | ExpressionStatement | FixedStatement | ForStatement | ForeachStatement

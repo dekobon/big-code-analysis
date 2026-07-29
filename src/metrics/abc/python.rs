@@ -55,12 +55,11 @@ use crate::*;
 // any `not x and y` / `x == 0 and y` shape. `ParenthesizedExpression`
 // is still unwrapped to catch bare-identifier operands like
 // `if (a) and b:` that the dispatcher would otherwise miss.
-fn python_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn python_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Python::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
-    let Some(parent) = node.parent() else { return };
     let has_boolean_content = matches!(
         parent.kind_id().into(),
         BooleanOperator | IfStatement | WhileStatement | ConditionalExpression
@@ -94,19 +93,19 @@ fn python_inspect_container(container_node: &Node, conditions: &mut f64) {
 //     skipped: each is counted by its own top-level dispatcher arm
 //     (the `Or`/`And` keyword walker, the `NotOperator` arm, and
 //     the `ComparisonOperator` arm at lines `~1334-1390`).
-fn python_count_condition(condition: &Node, conditions: &mut f64) {
+fn python_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Python::*;
     let kind = condition.kind_id().into();
     if matches!(kind, python_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, ParenthesizedExpression) {
-        python_inspect_container(condition, conditions);
+        python_inspect_container(condition, parent, conditions);
     }
 }
 
 fn python_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        python_count_condition(&child, conditions);
+        python_count_condition(&child, node, conditions);
     }
 }
 
@@ -126,7 +125,7 @@ fn python_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else if matches!(node_kind, ParenthesizedExpression) {
-                python_inspect_container(&node, conditions);
+                python_inspect_container(&node, list_node, conditions);
             }
             // NotOperator / ComparisonOperator / nested BooleanOperator
             // children are intentionally not walked here — each has
@@ -141,7 +140,12 @@ fn python_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 }
 
 impl Abc for PythonCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Python::*;
 
         match node.kind_id().into() {
@@ -203,7 +207,7 @@ impl Abc for PythonCode {
             // `Or` keyword tokens live inside a `boolean_operator`
             // wrapper which the walker iterates as the parent list.
             And | Or => {
-                if let Some(parent) = node.parent() {
+                if let Some(parent) = ancestors.parent(node) {
                     python_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }

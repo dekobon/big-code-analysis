@@ -77,7 +77,7 @@ impl Getter for MozcppCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Mozcpp::*;
 
         // `LPAREN2` is a defensive arm (collapsed to `LPAREN` before
@@ -104,7 +104,7 @@ impl Getter for MozcppCode {
             | Signed | Unsigned | Long | Short => HalsteadType::Operator,
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
-            NamespaceIdentifier => match node.parent() {
+            NamespaceIdentifier => match ancestors.parent(node) {
                 Some(parent) if matches!(parent.kind_id().into(), NamespaceDefinition) => {
                     HalsteadType::Operand
                 }

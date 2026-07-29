@@ -8,8 +8,8 @@ impl Checker for RustCode {
         node.kind_id() == Rust::LineComment || node.kind_id() == Rust::BlockComment
     }
 
-    fn is_useful_comment(node: &Node, code: &[u8]) -> bool {
-        if let Some(parent) = node.parent()
+    fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+        if let Some(parent) = ancestors.parent(node)
             && parent.kind_id() == Rust::TokenTree
         {
             // A comment could be a macro token

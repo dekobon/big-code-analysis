@@ -56,7 +56,7 @@ impl Getter for CCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use C::*;
 
         // C's operator alphabet is the C++ set minus the C++-only forms

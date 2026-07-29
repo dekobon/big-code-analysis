@@ -34,7 +34,7 @@ impl Getter for JavaCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Java::*;
         // Some guides that informed grammar choice for Halstead
         // keywords, operators, literals: https://docs.oracle.com/javase/specs/jls/se18/html/jls-3.html#jls-3.12

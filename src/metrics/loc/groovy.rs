@@ -40,7 +40,7 @@ impl Loc for GroovyCode {
             // `string_literal` spanning several rows; credit every spanned row
             // to PLOC to match Python's #415 decision (#778).
             StringLiteral => {
-                add_multiline_string_ploc(node, stats, start, end);
+                add_multiline_string_ploc(node, ancestors, stats, start, end);
             }
             // An `ExpressionStatement` whose only child is a bare
             // `Closure` is a Groovy-specific grammar artifact: the

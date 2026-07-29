@@ -29,7 +29,7 @@ for historical reference.
 - Benchmark harness for the metric walk, in the new workspace member
   `big-code-analysis-bench` (#1068). `cargo bench -p
   big-code-analysis-bench --bench scaling` (or `make bench-scaling`)
-  measures eleven probes at three doubling nesting depths and fits
+  measures sixteen probes at three doubling nesting depths and fits
   `time ~ depth^k`, failing when a probe's exponent leaves its declared
   complexity class; `--bench metric_walk` (`make bench-walk`) runs
   criterion benchmarks per metric over a deterministic, self-reporting
@@ -134,6 +134,27 @@ for historical reference.
 
 ### Performance
 
+- The ancestor chain now reaches the per-language metric bodies, retiring
+  the last per-node `Node::parent` calls in the walk (#1096).
+  `Getter::get_op_type` (and its `_with_code` variant), `Abc::compute`,
+  `Npm::compute`, `Npa::compute`, `Cyclomatic::compute` /
+  `compute_with_options`, and `Checker::is_useful_comment` gained an
+  `Ancestors` parameter; the ABC condition walkers take the slot's
+  parent from the caller that descended from it; and the
+  comment-removal walk behind `bca remove-comments` maintains a chain of
+  its own. All are `pub(crate)`, so the published API is unchanged, and
+  metric values are unchanged for every language. Three new probes and
+  two new controls guard the classes: `halstead/nested-not` fits
+  `time ~ depth^k` at **1.99** before and **0.99** after,
+  `abc/nested-if` at **2.00** and **1.14**, and `loc/nested-quote` at
+  **2.00** and **1.03**. At depth 4000 those three drop from ~478 ms to
+  ~0.57 ms, from ~808 ms to ~3.3 ms, and from ~9.6 s to ~9.2 ms; their
+  `halstead/nested-paren` and `abc/nested-block` shape controls hold at
+  0.97-1.18 either side. Per #1088's lesson, the primitives were checked
+  too: the ABC walkers' `Node::previous_sibling` carried the same
+  `O(depth)` (`ts_node__prev_sibling` opens with `ts_node_parent`) and
+  now scans the known parent's children instead, through the new
+  `Node::previous_sibling_under`.
 - The ancestor chain now reaches the predicates #1084 left climbing, and
   the `ops`, `bca function`, and suppression-marker walks maintain one of
   their own (#1088). The JS-family `Checker::is_func` / `is_closure`

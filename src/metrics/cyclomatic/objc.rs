@@ -18,7 +18,12 @@ use super::*;
 // (issue #284: count keyword tokens, never the statement nodes, or the
 // `For`/`While`/`If` keyword and their `*Statement` wrappers double-count).
 impl Cyclomatic for ObjcCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Objc::*;
         match node.kind_id().into() {
             Case => stats.cyclomatic += 1.,

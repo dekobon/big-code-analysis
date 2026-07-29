@@ -49,7 +49,12 @@ use super::*;
 //   tags, not data fields), mirroring Kotlin's `enum_class_body`
 //   treatment.
 impl Npa for RustCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Rust::*;
 
         // Mark Impl / Trait spaces as class spaces so the metric is
@@ -67,11 +72,11 @@ impl Npa for RustCode {
             // Associated const/static declared in an `impl` block.
             // The current top-of-stack is the Impl space (because we
             // are inside its body), so attribution lands there.
-            ConstItem | StaticItem => rust_count_assoc_const(node, stats),
+            ConstItem | StaticItem => rust_count_assoc_const(node, ancestors, stats),
             // `type Foo;` inside a trait body is an associated type —
             // a placeholder bound that the implementer must supply.
             // Counted as an interface attribute, public by default.
-            AssociatedType => rust_count_assoc_type(node, stats),
+            AssociatedType => rust_count_assoc_type(node, ancestors, stats),
             _ => {}
         }
     }
@@ -131,13 +136,14 @@ fn rust_count_struct_attrs(node: &Node, stats: &mut Stats) {
 // or `trait` body. Impl members count toward the class attribute totals
 // (public if `pub`); trait members are always visible to implementers,
 // so `interface_npa` tracks `interface_na`.
-fn rust_count_assoc_const(node: &Node, stats: &mut Stats) {
+fn rust_count_assoc_const<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
     use Rust::*;
 
-    let Some(parent) = node.parent() else {
+    let mut climb = ancestors.iter(node);
+    let Some((parent, _)) = climb.next() else {
         return;
     };
-    let Some(grand) = parent.parent() else {
+    let Some((grand, _)) = climb.next() else {
         return;
     };
     match grand.kind_id().into() {
@@ -157,13 +163,14 @@ fn rust_count_assoc_const(node: &Node, stats: &mut Stats) {
 
 // Counts a trait-body `associated_type` (`type Foo;`) as one interface
 // attribute, public by default — the implementer must supply it.
-fn rust_count_assoc_type(node: &Node, stats: &mut Stats) {
+fn rust_count_assoc_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>, stats: &mut Stats) {
     use Rust::*;
 
-    let Some(parent) = node.parent() else {
+    let mut climb = ancestors.iter(node);
+    let Some((parent, _)) = climb.next() else {
         return;
     };
-    let Some(grand) = parent.parent() else {
+    let Some((grand, _)) = climb.next() else {
         return;
     };
     if matches!(grand.kind_id().into(), TraitItem)

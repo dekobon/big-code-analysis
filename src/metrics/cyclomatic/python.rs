@@ -9,7 +9,12 @@
 use super::*;
 
 impl Cyclomatic for PythonCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Python::*;
 
         // Python's `match`/`case` (PEP 634, 3.10+) is treated like Rust's

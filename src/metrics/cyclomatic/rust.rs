@@ -9,15 +9,21 @@
 use super::*;
 
 impl Cyclomatic for RustCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         // The default (#409): `?` counts toward cyclomatic, matching
         // upstream rust-code-analysis and every published metric value.
-        Self::compute_with_options(node, code, stats, true);
+        Self::compute_with_options(node, code, ancestors, stats, true);
     }
 
     fn compute_with_options<'a>(
         node: &Node<'a>,
         _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         count_try: bool,
     ) {

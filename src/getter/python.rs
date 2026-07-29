@@ -13,7 +13,7 @@ impl Getter for PythonCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Python::*;
 
         match node.kind_id().into() {
@@ -24,7 +24,7 @@ impl Getter for PythonCode {
             // compounds, the compound itself is classified as the single
             // operator below, so the leaf must yield Unknown — otherwise
             // `a not in b` would count `not` + `in` as two operators (#413).
-            Not | In | Is => match node.parent().map(|p| p.kind_id().into()) {
+            Not | In | Is => match ancestors.parent(node).map(|p| p.kind_id().into()) {
                 Some(Notin | Isnot) => HalsteadType::Unknown,
                 _ => HalsteadType::Operator,
             },
@@ -60,7 +60,8 @@ impl Getter for PythonCode {
             String => {
                 // Docstring / module-level string statement: an `ExpressionStatement`
                 // whose only child is the string. Skip those.
-                let Some(parent) = node.parent() else {
+                let mut climb = ancestors.iter(node);
+                let Some((parent, _)) = climb.next() else {
                     return HalsteadType::Unknown;
                 };
                 if parent.kind_id() == ExpressionStatement && parent.child_count() == 1 {
@@ -74,7 +75,7 @@ impl Getter for PythonCode {
                 // contribution depend on how many literals it was split into
                 // (#695). Suppress every fragment of such a docstring.
                 if parent.kind_id() == ConcatenatedString
-                    && parent.parent().is_some_and(|grandparent| {
+                    && climb.next().is_some_and(|(grandparent, _)| {
                         grandparent.kind_id() == ExpressionStatement
                             && grandparent.child_count() == 1
                     })

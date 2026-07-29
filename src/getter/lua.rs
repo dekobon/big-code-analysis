@@ -15,7 +15,7 @@ impl Getter for LuaCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         match node.kind_id().into() {
             // Control-flow and declaration keywords
             Lua::If

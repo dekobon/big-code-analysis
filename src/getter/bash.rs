@@ -28,7 +28,7 @@ impl Getter for BashCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         match node.kind_id().into() {
             // Control flow and declaration keywords
             Bash::If | Bash::Then | Bash::Fi | Bash::Elif | Bash::Else
@@ -111,8 +111,8 @@ impl Getter for BashCode {
             // `variable_substitution`.
             Bash::VariableName | Bash::VariableName2 | Bash::VariableName3
             | Bash::SpecialVariableName | Bash::SpecialVariableName2 => {
-                if node
-                    .parent()
+                if ancestors
+                    .parent(node)
                     .is_some_and(|p| p.kind_id() == Bash::SimpleExpansion as u16)
                 {
                     HalsteadType::Unknown

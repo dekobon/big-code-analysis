@@ -77,7 +77,7 @@ impl Getter for CppCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Cpp::*;
 
         // `LPAREN2` here (and the `LBRACK2`/`LBRACK3` aliases in the
@@ -112,7 +112,7 @@ impl Getter for CppCode {
             | Signed | Unsigned | Long | Short => HalsteadType::Operator,
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
-            NamespaceIdentifier => match node.parent() {
+            NamespaceIdentifier => match ancestors.parent(node) {
                 Some(parent) if matches!(parent.kind_id().into(), NamespaceDefinition) => {
                     HalsteadType::Operand
                 }

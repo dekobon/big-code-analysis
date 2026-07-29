@@ -13,17 +13,16 @@ use super::{Abc, DeclKind, Stats};
 use crate::macros::groovy_bool_terminal_kinds;
 use crate::*;
 
-fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
+fn groovy_inspect_container(container_node: &Node, parent: &Node, conditions: &mut f64) {
     use Groovy::*;
 
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
 
-    let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoWhileStatement | ForStatement => true,
         TernaryExpression => node
-            .previous_sibling()
+            .previous_sibling_under(parent)
             .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
         _ => false,
     };
@@ -82,7 +81,7 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             {
                 *conditions += 1.;
             } else {
-                groovy_inspect_container(&node, conditions);
+                groovy_inspect_container(&node, list_node, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -107,7 +106,7 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`.
 fn groovy_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
-        groovy_inspect_container(&child, conditions);
+        groovy_inspect_container(&child, node, conditions);
     }
 }
 
@@ -158,7 +157,11 @@ fn groovy_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 // unconditional fallthrough, so cyclomatic counts only the `Case` arms
 // (Groovy shares Java's `impl_cyclomatic_java_like!`, which matches
 // `Case` and never `Default`).
-fn groovy_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+fn groovy_count_token_condition<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) -> bool {
     use Groovy::*;
     match node.kind_id().into() {
         GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
@@ -166,7 +169,7 @@ fn groovy_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
         }
         // Excludes `<` / `>` used for generic types (e.g. `List<String>`).
         GT | LT => {
-            if let Some(parent) = node.parent()
+            if let Some(parent) = ancestors.parent(node)
                 && !matches!(parent.kind_id().into(), TypeArguments)
             {
                 stats.conditions += 1.;
@@ -177,12 +180,16 @@ fn groovy_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     true
 }
 
-fn groovy_walk_for_conditions(node: &Node, stats: &mut Stats) {
+fn groovy_walk_for_conditions<'a>(
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stats: &mut Stats,
+) {
     use Groovy::*;
     let conds = &mut stats.conditions;
     match node.kind_id().into() {
         AMPAMP | PIPEPIPE => {
-            if let Some(parent) = node.parent() {
+            if let Some(parent) = ancestors.parent(node) {
                 groovy_count_unary_conditions(&parent, conds);
             }
         }
@@ -194,14 +201,14 @@ fn groovy_walk_for_conditions(node: &Node, stats: &mut Stats) {
         // wrap the condition in a `parenthesized_expression`).
         IfStatement | WhileStatement => {
             if let Some(condition) = node.child(2) {
-                groovy_count_condition(&condition, conds);
+                groovy_count_condition(&condition, node, conds);
             }
         }
         // dekobon shape: [`do`, body, `while`, `(`, condition, `)`].
         // Condition is at child index 4.
         DoWhileStatement => {
             if let Some(condition) = node.child(4) {
-                groovy_count_condition(&condition, conds);
+                groovy_count_condition(&condition, node, conds);
             }
         }
         ReturnStatement => groovy_inspect_child(node, 1, conds),
@@ -214,7 +221,7 @@ fn groovy_walk_for_conditions(node: &Node, stats: &mut Stats) {
 fn groovy_walk_ternary(node: &Node, stats: &mut Stats) {
     let conds = &mut stats.conditions;
     if let Some(condition) = node.child(0) {
-        groovy_count_condition(&condition, conds);
+        groovy_count_condition(&condition, node, conds);
     }
     groovy_inspect_child(node, 2, conds);
     groovy_inspect_child(node, 4, conds);
@@ -230,35 +237,40 @@ fn groovy_walk_for_statement(node: &Node, stats: &mut Stats) {
         return;
     };
     if !matches!(condition.kind_id().into(), SEMI) {
-        groovy_count_condition(&condition, &mut stats.conditions);
+        groovy_count_condition(&condition, node, &mut stats.conditions);
         return;
     }
     let Some(cond) = node.child(4) else { return };
     if matches!(cond.kind_id().into(), SEMI | RPAREN) {
         stats.conditions += 1.;
     } else {
-        groovy_count_condition(&cond, &mut stats.conditions);
+        groovy_count_condition(&cond, node, &mut stats.conditions);
     }
 }
 
 impl Abc for GroovyCode {
     // See `impl Abc for JavaCode` for the short-circuit-chain rationale
     // and the cross-helper-exclusivity invariant.
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         if groovy_count_token_assignment(node, stats) {
             return;
         }
         if groovy_count_token_branch(node, stats) {
             return;
         }
-        if groovy_count_token_condition(node, stats) {
+        if groovy_count_token_condition(node, ancestors, stats) {
             return;
         }
-        groovy_walk_for_conditions(node, stats);
+        groovy_walk_for_conditions(node, ancestors, stats);
     }
 }
 
-fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
+fn groovy_count_condition(condition: &Node, parent: &Node, conditions: &mut f64) {
     use Groovy::*;
     // Terminal set mirrors the C# fix in #372 (lesson #19):
     // `FieldAccess` (`obj.flag`), `CastExpression` (`v as Boolean` — the
@@ -274,7 +286,7 @@ fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
             *conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
-            groovy_inspect_container(condition, conditions);
+            groovy_inspect_container(condition, parent, conditions);
         }
         _ => {}
     }

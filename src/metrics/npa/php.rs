@@ -9,7 +9,12 @@
 use super::*;
 
 impl Npa for PhpCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Php::*;
 
         // Enables the `Npa` metric if computing stats of a class-like space.
@@ -33,7 +38,7 @@ impl Npa for PhpCode {
         if !matches!(node.kind_id().into(), DeclarationList) {
             return;
         }
-        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+        let Some(parent_kind) = ancestors.parent(node).map(|p| p.kind_id().into()) else {
             return;
         };
         match parent_kind {

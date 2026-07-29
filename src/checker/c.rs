@@ -8,7 +8,7 @@ impl Checker for CCode {
         node.kind_id() == C::Comment
     }
 
-    fn is_useful_comment(node: &Node, code: &[u8]) -> bool {
+    fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         get_aho_corasick_match(&code[node.start_byte()..node.end_byte()])
     }
 

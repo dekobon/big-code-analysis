@@ -33,7 +33,7 @@ impl Getter for RustCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Rust::*;
 
         match node.kind_id().into() {
@@ -42,14 +42,14 @@ impl Getter for RustCode {
             // are not recognized as `ClosureExpression` and their `||` node is identified as `PIPEPIPE` instead of `ClosureParameters`.
             //
             // Similarly, exclude `/` when it corresponds to the third slash in `///` (`OuterDocCommentMarker`)
-            PIPEPIPE | SLASH => match node.parent() {
+            PIPEPIPE | SLASH => match ancestors.parent(node) {
                 Some(parent) if matches!(parent.kind_id().into(), BinaryExpression) => {
                     HalsteadType::Operator
                 }
                 _ => HalsteadType::Unknown,
             },
             // Ensure `!` is counted as an operator unless it belongs to an `InnerDocCommentMarker` `//!`
-            BANG => match node.parent() {
+            BANG => match ancestors.parent(node) {
                 Some(parent) if !matches!(parent.kind_id().into(), InnerDocCommentMarker) => {
                     HalsteadType::Operator
                 }

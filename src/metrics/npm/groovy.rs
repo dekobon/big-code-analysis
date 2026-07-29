@@ -16,7 +16,12 @@ use super::*;
 // section) so both impls share the same parent-kind and modifier
 // heuristic.
 impl Npm for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use crate::metrics::npa::{groovy_body_is_interface_like, groovy_has_explicit_public};
         use Groovy::*;
 
@@ -26,7 +31,7 @@ impl Npm for GroovyCode {
 
         match node.kind_id().into() {
             ClassBody | EnumBody => {
-                let is_interface_like = groovy_body_is_interface_like(node);
+                let is_interface_like = groovy_body_is_interface_like(node, ancestors);
 
                 for method in direct_child_funcs::<Self>(node) {
                     if is_interface_like {

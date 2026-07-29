@@ -14,7 +14,12 @@ use super::*;
 // `case`, the `?:` ternary, and the `&&`/`||` short-circuit operators,
 // with `switch` adding only to the modified count (#284).
 impl Cyclomatic for CCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use C::*;
         match node.kind_id().into() {
             Case => stats.cyclomatic += 1.,

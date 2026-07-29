@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for ElixirCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         use Elixir as E;
 
         let (start, end) = init(node, stats, is_func_space);
@@ -48,7 +48,7 @@ impl Loc for ElixirCode {
             // skip the parent lookup entirely.
             _ => {
                 if node.as_tree_sitter().is_named()
-                    && node.parent().is_some_and(|p| {
+                    && ancestors.parent(node).is_some_and(|p| {
                         matches!(
                             p.kind_id().into(),
                             E::Source

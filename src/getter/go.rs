@@ -16,7 +16,7 @@ impl Getter for GoCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
+    fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         use Go as G;
 
         match node.kind_id().into() {

@@ -247,8 +247,14 @@ pub(crate) trait Checker {
     fn is_comment(_: &Node) -> bool {
         false
     }
+    /// Whether this comment must survive `strip_comments`.
+    ///
+    /// `ancestors` is the chain the comment-removal walk descended
+    /// through. Rust's impl reads the parent to keep a comment that is
+    /// a macro token; reaching it with [`Node::parent`] costs
+    /// `O(depth)` per comment (#1096).
     #[inline]
-    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+    fn is_useful_comment<'a>(_: &Node<'a>, _: &[u8], _: Ancestors<'a, '_>) -> bool {
         false
     }
     #[inline]

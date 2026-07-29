@@ -14,7 +14,7 @@
 use super::*;
 
 impl Loc for TclCode {
-    fn compute(node: &Node, _ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
+    fn compute(node: &Node, ancestors: Ancestors<'_, '_>, stats: &mut Stats, is_func_space: bool) {
         let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
@@ -43,8 +43,8 @@ impl Loc for TclCode {
             Tcl::ExprCmd
             // Commands inside [...] are sub-expressions, not top-level statements.
             | Tcl::Command
-                if node
-                    .parent()
+                if ancestors
+                    .parent(node)
                     .is_none_or(|p| p.kind_id() != Tcl::CommandSubstitution) =>
             {
                 stats.lloc.logical_lines += 1;

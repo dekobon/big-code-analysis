@@ -102,7 +102,7 @@ macro_rules! impl_js_family_get_op_type {
         operand_extras: [$($operand_extra:ident),* $(,)?]
         $(, predefined_void: $predefined_type:ident)? $(,)?
     ) => {
-        fn get_op_type(node: &Node) -> HalsteadType {
+        fn get_op_type<'a>(node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
             use $lang::*;
 
             // TS/TSX only: a `void` return / parameter type is parsed as a
@@ -232,7 +232,16 @@ pub(crate) trait Getter {
         Self::get_space_kind(node)
     }
 
-    fn get_op_type(_node: &Node) -> HalsteadType {
+    /// Classifies `node` as a Halstead operator, operand, or neither.
+    ///
+    /// `ancestors` is the chain the walker descended through. Six
+    /// impls read a parent from it to disambiguate a token whose role
+    /// depends on what encloses it — Python's `not` inside `not in`,
+    /// Rust's `||` inside a binary expression, the C++ namespace
+    /// identifier, Bash's `$name`, and iRules' `$var`. Reaching those
+    /// parents with [`Node::parent`] instead costs `O(depth)` per node
+    /// (#1096).
+    fn get_op_type<'a>(_node: &Node<'a>, _ancestors: Ancestors<'a, '_>) -> HalsteadType {
         HalsteadType::Unknown
     }
 
@@ -244,9 +253,15 @@ pub(crate) trait Getter {
     /// tokens with no structured interpolation node — the distinction
     /// between an interpolated `$name` and a literal `$5` is only
     /// visible in the source bytes (#454).
+    ///
+    /// [`get_op_type`]: Self::get_op_type
     #[inline]
-    fn get_op_type_with_code(node: &Node, _code: &[u8]) -> HalsteadType {
-        Self::get_op_type(node)
+    fn get_op_type_with_code<'a>(
+        node: &Node<'a>,
+        _code: &[u8],
+        ancestors: Ancestors<'a, '_>,
+    ) -> HalsteadType {
+        Self::get_op_type(node, ancestors)
     }
 
     /// Returns the source-byte slice used to key a Halstead *operand*.

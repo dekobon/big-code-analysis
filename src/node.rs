@@ -182,6 +182,25 @@ impl<'a> Node<'a> {
         self.0.prev_sibling().map(Node)
     }
 
+    /// The sibling immediately before this node among `parent`'s
+    /// children, or `None` when this node is `parent`'s first child.
+    ///
+    /// `tree_sitter`'s own `prev_sibling` resolves the parent first
+    /// (`ts_node__prev_sibling` opens with `ts_node_parent`), so it
+    /// carries [`Node::parent`]'s `O(depth)` cost. Callers that already
+    /// hold the parent — every ABC condition walker does, because it
+    /// descended from it — pay a cursor walk over the siblings instead
+    /// (#1096).
+    ///
+    /// A one-element chain is all [`Ancestors::previous_sibling`] reads,
+    /// so this delegates rather than repeating the scan — including its
+    /// fallback for a node that is not among `parent`'s children, which
+    /// is a caller error here but a legitimate chain/node mismatch
+    /// there.
+    pub(crate) fn previous_sibling_under(&self, parent: &Node<'a>) -> Option<Node<'a>> {
+        Ancestors::known(std::slice::from_ref(parent)).previous_sibling(self)
+    }
+
     /// Returns `true` if any direct child has the given grammar
     /// `kind_id`. See #217 for the motivating perf finding from the
     /// JS/TS template-literal hot path.
@@ -1303,6 +1322,48 @@ mod tests {
         assert!(
             Ancestors::known(&[]).previous_sibling(&second).is_none(),
             "an empty chain means `second` is the root, which has no siblings"
+        );
+    }
+
+    /// `previous_sibling_under` must answer exactly what the
+    /// authoritative `Node::previous_sibling` does, for every child of
+    /// the parent — including the first, whose answer is `None` for a
+    /// reason (no earlier sibling) rather than by accident. The ABC
+    /// container walkers depend on this: they seed their
+    /// boolean-context flag from whether a ternary's `?` / `:` precedes
+    /// the operand (#1096).
+    #[test]
+    fn previous_sibling_under_agrees_with_the_authoritative_lookup() {
+        // Anonymous tokens (`(`, `,`, `)`) sit between the named
+        // arguments, so the sequence exercises both kinds of sibling.
+        let code = b"int main() { f(a, b, c); }";
+        let tree = Tree::new::<crate::langs::CCode>(code);
+        let arguments = tree
+            .get_root()
+            .preorder()
+            .find(|n| n.kind() == "argument_list")
+            .expect("fixture has an argument list");
+        let children: Vec<Node<'_>> = arguments.children().collect();
+        assert!(
+            children.len() > 3,
+            "fixture must have several siblings, got {}",
+            children.len()
+        );
+
+        let mut first_is_none = false;
+        for child in &children {
+            let expected = child.previous_sibling().map(|p| p.id());
+            assert_eq!(
+                child.previous_sibling_under(&arguments).map(|p| p.id()),
+                expected,
+                "disagreed on the sibling before a {} node",
+                child.kind()
+            );
+            first_is_none |= expected.is_none();
+        }
+        assert!(
+            first_is_none,
+            "the first child's `None` is part of what this pins"
         );
     }
 

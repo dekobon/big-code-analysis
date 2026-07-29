@@ -13,7 +13,12 @@ use super::{Abc, Stats};
 use crate::*;
 
 impl Abc for BashCode {
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         match node.kind_id().into() {
             // Each `variable_assignment` is one assignment regardless of
             // operator (`=`, `+=`, `-=`, …) — counting the parent node

@@ -8,7 +8,7 @@ impl Checker for PythonCode {
         node.kind_id() == Python::Comment
     }
 
-    fn is_useful_comment(node: &Node, code: &[u8]) -> bool {
+    fn is_useful_comment<'a>(node: &Node<'a>, code: &[u8], _ancestors: Ancestors<'a, '_>) -> bool {
         // comment containing coding info are useful
         node.start_row() <= 1
             && RE

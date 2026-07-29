@@ -25,7 +25,12 @@ use super::*;
 // distinctions are tracked by `npa` / `npm` only as a binary public /
 // private flag.
 impl Npm for RustCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    ) {
         use Rust::*;
 
         // Mark Impl / Trait spaces as class spaces so npm emits.
@@ -41,13 +46,14 @@ impl Npm for RustCode {
         if !matches!(node.kind_id().into(), FunctionItem | FunctionSignatureItem) {
             return;
         }
-        let Some(parent) = node.parent() else {
+        let mut climb = ancestors.iter(node);
+        let Some((parent, _)) = climb.next() else {
             return;
         };
         if !matches!(parent.kind_id().into(), DeclarationList) {
             return;
         }
-        let Some(grand) = parent.parent() else {
+        let Some((grand, _)) = climb.next() else {
             return;
         };
         match grand.kind_id().into() {

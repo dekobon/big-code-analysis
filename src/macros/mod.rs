@@ -37,7 +37,7 @@ macro_rules! get_language {
 // impl.
 macro_rules! implement_metric_trait {
     (Abc, $($code:ident),+) => (
-        implement_metric_trait!(@code_taking Abc, $($code),+);
+        implement_metric_trait!(@code_and_chain_taking Abc, $($code),+);
     );
     (Cognitive, $($code:ident),+) => (
         $(
@@ -59,32 +59,48 @@ macro_rules! implement_metric_trait {
     (Halstead, $($code:ident),+) => (
         $(
            impl Halstead for $code {
-               fn compute<'a>(_node: &Node<'a>, _code: &'a [u8], _halstead_maps: &mut HalsteadMaps<'a>) {}
+               fn compute<'a>(
+                   _node: &Node<'a>,
+                   _code: &'a [u8],
+                   _ancestors: crate::Ancestors<'a, '_>,
+                   _halstead_maps: &mut HalsteadMaps<'a>,
+               ) {}
            }
         )+
     );
     // Internal helper: shared no-op body for traits whose `compute`
-    // signature is `<'a>(&Node<'a>, &'a [u8], &mut Stats)` (Exit,
-    // Cyclomatic). Public arms below delegate here so the body is
-    // written once.
-    (@code_taking $trait:ident, $($code:ident),+) => (
+    // signature is `<'a>(&Node<'a>, &'a [u8], Ancestors<'a, '_>,
+    // &mut Stats)` (Abc, Cyclomatic, Npa, Npm). Public arms below
+    // delegate here so the body is written once.
+    (@code_and_chain_taking $trait:ident, $($code:ident),+) => (
         $(
            impl $trait for $code {
+               fn compute<'a>(
+                   _node: &Node<'a>,
+                   _code: &'a [u8],
+                   _ancestors: crate::Ancestors<'a, '_>,
+                   _stats: &mut Stats,
+               ) {}
+           }
+        )+
+    );
+    // `Exit` is the one metric whose `compute` still takes no ancestor
+    // chain: no language's exit rule asks what encloses the node.
+    (Exit, $($code:ident),+) => (
+        $(
+           impl Exit for $code {
                fn compute<'a>(_node: &Node<'a>, _code: &'a [u8], _stats: &mut Stats) {}
            }
         )+
     );
-    (Exit, $($code:ident),+) => (
-        implement_metric_trait!(@code_taking Exit, $($code),+);
-    );
     (Cyclomatic, $($code:ident),+) => (
-        implement_metric_trait!(@code_taking Cyclomatic, $($code),+);
+        implement_metric_trait!(@code_and_chain_taking Cyclomatic, $($code),+);
     );
     (Npa, $($code:ident),+) => (
-        implement_metric_trait!(@code_taking Npa, $($code),+);
+        implement_metric_trait!(@code_and_chain_taking Npa, $($code),+);
     );
     (Npm, $($code:ident),+) => (
-        implement_metric_trait!(@code_taking Npm, $($code),+);
+        implement_metric_trait!(@code_and_chain_taking Npm, $($code),+);
     );
     (Loc, $($code:ident),+) => (
         $(

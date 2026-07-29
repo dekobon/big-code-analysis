@@ -245,7 +245,12 @@ where
     /// (Elixir's `if`/`unless`/`for`/`while`/`with`/`case`/`cond`,
     /// for example) can identify them by inspecting the call target's
     /// text. Most languages discard the parameter with `_`.
-    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        _ancestors: Ancestors<'a, '_>,
+        stats: &mut Stats,
+    );
 
     /// Like [`Cyclomatic::compute`], but honors per-traversal options.
     ///
@@ -260,11 +265,12 @@ where
     fn compute_with_options<'a>(
         node: &Node<'a>,
         code: &'a [u8],
+        ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
         count_try: bool,
     ) {
         let _ = count_try;
-        Self::compute(node, code, stats);
+        Self::compute(node, code, ancestors, stats);
     }
 }
 
@@ -295,7 +301,12 @@ where
 macro_rules! impl_cyclomatic_c_family {
     ($code:ty, $lang:ident, $ternary:ident, [$($short_circuit:ident),+ $(,)?]) => {
         impl Cyclomatic for $code {
-            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            fn compute<'a>(
+                node: &Node<'a>,
+                _code: &'a [u8],
+                _ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
                 use $lang::*;
                 match node.kind_id().into() {
                     Case => stats.cyclomatic += 1.,
@@ -382,7 +393,12 @@ macro_rules! impl_cyclomatic_js_family {
 macro_rules! impl_cyclomatic_java_like {
     ($code:ty, $lang:ident, [$($extra:ident),* $(,)?]) => {
         impl Cyclomatic for $code {
-            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            fn compute<'a>(
+                node: &Node<'a>,
+                _code: &'a [u8],
+                _ancestors: Ancestors<'a, '_>,
+                stats: &mut Stats,
+            ) {
                 use $lang::*;
 
                 match node.kind_id().into() {
