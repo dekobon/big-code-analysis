@@ -327,7 +327,7 @@ fn check_with_no_matching_files_exits_one() {
         // `error:` prefix (matching clap's own usage errors), never the
         // old capitalized `Error:`.
         .stderr(predicate::str::contains(
-            "error: bca check: no input files matched",
+            "error: bca: no input files matched",
         ))
         .stderr(predicate::str::contains("Error:").not());
 }

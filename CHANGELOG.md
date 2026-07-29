@@ -216,9 +216,14 @@ for historical reference.
   summary line, because a partially analysed gate is not a passing
   gate. Like the pre-existing empty-input guard, the check runs before
   the gate is evaluated and is not suppressed by `--no-fail`, which
-  suppresses threshold failures rather than broken input. Other
-  subcommands are unchanged for now; extending the same contract past
-  `check` is tracked separately.
+  suppresses threshold failures rather than broken input. `bca init`
+  scaffolds its baseline through the same walk, so it inherits the
+  guard and refuses to pin a baseline that would silently under-record
+  the debt in a file it could not read. Both guards' messages are now
+  prefixed `bca:` rather than `bca check:`, which misattributed an
+  `init` failure to a subcommand the user never ran. Other subcommands
+  are unchanged for now; extending the same contract past `check` is
+  tracked separately.
 
   `read_file_with_eol` is fixed on the same issue: its "≤ 3 bytes is
   not worth parsing" shortcut returned `Ok(None)` from a bare `stat`,
