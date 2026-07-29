@@ -1719,3 +1719,104 @@ fn no_cyclomatic_try_alias_warns_but_honors() {
             "`--no-cyclomatic-try` is deprecated; use `--cyclomatic-count-try=false`",
         ));
 }
+
+/// Write `body` to `name` and strip every permission bit so reading it
+/// fails with `EACCES`. Returns `None` when the caller is privileged
+/// enough to read it anyway (root ignores mode bits), because then the
+/// scenario under test cannot be staged at all.
+#[cfg(unix)]
+fn unreadable_fixture(dir: &TempDir, name: &str, body: &str) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = dir.path().join(name);
+    fs::write(&path, body).expect("write fixture");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    // Probe the actual capability rather than the uid: `fs::read`
+    // succeeding here means mode bits do not deny this process.
+    if fs::read(&path).is_ok() {
+        return None;
+    }
+    Some(path.to_str().expect("utf8 fixture path").to_string())
+}
+
+/// #1060: every input file failing to read must exit 1, not 0. The
+/// per-file read error already reached stderr, but the counter that
+/// backs the "no input files matched" guard was bumped before the read
+/// was attempted, so the gate reported success on a run that analysed
+/// nothing.
+#[cfg(unix)]
+#[test]
+fn check_exits_one_when_every_input_file_is_unreadable() {
+    let dir = TempDir::new().unwrap();
+    let Some(path) = unreadable_fixture(&dir, "branchy.rs", BRANCHY_RUST) else {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    };
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("Permission denied"))
+        .stderr(predicate::str::contains("1 input file could not be read"));
+}
+
+/// A partially-read gate is not a passing gate (#1060): the readable
+/// half being clean does not license exit 0 when the other half was
+/// never analysed.
+#[cfg(unix)]
+#[test]
+fn check_exits_one_when_one_input_file_is_unreadable() {
+    let dir = TempDir::new().unwrap();
+    write_fixture(&dir, "clean.rs", TRIVIAL_RUST);
+    if unreadable_fixture(&dir, "locked.rs", BRANCHY_RUST).is_none() {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    }
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "--threshold",
+            "cyclomatic=100",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("1 input file could not be read"));
+}
+
+/// `--no-fail` suppresses threshold failures, not broken input: an
+/// unreadable file is a tool error and still exits 1 (#1060).
+#[cfg(unix)]
+#[test]
+fn check_no_fail_does_not_mask_an_unreadable_input() {
+    let dir = TempDir::new().unwrap();
+    let Some(path) = unreadable_fixture(&dir, "branchy.rs", BRANCHY_RUST) else {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    };
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+            "--no-fail",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("1 input file could not be read"));
+}

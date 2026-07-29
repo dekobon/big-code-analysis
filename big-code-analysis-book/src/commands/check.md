@@ -18,10 +18,19 @@ fails the pipeline before the change lands.
 |------|---------|
 | `0`  | All functions within thresholds (or `--no-fail` set). |
 | `2`  | At least one threshold exceeded. |
-| `1`  | Tool error (bad arguments, unreadable config, unknown metric). |
+| `1`  | Tool error (bad arguments, unreadable config or input, unknown metric). |
 
 `1` is reserved so CI can distinguish a regression (`2`) from a tool
 misconfiguration (`1`).
+
+A gate that could not read all of its input has no verdict to report,
+so two input problems exit `1` rather than `0`: nothing matched
+`--paths` / `--include` / `--exclude`, and any input file that failed
+to read (permission denied, a broken symlink, a path that vanished
+mid-walk). Each unreadable file is named on stderr as `error processing
+<path>: …` before the summary line. Both checks run before the gate is
+evaluated and are not suppressed by `--no-fail`, which suppresses
+threshold failures, not broken input.
 
 ### Tiered exit codes (`--exit-codes=tiered`) {#tiered-exit-codes---exit-codestiered}
 

@@ -1,7 +1,7 @@
 //! Per-file dispatch for the `bca` walker.
 //!
 //! `act_on_file` is the entry point: it runs the shared pre-dispatch
-//! filters (file-count bump, empty-file skip, generated-code skip,
+//! filters (read + file-count bump, empty-file skip, generated-code skip,
 //! language resolution) via `validate_and_resolve_file`, then forwards
 //! to the per-action `dispatch_*` helper that implements one `Action`
 //! variant. The helpers are intentionally one-screen each so a reader
@@ -93,7 +93,8 @@ pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
 }
 
 /// Apply the three pre-dispatch filters every CLI subcommand shares:
-/// bump the `files_dispatched` counter, skip empty files, skip
+/// read the file (bumping `files_dispatched` on success and
+/// `read_failures` on failure), skip empty files, skip
 /// generated files (unless we're producing preproc data — that
 /// pipeline genuinely needs every C/C++ file walked), and resolve
 /// the source language. Returns `Ok(None)` when the file should be
@@ -103,16 +104,27 @@ fn validate_and_resolve_file(
     path: PathBuf,
     cfg: &Config,
 ) -> std::io::Result<Option<(PathBuf, Vec<u8>, LANG)>> {
+    // Read first, count second: a file we could not open was never
+    // analysed, and counting it let the zero-files-matched guard in
+    // `run_check` pass a gate run that read nothing at all (#1060). The
+    // failure is tallied separately so the caller can distinguish
+    // "nothing matched" from "everything was unreadable".
+    let source = read_file_with_eol(&path).inspect_err(|_| {
+        if let Some(counter) = &cfg.read_failures {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+    })?;
+
     if let Some(counter) = &cfg.files_dispatched {
-        // Count every dispatched file, including those skipped below for
-        // empty content / unrecognized language. The user pointed at
-        // these files and the runner walked them — they count as "the
-        // input was non-empty" for the zero-files-matched check in
-        // `run_check`.
+        // Count every file we managed to read, including those skipped
+        // below for empty content / unrecognized language. The user
+        // pointed at these files and the runner walked them — they count
+        // as "the input was non-empty" for the zero-files-matched check
+        // in `run_check`.
         counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    let Some(source) = read_file_with_eol(&path)? else {
+    let Some(source) = source else {
         if cfg.warning {
             warn(format_args!("skipping empty file: {}", path.display()));
         }
@@ -618,6 +630,7 @@ mod tests {
     use super::*;
     use big_code_analysis::SuppressionPolicy;
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
 
     // Minimal `Config` for exercising `dispatch_preproc` in isolation.
     // Only `preproc_lock` and `warning` are load-bearing here; every
@@ -640,6 +653,7 @@ mod tests {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
+            read_failures: None,
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
             explicit_unrecognized: None,
             output_produced: None,
@@ -656,6 +670,82 @@ mod tests {
             color: big_code_analysis::ColorMode::Never,
             selected_metrics: None,
         }
+    }
+
+    // `Config` wired with both post-walk counters `run_check` consults,
+    // so a test can observe exactly which one a given input bumps.
+    fn counting_config(
+        files_dispatched: &Arc<AtomicUsize>,
+        read_failures: &Arc<AtomicUsize>,
+    ) -> Config {
+        Config {
+            files_dispatched: Some(Arc::clone(files_dispatched)),
+            read_failures: Some(Arc::clone(read_failures)),
+            ..preproc_test_config(None)
+        }
+    }
+
+    fn zeroed_counters() -> (Arc<AtomicUsize>, Arc<AtomicUsize>) {
+        (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+    }
+
+    // Regression test for issue #1060: a file the runner cannot read
+    // was never analysed, so it must not bump `files_dispatched` — that
+    // counter is what turns "no input files matched" into a tool error
+    // in `run_check`, and counting an unreadable file made `bca check`
+    // exit 0 on a run that analysed nothing. A missing path stands in
+    // for the reported permission-denied case: both surface as an
+    // `Err` from `read_file_with_eol`, and this form also runs where
+    // POSIX modes do not (Windows, and as root).
+    #[test]
+    fn unreadable_file_counts_as_read_failure_not_dispatched() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (dispatched, failures) = zeroed_counters();
+        let cfg = counting_config(&dispatched, &failures);
+
+        let err = validate_and_resolve_file(dir.path().join("missing.py"), &cfg)
+            .expect_err("a nonexistent path must surface the read error");
+
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(dispatched.load(Ordering::Relaxed), 0);
+        assert_eq!(failures.load(Ordering::Relaxed), 1);
+    }
+
+    // The counterpart to the test above: a file that reads cleanly is
+    // dispatched and leaves the failure tally untouched.
+    #[test]
+    fn readable_file_counts_as_dispatched() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ok.py");
+        std::fs::write(&path, "def f():\n    return 1\n").expect("write fixture");
+        let (dispatched, failures) = zeroed_counters();
+        let cfg = counting_config(&dispatched, &failures);
+
+        let resolved = validate_and_resolve_file(path, &cfg).expect("readable file");
+
+        assert!(resolved.is_some(), "a Python file must resolve a language");
+        assert_eq!(dispatched.load(Ordering::Relaxed), 1);
+        assert_eq!(failures.load(Ordering::Relaxed), 0);
+    }
+
+    // The #1060 reorder moved the `files_dispatched` bump below the
+    // read, which must not narrow it to files that produce metrics: an
+    // empty file is skipped for analysis but still counts as "the user
+    // pointed at something", the semantics `run_check`'s zero-files
+    // guard is written against.
+    #[test]
+    fn empty_file_still_counts_as_dispatched() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("empty.py");
+        std::fs::write(&path, "").expect("write fixture");
+        let (dispatched, failures) = zeroed_counters();
+        let cfg = counting_config(&dispatched, &failures);
+
+        let resolved = validate_and_resolve_file(path, &cfg).expect("readable file");
+
+        assert!(resolved.is_none(), "an empty file is skipped for analysis");
+        assert_eq!(dispatched.load(Ordering::Relaxed), 1);
+        assert_eq!(failures.load(Ordering::Relaxed), 0);
     }
 
     // Regression test for issue #425: a poisoned `preproc_lock` must
