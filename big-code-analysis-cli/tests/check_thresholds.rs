@@ -1770,13 +1770,16 @@ fn check_exits_one_when_every_input_file_is_unreadable() {
 
 /// A partially-read gate is not a passing gate (#1060): the readable
 /// half being clean does not license exit 0 when the other half was
-/// never analysed.
+/// never analysed. Two unreadable files, so this also pins the plural
+/// wording of the summary line.
 #[cfg(unix)]
 #[test]
-fn check_exits_one_when_one_input_file_is_unreadable() {
+fn check_exits_one_when_some_input_files_are_unreadable() {
     let dir = TempDir::new().unwrap();
     write_fixture(&dir, "clean.rs", TRIVIAL_RUST);
-    if unreadable_fixture(&dir, "locked.rs", BRANCHY_RUST).is_none() {
+    if unreadable_fixture(&dir, "locked.rs", BRANCHY_RUST).is_none()
+        || unreadable_fixture(&dir, "locked_too.rs", BRANCHY_RUST).is_none()
+    {
         eprintln!("skipping: this process can read a mode-000 file");
         return;
     }
@@ -1792,7 +1795,7 @@ fn check_exits_one_when_one_input_file_is_unreadable() {
         ])
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("1 input file could not be read"));
+        .stderr(predicate::str::contains("2 input files could not be read"));
 }
 
 /// `--no-fail` suppresses threshold failures, not broken input: an
