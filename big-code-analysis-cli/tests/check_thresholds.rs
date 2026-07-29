@@ -1798,6 +1798,35 @@ fn check_exits_one_when_some_input_files_are_unreadable() {
         .stderr(predicate::str::contains("2 input files could not be read"));
 }
 
+/// #1060, the size class the other tests miss: `read_file_with_eol`
+/// short-circuits files of three bytes or fewer, and `stat` succeeds
+/// without read permission — so a tiny unreadable file used to be
+/// counted as an empty one and the run exited 0 with no diagnostic at
+/// all, not even the per-file `error processing` line.
+#[cfg(unix)]
+#[test]
+fn check_exits_one_when_a_tiny_input_file_is_unreadable() {
+    let dir = TempDir::new().unwrap();
+    let Some(path) = unreadable_fixture(&dir, "tiny.c", "a;\n") else {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    };
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--no-config",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("Permission denied"))
+        .stderr(predicate::str::contains("1 input file could not be read"));
+}
+
 /// `--no-fail` suppresses threshold failures, not broken input: an
 /// unreadable file is a tool error and still exits 1 (#1060).
 #[cfg(unix)]

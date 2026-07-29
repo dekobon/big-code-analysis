@@ -738,9 +738,12 @@ mod tests {
         let counters = Counters::new();
         let cfg = counters.config();
 
-        let resolved = validate_and_resolve_file(path, &cfg).expect("readable file");
+        let (_, source, language) = validate_and_resolve_file(path, &cfg)
+            .expect("readable file")
+            .expect("a Python file must resolve a language");
 
-        assert!(resolved.is_some(), "a Python file must resolve a language");
+        assert_eq!(language, LANG::Python);
+        assert_eq!(source, b"def f():\n    return 1\n");
         assert_eq!(counters.dispatched(), 1);
         assert_eq!(counters.failures(), 0);
     }

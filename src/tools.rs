@@ -138,9 +138,18 @@ fn probe_decodable_prefix(start: &[u8], file_size: usize, probe_len: usize) -> O
 /// read_file_with_eol(&path).unwrap();
 /// ```
 pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    let file_size = fs::metadata(path).map_or(1024 * 1024, |m| m.len() as usize);
+    let meta = fs::metadata(path);
+    let file_size = meta.as_ref().map_or(1024 * 1024, |m| m.len() as usize);
     if file_size <= 3 {
-        // this file is very likely almost empty... so nothing to do on it
+        // Nothing worth parsing this small — but `stat` alone must not
+        // decide it: `stat` succeeds on a file the process cannot open,
+        // so an unreadable tiny file was indistinguishable from an empty
+        // one and `bca check` exited 0 on a tree it never read (#1060).
+        // The open is a discarded readability probe, skipped for
+        // non-regular files because opening a FIFO blocks.
+        if meta.is_ok_and(|m| m.is_file()) {
+            File::open(path)?;
+        }
         return Ok(None);
     }
 

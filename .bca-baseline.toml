@@ -982,7 +982,7 @@ path = "src/tools.rs"
 qualified = "read_file_with_eol"
 start_line = 140
 metric = "nexits"
-value = 6.0
+value = 7.0
 
 [[entry]]
 path = "src/vcs/bus_factor.rs"
