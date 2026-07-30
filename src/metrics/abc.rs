@@ -1820,6 +1820,81 @@ mod tests {
         );
     }
 
+    /// `groovy_walk_for_statement` splits on whether child(3) is the
+    /// `;` of an empty condition slot. The existing `for` test uses
+    /// `i < 10`, which the `LT` token arm counts on its own — the
+    /// walker's own branch never contributes there, so it stayed
+    /// uncovered. A bare-identifier condition has no comparison token,
+    /// so the count can only come from the walker.
+    #[test]
+    fn groovy_for_with_bare_identifier_condition() {
+        check_metrics::<GroovyParser>(
+            "void f(boolean go) {
+                for (int i = 0; go; i++) {
+                    println(i)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // `go` is the whole condition and counts once.
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                // `int i = 0` (EQ) + `i++` (PLUSPLUS) = 2, as in
+                // `groovy_for_with_variable_declaration`.
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    /// The other half of `groovy_walk_for_statement`'s split. With an
+    /// initialiser present the children are
+    /// `for ( init ; cond ; update )`, so child(3) is the separating
+    /// `;` and the condition is read from child(4). Drop the
+    /// initialiser and everything shifts left: child(3) *is* the
+    /// condition, which is the branch the shape above never reaches.
+    #[test]
+    fn groovy_for_with_empty_initializer_reads_the_condition_at_child_three() {
+        check_metrics::<GroovyParser>(
+            "void f(boolean go) {
+                int i = 0
+                for (; go; i++) {
+                    println(i)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                // `int i = 0` (EQ) + `i++` (PLUSPLUS), as above — the
+                // initialiser just moved out of the loop header.
+                assert_eq!(metric.abc.assignments_sum(), 2);
+            },
+        );
+    }
+
+    /// C#'s `csharp_walk_for_statement` reads the loop condition off
+    /// the named `condition` field and routes a parenthesised or
+    /// `!`-prefixed one through `csharp_inspect_container`. Every other
+    /// C# `for` test uses a comparison (`i < n`), which the `LT` token
+    /// arm counts without entering the walker.
+    #[test]
+    fn csharp_for_with_negated_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool done) {
+                    for (int i = 0; !done; i++) { System.Console.WriteLine(i); }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `!done` unwraps to the `done` terminal: one condition,
+                // and no comparison token to double-count it.
+                assert_eq!(metric.abc.conditions_sum(), 1);
+                // `int i = 0` + `i++`.
+                assert_eq!(metric.abc.assignments_sum(), 2);
+                assert_eq!(metric.abc.branches_sum(), 1);
+            },
+        );
+    }
+
     #[test]
     fn groovy_eq_arm_increments_when_no_declaration() {
         // Bare reassignment of an already-declared variable: the
