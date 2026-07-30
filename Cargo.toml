@@ -366,6 +366,36 @@ serde_yaml = "^0.9"
 ciborium = "^0.2"
 toml = "^1.1"
 
+# Optimize dependencies in dev/test builds. The `"*"` glob excludes
+# workspace members, so the crates under `[workspace].members` stay at
+# opt-level 0 — quick to rebuild and to step through. It does cover the
+# vendored `tree-sitter-*` grammar crates, which are `[workspace].exclude`d
+# path dependencies rather than members; that is the point of the stanza.
+#
+# The motivation is specific to this workspace: the tree-sitter runtime and
+# every grammar are C / C++ libraries built by `cc-rs`, which forwards
+# Cargo's `OPT_LEVEL` for the package being built as the compiler's
+# optimization flag (`-O<n>` on GNU / Clang; cc maps 1 to `/O1` and 2 or 3
+# to `/O2` on MSVC, so the level tuned below is not identical on Windows).
+# Left at 0, the parse and the YAML round-trip that together dominate the
+# corpus snapshot suites both run roughly twice as slow.
+#
+# Deliberately 1 rather than 2 (#1121). At 2 the root-crate unit suite —
+# thousands of tiny parses, where the extra inlining grows the hot code
+# more than the optimization saves — measured consistently slower, while 1
+# left it within run-to-run noise and still captured the corpus win
+# (`deepspeech_test` roughly halved). Per-config numbers and their spread
+# are recorded in #1121; they are single-machine, so re-measure before
+# changing this rather than trusting a remembered figure.
+#
+# Cost: a one-time full dependency rebuild, and a cold `cargo test
+# --no-run` that is markedly slower than at opt-level 0.
+[profile.dev.package."*"]
+opt-level = 1
+
+# A named override beats the `"*"` glob above, so these two keep the
+# opt-level 3 insta's own docs recommend for snapshot diffing (added in
+# 8ccffeb2).
 [profile.dev.package.insta]
 opt-level = 3
 
