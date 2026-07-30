@@ -125,7 +125,13 @@ for historical reference.
   `src/test_support.rs`, retiring that file's `loc.sloc` baseline entry
   (#1066); `python_comprehension_clause_nesting` takes the `Nesting`
   struct rather than three positional `usize` parameters, completing
-  the threading started in #1062 (#1070); and `node_text`'s safety
+  the threading started in #1062 (#1070); `increase_nesting` does the
+  same at its 43 call sites across the 19 per-language cognitive
+  modules and the shared `js_cognitive!` macro (23 language impls),
+  which now hold the `Nesting` struct end to end instead of
+  destructuring it into three same-typed locals and rebuilding it, with
+  the `conditional + function_depth + lambda` sum folded into a new
+  `Nesting::total()` (#1086); and `node_text`'s safety
   documentation no longer describes a UTF-8 char-boundary panic that
   cannot occur for a `&[u8]` parameter, with the same-parse
   precondition now stated on the `Getter` trait (#1059). `bca.toml`'s

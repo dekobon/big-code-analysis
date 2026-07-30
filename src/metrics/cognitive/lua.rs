@@ -23,18 +23,14 @@ impl Cognitive for LuaCode {
     ) {
         use Lua::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // `is_else_if` returns true for `ElseifStatement`, but Lua's
             // grammar makes that node a child field of `IfStatement` rather
             // than a nested `if_statement`, so the guard is defensive only.
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `elseif` adds +1 at the same nesting level as the parent `if`,
             // matching how Tcl/Bash handle their dedicated elseif/elif nodes.
@@ -42,7 +38,7 @@ impl Cognitive for LuaCode {
                 increment_branch_extension(stats);
             }
             ForStatement | WhileStatement | RepeatStatement => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `else` increments without nesting. Lua's `break` is always
             // unlabeled (the grammar has no labeled break, and no
@@ -57,9 +53,9 @@ impl Cognitive for LuaCode {
                 compute_booleans(node, stats, And, Or);
             }
             FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[
@@ -70,17 +66,10 @@ impl Cognitive for LuaCode {
                 );
             }
             FunctionDefinition => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

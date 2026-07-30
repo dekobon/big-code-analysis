@@ -23,18 +23,14 @@ impl Cognitive for RustCode {
     ) {
         use Rust::*;
         // Macro expansion is not tracked; macros are treated as opaque tokens.
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfExpression if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForExpression | WhileExpression | LoopExpression | MatchExpression => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             Else /*else-if also */ => {
                 increment_by_one(stats);
@@ -58,22 +54,20 @@ impl Cognitive for RustCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionItem => {
-                nesting = 0;
+                nesting.conditional = 0;
                 // Increase depth function nesting if needed
-                increment_function_depth(&mut depth, node, ancestors, &[FunctionItem]);
+                increment_function_depth(
+                    &mut nesting.function_depth,
+                    node,
+                    ancestors,
+                    &[FunctionItem],
+                );
             }
             ClosureExpression => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

@@ -42,18 +42,14 @@ impl Cognitive for KotlinCode {
     ) {
         use Kotlin::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfExpression if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForStatement | WhileStatement | DoWhileStatement | WhenExpression | CatchBlock => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             Else => {
                 // Per the SonarSource spec, `else ->` inside a `when`
@@ -88,26 +84,19 @@ impl Cognitive for KotlinCode {
                 });
             }
             FunctionDeclaration | SecondaryConstructor => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[FunctionDeclaration, SecondaryConstructor],
                 );
             }
             LambdaLiteral | AnonymousFunction => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

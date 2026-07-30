@@ -23,11 +23,7 @@ impl Cognitive for BashCode {
     ) {
         use Bash::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // `WhileStatement` covers both `while` and `until`; `ForStatement`
@@ -35,7 +31,7 @@ impl Cognitive for BashCode {
             // `for ((…))` arithmetic form. `ElifClause` is a dedicated node,
             // not a nested `if`, so no `is_else_if` check is needed.
             IfStatement | WhileStatement | ForStatement | CStyleForStatement | CaseStatement => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ElifClause | ElseClause => {
                 increment_branch_extension(stats);
@@ -51,18 +47,16 @@ impl Cognitive for BashCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionDefinition => {
-                nesting = 0;
-                increment_function_depth(&mut depth, node, ancestors, &[FunctionDefinition]);
+                nesting.conditional = 0;
+                increment_function_depth(
+                    &mut nesting.function_depth,
+                    node,
+                    ancestors,
+                    &[FunctionDefinition],
+                );
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

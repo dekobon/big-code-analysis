@@ -103,11 +103,7 @@ impl Cognitive for PythonCode {
         use Python::*;
 
         // Get nesting of the parent
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // `else: if x:` chains surface as an `if_statement` wrapped
@@ -115,10 +111,10 @@ impl Cognitive for PythonCode {
             // so the nesting increment lands only on the outer chain
             // (matching the `elif_clause` accounting one arm below).
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForStatement | WhileStatement | ConditionalExpression | MatchStatement => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // A comprehension / generator expression is a loop with an
             // optional filter, so it carries cognitive load just like the
@@ -149,15 +145,8 @@ impl Cognitive for PythonCode {
             | DictionaryComprehension
             | SetComprehension
             | GeneratorExpression => {
-                nesting += python_comprehension_clause_nesting(
-                    node,
-                    Nesting {
-                        conditional: nesting,
-                        function_depth: depth,
-                        lambda,
-                    },
-                    nesting_map,
-                );
+                nesting.conditional +=
+                    python_comprehension_clause_nesting(node, nesting, nesting_map);
             }
             ForInClause | IfClause => {
                 // `nesting` already holds this clause's own value: the
@@ -167,7 +156,7 @@ impl Cognitive for PythonCode {
                 // up. Before #1062 a node read its *parent's* slot, so this
                 // arm had to re-read the slot explicitly; that override is
                 // now a no-op and has been removed.
-                stats.nesting = nesting + depth + lambda;
+                stats.nesting = nesting.total();
                 increment(stats);
                 stats.boolean_seq.reset();
             }
@@ -186,7 +175,7 @@ impl Cognitive for PythonCode {
                 increment_by_one(stats);
             }
             ExceptClause => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ExpressionList | ExpressionStatement | Tuple => {
                 stats.boolean_seq.reset();
@@ -199,23 +188,21 @@ impl Cognitive for PythonCode {
             // drift guard in checker.rs flags a bump that emits Lambda2).
             Lambda | Lambda2 => {
                 // Increase lambda nesting
-                lambda += 1;
+                nesting.lambda += 1;
             }
             FunctionDefinition => {
                 // Increase depth function nesting if needed
-                increment_function_depth(&mut depth, node, ancestors, &[FunctionDefinition]);
+                increment_function_depth(
+                    &mut nesting.function_depth,
+                    node,
+                    ancestors,
+                    &[FunctionDefinition],
+                );
             }
             _ => {}
         }
         // Add node to nesting map
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }
 
@@ -234,46 +221,63 @@ mod tests {
     // checkable at the call site too.
     #[test]
     fn python_comprehension_clauses_carry_inherited_depth_and_lambda() {
-        // Clause order: `for a in xs` (0 preceding `for`s), `if a` (1),
-        // `for b in ys` (1). The trailing clause is a `for`, which has
-        // already advanced the count, so the element sits 2 levels deep.
-        let parser = PythonParser::new(
-            b"[x for a in xs if a for b in ys]".to_vec(),
-            std::path::Path::new("comprehension.py"),
-            None,
-        );
-        let root = parser.root();
-        let comprehension = *root
-            .descendants_by_kind(&["list_comprehension"])
-            .first()
-            .expect("the fixture contains exactly one list comprehension");
-        let clauses: Vec<_> = comprehension
-            .children()
-            .filter(|child| matches!(child.kind(), "for_in_clause" | "if_clause"))
-            .collect();
-        assert_eq!(clauses.len(), 3, "fixture must expose all three clauses");
+        // Both fixtures have three clauses and differ only in which kind
+        // trails, which is what selects the `last_clause_is_if` term of
+        // the returned element depth. A trailing `for` has already
+        // advanced `for_count`, so the term contributes 0 and covering
+        // only that shape leaves the term untested — the element depth
+        // is the same with it deleted.
+        let cases = [
+            // `for a in xs` (0 preceding `for`s), `if a` (1),
+            // `for b in ys` (1); trailing `for` → element at 2.
+            ("[x for a in xs if a for b in ys]", [1, 2, 2], 2),
+            // `for a in xs` (0), `for b in ys` (1), `if b` (2);
+            // trailing `if` → one deeper than the 2 `for`s → 3.
+            ("[x for a in xs for b in ys if b]", [1, 2, 3], 3),
+        ];
 
-        let inherited = Nesting {
-            conditional: 1,
-            function_depth: 2,
-            lambda: 3,
-        };
-        let mut nesting_map = NestingMap::default();
-        let element_nesting =
-            python_comprehension_clause_nesting(&comprehension, inherited, &mut nesting_map);
-
-        assert_eq!(element_nesting, 2);
-        for (clause, expected_conditional) in clauses.iter().zip([1, 2, 2]) {
-            assert_eq!(
-                nesting_map.get(&clause.id()),
-                Some(&Nesting {
-                    conditional: expected_conditional,
-                    function_depth: 2,
-                    lambda: 3,
-                }),
-                "wrong nesting recorded for the `{}` clause",
-                clause.kind()
+        for (source, expected_conditionals, expected_element) in cases {
+            let parser = PythonParser::new(
+                source.as_bytes().to_vec(),
+                std::path::Path::new("comprehension.py"),
+                None,
             );
+            let root = parser.root();
+            let comprehension = *root
+                .descendants_by_kind(&["list_comprehension"])
+                .first()
+                .expect("the fixture contains exactly one list comprehension");
+            let clauses: Vec<_> = comprehension
+                .children()
+                .filter(|child| matches!(child.kind(), "for_in_clause" | "if_clause"))
+                .collect();
+            assert_eq!(clauses.len(), 3, "`{source}` must expose all three clauses");
+
+            let inherited = Nesting {
+                conditional: 1,
+                function_depth: 2,
+                lambda: 3,
+            };
+            let mut nesting_map = NestingMap::default();
+            let element_nesting =
+                python_comprehension_clause_nesting(&comprehension, inherited, &mut nesting_map);
+
+            assert_eq!(
+                element_nesting, expected_element,
+                "wrong element depth for `{source}`"
+            );
+            for (clause, expected_conditional) in clauses.iter().zip(expected_conditionals) {
+                assert_eq!(
+                    nesting_map.get(&clause.id()),
+                    Some(&Nesting {
+                        conditional: expected_conditional,
+                        function_depth: 2,
+                        lambda: 3,
+                    }),
+                    "wrong nesting recorded for the `{}` clause of `{source}`",
+                    clause.kind()
+                );
+            }
         }
     }
 }

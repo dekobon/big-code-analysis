@@ -23,17 +23,13 @@ impl Cognitive for TclCode {
     ) {
         use Tcl::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // Guard kept for defensive consistency with sibling impls; Tcl's dedicated
             // Elseif node means this guard is always true in practice.
             If if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // elseif adds +1 without increasing nesting for its own children.
             Elseif => {
@@ -43,11 +39,11 @@ impl Cognitive for TclCode {
                 increment_by_one(stats);
             }
             While | Foreach | TernaryExpr => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `catch` is a conditional error handler; only executes when the body errors.
             Catch => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // Tcl `switch` is a generic `command`, not a dedicated kind, so it
             // would otherwise fall through to `_` (issue #467). It is a
@@ -56,24 +52,22 @@ impl Cognitive for TclCode {
             // handling (lesson 11). `tcl_switch_decision_arms` returns `Some`
             // only for a leading-word `switch` command.
             Command if tcl_switch_decision_arms(node, code).is_some() => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             BinopExpr => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             Procedure => {
-                nesting = 0;
-                increment_function_depth(&mut depth, node, ancestors, &[Procedure]);
+                nesting.conditional = 0;
+                increment_function_depth(
+                    &mut nesting.function_depth,
+                    node,
+                    ancestors,
+                    &[Procedure],
+                );
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

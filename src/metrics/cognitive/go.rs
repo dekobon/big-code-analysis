@@ -23,21 +23,17 @@ impl Cognitive for GoCode {
     ) {
         use Go as G;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             G::IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             G::ForStatement
             | G::ExpressionSwitchStatement
             | G::TypeSwitchStatement
             | G::SelectStatement => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             G::Else | G::GotoStatement => {
                 increment_by_one(stats);
@@ -49,26 +45,19 @@ impl Cognitive for GoCode {
                 compute_booleans(node, stats, G::AMPAMP, G::PIPEPIPE);
             }
             G::FunctionDeclaration | G::MethodDeclaration => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[G::FunctionDeclaration, G::MethodDeclaration],
                 );
             }
             G::FuncLiteral => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

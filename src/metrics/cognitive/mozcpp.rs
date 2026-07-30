@@ -24,15 +24,11 @@ impl Cognitive for MozcppCode {
         use Mozcpp::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForStatement
             | ForRangeLoop
@@ -41,7 +37,7 @@ impl Cognitive for MozcppCode {
             | SwitchStatement
             | CatchClause
             | ConditionalExpression => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             GotoStatement | Else /* else-if also */ => {
                 increment_by_one(stats);
@@ -50,7 +46,7 @@ impl Cognitive for MozcppCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             LambdaExpression => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             // At a (possibly nested) function-definition boundary, reset
             // structural nesting to zero and bump the function-depth
@@ -60,10 +56,13 @@ impl Cognitive for MozcppCode {
             // construct inherited the enclosing nesting and every nested
             // definition missed the SonarSource B-nesting amplification
             // (#696).
-            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3 | FunctionDefinition4 => {
-                nesting = 0;
+            FunctionDefinition
+            | FunctionDefinition2
+            | FunctionDefinition3
+            | FunctionDefinition4 => {
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[
@@ -76,13 +75,6 @@ impl Cognitive for MozcppCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

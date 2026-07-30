@@ -45,11 +45,7 @@ impl Cognitive for PerlCode {
     ) {
         use Perl as P;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // tree-sitter-perl parses `elsif_clause` as a direct child of
@@ -71,7 +67,7 @@ impl Cognitive for PerlCode {
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::ForSimpleStatement => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `else` and `elsif` each contribute a flat +1.
             P::Else | P::ElsifClause => {
@@ -99,26 +95,19 @@ impl Cognitive for PerlCode {
                 compute_perl_booleans(node, stats);
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[P::FunctionDefinition, P::FunctionDefinitionWithoutSub],
                 );
             }
             P::AnonymousFunction => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

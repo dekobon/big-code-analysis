@@ -23,11 +23,7 @@ impl Cognitive for PhpCode {
     ) {
         use Php::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // The two-word `else if` form parses as `else_clause →
@@ -38,7 +34,7 @@ impl Cognitive for PhpCode {
             // dedicated `ElseIfClause` node handled by the branch-extension
             // arm below.
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForStatement
             | ForeachStatement
@@ -48,7 +44,7 @@ impl Cognitive for PhpCode {
             | MatchExpression
             | CatchClause
             | ConditionalExpression => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
                 increment_branch_extension(stats);
@@ -84,7 +80,7 @@ impl Cognitive for PhpCode {
                 compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
             }
             AnonymousFunction | ArrowFunction => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             // At a (possibly nested) named-function / method boundary, reset
             // structural nesting to zero and bump the function-depth
@@ -97,9 +93,9 @@ impl Cognitive for PhpCode {
             // the lambda arm above and intentionally do *not* reset nesting,
             // mirroring how the siblings treat lambda vs named-function arms.
             FunctionDefinition | MethodDeclaration => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[FunctionDefinition, MethodDeclaration],
@@ -107,13 +103,6 @@ impl Cognitive for PhpCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }
