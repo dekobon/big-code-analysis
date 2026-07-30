@@ -23,17 +23,13 @@ impl Cognitive for IrulesCode {
     ) {
         use Irules::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // Defensive guard for parity with sibling impls; iRules' dedicated
             // `Elseif` node means `is_else_if` is never true for an `If`.
             If if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `elseif` extends the chain: +1 without increasing nesting.
             Elseif => {
@@ -45,18 +41,18 @@ impl Cognitive for IrulesCode {
             // Loops and ternary. `DictFor` iterates; `dict update`/`dict with`
             // do not and are excluded.
             For | Foreach | While | DictFor | TernaryExpr => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `catch` is a conditional error handler; its body only runs when
             // the guarded command errors.
             Catch => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // iRules `switch` is a dedicated node (unlike Tcl): +1 plus current
             // nesting, with the `default` arm free, matching the C-family
             // `SwitchStatement` cognitive handling (lesson 11).
             Switch => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // Boolean sequences inside expressions: both symbolic (`&&`/`||`)
             // and the iRules keyword forms (`and`/`or`).
@@ -68,9 +64,9 @@ impl Cognitive for IrulesCode {
             // All four function-space kinds reset nesting and bump the
             // function depth (see the `IrulesCode` Checker impl).
             Procedure | WhenEvent | OnHandler | TrapHandler => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[Procedure, WhenEvent, OnHandler, TrapHandler],
@@ -78,13 +74,6 @@ impl Cognitive for IrulesCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

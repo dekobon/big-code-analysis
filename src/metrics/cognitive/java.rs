@@ -23,15 +23,11 @@ impl Cognitive for JavaCode {
     ) {
         use Java::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForStatement
             | EnhancedForStatement
@@ -40,7 +36,7 @@ impl Cognitive for JavaCode {
             | SwitchBlock
             | CatchClause
             | TernaryExpression => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             Else /* else-if also */ => {
                 increment_by_one(stats);
@@ -57,7 +53,7 @@ impl Cognitive for JavaCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             LambdaExpression => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             // At a (possibly nested) method / constructor boundary, reset
             // structural nesting to zero and bump the function-depth
@@ -68,9 +64,9 @@ impl Cognitive for JavaCode {
             // enclosing nesting and every nested method missed the
             // SonarSource B-nesting amplification (#696).
             MethodDeclaration | ConstructorDeclaration => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[MethodDeclaration, ConstructorDeclaration],
@@ -78,13 +74,6 @@ impl Cognitive for JavaCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

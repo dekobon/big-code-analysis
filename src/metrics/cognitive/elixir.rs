@@ -39,15 +39,17 @@ impl Cognitive for ElixirCode {
     // - `if` / `unless` / `for` / `while`: single-branch control flow,
     //   `+nesting`. Their `else` (token `Elixir::Else` inside an
     //   `ElseBlock`) adds `+1` without nesting, matching Java.
-    // - `case` / `cond` / `with` / `try`: switch-/multi-arm, `+nesting`
-    //   once on the container. Individual `stab_clause` arms do NOT
-    //   add extra cost (matches Java `SwitchBlock` / `case:` rule).
-    //   `try`'s `rescue` / `catch` arms surface as `RescueBlock` /
-    //   `CatchBlock` and each one adds `+nesting`, matching Java's
-    //   `CatchClause` treatment.
+    // - `case` / `cond` / `with`: switch-/multi-arm, `+nesting` once on
+    //   the container. Individual `stab_clause` arms do NOT add extra
+    //   cost (matches Java `SwitchBlock` / `case:` rule).
+    // - `try`: `+0` on the container itself — it is a wrapper, and its
+    //   `rescue` / `catch` arms surface as `RescueBlock` / `CatchBlock`
+    //   and each one adds `+nesting`, matching Java's `CatchClause`
+    //   treatment. See the arm comment below.
     // - `def` / `defp` / `defmacro` / `defmacrop`: method-defining
-    //   macros. Treated like Bash's `FunctionDefinition` — nesting
-    //   resets, function depth bumps so nested functions amplify cost.
+    //   macros. Nesting resets at the boundary, as in Bash's
+    //   `FunctionDefinition` rule, but the function depth deliberately
+    //   does NOT bump — see the arm comment below for why.
     // - `AnonymousFunction` (`fn x -> y end`): lambda nesting bumps.
     // - `&&` / `||` / `and` / `or`: boolean sequence cost.
     //
@@ -70,16 +72,12 @@ impl Cognitive for ElixirCode {
     ) {
         use Elixir as E;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             E::Call => match elixir_call_keyword(node, code) {
                 Some("if" | "unless" | "for" | "while" | "case" | "cond" | "with") => {
-                    increase_nesting(stats, &mut nesting, depth, lambda);
+                    increase_nesting(stats, &mut nesting);
                 }
                 // `try` is intentionally absent: it is a wrapper for
                 // `rescue` / `catch` arms (each of which earns its own
@@ -101,7 +99,7 @@ impl Cognitive for ElixirCode {
                     // concern — the lambda channel via
                     // `AnonymousFunction` handles the analogous
                     // higher-order case.
-                    nesting = 0;
+                    nesting.conditional = 0;
                 }
                 _ => {}
             },
@@ -114,13 +112,13 @@ impl Cognitive for ElixirCode {
             // `rescue` / `catch` arms of a `try` Call each add +nesting,
             // matching Java's `CatchClause` treatment.
             E::RescueBlock | E::CatchBlock => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // Anonymous functions are Elixir's lambdas. Increment the
             // lambda depth so the cost of control flow inside them is
             // amplified, matching Kotlin's `LambdaLiteral` rule.
             E::AnonymousFunction => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             // Short-circuit booleans (token-form `&&` / `||` and word-
             // form `and` / `or`) contribute one structural cost per
@@ -134,13 +132,6 @@ impl Cognitive for ElixirCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

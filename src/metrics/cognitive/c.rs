@@ -24,22 +24,18 @@ impl Cognitive for CCode {
         use C::*;
 
         // Macro expansion is not tracked; macros are treated as opaque tokens.
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             ForStatement
             | WhileStatement
             | DoStatement
             | SwitchStatement
             | ConditionalExpression => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             GotoStatement | Else /* else-if also */ => {
                 increment_by_one(stats);
@@ -56,9 +52,9 @@ impl Cognitive for CCode {
             // definition missed the SonarSource B-nesting amplification
             // (#696).
             FunctionDefinition | FunctionDefinition2 => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[FunctionDefinition, FunctionDefinition2],
@@ -66,13 +62,6 @@ impl Cognitive for CCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

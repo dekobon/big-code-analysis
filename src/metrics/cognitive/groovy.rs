@@ -23,15 +23,11 @@ impl Cognitive for GroovyCode {
     ) {
         use Groovy::*;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `for_in_statement` is the dekobon grammar's distinct node
             // for `for (x in xs)` / `for (Foo x : xs)` (the prior amaanq
@@ -39,7 +35,7 @@ impl Cognitive for GroovyCode {
             // and `switch_block` keep their familiar names.
             ForStatement | ForInStatement | WhileStatement | DoWhileStatement | SwitchBlock
             | CatchClause | TernaryExpression => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `Else` covers plain `else` blocks *and* the chained
             // `else if` form, because the grammar inlines the
@@ -75,7 +71,7 @@ impl Cognitive for GroovyCode {
             // is `Groovy::Closure` — also recognized by `is_closure` and
             // the `nargs` `closure_parameters` path.
             Closure => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             // At a (possibly nested) method / constructor boundary, reset
             // structural nesting to zero and bump the function-depth
@@ -85,9 +81,9 @@ impl Cognitive for GroovyCode {
             // nested method previously inherited the enclosing nesting and
             // missed the SonarSource B-nesting amplification (#696).
             MethodDeclaration | ConstructorDeclaration => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[MethodDeclaration, ConstructorDeclaration],
@@ -95,13 +91,6 @@ impl Cognitive for GroovyCode {
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }

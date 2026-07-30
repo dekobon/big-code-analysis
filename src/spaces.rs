@@ -44,6 +44,21 @@ pub(crate) struct Nesting {
     pub(crate) lambda: usize,
 }
 
+impl Nesting {
+    /// The effective nesting level a construct at this state pays for:
+    /// the sum of all three channels.
+    ///
+    /// SonarSource's Cognitive Complexity raises the nesting level for
+    /// enclosing control constructs (`conditional`) *and* for nested
+    /// methods and method-like structures such as lambdas, so
+    /// `function_depth` (#696) and `lambda` are spec nesting increments
+    /// too — tracked apart only because the walk resets them at
+    /// different boundaries. All three add on equal footing.
+    pub(crate) const fn total(self) -> usize {
+        self.conditional + self.function_depth + self.lambda
+    }
+}
+
 /// Node-id keyed [`Nesting`] state; see
 /// `spaces::compute::propagate_nesting_to_children`.
 pub(crate) type NestingMap = IntKeyHashMap<usize, Nesting>;

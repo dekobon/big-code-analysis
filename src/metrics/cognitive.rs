@@ -306,11 +306,18 @@ fn increment_function_depth<'a, T: PartialEq + From<u16>>(
     }
 }
 
+/// Charges `node`'s construct at the current nesting level and opens a
+/// new structural level for its children.
+///
+/// Takes the whole [`Nesting`] rather than its three same-typed fields
+/// positionally: the previous signature was
+/// `(stats, &mut nesting, depth, lambda)` at 43 call sites, where any
+/// two of the trailing arguments could be transposed silently (#1086).
 #[inline]
-fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda: usize) {
-    stats.nesting = *nesting + depth + lambda;
+fn increase_nesting(stats: &mut Stats, nesting: &mut Nesting) {
+    stats.nesting = nesting.total();
     increment(stats);
-    *nesting += 1;
+    nesting.conditional += 1;
     stats.boolean_seq.reset();
 }
 
@@ -342,18 +349,20 @@ macro_rules! js_cognitive {
             nesting_map: &mut NestingMap,
         ) {
             use $lang::*;
-            let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+            let mut nesting = get_nesting_from_map(node, nesting_map);
 
             match node.kind_id().into() {
                 IfStatement if !Self::is_else_if(node, ancestors) => {
-                    increase_nesting(stats, &mut nesting, depth, lambda);
+                    increase_nesting(stats, &mut nesting);
                 }
-                ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause | TernaryExpression => {
-                    increase_nesting(stats, &mut nesting, depth, lambda);
+                ForStatement
+                | ForInStatement
+                | WhileStatement
+                | DoStatement
+                | SwitchStatement
+                | CatchClause
+                | TernaryExpression => {
+                    increase_nesting(stats, &mut nesting);
                 }
                 Else /* else-if also */ => {
                     increment_by_one(stats);
@@ -392,20 +401,22 @@ macro_rules! js_cognitive {
                 }
                 FunctionDeclaration => {
                     // Reset lambda nesting at function for JS
-                    nesting = 0;
-                    lambda = 0;
+                    nesting.conditional = 0;
+                    nesting.lambda = 0;
                     // Increase depth function nesting if needed
-                    increment_function_depth(&mut depth, node, ancestors, &[FunctionDeclaration]);
+                    increment_function_depth(
+                        &mut nesting.function_depth,
+                        node,
+                        ancestors,
+                        &[FunctionDeclaration],
+                    );
                 }
                 ArrowFunction => {
-                    lambda += 1;
+                    nesting.lambda += 1;
                 }
                 _ => {}
             }
-            nesting_map.insert(
-            node.id(),
-            Nesting { conditional: nesting, function_depth: depth, lambda },
-        );
+            nesting_map.insert(node.id(), nesting);
         }
     };
 }
@@ -9850,6 +9861,88 @@ end",
         assert_eq!(
             measured, expected,
             "an `if` must cost 1 in a top-level function and 2 one function deeper",
+        );
+    }
+
+    /// Every [`Nesting`] channel contributes to `total()`.
+    ///
+    /// Distinct powers of two, so dropping a channel or summing one
+    /// twice — the failure modes of the open-coded
+    /// `conditional + function_depth + lambda` this method replaced at
+    /// its two sites (#1086) — is distinguishable from the total alone
+    /// rather than just reading as a bad number.
+    #[test]
+    fn nesting_total_sums_every_channel() {
+        assert_eq!(
+            Nesting {
+                conditional: 1,
+                function_depth: 2,
+                lambda: 4,
+            }
+            .total(),
+            7,
+            "1/2/4 encoding: short by 1 means `conditional` was dropped, \
+             by 2 `function_depth`, by 4 `lambda`; over by the same \
+             amount means that channel was summed twice",
+        );
+        // Weak on its own — every field is zero, so this survives any
+        // linear combination of them. It only rules out a `total()` that
+        // returns a nonzero constant.
+        assert_eq!(Nesting::default().total(), 0);
+    }
+
+    /// `increase_nesting` charges the *summed* level but advances only
+    /// the `conditional` channel.
+    ///
+    /// Before #1086 this helper took `&mut usize` for the conditional
+    /// channel and `depth` / `lambda` as by-value non-`mut` params, so
+    /// bumping the wrong one was *inert* rather than unrepresentable:
+    /// `depth += 1` needed a `mut` added to compile, and then wrote to a
+    /// copy nobody read. It now holds the whole struct, which makes
+    /// `function_depth += 1` a one-character slip that persists —
+    /// invisible in the *charge* itself, since `total()` is symmetric,
+    /// and detectable only downstream where the channels are read apart.
+    ///
+    /// Perturbing the production line to `function_depth += 1` fails this
+    /// test plus five nested-function tests (`java_nested_method_…`,
+    /// `cpp_nested_function_…`, `groovy_…`, `php_…`,
+    /// `csharp_local_function_in_if_…`) — those catch it only because a
+    /// function boundary resets `conditional` alone, leaving the misplaced
+    /// increment behind. This test pins it at the helper, where the
+    /// mistake is, rather than five languages away from it.
+    #[test]
+    fn increase_nesting_charges_the_total_but_advances_only_conditional() {
+        let mut nesting = Nesting {
+            conditional: 1,
+            function_depth: 2,
+            lambda: 4,
+        };
+        // Both fields are seeded rather than defaulted. From
+        // `Stats::default()` the `boolean_seq` assertion holds even with
+        // `reset()` deleted, and the `structural` assertion cannot tell
+        // `increment`'s `+=` from a plain `=`, since both start at zero.
+        let mut stats = Stats {
+            structural: 5,
+            boolean_seq: BoolSequence {
+                boolean_op: Some((1, 0)),
+            },
+            ..Stats::default()
+        };
+
+        increase_nesting(&mut stats, &mut nesting);
+
+        // Charged at the inherited level (7), and `increment`
+        // accumulates `nesting + 1` onto the seeded 5.
+        assert_eq!(stats.nesting, 7);
+        assert_eq!(stats.structural, 13);
+        assert_eq!(stats.boolean_seq, BoolSequence::default());
+        assert_eq!(
+            nesting,
+            Nesting {
+                conditional: 2,
+                function_depth: 2,
+                lambda: 4,
+            }
         );
     }
 }

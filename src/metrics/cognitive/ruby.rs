@@ -35,11 +35,7 @@ impl Cognitive for RubyCode {
     ) {
         use Ruby as R;
 
-        let Nesting {
-            conditional: mut nesting,
-            function_depth: mut depth,
-            mut lambda,
-        } = get_nesting_from_map(node, nesting_map);
+        let mut nesting = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             // Nesting-increasing constructs. tree-sitter-ruby models
@@ -49,7 +45,7 @@ impl Cognitive for RubyCode {
             // defensive only — mirrors the equivalent pattern in the
             // Lua impl.
             R::If if !Self::is_else_if(node, ancestors) => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             R::Unless
             | R::While
@@ -66,7 +62,7 @@ impl Cognitive for RubyCode {
             | R::RescueModifier
             | R::RescueModifier2
             | R::RescueModifier3 => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting);
             }
             // `elsif` and the `else` of an `if`/`elsif` chain extend the
             // parent branch at the same nesting level (+1).
@@ -134,9 +130,9 @@ impl Cognitive for RubyCode {
                 compute_ruby_booleans(node, stats);
             }
             R::Method | R::SingletonMethod => {
-                nesting = 0;
+                nesting.conditional = 0;
                 increment_function_depth(
-                    &mut depth,
+                    &mut nesting.function_depth,
                     node,
                     ancestors,
                     &[R::Method, R::SingletonMethod],
@@ -144,17 +140,10 @@ impl Cognitive for RubyCode {
             }
             // Blocks, do-blocks and lambdas are the closure/lambda forms.
             R::Block | R::DoBlock | R::Lambda => {
-                lambda += 1;
+                nesting.lambda += 1;
             }
             _ => {}
         }
-        nesting_map.insert(
-            node.id(),
-            Nesting {
-                conditional: nesting,
-                function_depth: depth,
-                lambda,
-            },
-        );
+        nesting_map.insert(node.id(), nesting);
     }
 }
