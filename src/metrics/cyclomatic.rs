@@ -1242,6 +1242,57 @@ mod tests {
         assert_eq!(default_path.cyclomatic_modified_sum(), 5);
     }
 
+    /// `Cyclomatic::compute` for Rust is the trait's plain entry point,
+    /// and the metric walk never reaches it: `compute_per_node` calls
+    /// `compute_with_options` directly so it can pass the
+    /// `count_cyclomatic_try` option through. The plain form is still
+    /// the documented default for any caller that goes through the
+    /// trait, and #409 fixes that default as "`?` counts" — so it needs
+    /// a test of its own rather than inheriting the option tests above,
+    /// which exercise the other entry point.
+    ///
+    /// Asserting only that the two forms agree would be satisfied by a
+    /// `compute` that delegated with `false` *and* a
+    /// `compute_with_options` that ignored the flag, so the count is
+    /// pinned against the opted-out run as well.
+    #[test]
+    fn rust_compute_delegates_with_try_counting_on() {
+        use crate::traits::ParserTrait;
+
+        let parser = crate::RustParser::new(
+            RUST_TRY_FIXTURE.as_bytes().to_vec(),
+            std::path::Path::new("try.rs"),
+            None,
+        );
+        let code = parser.code();
+
+        let mut plain = Stats::default();
+        let mut opted_in = Stats::default();
+        let mut opted_out = Stats::default();
+        for node in parser.root().preorder() {
+            RustCode::compute(&node, code, Ancestors::unknown(), &mut plain);
+            RustCode::compute_with_options(&node, code, Ancestors::unknown(), &mut opted_in, true);
+            RustCode::compute_with_options(
+                &node,
+                code,
+                Ancestors::unknown(),
+                &mut opted_out,
+                false,
+            );
+        }
+
+        assert_eq!(
+            (plain.cyclomatic(), plain.cyclomatic_modified()),
+            (opted_in.cyclomatic(), opted_in.cyclomatic_modified()),
+            "`compute` must be `compute_with_options(.., true)`"
+        );
+        assert_eq!(
+            plain.cyclomatic() - opted_out.cyclomatic(),
+            RUST_TRY_COUNT,
+            "the fixture's {RUST_TRY_COUNT} `?` operators are what the default counts"
+        );
+    }
+
     #[test]
     fn c_switch() {
         check_metrics::<CParser>(

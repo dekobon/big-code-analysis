@@ -4597,6 +4597,34 @@ line3\";",
             "foo.rb",
             assert_three_code_rows,
         );
+        // Go, Kotlin, and Mozilla-C++ reach the same shared
+        // `add_multiline_string_ploc` helper through their own
+        // raw-string kinds (`raw_string_literal`,
+        // `multiline_string_literal`, `raw_string_literal`), and were
+        // the three call sites of it that no test exercised. Each needs
+        // its own syntax, so they cannot reuse the quoted form above.
+        check_metrics::<GoParser>(
+            "package p\n\nvar s = `line1\nline2\nline3`",
+            "foo.go",
+            |metric| {
+                // Two extra code rows for `package p` and the blank
+                // between it and the declaration, which Go requires.
+                assert_eq!(metric.loc.sloc(), 5);
+                assert_eq!(metric.loc.ploc(), 4);
+                assert_eq!(metric.loc.cloc(), 0);
+                assert_eq!(metric.loc.blank(), 1);
+            },
+        );
+        check_metrics::<KotlinParser>(
+            "val s = \"\"\"line1\nline2\nline3\"\"\"",
+            "foo.kt",
+            assert_three_code_rows,
+        );
+        check_metrics::<MozcppParser>(
+            "const char* s = R\"(line1\nline2\nline3)\";",
+            "foo.cpp",
+            assert_three_code_rows,
+        );
     }
 
     #[test]

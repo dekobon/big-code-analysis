@@ -170,9 +170,22 @@ fn remove_from_code(code: &[u8], mut spans: Vec<(usize, usize, usize)>) -> Vec<u
 mod tests {
     use std::path::PathBuf;
 
-    use crate::{CcommentParser, ParserTrait, RustParser};
+    use crate::{
+        CParser, CcommentParser, CppParser, MozcppParser, ObjcParser, ParserTrait, RustParser,
+    };
 
     use super::rm_comments;
+
+    /// Strips `src` as language `T` and returns the result as text.
+    ///
+    /// Panics when nothing was removed, which every caller below relies
+    /// on: each fixture carries at least one strippable comment, so a
+    /// `None` means the walk stopped finding comments at all.
+    fn strip<T: ParserTrait>(src: &str, path: &str) -> String {
+        let parser = T::new(src.as_bytes().to_vec(), &PathBuf::from(path), None);
+        let stripped = rm_comments(&parser).expect("every fixture has a removable comment");
+        String::from_utf8(stripped).expect("stripping preserves UTF-8")
+    }
 
     const SOURCE_CODE: &str = "/* Remove this code block */\n\
                                int a = 42; // Remove this comment\n\
@@ -282,5 +295,44 @@ mod tests {
             !stripped.contains("// strip"),
             "an ordinary comment must still be stripped: {stripped:?}"
         );
+    }
+
+    /// The C-family `Checker::is_useful_comment` impls (C, C++, Mozilla
+    /// C++, Objective-C, and the comment-only `Ccomment` grammar) all
+    /// delegate to one Aho-Corasick automaton whose single needle is
+    /// `<div rustbindgen` — the marker `rust-bindgen` reads out of a
+    /// doc comment, so stripping it would change generated bindings.
+    /// Only `Ccomment` had a test; the other four impls were reached by
+    /// no test at all, which is how #1096 could add a parameter to all
+    /// five signatures with four of them uncovered.
+    ///
+    /// Each case pairs the marker comment with an ordinary one so a
+    /// `is_useful_comment` that answered `true` unconditionally — the
+    /// other way to make the first assertion pass — fails the second.
+    #[test]
+    fn the_c_family_keeps_a_rustbindgen_comment_and_strips_an_ordinary_one() {
+        // `/** <div rustbindgen ... */` is the shape bindgen documents;
+        // the needle is a plain substring match, so the surrounding
+        // syntax only has to parse as a comment in each grammar.
+        const SRC: &str = "/** <div rustbindgen opaque></div> */\nint a = 1;\n/* drop me */\n";
+
+        let cases = [
+            ("c", strip::<CParser>(SRC, "keep.c")),
+            ("cpp", strip::<CppParser>(SRC, "keep.cpp")),
+            ("mozcpp", strip::<MozcppParser>(SRC, "keep.cpp")),
+            ("objc", strip::<ObjcParser>(SRC, "keep.m")),
+            ("ccomment", strip::<CcommentParser>(SRC, "keep.c")),
+        ];
+
+        for (lang, stripped) in &cases {
+            assert!(
+                stripped.contains("<div rustbindgen"),
+                "{lang}: the bindgen marker comment must survive: {stripped:?}"
+            );
+            assert!(
+                !stripped.contains("drop me"),
+                "{lang}: an ordinary comment must still be stripped: {stripped:?}"
+            );
+        }
     }
 }
