@@ -3338,6 +3338,33 @@ mod tests {
         );
     }
 
+    /// The `mozcpp` fork must charge a lambda the same nesting surcharge
+    /// as upstream C++ — the same source through `CppParser`
+    /// (`cpp_lambda_inside_function` above) scores identically.
+    ///
+    /// `mozcpp`'s `LambdaExpression` arm had no cognitive test before
+    /// this, so the whole arm measured zero-coverage even though the
+    /// fork is expected to stay metric-equivalent to `cpp`.
+    #[test]
+    fn mozcpp_lambda_inside_function() {
+        check_metrics::<MozcppParser>(
+            "int f(const std::vector<int>& v) {
+                 auto pred = [](int x) {
+                     if (x > 0) { // +2 (lambda nesting = 1)
+                         return true;
+                     }
+                     return false;
+                 };
+                 return std::count_if(v.begin(), v.end(), pred);
+             }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2);
+                assert_eq!(metric.cognitive.cognitive_max(), 2);
+            },
+        );
+    }
+
     #[test]
     fn c_switch_fall_through() {
         // A `case` without `break` (fall-through) does not add cognitive cost
@@ -9370,6 +9397,27 @@ end",
     fn irules_switch_nesting() {
         check_metrics::<IrulesParser>(
             "when X { if { $a } { switch $h { a { log local0. \"a\" } b { log local0. \"b\" } } } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3);
+            },
+        );
+    }
+
+    /// `catch` is a conditional error handler — its body runs only when
+    /// the guarded command errors — so it pays nesting like any other
+    /// branch. Flat: 1. Nested in an `if`: `if` (1) + `catch`
+    /// (1 + nesting 1 = 2) = 3, matching `irules_switch_nesting`.
+    ///
+    /// The `Catch` arm had no test before this: the whole arm measured
+    /// zero-coverage while every other iRules branch kind was exercised.
+    #[test]
+    fn irules_catch_nesting() {
+        check_metrics::<IrulesParser>("when X { catch { foo } }\n", "foo.irule", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 1);
+        });
+        check_metrics::<IrulesParser>(
+            "when X { if { $a } { catch { foo } } }\n",
             "foo.irule",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 3);
