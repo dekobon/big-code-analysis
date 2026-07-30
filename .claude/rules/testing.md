@@ -110,3 +110,38 @@ evidence is inspection rather than a perturbation run.
 See lesson #82 for the related walker case, where the production
 bookkeeping and the test's replica of it are two different things and
 only a debug assertion in the real walker covers the former.
+
+## Seed the state you claim to assert on
+
+An assertion that a function *resets* or *accumulates* something proves
+nothing when the fixture starts from the default-constructed value.
+`Foo::default()` is usually all zeroes and `None`s, which is exactly the
+state a reset produces and exactly the value `+=` and `=` agree on — so
+the assertion holds whether or not the line under test exists.
+
+This is not a hypothetical failure mode. Both instances below shipped in
+the *same* test during #1086, and both were measured, not guessed:
+
+- **A reset asserted from a default fixture** (#1086). The test built
+  `Stats::default()`, called `increase_nesting`, and asserted
+  `stats.boolean_seq == BoolSequence::default()`. Deleting
+  `stats.boolean_seq.reset()` from the production helper failed
+  **zero** tests across the whole 3,130-test lib suite — the line was
+  entirely uncovered, and the new test that claimed to cover it did not.
+  Seeding `boolean_op = Some((1, 0))` first made it the only failure.
+- **An accumulation asserted from zero** (#1086). The same test asserted
+  `stats.structural == 8` from a zeroed `structural`, where
+  `increment`'s `stats.structural += stats.nesting + 1` is
+  indistinguishable from a plain `=`. Seeding `structural: 5` and
+  asserting `13` made the `+=`-to-`=` perturbation fail.
+
+The tell is that the expected value equals the default. When you write
+`assert_eq!(x.field, 0)` or compare against `Default::default()` after
+calling something that is *supposed* to zero it, stop: either seed a
+distinguishable value first, or accept that the assertion is decoration.
+
+**Lesson:** pick fixture values that differ from both the default and
+each other, so the assertion can only pass for the intended reason. Then
+confirm it by perturbing the exact production line the assertion names —
+per the sections above, a test that cannot fail is worse than no test,
+because it reads as coverage.
