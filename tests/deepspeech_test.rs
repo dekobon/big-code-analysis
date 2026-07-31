@@ -27,5 +27,10 @@ fn test_deepspeech() {
         "**/DeepSpeech/kenlm/**",
     ];
 
-    compare_rca_output_with_files("DeepSpeech", &["*.cc", "*.cpp", "*.h", "*.hh"], exclude);
+    compare_rca_output_with_files(
+        "DeepSpeech",
+        &["*.cc", "*.cpp", "*.h", "*.hh"],
+        exclude,
+        1042,
+    );
 }

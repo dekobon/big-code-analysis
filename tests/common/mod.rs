@@ -102,9 +102,23 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
 }
 
 /// Produces metrics runtime and compares them with previously generated json files
+///
+/// `expected_files` is the number of files the corpus root must resolve to.
+/// Asserting it keeps a shrinking corpus from reading as a passing test.
 #[allow(dead_code)]
-pub fn compare_rca_output_with_files(repo_name: &str, include: &[&str], exclude: &[&str]) {
-    compare_rca_output_with_files_under(Path::new(REPO), repo_name, include, exclude);
+pub fn compare_rca_output_with_files(
+    repo_name: &str,
+    include: &[&str],
+    exclude: &[&str],
+    expected_files: usize,
+) {
+    compare_rca_output_with_files_under(
+        Path::new(REPO),
+        repo_name,
+        include,
+        exclude,
+        expected_files,
+    );
 }
 
 /// Same as [`compare_rca_output_with_files`] but with an explicit source root.
@@ -115,14 +129,29 @@ pub fn compare_rca_output_with_files(repo_name: &str, include: &[&str], exclude:
 /// `big-code-analysis-output` submodule (as for the synthetic PHP corpus) so
 /// snapshots land at `snapshots/<repo_name>/...` rather than picking up the
 /// submodule directory as an extra path component.
+///
+/// `expected_files` is the number of files the corpus root must resolve to.
+/// Asserting it keeps a shrinking corpus from reading as a passing test.
 #[allow(dead_code)]
 pub fn compare_rca_output_with_files_under(
     source_root: &Path,
     repo_name: &str,
     include: &[&str],
     exclude: &[&str],
+    expected_files: usize,
 ) {
-    let num_jobs = 4;
+    // `ConcurrentRunner` reserves one job for the producer thread
+    // (`max(2, n) - 1` consumers), so ask for one more than the machine's
+    // parallelism to get one consumer per core. The previous hardcoded `4`
+    // left 3 consumers analyzing DeepSpeech's 1042 files while the rest of
+    // the box idled.
+    //
+    // Several corpus tests can run concurrently under nextest, each with
+    // its own runner, so this nominally oversubscribes. Measured, it does
+    // not cost anything: only DeepSpeech runs longer than ~1.2s, so the
+    // overlap window is short, and the small corpora leave most of their
+    // consumers parked on an empty queue.
+    let num_jobs = std::thread::available_parallelism().map_or(4, |n| n.get() + 1);
 
     let cfg = Config {
         language: None,
@@ -149,17 +178,26 @@ pub fn compare_rca_output_with_files_under(
     let corpus_root = source_root.join(repo_name);
     let paths = resolve_corpus_files(&corpus_root, &include, &exclude);
 
-    // A corpus that resolves to zero files makes the runner return
-    // `Ok(())` without ever invoking `act_on_file`, so every snapshot
-    // assertion is silently skipped and the test passes having verified
-    // nothing (#938). The corpus lives in git submodules; an
-    // uninitialized submodule leaves the directory empty. Fail loudly
-    // with the likely cause rather than reporting false success.
-    assert!(
-        !paths.is_empty(),
-        "no files matched under {}; the integration corpus is empty or \
-         missing. Initialize the submodules with `git submodule update \
-         --init --recursive` before running corpus comparison tests.",
+    // A corpus that resolves to *fewer* files than expected makes the
+    // runner skip the missing files' snapshot assertions while still
+    // returning `Ok(())`, so the test passes having verified less than it
+    // claims. Zero files is the degenerate case (#938): an uninitialized
+    // submodule leaves the directory empty and every assertion is skipped.
+    //
+    // The corpora are submodules pinned to a fixed SHA, so the resolved
+    // count is deterministic for a given checkout. Asserting it exactly
+    // turns any silent change in corpus coverage — an over-eager exclude
+    // glob, a partially-initialized submodule, a change to the traversal
+    // filters — into a loud failure instead of a quiet coverage loss. A
+    // deliberate corpus bump updates this number alongside the snapshots.
+    assert_eq!(
+        paths.len(),
+        expected_files,
+        "unexpected corpus file count under {}. If it resolved 0 files the \
+         integration corpus is empty or missing — initialize the submodules \
+         with `git submodule update --init --recursive`. Otherwise the \
+         corpus or the include/exclude globs changed; update the expected \
+         count alongside the snapshots.",
         corpus_root.display(),
     );
 
