@@ -271,6 +271,30 @@ fn inventory_after(rendered: &str, marker: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// `loc.sloc` is a backstop, not the working limit: it counts comments
+/// and blanks on top of the code `loc.ploc` counts, so it must sit
+/// looser. Inverting the two would make the backstop the binding
+/// constraint and quietly turn the gate back into a comment gate, which
+/// is the exact failure #1138 diagnosed. The reasoning otherwise lives
+/// only in the rendered prose, where nothing checks it.
+#[test]
+fn the_sloc_backstop_is_looser_than_the_ploc_working_limit() {
+    let limit = |name: &str| {
+        DEFAULT_THRESHOLDS
+            .iter()
+            .find(|e| e.name == name)
+            .unwrap_or_else(|| panic!("the default table must gate {name:?}"))
+            .limit
+    };
+    let (ploc, sloc) = (limit("loc.ploc"), limit("loc.sloc"));
+    assert!(
+        sloc > ploc,
+        "loc.sloc ({sloc}) must stay looser than loc.ploc ({ploc}); a backstop \
+         at or below the working limit is the binding constraint, which makes \
+         the file-size gate a comment gate again"
+    );
+}
+
 /// Every default carries a rationale, and it fits the manifest's
 /// comment column. An unexplained number in a scaffolded config is how
 /// the pre-#1140 defaults became folklore in the first place.

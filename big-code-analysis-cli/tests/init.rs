@@ -230,3 +230,47 @@ fn init_refuses_to_baseline_a_partially_readable_tree() {
         "a partially-read tree must not produce a baseline"
     );
 }
+
+/// A function with one parameter more than the shipped `nargs` limit.
+/// Deliberately breaches a *default* rather than a hand-passed
+/// `--threshold`, so the assertion is about what `bca init` scaffolds.
+const SIX_ARG_RUST: &str = "
+pub fn wide(a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) -> i32 {
+    a + b + c + d + e + f
+}
+";
+
+#[test]
+fn init_scaffold_thresholds_catch_an_offender() {
+    // The complement of `init_scaffold_is_discovered_by_zero_config_check`.
+    // That test proves a clean file passes, which a scaffold whose limits
+    // were all absurdly high would also do — so on its own it cannot tell
+    // a working gate from an inert one. #1140 retuned these defaults
+    // precisely because `nargs = 7` fired on under 1% of functions and on
+    // nothing in this repository at all; a limit that cannot fire is the
+    // bug, not the baseline. So pin the other direction too: a file that
+    // breaches a shipped default must fail the gate.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), TRIVIAL_RUST).unwrap();
+
+    // `--no-baseline` writes the empty placeholder, so the offender below
+    // is a *new* one rather than an absorbed one. Without this the
+    // implicit `--write-baseline` would record it and the gate would pass.
+    cli()
+        .current_dir(dir.path())
+        .args(["init", "--no-baseline"])
+        .assert()
+        .success();
+
+    fs::write(dir.path().join("wide.rs"), SIX_ARG_RUST).unwrap();
+
+    // Exit 2 is the metric-gate signal; exit 1 would mean a tool error
+    // (and would pass a bare `.failure()` assertion, hence the exact code).
+    cli()
+        .current_dir(dir.path())
+        .args(["check"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("nargs"))
+        .stderr(predicate::str::contains("wide"));
+}
