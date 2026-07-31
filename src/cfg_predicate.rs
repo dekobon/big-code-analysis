@@ -12,7 +12,7 @@
 //! entry point is [`attribute_marks_test`]; everything else is module-
 //! private.
 
-use std::ops::Range;
+use std::{iter, ops::Range};
 
 /// Return `true` if the Rust attribute body marks the annotated item
 /// as test-only.
@@ -174,53 +174,57 @@ fn cfg_predicate_marks_test(pred: &str) -> bool {
         // so a comma nested inside a predicate's own parens —
         // `not(foo, bar)`, `all(test, unix)` — is not a split point and
         // the operand reaches the prefix checks intact.
+        //
+        // The region's end acts as a final split point, so the operand
+        // after the last comma — or the whole region, when there is no
+        // comma at this depth — goes through the same classification.
         let mut operand_start = region.start;
-        for split in commas.splits(&region, depth) {
-            if classify_cfg_operand(pred, operand_start..split, depth, &mut stack) {
-                return true;
+        for boundary in commas.splits(&region, depth).chain(iter::once(region.end)) {
+            match classify_cfg_operand(pred, operand_start..boundary) {
+                Operand::Test => return true,
+                Operand::Args(args) => stack.push((args, depth + 1)),
+                Operand::Opaque => {}
             }
-            operand_start = split + 1;
-        }
-        if classify_cfg_operand(pred, operand_start..region.end, depth, &mut stack) {
-            return true;
+            operand_start = boundary + 1;
         }
     }
     false
 }
 
+/// How one operand of a cfg predicate classifies.
+enum Operand {
+    /// The bare `test` predicate: the item is test-only.
+    Test,
+    /// The argument list of an `all(...)` / `any(...)` operand, as a
+    /// byte range of the predicate, to be walked one level deeper.
+    Args(Range<usize>),
+    /// Neither matches nor descends: `not(...)`, plain idents,
+    /// `feature = "test"` and other key/value pairs.
+    Opaque,
+}
+
 /// Classify one operand of a cfg predicate, given as a byte range of
-/// `pred` at nesting depth `depth`.
-///
-/// Returns `true` when the operand is a bare `test`. An `all(...)` /
-/// `any(...)` operand instead pushes its argument list onto `stack` as
-/// a fresh region one level deeper. Everything else — `not(...)`, plain
-/// idents, `feature = "test"` and other key/value pairs — neither
-/// matches nor descends.
-fn classify_cfg_operand(
-    pred: &str,
-    operand: Range<usize>,
-    depth: usize,
-    stack: &mut Vec<(Range<usize>, usize)>,
-) -> bool {
-    let raw = &pred[operand.clone()];
+/// `pred`.
+fn classify_cfg_operand(pred: &str, operand: Range<usize>) -> Operand {
+    let raw = &pred[operand.start..operand.end];
     let trimmed = raw.trim();
     if trimmed == "test" {
-        return true;
+        return Operand::Test;
     }
     // `not(...)` short-circuits: we do not look inside, because
     // `not(test)` excludes the item from test builds (#278). Kept as an
     // explicit arm even though it is currently redundant — an operand
     // starting with `not` cannot match the `all`/`any` prefixes below,
-    // so it would fall through to `false` anyway. Deleting it would make
-    // the #278 rule an emergent property of a prefix test three lines
-    // down; stating it here keeps the rule visible if that test is ever
-    // loosened.
+    // so it would fall through to `Opaque` anyway. Deleting it would
+    // make the #278 rule an emergent property of a prefix test three
+    // lines down; stating it here keeps the rule visible if that test is
+    // ever loosened.
     if trimmed
         .strip_prefix("not")
         .map(str::trim_start)
         .is_some_and(|rest| rest.starts_with('(') && rest.ends_with(')'))
     {
-        return false;
+        return Operand::Opaque;
     }
     // `all(...)` and `any(...)` use the same "contains a `test`
     // operand" rule here. Strictly, `any(test, foo)` is over-broad (the
@@ -239,13 +243,14 @@ fn classify_cfg_operand(
         && let Some(inside) = rest.trim_start().strip_prefix('(')
         && let Some(args) = inside.strip_suffix(')')
     {
-        // `inside` is a suffix of `trimmed`, and `args` a prefix of
-        // `inside`, so both map back onto `pred` by length alone.
-        let trimmed_end = operand.end - (raw.len() - raw.trim_end().len());
-        let args_start = trimmed_end - inside.len();
-        stack.push((args_start..args_start + args.len(), depth + 1));
+        // `raw.trim_end()` starts where `raw` does, so the trimmed
+        // operand ends at `operand.start + raw.trim_end().len()`.
+        // `inside` is a suffix of that, and `args` a prefix of `inside`,
+        // so both map back onto `pred` by length alone.
+        let args_start = operand.start + raw.trim_end().len() - inside.len();
+        return Operand::Args(args_start..args_start + args.len());
     }
-    false
+    Operand::Opaque
 }
 
 #[cfg(test)]
