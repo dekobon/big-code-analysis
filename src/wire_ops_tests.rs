@@ -49,12 +49,9 @@ fn ops_fixtures() -> Vec<(crate::LANG, &'static str)> {
 }
 
 fn parse_ops(lang: crate::LANG, source: &str) -> ops::Ops {
-    crate::Ast::parse(
-        crate::Source::new(lang, source.as_bytes()).with_name(Some("fixture".to_owned())),
-    )
-    .expect("language feature enabled")
-    .ops()
-    .expect("ops walk must yield a top-level Ops")
+    crate::test_support::parse_named(lang, "fixture", source)
+        .ops()
+        .expect("ops walk must yield a top-level Ops")
 }
 
 /// The borrowed [`super::ops_view::OpsView`] and the owned [`Ops`]
@@ -72,10 +69,7 @@ fn parse_ops(lang: crate::LANG, source: &str) -> ops::Ops {
 #[cfg(feature = "rust")]
 fn borrowed_and_owned_ops_projections_serialize_alike() {
     let fixtures = ops_fixtures();
-    assert!(
-        !fixtures.is_empty(),
-        "at least one language feature must be enabled for this test to mean anything"
-    );
+    crate::test_support::assert_fixtures_present(&fixtures);
     for (lang, source) in fixtures {
         let ops = parse_ops(lang, source);
         let owned = ops.to_wire();
@@ -154,21 +148,21 @@ fn serializing_ops_builds_no_owned_projection() {
     // and compiles with no language feature enabled, where these three
     // would be unused imports.
     use super::tests::nested_functions;
-    use super::{MAX_SPACE_SERIALIZE_DEPTH, owned_ops_projections_on_this_thread};
+    use super::{MAX_SPACE_SERIALIZE_DEPTH, owned_ops_projections};
 
     let ops = parse_ops(crate::LANG::Rust, "fn f() { fn g() { let a = 1 + 2; } }\n");
 
-    let before = owned_ops_projections_on_this_thread();
+    let before = owned_ops_projections::observed();
     serde_json::to_string(&ops).expect("shallow tree serializes");
     assert_eq!(
-        owned_ops_projections_on_this_thread(),
+        owned_ops_projections::observed(),
         before,
         "serializing must go through the borrowed projection"
     );
 
     let _ = ops.to_wire();
     assert_eq!(
-        owned_ops_projections_on_this_thread(),
+        owned_ops_projections::observed(),
         before + 1,
         "`to_wire` is the caller-facing owned projection and must still build one"
     );
@@ -179,10 +173,10 @@ fn serializing_ops_builds_no_owned_projection() {
         crate::LANG::Rust,
         &nested_functions(MAX_SPACE_SERIALIZE_DEPTH + 1),
     );
-    let before = owned_ops_projections_on_this_thread();
+    let before = owned_ops_projections::observed();
     serde_json::to_string(&deep).expect_err("nesting past the limit must be refused");
     assert_eq!(
-        owned_ops_projections_on_this_thread(),
+        owned_ops_projections::observed(),
         before,
         "a refused serialization must not have cloned the tree it refused"
     );

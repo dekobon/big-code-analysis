@@ -18,7 +18,6 @@
 )]
 
 use std::borrow::Cow;
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -475,14 +474,14 @@ fn get_from_interpreter(name: &str) -> Option<LANG> {
 // lines at each end covers both conventions without trawling the body.
 const MODE_LINE_SCAN_WINDOW: usize = 5;
 
-thread_local! {
-    /// Entries into [`get_emacs_mode`] — the only thing able to observe
-    /// #1111's laziness. Read by the test that pins it, which carries why.
-    static MODELINE_SCANS: Cell<usize> = const { Cell::new(0) };
-}
+// Entries into `get_emacs_mode` — the only thing able to observe #1111's
+// laziness: every assertion on what `guess_language` returns holds just as
+// well when the scan runs eagerly and throws the result away. Read by the
+// test that pins it, which carries why.
+crate::observation::counter!(modeline_scans);
 
 fn get_emacs_mode(buf: &[u8]) -> Option<String> {
-    MODELINE_SCANS.with(|scans| scans.set(scans.get() + 1));
+    modeline_scans::record();
     // Forward scan: the first `MODE_LINE_SCAN_WINDOW` real lines may carry
     // an emacs `-*- … -*-` header or a Vim modeline. `split` yields one
     // element per line (no unbounded remainder), and `take` bounds the

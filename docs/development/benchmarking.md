@@ -207,15 +207,14 @@ something.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
   `abc/nested-block`, `cyclomatic/nested-and` and `loc/nested-fn` are
-  **shape**
-  controls: each is the same nesting as
-  the ancestor-walk probe it sits next to, with the one node that
-  triggers the walk removed. Before [#1084][parent-walk] each fitted
-  near 1.0 where its counterpart fitted near 2.0, which is what
-  attributed the quadratic cost to that call rather than to nesting in
-  general. Now that all twenty-one fit near 1.0, the pair is what would
-  localise a relapse: a probe drifting up while its control holds means
-  the ancestor lookup, not the shape.
+  **shape** controls: each is the same nesting as the ancestor-walk
+  probe it sits next to, with the one node that triggers the walk
+  removed. Before [#1084][parent-walk] each fitted near 1.0 where its
+  counterpart fitted near 2.0, which is what attributed the quadratic
+  cost to that call rather than to nesting in general. Now that all
+  twenty-two fit near 1.0, the pair is what would localise a relapse: a
+  probe drifting up while its control holds means the ancestor lookup,
+  not the shape.
 
   `loc/nested-fn` is the shape control of a different kind: it is the
   same function nesting as `loc/nested-fn-rows` compressed onto a single

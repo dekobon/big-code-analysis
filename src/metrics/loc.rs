@@ -248,8 +248,11 @@ impl Ploc {
     pub(crate) fn compute_minmax(&mut self) {
         // Fold this space's own value unconditionally so containers
         // participate, matching the sibling metrics' convention (#437).
-        self.ploc_min = self.ploc_min.min(self.ploc() as usize);
-        self.ploc_max = self.ploc_max.max(self.ploc() as usize);
+        // Bound once: `ploc()` is a popcount over the whole word array
+        // since #1109, not the O(1) `HashSet::len` it used to be.
+        let ploc = self.ploc() as usize;
+        self.ploc_min = self.ploc_min.min(ploc);
+        self.ploc_max = self.ploc_max.max(ploc);
     }
 }
 
@@ -341,8 +344,11 @@ impl Cloc {
     pub(crate) fn compute_minmax(&mut self) {
         // Fold this space's own value unconditionally so containers
         // participate, matching the sibling metrics' convention (#437).
-        self.cloc_min = self.cloc_min.min(self.cloc() as usize);
-        self.cloc_max = self.cloc_max.max(self.cloc() as usize);
+        // Bound once: `cloc()` is a `union_len` over both word arrays
+        // since #1109, so calling it twice is six array scans per space.
+        let cloc = self.cloc() as usize;
+        self.cloc_min = self.cloc_min.min(cloc);
+        self.cloc_max = self.cloc_max.max(cloc);
     }
 }
 
@@ -482,9 +488,15 @@ impl Stats {
         // rows. An offset past `sloc_end_row` keeps them disjoint from
         // any real span row, so `cloc()` (the set's cardinality) equals
         // the requested count without colliding with sloc attribution.
-        let synthetic_base = sloc_end_row + 1;
-        for line in synthetic_base..synthetic_base + code_comment_lines {
-            stats.cloc.code_comment_line_starts.insert(line);
+        if code_comment_lines > 0 {
+            let synthetic_base = sloc_end_row + 1;
+            // Explicit rather than leaning on `insert_range`'s inverted-span
+            // guard: that guard exists to survive a bug, not to serve as a
+            // caller's empty case.
+            stats
+                .cloc
+                .code_comment_line_starts
+                .insert_range(synthetic_base, synthetic_base + code_comment_lines - 1);
         }
         stats
     }
@@ -698,9 +710,11 @@ impl Stats {
         // participate, matching the sibling metrics' convention (#437).
         // `blank()` returns a `u64` already clamped at 0 by `saturating_sub`,
         // so the widening `as usize` cast is lossless (64-bit) and cannot
-        // introduce a spurious value here.
-        self.blank_min = self.blank_min.min(self.blank() as usize);
-        self.blank_max = self.blank_max.max(self.blank() as usize);
+        // introduce a spurious value here. Bound once: `blank()` popcounts
+        // two word arrays since #1109.
+        let blank = self.blank() as usize;
+        self.blank_min = self.blank_min.min(blank);
+        self.blank_max = self.blank_max.max(blank);
     }
 
     pub(crate) fn init_unit_span(&mut self, start: usize, end: usize, end_column: usize) {

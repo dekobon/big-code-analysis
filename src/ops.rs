@@ -7,7 +7,6 @@
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
 use std::borrow::Cow;
-use std::cell::Cell;
 
 use crate::checker::Checker;
 use crate::error::MetricsError;
@@ -144,40 +143,35 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     }
 }
 
-thread_local! {
-    /// Space-kind classifications [`ops_inner`] has performed on this
-    /// thread.
-    ///
-    /// The classification only ever reaches [`Ops::new`], so running it
-    /// on a node that opens no space is work thrown away — and nothing
-    /// about the walk's *output* can tell the two apart. The counter is
-    /// the observable: it reads one per space after the lookup was moved
-    /// inside the `func_space` branch, and one per *node* before, which
-    /// is what makes hoisting it back out a test failure rather than a
-    /// silent regression (#1110).
-    static SPACE_KIND_LOOKUPS: Cell<usize> = const { Cell::new(0) };
-}
+// Space-kind classifications `ops_inner` has performed on this thread.
+//
+// The classification only ever reaches `Ops::new`, so running it on a
+// node that opens no space is work thrown away — and nothing about the
+// walk's *output* can tell the two apart. The counter is the
+// observable: it reads one per space after the lookup was moved inside
+// the `func_space` branch, and one per *node* before, which is what
+// makes hoisting it back out a test failure rather than a silent
+// regression (#1110).
+crate::observation::counter!(space_kind_lookups);
 
 /// Classifies a node that is about to open a function space.
 ///
-/// Mirrors [`crate::spaces::compute`]'s `open_func_space`, which
-/// likewise classifies only after deciding a space opens (#522). The
-/// lookup is a per-language `match` on the node's kind for most
+/// Classification happens after the decision that a space opens, the
+/// same way [`crate::spaces::compute`]'s `open_func_space` does it
+/// (#522). That is a claim about *when*, not about *which*: the two
+/// seams disagree on which nodes open a space — `ops_inner` opens on
+/// `is_func || is_func_space` where `open_func_space` uses
+/// `promotes_to_func_space_with_code`, so `bca ops` reports no nested
+/// spaces for an Elixir input where `bca metrics` reports two. That
+/// divergence is tracked in #1130 and is not what this function is
+/// about.
+///
+/// The lookup is a per-language `match` on the node's kind for most
 /// grammars, but C#'s reaches a child scan for a bodied indexer or
 /// property, so it is not free on every node either.
 fn classify_space_kind<T: ParserTrait>(node: &Node) -> SpaceKind {
-    SPACE_KIND_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
+    space_kind_lookups::record();
     T::Getter::get_space_kind(node)
-}
-
-/// How many space-kind classifications the ops walk has performed on
-/// this thread.
-///
-/// Only the accessor is test-gated; the counter itself is unconditional
-/// so a test observes the production path byte for byte.
-#[cfg(test)]
-pub(crate) fn space_kind_lookups_on_this_thread() -> usize {
-    SPACE_KIND_LOOKUPS.with(Cell::get)
 }
 
 /// Render a space's vocabulary: byte-lexicographically ordered, one
@@ -1304,20 +1298,14 @@ mod tests {
                 "function outer(a) { function inner(b) { return b + 1; } return inner(a) * 2; }\n",
             ),
         ];
-        assert!(
-            !cases.is_empty(),
-            "at least one language feature must be enabled for this test to mean anything"
-        );
+        crate::test_support::assert_fixtures_present(cases);
 
         for (lang, file, source) in cases {
-            let ast = Ast::parse(
-                Source::new(*lang, source.as_bytes()).with_name(Some((*file).to_owned())),
-            )
-            .expect("language feature enabled");
+            let ast = crate::test_support::parse_named(*lang, file, source);
 
-            let before = crate::ops::space_kind_lookups_on_this_thread();
+            let before = super::space_kind_lookups::observed();
             let ops = ast.ops().expect("ops walk must yield a top-level Ops");
-            let lookups = crate::ops::space_kind_lookups_on_this_thread() - before;
+            let lookups = super::space_kind_lookups::observed() - before;
 
             let mut spaces = 0;
             let mut stack = vec![&ops];

@@ -259,7 +259,9 @@ mod tests {
     fn int_key_hasher_spreads_consecutive_keys() {
         // A thousand dense keys, in the table hashbrown would hold them
         // in: capacity rounds up to a power of two above `keys / 0.875`.
-        const KEYS: usize = 1_000;
+        // Typed `u16` so the keys go through `write_u16`, the call
+        // `HashMap<u16, _>` actually makes for a `kind_id`.
+        const KEYS: u16 = 1_000;
         const BUCKETS: usize = 2_048;
         // Bounds a random hash does *not* clear on this input: it fills
         // ~813 of the buckets and piles 4 keys on its worst one.
@@ -269,7 +271,7 @@ mod tests {
         let mut depth = vec![0_usize; BUCKETS];
         for key in 0..KEYS {
             let mut h = IntKeyHasher::default();
-            h.write_usize(key);
+            h.write_u16(key);
             // Reduce first, so the index provably fits whatever width
             // `usize` has on the host.
             let bucket = usize::try_from(h.finish() % BUCKETS as u64)

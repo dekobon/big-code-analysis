@@ -4024,11 +4024,10 @@ f() {
     /// comparison still fails at runtime if `IntKeyHashMap` itself is
     /// ever redefined to wrap `RandomState`.
     ///
-    /// The two text-keyed maps are pinned to SipHash in the same test
-    /// because moving *them* would be a hash-flooding regression rather
-    /// than an optimisation: their keys are identifiers and literals
-    /// taken verbatim from the file under analysis, which is untrusted
-    /// input here (see `crate::int_hash`).
+    /// The two text-keyed maps are pinned to SipHash in the same test,
+    /// because moving *them* would be a regression rather than an
+    /// optimisation. `crate::int_hash`'s module doc is the single place
+    /// that argues why analysed source text does not qualify.
     #[test]
     fn halstead_operator_map_uses_the_int_key_hasher() {
         use std::any::{type_name, type_name_of_val};
