@@ -35,7 +35,8 @@ impl Loc for PerlCode {
             | P::StringDoubleQuotedContent
             | P::EscapeSequence
             | P::EscapeSequenceToken1
-            | P::Interpolation => {}
+            | P::Interpolation
+            | P::HASH => {}
             // Multi-line-capable string literals: their interior rows are
             // real code, not blank lines, so credit every spanned row to
             // PLOC to match Python's #415 decision (#778). `HeredocBodyStatement`

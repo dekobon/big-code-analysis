@@ -322,17 +322,23 @@ for historical reference.
 
 ### Fixed
 
-- Tcl and iRules no longer count comment-only and whitespace-only rows
-  as PLOC (#1135). Both grammars surface the row terminator as a token
-  child of the root rather than as extra, and its start row is the row
-  it *terminates* — so the `_` catch-all in their `Loc::compute`
-  credited every terminated row to PLOC. A fourteen-row Tcl file with
-  six comment rows reported `ploc 13` instead of `7`, which also drove
-  `cloc + ploc` past `sloc`, violating an invariant the rest of the
-  suite relies on. A wholly empty row was unaffected; a row of
-  whitespace — trailing whitespace on an otherwise blank line — was
-  not. **PLOC, `ploc_average`, `ploc_min` / `ploc_max`, and `blank`
-  move for Tcl and iRules sources**; no other language is affected.
+- Comment-only rows are no longer counted as physical lines of code in
+  Tcl, iRules (#1135), and Perl (#1137). Both defects let a token reach
+  the `_` catch-all that ends `stats.ploc.lines.insert(start)`: in the
+  Tcl family it was the row terminator, which those two grammars alone
+  surface as a token child of the root and whose start row is the row it
+  *terminates*; in Perl it was the `#` *inside* the `comments` node,
+  which additionally reclassified the row from comment-only to
+  code-and-comment. A realistic fourteen-row Tcl file with six comment
+  rows reported `ploc 13` instead of `7`. The Tcl family also counted
+  whitespace-only rows — trailing whitespace on an otherwise blank
+  line — as code, so `blank` moves there too; a wholly empty row was
+  unaffected either way. **PLOC, `ploc_average`, `ploc_min` /
+  `ploc_max`, and (for the Tcl family) `blank` move for Tcl, iRules,
+  and Perl sources**; no other language is affected.
+  `a_comment_row_is_never_counted_as_code` now sweeps every language
+  and comment spelling, comment-before-code and comment-after-code, so
+  a third instance of this shape fails a test rather than shipping.
 - Documented the one input class where a trailing newline does change a
   LOC value (#1087). #1067 established that a trailing newline is a
   formatting detail no LOC sub-metric may depend on, but whitespace-only
