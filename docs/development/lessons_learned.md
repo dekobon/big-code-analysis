@@ -4486,3 +4486,82 @@ write what was measured and under which conditions rather than the
 generalisation it suggests.
 
 ---
+
+## 85. Coverage measures execution, not discrimination — a 100%-covered line can be wholly unguarded
+
+A coverage report answers "did any test run this line?" It does not
+answer "would any test notice if this line were wrong?" Those come
+apart whenever a line is reached by many tests that all supply the
+*same* value to the part that matters. The line is green, the
+percentage is satisfying, and substituting a wrong expression changes
+nothing observable. Coverage tooling cannot see this, because the
+distinction it would need — which inputs varied, not which lines ran —
+is not what it measures. So "that file is at 99%" is evidence about
+reachability and nearly none about protection, and it is most
+misleading exactly where it feels most reassuring: on a hot line that
+every test in the suite executes.
+
+**A 100%-covered argument that no test ever varied** (#1105, PR #1128).
+`CommaIndex::splits` (`src/cfg_predicate.rs:128`) looks up each region's
+splitting commas with
+`partition_point(|entry| *entry < (depth, region.start))`. Replace that
+`region.start` lower bound with `0` and the function panics on ordinary
+input such as `any(all(unix, test), all(windows, foo))`, slicing with an
+inverted range — yet before this PR added rows covering that shape, the
+perturbation failed **no test at all**. Measured on the lib targets of
+the root, CLI, and web crates: 3,969 tests at the time, every one of
+them still green with the bound wrong. `splits` measured at **11 of 11
+regions covered**, entered 150,200 times in a single run; llvm-cov was
+not malfunctioning, it was answering the question it is asked. No test
+had two sibling `all(...)` regions at the same depth where the *earlier*
+one held a comma, so the bound was never the difference between right
+and wrong. The same perturbation now fails exactly one test
+(`cfg_predicate_classification_matches_pre_1105_walker`), which is the
+whole delta between "covered" and "guarded".
+
+**The file-level percentage was not even measuring one copy of the code**
+(PR #1128). Chasing the above, `cfg_predicate.rs` read 73.26% region
+coverage — apparently poor, and flatly inconsistent with the 100% on the
+function under review. Both numbers were right. The coverage data holds
+**five** instantiations of `big-code-analysis`, one per workspace crate
+that links it, and only one is ever executed: 25 function entries with a
+non-zero count against 44 at exactly zero, the latter inflating every
+denominator in the file. The same artifact made `spaces.rs` and
+`spaces/compute.rs` appear to lose coverage on this PR while their
+*covered* counts stayed byte-identical, and dragged the workspace figure
+from 86.01% to 85.99% in a change that covered 97 more regions than it
+started with. A percentage silently aggregated over copies of the code
+that never ran is not a measure of anything.
+
+**A test *count* standing in for the test set** (#1120, PR #1128). The
+same substitution of a scalar for the property of interest, one layer up.
+Switching `make test` to `cargo-nextest` had to preserve coverage, and
+two listings of the *same tree* gave 4,741 and 4,731 — which reads as ten
+tests dropped by the new runner until you notice nothing had changed but
+the listing convention: one includes `#[ignore]`d entries and the other
+omits them. Diffing the executed-test set, generated the same way on both
+sides, showed zero removed. A count is a hash of the thing you care
+about, and like any hash it collides.
+
+**Lesson:** Never accept a coverage percentage as evidence that a line
+is tested; it is evidence that the line is reached. To learn whether a
+line is *protected*, perturb it and watch the suite — and treat "the
+perturbation failed nothing" as a finding to act on, not a formality
+that passed. Prefer perturbing the specific sub-expression whose value
+carries the invariant (a bound, an offset, a comparison direction) over
+deleting the whole statement, which usually fails loudly for the wrong
+reason. The general shape is that any scalar summary of a set —
+coverage percent, test count, file count, snapshot count — can hold
+steady or improve while the set underneath it changes: compare the
+sets themselves whenever the comparison is the point. When the
+question is "did this change lose coverage", the comparable quantity
+is the *covered* count (`count - missed`) per file and in total, not
+the percentage, whose denominator moves for reasons that have nothing
+to do with the change; reconcile the per-file deltas against the total
+before believing either. Related to
+lesson #33, which covers per-slot revert granularity, and to
+`.claude/rules/testing.md`, which covers the perturbation technique;
+the distinct claim here is that the coverage tool actively reports a
+false all-clear on this class.
+
+---
