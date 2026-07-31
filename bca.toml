@@ -49,6 +49,14 @@ baseline = ".bca-baseline.toml"
 
 # bca per-function threshold configuration.
 #
+# These limits are this repository's own calibration and are expected to
+# differ from the defaults `bca init` scaffolds (which live in
+# `big-code-analysis-cli/src/default_thresholds.rs` and are derived in
+# the book's `Choosing thresholds` recipe). Until #1140 a drift test
+# forced the two equal, which meant this project's Rust-specific
+# calibration was also what every adopter got on day one. Where this
+# file diverges, the divergence is noted inline with its reason.
+#
 # Editing rules:
 #   * Each key is a stable metric name (or dotted sub-metric name) from
 #     `bca list-metrics` / `bca check --help`. Available names:
@@ -81,26 +89,41 @@ baseline = ".bca-baseline.toml"
 # enough to be meaningless, or fire on the long tail of dispatch arms.
 # They are still computed and visible in `bca report markdown|html`.
 [thresholds]
+# cognitive, nargs, and abc are looser here than the shipped defaults
+# (15 / 5 / 40). That is not a calibration — it is the pre-#1140
+# folklore value, kept because converging costs ~95 new baseline
+# entries in one commit, which reads as debt rather than as a decision.
+# Tracked in #1143; tighten one metric per change, absorbing offenders
+# as they are genuinely fixed rather than baselining the lot.
 cognitive = 25
 cyclomatic = 15
 "halstead.effort" = 50000
-# Set to 800 from the observed file-level distribution: the median
-# source file is ~380 SLOC and the dense cluster of normal hand-
-# written modules runs up to ~890. Rust co-locates `#[cfg(test)]`
-# tests in-file, so file SLOC runs 2-3x what it would with separate
-# test files; a healthy ~300-350 non-test ceiling maps to this range.
-# 800 lets most ordinary documented modules pass without an
-# artificial split or a baseline entry. Still on the baseline ratchet:
-# the genuinely large / test-heavy modules (metrics/*, macros, the big
-# report files), plus a few mid-size modules in the ~760-890 band
-# (alterator.rs, ops.rs, baseline.rs, ...). The soft tier scales this
-# limit to 760 (BCA_HEADROOM 0.95), so files between 760 and 800 are
-# baselined for the soft gate even though they clear the hard one.
-# loc.sloc is File-scoped (#969): it gates the whole-file root only, not
-# each function — a per-function SLOC gate would be redundant here, since
-# cognitive / cyclomatic / abc catch an oversized function long before it
-# nears 800 lines.
-"loc.sloc" = 800
+# File size is gated in two tiers (#1138, #1140). Both are File-scoped
+# (#969): they gate the whole-file root, never each function — an
+# oversized function trips cognitive / cyclomatic / abc long before it
+# nears any of these line counts.
+#
+# `loc.ploc` is the working limit: physical lines of code, blanks and
+# comments excluded. 550 sits just above this repo's p99 (545) with the
+# current distribution at p50 68 / p90 331 / p95 421. That is stricter
+# than the shipped default of 600 on purpose — a house style that asks
+# for a why-comment whenever the reasoning is non-obvious should be
+# measured on its code, and then held to a tighter bound on it.
+"loc.ploc" = 550
+# `loc.sloc` is a bloat backstop, not the working limit: it counts
+# comments and blanks, so its only job is to stop a file growing without
+# bound on comment volume alone while still clearing loc.ploc. 1300
+# leaves real headroom over today's largest file (1080) and over the
+# 0.95 soft tier, so ordinary documentation growth never trips it.
+#
+# This replaces the previous single `loc.sloc = 800` gate, whose stated
+# derivation ("Rust co-locates #[cfg(test)] tests in-file, so file SLOC
+# runs 2-3x...") stopped holding when `exclude_tests = true` landed
+# twelve days after the limit was set, and which in practice charged the
+# same price for documenting a decision as for adding code — #1138 found
+# seven files clustered in a four-line band ending exactly on the soft
+# limit, which is trimming-to-fit rather than a natural distribution.
+"loc.sloc" = 1300
 nom = 30
 nargs = 7
 nexits = 5
