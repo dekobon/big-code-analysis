@@ -30,6 +30,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::getter::Getter;
+use crate::int_hash::IntKeyHashMap;
 use crate::macros::implement_metric_trait;
 
 use crate::*;
@@ -59,11 +60,21 @@ pub enum HalsteadType {
 /// and one per distinct operand (`text`); merged across nested spaces.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct HalsteadMaps<'a> {
-    pub(crate) operators: HashMap<u16, u64>,
+    /// Keyed by `kind_id`, so it is hashed with [`crate::int_hash`]'s
+    /// integer hasher rather than SipHash: the key is a grammar symbol
+    /// this crate generated, drawn from an alphabet of at most a few
+    /// hundred values, so there is nothing for a keyed hash to defend.
+    pub(crate) operators: IntKeyHashMap<u16, u64>,
     /// Primitive-type operators stored by text so each distinct primitive
     /// (e.g. `int` vs `double`) counts as a separate distinct operator,
     /// even when the grammar maps them all to a single kind_id.
+    ///
+    /// Text-keyed, so it keeps SipHash — see the module doc on
+    /// [`crate::int_hash`] for why analysed source text does not qualify
+    /// for the fast hasher.
     pub(crate) primitive_operators: HashMap<&'a [u8], u64>,
+    /// Text-keyed, and on SipHash for the same reason as
+    /// `primitive_operators`.
     pub(crate) operands: HashMap<&'a [u8], u64>,
 }
 
@@ -3985,5 +3996,212 @@ f() {
                 "Foo", "bar", "log", "self", "x", "y", "0", "1", "10", "@\"hi\"",
             ],
         );
+    }
+
+    /// Builds a `HalsteadMaps` from explicit occurrence counts.
+    ///
+    /// The per-language tests above reach these maps only through a
+    /// parse, which cannot produce a *chosen* overlap between a child
+    /// and its parent — the cases `merge` exists to get right.
+    fn halstead_maps_of<'a>(
+        operators: &[(u16, u64)],
+        primitive_operators: &[(&'a [u8], u64)],
+        operands: &[(&'a [u8], u64)],
+    ) -> HalsteadMaps<'a> {
+        HalsteadMaps {
+            operators: operators.iter().copied().collect(),
+            primitive_operators: primitive_operators.iter().copied().collect(),
+            operands: operands.iter().copied().collect(),
+        }
+    }
+
+    /// `HalsteadMaps::operators` must stay on the crate's integer hasher.
+    ///
+    /// Swapping a hasher moves no metric value, so every other test in
+    /// this file passes just as well with #1108 reverted. Both halves
+    /// here are needed: the typed binding stops compiling if the field
+    /// goes back to a default-hasher `HashMap`, and the `type_name`
+    /// comparison still fails at runtime if `IntKeyHashMap` itself is
+    /// ever redefined to wrap `RandomState`.
+    ///
+    /// The two text-keyed maps are pinned to SipHash in the same test
+    /// because moving *them* would be a hash-flooding regression rather
+    /// than an optimisation: their keys are identifiers and literals
+    /// taken verbatim from the file under analysis, which is untrusted
+    /// input here (see `crate::int_hash`).
+    #[test]
+    fn halstead_operator_map_uses_the_int_key_hasher() {
+        use std::any::{type_name, type_name_of_val};
+        use std::hash::BuildHasherDefault;
+
+        use crate::int_hash::IntKeyHasher;
+
+        let maps = HalsteadMaps::new();
+
+        let operators: &IntKeyHashMap<u16, u64> = &maps.operators;
+        assert_eq!(
+            type_name_of_val(operators.hasher()),
+            type_name::<BuildHasherDefault<IntKeyHasher>>(),
+            "the kind_id-keyed operator map must use the int_hash hasher"
+        );
+
+        let siphash = type_name::<std::collections::hash_map::RandomState>();
+        assert_eq!(
+            type_name_of_val(maps.operands.hasher()),
+            siphash,
+            "operand keys come from the analysed source, so the keyed hash \
+             is what stops a crafted file from flooding this map"
+        );
+        assert_eq!(
+            type_name_of_val(maps.primitive_operators.hasher()),
+            siphash,
+            "primitive-operator keys come from the analysed source, so the \
+             keyed hash is what stops a crafted file from flooding this map"
+        );
+    }
+
+    /// `merge` sums overlapping keys and adopts disjoint ones, in all
+    /// three maps, and `finalize` reads the union back as n1/N1/n2/N2.
+    ///
+    /// Every count differs from every other and none is zero, so a
+    /// dropped key, an overwrite where an addition belongs, or a map
+    /// crossed with its neighbour all change the totals.
+    #[test]
+    fn halstead_maps_merge_sums_overlaps_and_adopts_disjoint_keys() {
+        let mut parent = halstead_maps_of(
+            &[(1, 2), (2, 3)],
+            &[(b"int", 1)],
+            &[(b"alpha", 4), (b"beta", 7)],
+        );
+        let child = halstead_maps_of(
+            &[(2, 5), (7, 11)],
+            &[(b"double", 13)],
+            &[(b"alpha", 17), (b"gamma", 19)],
+        );
+
+        parent.merge(&child);
+
+        // expected: operators {1: 2, 2: 3+5, 7: 11}; primitives
+        // {int: 1, double: 13}; operands {alpha: 4+17, beta: 7,
+        // gamma: 19}.
+        assert_eq!(
+            parent,
+            halstead_maps_of(
+                &[(1, 2), (2, 8), (7, 11)],
+                &[(b"int", 1), (b"double", 13)],
+                &[(b"alpha", 21), (b"beta", 7), (b"gamma", 19)],
+            )
+        );
+
+        let mut stats = Stats::default();
+        parent.finalize(&mut stats);
+        // expected: n1 = 3 kind ids + 2 primitives; N1 = (2+8+11) +
+        // (1+13); n2 = 3 texts; N2 = 21+7+19.
+        assert_eq!(stats.unique_operators(), 5);
+        assert_eq!(stats.total_operators(), 35);
+        assert_eq!(stats.unique_operands(), 3);
+        assert_eq!(stats.total_operands(), 47);
+    }
+
+    /// Merging an empty child leaves the parent untouched.
+    ///
+    /// A space with no operators or operands is the common case for a
+    /// leaf getter or an empty function body, and `finalize` runs on
+    /// the parent afterwards either way.
+    #[test]
+    fn halstead_maps_merge_of_empty_child_is_a_no_op() {
+        let mut parent = halstead_maps_of(&[(3, 5)], &[(b"char", 2)], &[(b"delta", 9)]);
+        let before = parent.clone();
+
+        parent.merge(&HalsteadMaps::new());
+
+        assert_eq!(parent, before);
+
+        let mut stats = Stats::default();
+        parent.finalize(&mut stats);
+        // expected: n1 = 1 kind id + 1 primitive; N1 = 5 + 2; n2 = 1;
+        // N2 = 9.
+        assert_eq!(stats.unique_operators(), 2);
+        assert_eq!(stats.total_operators(), 7);
+        assert_eq!(stats.unique_operands(), 1);
+        assert_eq!(stats.total_operands(), 9);
+    }
+
+    /// Folding a chain of nested spaces bottom-up must reach the union
+    /// of every level, re-merging already-merged maps on the way up.
+    ///
+    /// This is what `spaces.rs` and `ops.rs` actually do: each space is
+    /// merged into its parent as the walk pops it, so by the time the
+    /// root sees a grandchild's counts they have already passed through
+    /// one `merge`. The literal expectation below is what discriminates
+    /// — the `nested == flat` cross-check on its own does not, because
+    /// any entry-wise fold over the same levels agrees with itself
+    /// however it is associated, including a broken one.
+    #[test]
+    fn halstead_maps_merge_folds_a_nested_chain() {
+        let levels = [
+            halstead_maps_of(&[(1, 1)], &[(b"int", 1)], &[(b"a", 1)]),
+            halstead_maps_of(&[(1, 2), (2, 3)], &[], &[(b"a", 2), (b"b", 4)]),
+            halstead_maps_of(&[(2, 5)], &[(b"long", 6)], &[(b"b", 7)]),
+            halstead_maps_of(&[(3, 8)], &[(b"int", 9)], &[(b"c", 10)]),
+        ];
+
+        // Bottom-up: the deepest level folds into its parent, that
+        // result into *its* parent, and so on up to the root.
+        let mut nested = levels[levels.len() - 1].clone();
+        for level in levels.iter().rev().skip(1) {
+            let mut outer = level.clone();
+            outer.merge(&nested);
+            nested = outer;
+        }
+
+        // Flat: every level merged directly into the root.
+        let mut flat = levels[0].clone();
+        for level in &levels[1..] {
+            flat.merge(level);
+        }
+
+        // expected: every key summed across the four levels — operators
+        // {1: 1+2, 2: 3+5, 3: 8}, primitives {int: 1+9, long: 6},
+        // operands {a: 1+2, b: 4+7, c: 10}.
+        assert_eq!(
+            nested,
+            halstead_maps_of(
+                &[(1, 3), (2, 8), (3, 8)],
+                &[(b"int", 10), (b"long", 6)],
+                &[(b"a", 3), (b"b", 11), (b"c", 10)],
+            )
+        );
+        assert_eq!(nested, flat);
+
+        let mut stats = Stats::default();
+        nested.finalize(&mut stats);
+        // expected: n1 = 3 kind ids + 2 primitives; N1 = (3+8+8) +
+        // (10+6); n2 = 3 texts; N2 = 3+11+10.
+        assert_eq!(stats.unique_operators(), 5);
+        assert_eq!(stats.total_operators(), 35);
+        assert_eq!(stats.unique_operands(), 3);
+        assert_eq!(stats.total_operands(), 24);
+    }
+
+    /// A `kind_id` at the top of the `u16` range must behave like any
+    /// other key.
+    ///
+    /// The largest grammar in the workspace (`mozcpp`) tops out around
+    /// 640 symbols, so nothing near `u16::MAX` occurs today — but the
+    /// map is keyed by the raw id, and a dense-array representation
+    /// (the shape #1108 considered and rejected) is exactly what such a
+    /// key would break. Pinning it keeps that trade-off honest if the
+    /// representation is ever revisited.
+    #[test]
+    fn halstead_maps_handle_the_full_kind_id_range() {
+        let mut parent = halstead_maps_of(&[(0, 3), (u16::MAX, 5)], &[], &[]);
+        parent.merge(&halstead_maps_of(&[(u16::MAX, 7)], &[], &[]));
+
+        let mut stats = Stats::default();
+        parent.finalize(&mut stats);
+        // expected: two distinct kind ids, occurrences 3 and 5+7.
+        assert_eq!(stats.unique_operators(), 2);
+        assert_eq!(stats.total_operators(), 15);
     }
 }

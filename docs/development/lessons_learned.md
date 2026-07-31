@@ -263,7 +263,7 @@ checklist.
 
 ## 4. Halstead `n1`/`n2` and `--ops` come from different stores — keep them in sync
 
-`HalsteadMaps::operators` is a `HashMap<u16, u64>` keyed by
+`HalsteadMaps::operators` is an `IntKeyHashMap<u16, u64>` keyed by
 `node.kind_id()`. The `--ops` output is built from a parallel
 text-keyed structure plus the `primitive_types` `HashSet<String>`.
 Three independent failure modes have produced visibly disagreeing

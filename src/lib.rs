@@ -127,7 +127,10 @@ mod cfg_predicate;
 mod checker;
 mod getter;
 // Fast hashing for the walk's integer-keyed maps and sets. Shared by
-// `spaces` (node ids) and `metrics::loc` (line numbers).
+// `spaces` (node ids), `metrics::loc` (line numbers), and
+// `metrics::halstead` (grammar `kind_id`s). The module doc is the
+// single place that lists them and says why the text-keyed collections
+// are excluded — extend it, not this line, when a fourth arrives.
 mod int_hash;
 #[cfg(test)]
 mod language_enum_roundtrip;
