@@ -52,8 +52,15 @@ would run by hand:
 # Exit 2 ⇒ this file has at least one offender. Thresholds come from
 # the repo-root bca.toml (discovered automatically); override ad hoc
 # with one or more --threshold flags.
-bca check path/to/edited_file.rs --threshold cognitive=25
+bca check path/to/edited_file.rs --threshold cognitive=10
 ```
+
+An agent loop wants tighter limits than a blocking CI gate: a false
+positive costs one wasted refactor rather than a blocked merge, and the
+signal arrives while the code is still being written. See the
+[agent feedback profile](thresholds.md#profile-agent) for the rest of
+the table, and [Choosing thresholds](thresholds.md) for where the
+shipped defaults come from.
 
 With a `bca.toml` at the repo root (see
 [Local threshold gates](local-gates.md#zero-config-the-bcatoml-manifest))
