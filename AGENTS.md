@@ -199,8 +199,12 @@ Before considering a change done, run `make pre-commit` from the repo
 root. It is the canonical entry point for the full validation gate
 and runs, in one parallel pass: the cargo trio (`cargo fmt --check`,
 `cargo clippy --workspace --all-targets -- -D warnings` in both
-default-features and `--all-features` flavours, `cargo test
---workspace --all-features`), `cargo doc --no-deps --workspace
+default-features and `--all-features` flavours, the full test suite
+via `make test` + `make test-doc` — `make test` runs `cargo nextest
+run --workspace --all-features` when `cargo-nextest` is on PATH and
+falls back to `cargo test --workspace --all-features --lib --bins
+--tests` otherwise, and `make test-doc` covers the doctests nextest
+cannot run), `cargo doc --no-deps --workspace
 --all-features` with `RUSTDOCFLAGS="-D warnings"`,
 `cargo +nightly udeps`, the markdown /
 TOML / shell / Makefile / GitHub Actions lint families, the man-page
@@ -265,8 +269,9 @@ with `make self-scan-write-baseline-headroom` in the commit that moved
 the metric. A red gate on `main` traces directly to skipping this step.
 
 If GNU Make 4 or any of the optional tools (`taplo`, `rumdl`,
-`shellcheck`, `shfmt`, `checkmake`, `actionlint`, `ruff`, `mypy`, `pyright`,
-`maturin`) are unavailable, fall back to the raw cargo commands:
+`shellcheck`, `shfmt`, `checkmake`, `actionlint`, `cargo-nextest`,
+`ruff`, `mypy`, `pyright`, `maturin`) are unavailable, fall back to the
+raw cargo commands:
 
 ```bash
 cargo fmt --all -- --check

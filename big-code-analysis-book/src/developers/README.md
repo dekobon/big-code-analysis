@@ -31,16 +31,17 @@ The repository ships a `Makefile` that wraps every common build, test,
 lint, format, and docs task. Run `make help` to see the full list of
 targets, and `make check-tools` to verify which optional tools
 (`taplo`, `rumdl`, `shellcheck`, `shfmt`, `checkmake`,
-`mdbook`, `cargo-insta`, `cargo-udeps`) are present on your machine.
+`mdbook`, `cargo-insta`, `cargo-udeps`, `cargo-nextest`) are present on
+your machine.
 
 The two composite targets you will use most:
 
 - `make pre-commit` — the recommended local gate before committing.
   Runs `cargo fmt --check`, both clippy invocations
-  (default-features and `--all-features`), `cargo test --workspace
-  --all-features` (lib + bin + integration + doc), `cargo +nightly
-  udeps`, and the markdown / TOML / shell / Makefile lint families
-  in one parallel pass.
+  (default-features and `--all-features`), the full test suite via
+  `make test` + `make test-doc` (lib + bin + integration + doc),
+  `cargo +nightly udeps`, and the markdown / TOML / shell / Makefile
+  lint families in one parallel pass.
 - `make ci` — the same checks in the order CI runs them, with no
   auto-fixing. Use this to reproduce a failing CI run locally.
 
@@ -74,9 +75,21 @@ type-checking during iteration.
 To verify that all tests pass:
 
 ```console
-make test       # cargo test --workspace --all-features --lib --bins --tests
+make test       # cargo nextest run --workspace --all-features
 make test-doc   # cargo test --workspace --all-features --doc
 ```
+
+`make test` prefers [cargo-nextest](https://nexte.st/), which is also
+what CI runs. Plain `cargo test` finishes each of the workspace's 72
+test binaries before starting the next, so parallelism exists only
+within a binary; nextest schedules every binary's tests into one global
+pool. Install it with `cargo install --locked cargo-nextest`. Without
+it `make test` falls back to `cargo test --workspace --all-features
+--lib --bins --tests`, which runs the identical set of tests, just
+serialized per binary.
+
+Doctests are a separate target because nextest cannot run them.
+`make pre-commit` and `make ci` run both.
 
 If you only want to run the cargo command yourself:
 

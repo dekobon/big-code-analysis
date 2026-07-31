@@ -59,6 +59,31 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
+# Test runner: prefer cargo-nextest, fall back to `cargo test` (#1120).
+# `cargo test` runs the workspace's 72 test binaries strictly one after
+# another — parallelism exists only *within* a binary, so the ten root
+# integration binaries that hold a single `#[test]` each pin the whole
+# machine to one core for their duration. nextest schedules every
+# binary's tests into one global pool instead. CI already runs nextest
+# (the `test` job in .github/workflows/ci.yml); this is the local half.
+#
+# The two paths execute an identical target set: nextest's default
+# selection is exactly `--lib --bins --tests`, verified by diffing
+# `cargo nextest list --workspace --all-features` against the same
+# invocation with those flags spelled out (4,731 tests, plus the 10
+# `#[ignore]`d ones both runners skip).
+#
+# Expect a smaller wall-clock win than the scheduling change implies:
+# one test (`cfg_predicate::tests::rust_attr_test_handles_deeply_nested_
+# cfg_without_overflow`, the O(len^2) blowup tracked in #1105) runs for
+# ~78s and is now the critical path. The other 4,730 finish in ~17s
+# together, so fixing #1105 is what converts this into a ~4x win.
+#
+# Detected by variable rather than inline `command -v` so the fallback
+# is exercisable without uninstalling anything: `make test NEXTEST=`.
+NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
+TEST_CMD       = $(if $(NEXTEST),cargo nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
+
 .PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
 # Default target
@@ -76,7 +101,7 @@ help:
 	@echo "  check                                Run cargo check"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  test                                 Run unit and integration tests"
+	@echo "  test                                 Run unit and integration tests (nextest if present)"
 	@echo "  test-doc                             Run cargo doc tests"
 	@echo "  insta-review                         Review pending insta snapshot diffs"
 	@echo "  insta-accept                         Accept all pending insta snapshots"
@@ -189,11 +214,22 @@ check:
 # Test
 # ---------------------------------------------------------------------------
 test:
-	cargo test --workspace --all-features --lib --bins --tests
+	@if [ -z "$(NEXTEST)" ]; then \
+	  echo "cargo-nextest not found; falling back to 'cargo test' (same tests, slower)."; \
+	  echo "Install with: cargo install --locked cargo-nextest"; \
+	fi
+	$(TEST_CMD)
 
+# Doctests stay on `cargo test`: nextest cannot run them at all, so this
+# is a separate target rather than an oversight (see .config/nextest.toml).
 test-doc:
 	cargo test --workspace --all-features --doc
 
+# `cargo insta test` shells out to `cargo test`, not $(TEST_CMD): insta's
+# nextest integration needs `--test-runner nextest`, and under it insta
+# cannot force-pass a failing assertion to collect every pending snapshot
+# in one run — which is exactly what review/accept need. Snapshot review
+# is an interactive, non-hot-loop operation, so it keeps the slower runner.
 insta-review:
 	cargo insta test --review
 
@@ -1021,8 +1057,8 @@ _pc-clippy: _pc-fmt
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 _pc-test: _pc-clippy
-	cargo test --workspace --all-features --lib --bins --tests
-	cargo test --workspace --all-features --doc
+	$(MAKE) test
+	$(MAKE) test-doc
 
 _pc-doc-check: _pc-test
 	$(MAKE) doc-check
@@ -1160,9 +1196,14 @@ _ci-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+# Mirrors the `test` job in .github/workflows/ci.yml (nextest for the
+# lib/bin/integration tests, `cargo test --doc` for doctests). The
+# workflow additionally passes `--profile ci --locked`; that profile only
+# turns off fail-fast and emits JUnit XML for the PR annotation step, so
+# the executed test set is identical and local runs keep fail-fast.
 _ci-test:
-	cargo test --workspace --all-features --lib --bins --tests
-	cargo test --workspace --all-features --doc
+	$(MAKE) test
+	$(MAKE) test-doc
 
 _ci-doc-check:
 	$(MAKE) doc-check
