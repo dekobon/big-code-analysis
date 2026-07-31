@@ -552,6 +552,12 @@ fn guess_language_empty_buffer_and_no_extension() {
 
 #[test]
 fn lowercase_ext_borrows_only_when_already_ascii_lowercase() {
+    // Asserting the `Cow` variant is the only coverage available for the
+    // `is_ascii` guard: no language claims extension `k`, so the
+    // `U+212A KELVIN SIGN` fold is unobservable through `guess_language`.
+    // Rewriting these as `assert_eq!(lowercase_ext(…), "…")` would compile,
+    // pass, and silently stop testing the borrow/own split.
+
     // Already lowercase: no allocation.
     assert!(matches!(lowercase_ext("rs"), Cow::Borrowed("rs")));
     assert!(matches!(lowercase_ext("php7"), Cow::Borrowed("php7")));

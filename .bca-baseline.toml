@@ -895,13 +895,6 @@ value = 10.0
 
 [[entry]]
 path = "src/node.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 800.0
-
-[[entry]]
-path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 125
 metric = "nom"

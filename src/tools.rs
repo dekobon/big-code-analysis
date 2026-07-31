@@ -258,13 +258,6 @@ pub fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// ```
 #[must_use]
 pub fn get_language_for_file(path: &Path) -> Option<LANG> {
-    lang_from_ext(path)
-}
-
-/// Resolves a language from a path's extension alone, case-insensitively.
-/// Shared by [`get_language_for_file`] and [`guess_language`] so the two
-/// surfaces cannot drift on how an extension is normalised.
-fn lang_from_ext(path: &Path) -> Option<LANG> {
     let ext = path.extension()?.to_str()?;
     get_from_ext(&lowercase_ext(ext))
 }
@@ -275,13 +268,16 @@ fn lang_from_ext(path: &Path) -> Option<LANG> {
 ///
 /// The `is_ascii` guard is load-bearing: [`str::to_lowercase`] is
 /// Unicode-aware and folds `U+212A KELVIN SIGN` onto ASCII `k`, so a
-/// non-ASCII extension must still take the owned path to keep the lookup
-/// key identical to the pre-#1111 one.
+/// non-ASCII extension must still take that Unicode-aware path to keep
+/// the lookup key identical to the pre-#1111 one. Everything past the
+/// guard is ASCII by construction, hence the cheaper fold.
 fn lowercase_ext(ext: &str) -> Cow<'_, str> {
-    if ext.is_ascii() && !ext.bytes().any(|b| b.is_ascii_uppercase()) {
-        Cow::Borrowed(ext)
-    } else {
+    if !ext.is_ascii() {
         Cow::Owned(ext.to_lowercase())
+    } else if ext.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Owned(ext.to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(ext)
     }
 }
 
@@ -392,8 +388,7 @@ fn get_regex<'a>(
 ) -> Option<regex::bytes::Captures<'a>> {
     once_lock
         .get_or_init(|| Regex::new(regex).expect("constant regex pattern must compile"))
-        .captures_iter(line)
-        .next()
+        .captures(line)
 }
 
 /// Resolves a language from a script's shebang line.
@@ -543,7 +538,7 @@ pub fn guess_language<P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>, &'s
     // modeline regex scan — the previous form computed it for every file
     // and discarded it, since every arm of its extension branch returned
     // the extension's language, the "modeline agrees" arm included (#1111).
-    let lang = lang_from_ext(path.as_ref())
+    let lang = get_language_for_file(path.as_ref())
         .or_else(|| get_emacs_mode(buf).and_then(|mode| get_from_emacs_mode(&mode)))
         .or_else(|| get_shebang_lang(buf));
 
