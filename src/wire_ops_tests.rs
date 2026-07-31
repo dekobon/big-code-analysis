@@ -9,8 +9,7 @@
 //! `./**/*_tests.rs` rule in `.bcaignore` keeps this one out of the
 //! self-scan entirely.
 
-use super::tests::nested_functions;
-use super::{MAX_SPACE_SERIALIZE_DEPTH, ops, owned_ops_projections_on_this_thread};
+use super::ops;
 
 /// Per-language `ops` fixtures with nested spaces and non-ASCII
 /// operand text, used by the two projection-parity tests below.
@@ -151,6 +150,12 @@ fn borrowed_and_owned_ops_projections_agree_on_the_optional_fields() {
 #[test]
 #[cfg(feature = "rust")]
 fn serializing_ops_builds_no_owned_projection() {
+    // Scoped to this test: the rest of the module builds no projections
+    // and compiles with no language feature enabled, where these three
+    // would be unused imports.
+    use super::tests::nested_functions;
+    use super::{MAX_SPACE_SERIALIZE_DEPTH, owned_ops_projections_on_this_thread};
+
     let ops = parse_ops(crate::LANG::Rust, "fn f() { fn g() { let a = 1 + 2; } }\n");
 
     let before = owned_ops_projections_on_this_thread();
