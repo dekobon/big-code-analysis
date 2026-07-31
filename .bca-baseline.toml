@@ -63,14 +63,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/check_format.rs"
 qualified = "write_github_annotations"
-start_line = 173
+start_line = 167
 metric = "halstead.effort"
 value = 47834.17129195417
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 99
+start_line = 100
 metric = "halstead.effort"
 value = 136001.1105471366
 
@@ -98,14 +98,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "emit_check_results"
-start_line = 564
+start_line = 544
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "filter_by_baseline"
-start_line = 375
+start_line = 355
 metric = "nargs"
 value = 8.0
 
@@ -196,21 +196,21 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_exemptions"
-start_line = 548
+start_line = 580
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_metrics"
-start_line = 203
+start_line = 231
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_ops"
-start_line = 264
+start_line = 292
 metric = "nargs"
 value = 8.0
 
@@ -266,7 +266,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 529
+start_line = 654
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -301,7 +301,7 @@ value = 8.0
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff::from_sets"
-start_line = 177
+start_line = 221
 metric = "nargs"
 value = 8.0
 
@@ -345,47 +345,26 @@ path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 815.0
+value = 787.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "build_options"
-start_line = 231
+start_line = 233
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "emit"
-start_line = 444
-metric = "nexits"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "rank"
-start_line = 321
+start_line = 323
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "write_csv"
-start_line = 556
-metric = "halstead.effort"
-value = 50108.004893127785
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "write_table"
-start_line = 494
-metric = "nexits"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_jit.rs"
-qualified = "emit"
-start_line = 113
+start_line = 466
 metric = "nexits"
 value = 5.0
 
@@ -595,21 +574,21 @@ value = 72581.41181251501
 [[entry]]
 path = "src/c_macro.rs"
 qualified = "replace"
-start_line = 275
+start_line = 288
 metric = "halstead.effort"
-value = 82510.45138724327
+value = 82074.58162485641
 
 [[entry]]
 path = "src/c_macro.rs"
 qualified = "step_normal"
-start_line = 106
+start_line = 119
 metric = "halstead.effort"
-value = 67149.37366558494
+value = 66515.67234293568
 
 [[entry]]
 path = "src/c_macro.rs"
 qualified = "step_normal"
-start_line = 106
+start_line = 119
 metric = "nexits"
 value = 6.0
 
@@ -924,35 +903,35 @@ value = 60471.77938561803
 [[entry]]
 path = "src/output/dump_metrics.rs"
 qualified = "dump_metrics"
-start_line = 149
+start_line = 148
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
 qualified = "dump_space"
-start_line = 105
+start_line = 104
 metric = "nexits"
 value = 9.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
 qualified = "dump_value"
-start_line = 242
+start_line = 241
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "src/output/dump_ops.rs"
 qualified = "dump_ops_values"
-start_line = 141
+start_line = 140
 metric = "nexits"
 value = 12.0
 
 [[entry]]
 path = "src/output/dump_ops.rs"
 qualified = "dump_space"
-start_line = 76
+start_line = 75
 metric = "nexits"
 value = 9.0
 
