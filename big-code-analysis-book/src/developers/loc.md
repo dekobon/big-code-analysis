@@ -66,3 +66,9 @@ This requires implementing the `compute` function.
 See
 [/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/metrics/loc.rs)
 for where to implement, as well as examples from other languages.
+
+Take care with the catch-all `_` arm that inserts a row into PLOC. If
+the grammar surfaces its row terminator as a *token* rather than as
+extra — as the Tcl family does — that token's start row is the row it
+terminates, so the catch-all credits comment-only and blank rows to
+PLOC. Give such tokens an explicit no-op arm.

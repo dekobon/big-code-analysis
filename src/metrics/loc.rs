@@ -5744,11 +5744,16 @@ f",
         );
     }
 
+    /// expected: row 0 is comment-only, row 1 is the sole code row — so
+    /// `cloc 1 + ploc 1 == sloc 2`. This test pinned `ploc == 2` until
+    /// #1135: the `LF` token terminating the comment row landed in the
+    /// `_` catch-all and inserted that row into PLOC, which also drove
+    /// `cloc + ploc` past `sloc`.
     #[test]
     fn tcl_cloc() {
         check_metrics::<TclParser>("# This is a comment\nset x 1", "foo.tcl", |metric| {
             assert_eq!(metric.loc.sloc(), 2);
-            assert_eq!(metric.loc.ploc(), 2);
+            assert_eq!(metric.loc.ploc(), 1);
             assert_eq!(metric.loc.lloc(), 1);
             assert_eq!(metric.loc.cloc(), 1);
             assert_eq!(metric.loc.blank(), 0);
@@ -9748,12 +9753,20 @@ class A {
 
     /// `#`-prefixed comment lines are counted as CLOC (iRules has no block
     /// comments, so each comment node spans exactly one line).
+    ///
+    /// expected: rows 0-2 are comment-only, row 3 is the sole code row.
+    /// `ploc` and `sloc` are asserted, not just `cloc`/`blank`: without
+    /// them this test passed all the way through #1135, which credited
+    /// each of the three comment rows to PLOC as well (`ploc == 4`,
+    /// `cloc + ploc == 7` against `sloc == 4`).
     #[test]
     fn irules_cloc() {
         check_metrics::<IrulesParser>(
             "# a\n# b\n# c\nwhen X { set x 1 }\n",
             "foo.irule",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4);
+                assert_eq!(metric.loc.ploc(), 1);
                 assert_eq!(metric.loc.cloc(), 3);
                 assert_eq!(metric.loc.blank(), 0);
             },
@@ -10384,5 +10397,73 @@ class A {
             .map(|child| child.metrics.loc.sloc())
             .collect();
         assert_eq!(subs, vec![3, 3], "both subs occupy three rows");
+    }
+
+    /// #1135: Tcl and its iRules dialect are the only grammars here that
+    /// surface the row terminator as a token child of the root. `LF`'s
+    /// start row is the row it *terminates*, so the `_` catch-all in
+    /// their `Loc` impls inserted that row into PLOC — turning every
+    /// comment-only and whitespace-only row into a line of code.
+    ///
+    /// A wholly empty row never showed the defect: the `LF` that starts
+    /// on it is the one tree-sitter collapses at end-of-input. A row of
+    /// *whitespace* does, and trailing whitespace on an otherwise blank
+    /// line is ordinary in real source — which is what makes the two
+    /// spellings' disagreement the sharpest assertion here.
+    ///
+    /// Uses [`metrics_verbatim`] so the fixtures reach the parser
+    /// byte-for-byte; `check_metrics` rewrites the trailing newline.
+    #[test]
+    fn tcl_family_does_not_count_terminator_rows_as_code() {
+        for lang in [crate::LANG::Tcl, crate::LANG::Irules] {
+            // Three rows: code, whitespace-only, code.
+            let padded = metrics_verbatim(
+                lang,
+                b"proc f {} {}\n   \nproc g {} {}\n",
+                MetricsOptions::default(),
+            )
+            .loc;
+            assert_eq!(padded.sloc(), 3, "{lang:?} sloc");
+            assert_eq!(padded.ploc(), 2, "{lang:?} ploc");
+            assert_eq!(padded.blank(), 1, "{lang:?} blank");
+
+            // Whether a blank row carries spaces is not a property of the
+            // code, so the empty-row spelling must agree exactly. Pre-fix
+            // this side stayed correct while the padded side reported
+            // `ploc 3 / blank 0`.
+            let empty = metrics_verbatim(
+                lang,
+                b"proc f {} {}\n\nproc g {} {}\n",
+                MetricsOptions::default(),
+            )
+            .loc;
+            assert_eq!(
+                (padded.sloc(), padded.ploc(), padded.blank()),
+                (empty.sloc(), empty.ploc(), empty.blank()),
+                "{lang:?}: trailing whitespace on a blank row must not make it code"
+            );
+
+            // The comment-only half of the same defect, and the reason it
+            // escaped `unterminated_one_line_file_reports_one_source_line`:
+            // that sweep's fixtures are one-liners with no comment row, so
+            // its `cloc + ploc <= sloc` assertion had nothing to bite on.
+            let commented = metrics_verbatim(
+                lang,
+                b"# lead-in\nproc f {} {}\n",
+                MetricsOptions::default(),
+            )
+            .loc;
+            assert_eq!(commented.sloc(), 2, "{lang:?} commented sloc");
+            assert_eq!(commented.ploc(), 1, "{lang:?} commented ploc");
+            assert_eq!(commented.cloc(), 1, "{lang:?} commented cloc");
+            assert_eq!(commented.blank(), 0, "{lang:?} commented blank");
+            assert!(
+                commented.cloc() + commented.ploc() <= commented.sloc(),
+                "{lang:?}: cloc {} + ploc {} exceeds sloc {}",
+                commented.cloc(),
+                commented.ploc(),
+                commented.sloc(),
+            );
+        }
     }
 }

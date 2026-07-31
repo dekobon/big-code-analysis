@@ -18,7 +18,14 @@ impl Loc for TclCode {
         let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
-            Tcl::SourceFile => {}
+            // Tcl is the only grammar family here that surfaces the row
+            // terminator as a token child of the root rather than as
+            // extra. `LF`'s start row is the row it *terminates*, so the
+            // `_` catch-all below credited every terminated row to PLOC —
+            // comment-only and whitespace-only rows included (#1135). An
+            // LF after real code is redundant anyway: the code node on
+            // that row already inserted it.
+            Tcl::SourceFile | Tcl::LF => {}
 
             Tcl::Comment => {
                 add_cloc_lines(stats, start, end);
@@ -38,11 +45,14 @@ impl Loc for TclCode {
                 stats.lloc.logical_lines += 1;
             }
 
-            // `expr` at statement level is a logical line; inside [...] it is a
-            // sub-expression and should not be counted (same semantics as Command).
-            Tcl::ExprCmd
-            // Commands inside [...] are sub-expressions, not top-level statements.
-            | Tcl::Command
+            // `expr` and a bare command are logical lines at statement
+            // level only; inside `[...]` each is a sub-expression, which
+            // is why the two share one guard. The rationale sits above
+            // the arm rather than between the alternatives because a
+            // comment *inside* a match pattern makes rustfmt emit the
+            // whole match verbatim while `cargo fmt --check` still exits
+            // 0 — see `.claude/rules/formatting.md`.
+            Tcl::ExprCmd | Tcl::Command
                 if ancestors
                     .parent(node)
                     .is_none_or(|p| p.kind_id() != Tcl::CommandSubstitution) =>
