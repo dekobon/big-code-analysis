@@ -1,0 +1,159 @@
+//! One reusable `tree_sitter::Parser` per analysis thread.
+//!
+//! A `tree_sitter::Parser` owns a lexer, a GLR stack with its stack-node
+//! pool, a subtree pool and several scratch arrays. `set_language` and
+//! `parse` reset that state without releasing the capacity behind it, so
+//! a parser that has handled one file starts the next with those buffers
+//! already grown. Construction is *not* what costs; the re-grown buffers
+//! are, and only modestly — see issue #1118 for the measurements.
+//!
+//! What a thread keeps between files is bounded by the largest file it
+//! has parsed (tens of KiB): the subtree and stack-node pools are
+//! capped, but the scratch arrays around them are cleared without
+//! releasing capacity, so a long-lived server holds that per worker for
+//! the process lifetime.
+//!
+//! Only the parser is cached, not the language bound to it. Rebinding
+//! per file costs nothing measurable — the gain survives consecutive
+//! files alternating language — so a cache key whose staleness would
+//! misparse a file buys nothing.
+
+use std::cell::Cell;
+
+use tree_sitter::{Language, Parser, Tree};
+
+thread_local! {
+    /// The parser this thread reuses across the files it analyzes.
+    static SCRATCH_PARSER: Cell<Option<Parser>> = const { Cell::new(None) };
+
+    /// Parsers built on this thread, so a test can observe that reuse
+    /// actually happens. Every assertion on parse *output* holds just as
+    /// well when the write-back below is deleted, which would silently
+    /// restore the one-parser-per-file behaviour #1118 removed. The
+    /// counter sits on the slot-miss path, which runs once per thread,
+    /// so it costs nothing per file.
+    static PARSERS_BUILT: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many parsers this thread has built.
+///
+/// Only the accessor is test-gated; the counter itself is unconditional
+/// so the path a test observes is byte-for-byte the production one.
+#[cfg(test)]
+pub(crate) fn parsers_built_on_this_thread() -> usize {
+    PARSERS_BUILT.with(Cell::get)
+}
+
+/// Parses `code` under `language` on this thread's reusable parser.
+///
+/// The parser is moved out of the thread-local for the duration of the
+/// parse and moved back afterwards, so a re-entrant call finds an empty
+/// slot and builds its own parser rather than observing one mid-parse.
+/// Both accesses go through `try_with`, which cannot panic: a parse
+/// issued from another thread-local's destructor runs after this slot
+/// may already have been destroyed, and there `LocalKey::with` panics —
+/// a panic escaping a destructor aborts the process.
+///
+/// The returned tree is independent of the parser that produced it: it
+/// owns its subtrees and its own handle on the grammar, and releases
+/// them through a pool of its own (`ts_tree_delete`). It outlives both
+/// the cached parser and the thread that built it.
+///
+/// The `parse` invariant below holds only because nothing in this crate
+/// sets a timeout, a cancellation flag, or included ranges: unlike the
+/// parse state, `set_language` does not clear those, so anything that
+/// starts setting one must clear it before the parser goes back.
+pub(crate) fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> Tree {
+    let mut parser = SCRATCH_PARSER
+        .try_with(Cell::take)
+        .ok()
+        .flatten()
+        .unwrap_or_else(build_parser);
+    // `ts_parser_set_language` resets the parse state itself, so the
+    // `Parser::reset` tree-sitter documents for reuse is redundant here.
+    parser
+        .set_language(language)
+        .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
+    let tree = parser
+        .parse(code, None)
+        .expect("invariant: parser has a language set and no cancellation flag");
+    // Dropped rather than cached when the slot is already gone.
+    let _ = SCRATCH_PARSER.try_with(|slot| slot.set(Some(parser)));
+    tree
+}
+
+fn build_parser() -> Parser {
+    PARSERS_BUILT.with(|built| built.set(built.get() + 1));
+    Parser::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::langs::RustCode;
+    use crate::traits::LanguageInfo;
+
+    fn rust_language() -> Language {
+        RustCode::lang()
+            .get_ts_language()
+            .expect("rust is a default feature")
+    }
+
+    /// The guard for the optimization itself, not for its output.
+    /// Deleting the write-back in `parse_on_scratch_parser` leaves every
+    /// tree-comparison assertion in `tests/parser_reuse.rs` passing while
+    /// reducing the cache to a no-op; only a construction count sees it.
+    ///
+    /// Runs on its own thread so the count starts from zero regardless of
+    /// which other tests shared this one.
+    #[test]
+    fn many_parses_on_one_thread_build_one_parser() {
+        const PARSES: usize = 8;
+
+        std::thread::spawn(|| {
+            assert_eq!(
+                parsers_built_on_this_thread(),
+                0,
+                "a fresh thread must start with an empty slot"
+            );
+            let language = rust_language();
+            for i in 0..PARSES {
+                let tree = parse_on_scratch_parser(&language, b"fn f() { let x = 1; }");
+                assert!(
+                    !tree.root_node().to_sexp().contains("ERROR"),
+                    "parse {i} must succeed"
+                );
+            }
+            assert_eq!(
+                parsers_built_on_this_thread(),
+                1,
+                "{PARSES} parses must share one parser"
+            );
+        })
+        .join()
+        .expect("parsing thread must not panic");
+    }
+
+    /// Each thread carries its own parser: one thread's cache must not
+    /// satisfy another's first parse.
+    #[test]
+    fn each_thread_builds_its_own_parser() {
+        let counts: Vec<usize> = (0..3)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    let language = rust_language();
+                    parse_on_scratch_parser(&language, b"fn f() {}");
+                    parse_on_scratch_parser(&language, b"fn g() {}");
+                    parsers_built_on_this_thread()
+                })
+            })
+            .map(|handle| handle.join().expect("parsing thread must not panic"))
+            .collect();
+
+        assert_eq!(
+            counts,
+            vec![1, 1, 1],
+            "each thread builds exactly one parser for its own files"
+        );
+    }
+}

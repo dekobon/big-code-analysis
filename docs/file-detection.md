@@ -26,8 +26,7 @@ There are two public entry points, both returning a
 
 ### `get_language_for_file(path)`: extension only
 
-Lowercases the file's extension (borrowing it when it is already
-lowercase) and looks it up. Returns `None` if the
+Lowercases the file's extension and looks it up. Returns `None` if the
 path has no extension, the extension is not valid UTF-8, or no language
 claims that extension. This is the cheap path; no buffer required.
 

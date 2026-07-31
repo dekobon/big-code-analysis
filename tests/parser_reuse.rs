@@ -31,6 +31,8 @@
 
 #[cfg(all(feature = "rust", feature = "typescript"))]
 mod parser_reuse {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use big_code_analysis::{Ast, LANG, Source, tree_sitter};
 
     const RUST_SRC: &str = r#"
@@ -110,9 +112,14 @@ class Point {
             !sexp.contains("ERROR") && !sexp.contains("MISSING"),
             "{what}: fixture must parse without errors, got {sexp}"
         );
+        // Both fixtures define a function, and every grammar here names
+        // that node with a `function`-prefixed kind. A structural check
+        // beats a length threshold: it stays meaningful if the fixtures
+        // shrink, and it fails loudly if a fixture degenerates to a bare
+        // ERROR node whose reference would be equally broken.
         assert!(
-            sexp.len() > 200,
-            "{what}: expected a non-trivial tree, got {sexp}"
+            sexp.contains("function"),
+            "{what}: expected a function node in the tree, got {sexp}"
         );
     }
 
@@ -254,6 +261,9 @@ class Point {
         static TEARDOWN_PROBE: ParseOnDrop = const { ParseOnDrop };
     }
 
+    /// Set by `ParseOnDrop::drop`, checked after the thread is joined.
+    static TEARDOWN_PARSE_OK: AtomicBool = AtomicBool::new(false);
+
     struct ParseOnDrop;
 
     impl Drop for ParseOnDrop {
@@ -267,11 +277,12 @@ class Point {
             // production `try_with` for `with` turns this test into
             // `fatal runtime error: thread local panicked on drop,
             // aborting` — an uncatchable SIGABRT, not a test failure.
+            // Recorded rather than asserted: a panic escaping a
+            // thread-local destructor aborts the process, which would
+            // report as a crashed binary instead of a named test
+            // failure. The check happens after `join` below.
             let sexp = cached_sexp(LANG::Rust, RUST_SRC);
-            assert!(
-                sexp.contains("function_item"),
-                "parse from a thread-local destructor must still work, got {sexp}"
-            );
+            TEARDOWN_PARSE_OK.store(sexp.contains("function_item"), Ordering::SeqCst);
         }
     }
 
@@ -289,5 +300,11 @@ class Point {
         })
         .join()
         .expect("thread-local teardown must not panic");
+
+        assert!(
+            TEARDOWN_PARSE_OK.load(Ordering::SeqCst),
+            "the destructor's parse must have produced a real tree; \
+             a `false` here means it ran but returned no function node"
+        );
     }
 }
