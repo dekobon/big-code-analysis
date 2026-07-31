@@ -21,6 +21,18 @@ use crate::traits::{LanguageInfo, Search};
 
 use parser_cache::parse_on_scratch_parser;
 
+// Sibling lookups that resolved the parent from the node, on this
+// thread.
+//
+// [`Node::previous_sibling`] answers exactly what the chain-based
+// [`Ancestors::previous_sibling`] does, so no assertion on a metric
+// value can tell a walk that uses one from a walk that uses the
+// other — only the cost differs, and only on a deep tree. #1096 took
+// the last of these out of the metric bodies and #1100 out of the
+// `exclude_tests` prune; the counter is what makes putting one back a
+// test failure rather than a silent quadratic.
+crate::observation::counter!(node_resolved_sibling_lookups);
+
 /// A parsed source tree wrapping a [`tree_sitter::Tree`].
 ///
 /// The "open parse seam" (see issue #251) is reached by external
@@ -188,6 +200,7 @@ impl<'a> Node<'a> {
     ///
     /// [`previous_sibling_under`]: Self::previous_sibling_under
     pub(crate) fn previous_sibling(&self) -> Option<Node<'a>> {
+        node_resolved_sibling_lookups::record();
         self.0.prev_sibling().map(Node)
     }
 
@@ -747,6 +760,50 @@ mod tests {
     use super::*;
     use crate::langs::MozjsCode;
     use crate::test_support::for_each_node_with_chain;
+
+    /// Under a parent narrow enough to read forward, the
+    /// `exclude_tests` prune finds the run of `#[…]` siblings before an
+    /// item through the walker's ancestor chain, never by resolving
+    /// siblings from the node.
+    ///
+    /// Nothing in the output says so: the backward walk this replaced
+    /// returns the same answer, only `O(depth)` per step (#1100), and
+    /// `rust_outer_attr_scans_agree` in `checker.rs` exists precisely
+    /// to prove the two agree. The counter is the sole observable, so a
+    /// revert is a silent quadratic without this.
+    ///
+    /// Every parent in the fixture holds at most five children, which
+    /// keeps it under `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN` — the
+    /// backward walk is still the deliberate reading above that width,
+    /// so a wider fixture would assert the opposite of what it looks
+    /// like it asserts.
+    ///
+    /// Seeding a real lookup first is what makes the assertion
+    /// falsifiable: compared against zero it would also pass with
+    /// `record()` never wired up at all.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn the_exclude_tests_prune_resolves_no_sibling_from_a_node() {
+        let source = "#[cfg(test)]\nmod tests {\nfn t() {}\n}\n\
+                      #[inline]\nfn kept() {\n#[allow(dead_code)]\nfn nested() {}\nlet x = 1;\n}\n";
+        let ast = crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", source);
+
+        let root = Node(ast.as_tree_sitter().root_node());
+        let last = root.children().last().expect("the file has items");
+        let _ = last.previous_sibling();
+        let seeded = node_resolved_sibling_lookups::observed();
+        assert!(seeded > 0, "the seed call must be counted");
+
+        ast.metrics(crate::MetricsOptions::default().with_exclude_tests(true))
+            .expect("the walk must yield a top-level space");
+
+        assert_eq!(
+            node_resolved_sibling_lookups::observed(),
+            seeded,
+            "the metric walk resolved a sibling from a node; \
+             read it off the ancestor chain instead (#1096 / #1100)"
+        );
+    }
 
     /// The `child(0)` + `next_sibling()` chain [`Node::wraps_any`] used
     /// between #217 and #1088, kept here as the reference the cursor

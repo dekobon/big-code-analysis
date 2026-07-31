@@ -106,7 +106,7 @@ impl Checker for RustCode {
     /// in `spaces::metrics_with_options` only consults this hook
     /// when the caller opts in via `MetricsOptions::exclude_tests`,
     /// so the default `metrics()` entry point is unaffected.
-    fn should_skip_subtree(node: &Node, code: &[u8]) -> bool {
+    fn should_skip_subtree<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
         if !matches!(
             node.kind_id().into(),
             Rust::ModItem
@@ -118,6 +118,6 @@ impl Checker for RustCode {
         ) {
             return false;
         }
-        rust_item_is_test_only(node, code)
+        rust_item_is_test_only(node, code, ancestors)
     }
 }

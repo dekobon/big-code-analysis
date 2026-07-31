@@ -325,8 +325,17 @@ pub(crate) trait Checker {
     /// pre-#182 behavior. Language overrides drive opt-in skips
     /// (currently: `RustCode` filters `#[cfg(test)]` items, gated
     /// by the runtime `MetricsOptions::exclude_tests` flag).
+    ///
+    /// `ancestors` is the chain the caller descended through. Rust's
+    /// override needs the parent to read the run of `#[…]` siblings
+    /// before an item, and resolving siblings from the node alone
+    /// costs `O(depth)` per step (#1100).
     #[inline]
-    fn should_skip_subtree(_node: &Node, _code: &[u8]) -> bool {
+    fn should_skip_subtree<'a>(
+        _node: &Node<'a>,
+        _code: &[u8],
+        _ancestors: Ancestors<'a, '_>,
+    ) -> bool {
         false
     }
 
@@ -461,29 +470,113 @@ fn rust_attribute_body<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
         .and_then(|t| t.trim().strip_suffix(']'))
 }
 
-fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
-    rust_outer_attr_marks_test(node, code) || rust_inner_attr_marks_test(node, code)
+/// Classifies one attribute node's body, given the `#` / `#!` marker
+/// its kind carries. Returns `false` for a node whose text is not
+/// valid UTF-8 or does not have the `marker[...]` shape.
+fn rust_attribute_node_marks_test(node: &Node, code: &[u8], marker: &str) -> bool {
+    node.utf8_text(code)
+        .and_then(|text| rust_attribute_body(text, marker))
+        .is_some_and(rust_attribute_marks_test)
 }
 
+fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors<'a, '_>) -> bool {
+    rust_outer_attr_marks_test(node, code, ancestors) || rust_inner_attr_marks_test(node, code)
+}
+
+/// Children a parent may have before reading its child list costs more
+/// than resolving the sibling from `node` itself.
+///
+/// The two scans below grow on different axes and neither dominates.
+/// [`Node::previous_sibling`] resolves the parent by descending from
+/// the root, so its cost tracks the node's *depth*; a cursor pass over
+/// the parent's children tracks the parent's *width*. Measured on this
+/// workspace's grammar build, one cursor sibling step costs ~68 ns
+/// against ~420 ns for a whole `previous_sibling` on a shallow node —
+/// and that 420 ns did not move with the sibling index, so the
+/// break-even sits near six children.
+///
+/// Cutting at the *shallow* break-even is the conservative choice: the
+/// backward walk only gets more expensive with depth, so a parent
+/// narrow enough to read forward at depth 1 is still worth reading
+/// forward at depth 1_000. That makes the forward scan a strict
+/// improvement where it applies (#1100) and leaves a generated file of
+/// thousands of top-level items on exactly the walk it had before.
+const MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN: usize = 6;
+
 // The tree-sitter Rust grammar exposes outer attributes (`#[...]`) as
-// `AttributeItem` siblings *before* the decorated item. Walk backward
-// across consecutive attribute siblings; any match short-circuits. This
-// scan runs for every item kind, including `mod_item`, so
+// `AttributeItem` siblings *before* the decorated item, so what marks
+// `node` test-only is the run of attributes immediately preceding it —
+// a non-attribute sibling (another item, a comment) ends the run. This
+// scan covers every item kind, including `mod_item`, so
 // `#[cfg(test)] mod tests` (an outer attribute on the module) is caught
 // here while `mod tests { #![cfg(test)] }` is caught by the inner scan.
-fn rust_outer_attr_marks_test(node: &Node, code: &[u8]) -> bool {
-    let mut sibling = node.previous_sibling();
-    while let Some(s) = sibling {
-        if s.kind_id() != Rust::AttributeItem {
+//
+// The two readings agree on every node — `rust_outer_attr_scans_agree`
+// pins that — so this only picks the cheaper one.
+fn rust_outer_attr_marks_test<'a>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> bool {
+    match ancestors.parent(node) {
+        Some(parent) if parent.child_count() <= MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN => {
+            rust_attribute_run_under(&parent, node, code)
+        }
+        _ => rust_attribute_run_before(node, code),
+    }
+}
+
+/// Reads the attribute run ending at `node` forward from `parent`,
+/// which the walker already holds. `O(parent.child_count())`, and
+/// independent of how deep `node` sits.
+///
+/// Two passes and not one: classifying each attribute as the first pass
+/// goes by would classify every attribute in the parent rather than
+/// only the adjacent run, and classification is itself `O(len)` in the
+/// attribute body (#1105).
+fn rust_attribute_run_under(parent: &Node, node: &Node, code: &[u8]) -> bool {
+    let mut run_start = None;
+    for child in parent.children() {
+        if child.id() == node.id() {
             break;
         }
-        if let Some(text) = s.utf8_text(code)
-            && let Some(inner) = rust_attribute_body(text, "#")
-            && rust_attribute_marks_test(inner)
-        {
+        if child.kind_id() == Rust::AttributeItem {
+            if run_start.is_none() {
+                run_start = Some(child);
+            }
+        } else {
+            run_start = None;
+        }
+    }
+    // No preceding attribute — and also the shape a `parent` that is
+    // not `node`'s parent lands in, since the first pass then ends at
+    // the parent's own trailing run rather than at `node`. The walker
+    // constructs its chain through `Ancestors::checked`, so that is a
+    // caller error rather than a shape to answer for.
+    let Some(run_start) = run_start else {
+        return false;
+    };
+    parent
+        .children()
+        .skip_while(|child| child.id() != run_start.id())
+        .take_while(|child| child.id() != node.id() && child.kind_id() == Rust::AttributeItem)
+        .any(|attribute| rust_attribute_node_marks_test(&attribute, code, "#"))
+}
+
+/// Reads the same run backward from `node`. Each step resolves the
+/// parent by descending from the root, so this is `O(attributes x
+/// depth)` — but it does not touch the siblings it does not need,
+/// which is what makes it the cheaper reading under a wide parent.
+fn rust_attribute_run_before(node: &Node, code: &[u8]) -> bool {
+    let mut sibling = node.previous_sibling();
+    while let Some(attribute) = sibling {
+        if attribute.kind_id() != Rust::AttributeItem {
+            break;
+        }
+        if rust_attribute_node_marks_test(&attribute, code, "#") {
             return true;
         }
-        sibling = s.previous_sibling();
+        sibling = attribute.previous_sibling();
     }
     false
 }
@@ -494,22 +587,12 @@ fn rust_outer_attr_marks_test(node: &Node, code: &[u8]) -> bool {
 // `body` field before scanning. Non-module items have no inner-attribute
 // test form, so this returns `false` for them immediately.
 fn rust_inner_attr_marks_test(node: &Node, code: &[u8]) -> bool {
-    if node.kind_id() == Rust::ModItem
-        && let Some(body) = node.child_by_field_name("body")
-    {
-        for child in body.children() {
-            if child.kind_id() != Rust::InnerAttributeItem {
-                continue;
-            }
-            if let Some(text) = child.utf8_text(code)
-                && let Some(inner) = rust_attribute_body(text, "#!")
-                && rust_attribute_marks_test(inner)
-            {
-                return true;
-            }
-        }
-    }
-    false
+    node.kind_id() == Rust::ModItem
+        && node.child_by_field_name("body").is_some_and(|body| {
+            body.children()
+                .filter(|child| child.kind_id() == Rust::InnerAttributeItem)
+                .any(|attribute| rust_attribute_node_marks_test(&attribute, code, "#!"))
+        })
 }
 
 #[cfg(test)]
@@ -531,6 +614,7 @@ mod tests {
         TypescriptParser,
     };
     use crate::test_support::for_each_node_with_chain;
+    use std::fmt::Write as _;
     use std::path::PathBuf;
 
     fn parse(source: &str) -> BashParser {
@@ -838,10 +922,14 @@ mod tests {
         let code = parser.code();
         let node = find_first_kind(&parser, Rust::ModItem as u16).expect("mod_item");
 
-        assert!(rust_item_is_test_only(&node, code));
+        assert!(rust_item_is_test_only(&node, code, Ancestors::unknown()));
         // The marker lives on the outer scan; the inner scan sees no
         // `#![cfg(test)]` and must report false.
-        assert!(rust_outer_attr_marks_test(&node, code));
+        assert!(rust_outer_attr_marks_test(
+            &node,
+            code,
+            Ancestors::unknown()
+        ));
         assert!(!rust_inner_attr_marks_test(&node, code));
     }
 
@@ -856,8 +944,12 @@ mod tests {
         let code = parser.code();
         let node = find_first_kind(&parser, Rust::ModItem as u16).expect("mod_item");
 
-        assert!(rust_item_is_test_only(&node, code));
-        assert!(!rust_outer_attr_marks_test(&node, code));
+        assert!(rust_item_is_test_only(&node, code, Ancestors::unknown()));
+        assert!(!rust_outer_attr_marks_test(
+            &node,
+            code,
+            Ancestors::unknown()
+        ));
         assert!(rust_inner_attr_marks_test(&node, code));
     }
 
@@ -869,9 +961,160 @@ mod tests {
         let code = parser.code();
         let node = find_first_kind(&parser, Rust::FunctionItem as u16).expect("function_item");
 
-        assert!(!rust_item_is_test_only(&node, code));
-        assert!(!rust_outer_attr_marks_test(&node, code));
+        assert!(!rust_item_is_test_only(&node, code, Ancestors::unknown()));
+        assert!(!rust_outer_attr_marks_test(
+            &node,
+            code,
+            Ancestors::unknown()
+        ));
         assert!(!rust_inner_attr_marks_test(&node, code));
+    }
+
+    /// Reading the `#[…]` run forward from the parent must answer
+    /// exactly what walking backward from the item answers, on every
+    /// node of every attribute shape.
+    ///
+    /// This is the acceptance criterion for #1100, not a nicety:
+    /// `rust_outer_attr_marks_test` picks between the two by the
+    /// parent's width, so a disagreement would make `exclude_tests`
+    /// prune a different set of subtrees on one shape than on another
+    /// and move published metric values. The comparison is against the
+    /// backward reading directly rather than against the dispatcher,
+    /// which would compare the backward walk with itself on every wide
+    /// parent.
+    ///
+    /// The counted `marked` / `unmarked` totals are what stop it from
+    /// passing vacuously — two readings that both answered `false`
+    /// everywhere would agree perfectly.
+    #[test]
+    fn rust_outer_attr_scans_agree() {
+        // One attribute run longer than the file's actual code, so the
+        // run length cannot be confused with the child count.
+        let long_run = format!("{}fn f() {{}}\n", "#[allow(dead_code)]\n".repeat(64));
+        // A parent with hundreds of children: the shallow-but-wide
+        // shape a per-step sibling scan would have been worst on.
+        let mut wide = String::new();
+        for i in 0..200 {
+            let _ = writeln!(wide, "#[inline] fn f{i}() {{}}");
+        }
+        let sources = [
+            // Attribute run opening the file, so the marked item is
+            // its parent's first non-attribute child.
+            "#[cfg(test)]\nfn a() {}\n",
+            // Every recognised marker form, plus the `not(test)` form
+            // that must *not* mark (#278).
+            "#[test]\nfn a() {}\n#[tokio::test]\nfn b() {}\n\
+             #[cfg(all(test, feature = \"x\"))]\nfn c() {}\n\
+             #[cfg(not(test))]\nfn d() {}\n",
+            // A run whose marker is not the attribute adjacent to the
+            // item, the same run reversed, and one where an
+            // intervening comment ends the run. Both orders matter:
+            // only the second distinguishes a scan that stops at the
+            // node it was asked about from one that reads the whole
+            // run, since the query node here is itself an attribute.
+            "#[cfg(test)]\n#[allow(dead_code)]\nfn a() {}\n\
+             #[allow(dead_code)]\n#[cfg(test)]\nfn b() {}\n\
+             #[cfg(test)]\n// break\nfn c() {}\n",
+            // Nested modules, inner attributes, and an attributed item
+            // inside a function body — parents other than the root.
+            "mod outer {\n#![cfg(test)]\nmod inner {\n#[test]\nfn a() {}\n}\n}\n\
+             fn b() {\n#[cfg(test)]\nfn c() {}\nlet x = 1;\n}\n",
+            // A bare item: no parent for the root, no preceding
+            // sibling for the item.
+            "fn a() {}\n",
+            &long_run,
+            &wide,
+        ];
+
+        let (mut marked, mut unmarked, mut widened) = (0_usize, 0_usize, 0_usize);
+        for source in sources {
+            let code = source.as_bytes();
+            let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
+                let Some(parent) = chain.last() else {
+                    return; // The root has no parent to read forward from.
+                };
+                let backward = rust_attribute_run_before(node, code);
+                assert_eq!(
+                    rust_attribute_run_under(parent, node, code),
+                    backward,
+                    "outer-attribute readings disagree on {} at row {}",
+                    node.kind(),
+                    node.start_row(),
+                );
+                assert_eq!(
+                    rust_outer_attr_marks_test(node, code, Ancestors::known(chain)),
+                    backward,
+                    "the width dispatch changed the answer on {} at row {}",
+                    node.kind(),
+                    node.start_row(),
+                );
+                if backward {
+                    marked += 1;
+                } else {
+                    unmarked += 1;
+                }
+                if parent.child_count() > MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN {
+                    widened += 1;
+                }
+            });
+            assert!(visited > 0, "fixture must have nodes to compare");
+        }
+        assert!(
+            marked > 0 && unmarked > 0,
+            "the comparison saw only one answer ({marked} marked, {unmarked} unmarked), \
+             so agreeing proves nothing"
+        );
+        // The `wide` fixture exists to drive the dispatch's other arm;
+        // without a node over the width cut, the second assertion above
+        // would only ever compare the backward walk with itself.
+        assert!(widened > 0, "no fixture exceeded the forward-scan width");
+    }
+
+    /// The same equivalence one level up, on the hook the walker calls.
+    ///
+    /// `rust_item_is_test_only` folds the inner-attribute scan in, and
+    /// `should_skip_subtree` adds the item-kind filter, so pinning it
+    /// here is what carries the predicate-level agreement above through
+    /// to the set of subtrees `exclude_tests` actually prunes.
+    #[test]
+    fn rust_should_skip_subtree_matches_the_backward_reading() {
+        let source = "#[cfg(test)]\nmod tests {\nfn a() {}\n}\n\
+                      #[allow(dead_code)]\nstatic S: i32 = 1;\n\
+                      mod inner {\n#![cfg(test)]\nconst C: i32 = 1;\n}\n\
+                      #[rstest]\nfn b() {}\nfn c() {}\n";
+        let code = source.as_bytes();
+        let mut pruned = 0_usize;
+        let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
+            let reference =
+                rust_attribute_run_before(node, code) || rust_inner_attr_marks_test(node, code);
+            // Spelled out rather than reused from the production hook:
+            // the point is to pin which kinds the prune considers, so
+            // borrowing the production `matches!` would assert nothing.
+            let is_item = matches!(
+                node.kind_id().into(),
+                Rust::ModItem
+                    | Rust::FunctionItem
+                    | Rust::ImplItem
+                    | Rust::TraitItem
+                    | Rust::ConstItem
+                    | Rust::StaticItem
+            );
+            let skipped = RustCode::should_skip_subtree(node, code, Ancestors::known(chain));
+            assert_eq!(
+                skipped,
+                is_item && reference,
+                "prune decision moved on {} at row {}",
+                node.kind(),
+                node.start_row(),
+            );
+            pruned += usize::from(skipped);
+        });
+        assert!(visited > 0, "fixture must have nodes to compare");
+        // `mod tests`, `mod inner`, and `fn b` — the three test-only
+        // items, and no more: a hook that pruned everything would
+        // satisfy the equality above only if the oracle agreed, but
+        // this pins the count the fixture was written for.
+        assert_eq!(pruned, 3, "expected exactly the three test-only items");
     }
 
     #[test]

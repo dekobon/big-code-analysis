@@ -124,6 +124,8 @@ Read it as follows.
 | `cyclomatic/nested-and` | Python | shape control for the row below | linear |
 | `cyclomatic/nested-ternary` | Python | `Node::parent_grandparent_match` (#1096) | linear |
 | `loc/nested-quote` | Elixir | `loc`'s Elixir catch-all arm (#1096) | linear |
+| `nom/nested-attributed-fn` | Rust | the `exclude_tests` outer-attribute scan (#1100) | linear |
+| `nom/nested-cfg-predicate` | Rust | the `cfg(...)` predicate classifier (#1105) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -185,6 +187,44 @@ than deferred: the two synthetic-`Unit`-root pushes hand it a node that
 outside any walk, and the `Npm` arms that test a node's children cannot
 extend a borrowed slice by one element without allocating.
 
+The last two probes are the first that walk under a non-default
+`MetricsOptions`. Both hot paths are reachable only with
+`exclude_tests` set, which `Workload::Metrics` now carries as its own
+field — it sits on that variant rather than on `Probe` because
+`Ast::ops` takes no options at all, so an `Ops` probe setting it would
+be setting something nothing reads.
+
+`nom/nested-attributed-fn` guards [#1100][attribute-scan]. Under
+`exclude_tests` the walker asks every node whether it opens a test-only
+subtree, and Rust answers by reading the run of `#[…]` siblings before
+an item. Walking that run backward with `Node::previous_sibling` costs
+`O(attributes x depth)`, so the probe fitted 2.00 and took 2.05 s at
+depth 4000 against 8.3 ms for `nom/nested-fn`, the same nesting without
+the attributes. Reading the run forward from the parent the walker
+already holds took it to 1.21 and 8.1 ms — level with that control.
+
+That fix is *width*-gated, and the probe alone would not have caught
+why. A forward pass over the parent's children is `O(children)`, and a
+cursor sibling step measured ~68 ns against ~420 ns for a whole
+`previous_sibling` on a shallow node — a figure that did not move with
+the sibling index. Reading forward unconditionally therefore fixed the
+depth axis and broke the width one: a generated file of 2 000 top-level
+attributed items went from 6.0 ms to 569 ms, which is the shape
+`bindgen` output has. The scan now picks by the parent's child count,
+so it reads forward only where that is the cheaper bound and a wide
+parent keeps exactly the walk it had. No probe renders the wide shape —
+every generator here is affine in *depth* by construction — so that
+axis is pinned by the unit tests in `src/checker.rs` instead.
+
+`nom/nested-cfg-predicate` guards [#1105][cfg-predicate] and is the only
+probe that grows one *attribute* rather than the code around it:
+`#[cfg(all(all(… test …)))]` is classified by a string-level
+mini-parser reading the attribute's text, which re-scanned each
+region's whole interior to find its split points. It fits 1.00 against
+the indexed scan that replaced it. `nom/nested-fn` is not a control for
+it — the file keeps its two items at every depth — so the bound alone
+is the guard.
+
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
 
@@ -192,6 +232,8 @@ threading, not every `O(depth)` lookup in the crate.
 [cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
 [halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
+[attribute-scan]: https://github.com/dekobon/big-code-analysis/issues/1100
+[cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
 
 The ten control probes are what make the other readings mean
 something.
@@ -212,7 +254,7 @@ something.
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
   counterpart fitted near 2.0, which is what attributed the quadratic
   cost to that call rather than to nesting in general. Now that all
-  twenty-two fit near 1.0, the pair is what would localise a relapse: a
+  twenty-four fit near 1.0, the pair is what would localise a relapse: a
   probe drifting up while its control holds means the ancestor lookup,
   not the shape.
 
