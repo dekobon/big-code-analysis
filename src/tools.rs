@@ -17,6 +17,7 @@
     clippy::cast_sign_loss
 )]
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -257,11 +258,30 @@ pub fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// ```
 #[must_use]
 pub fn get_language_for_file(path: &Path) -> Option<LANG> {
-    if let Some(ext) = path.extension() {
-        let ext = ext.to_str()?.to_lowercase();
-        get_from_ext(&ext)
+    lang_from_ext(path)
+}
+
+/// Resolves a language from a path's extension alone, case-insensitively.
+/// Shared by [`get_language_for_file`] and [`guess_language`] so the two
+/// surfaces cannot drift on how an extension is normalised.
+fn lang_from_ext(path: &Path) -> Option<LANG> {
+    let ext = path.extension()?.to_str()?;
+    get_from_ext(&lowercase_ext(ext))
+}
+
+/// Borrows `ext` when it is already the ASCII-lowercase spelling
+/// [`get_from_ext`]'s table is keyed on, allocating only for the mixed-case
+/// minority (`foo.C`, `foo.PY`).
+///
+/// The `is_ascii` guard is load-bearing: [`str::to_lowercase`] is
+/// Unicode-aware and folds `U+212A KELVIN SIGN` onto ASCII `k`, so a
+/// non-ASCII extension must still take the owned path to keep the lookup
+/// key identical to the pre-#1111 one.
+fn lowercase_ext(ext: &str) -> Cow<'_, str> {
+    if ext.is_ascii() && !ext.bytes().any(|b| b.is_ascii_uppercase()) {
+        Cow::Borrowed(ext)
     } else {
-        None
+        Cow::Owned(ext.to_lowercase())
     }
 }
 
@@ -518,36 +538,16 @@ fn get_emacs_mode(buf: &[u8]) -> Option<String> {
 ///
 /// [`LANG`]: enum.LANG.html
 pub fn guess_language<P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>, &'static str) {
-    let ext = path
-        .as_ref()
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_lowercase)
-        .unwrap_or_default();
-    let from_ext = get_from_ext(&ext);
+    // Precedence: extension, then emacs/vim modeline, then shebang. Each
+    // fallback is lazy, so a recognised extension never pays for the
+    // modeline regex scan — the previous form computed it for every file
+    // and discarded it, since every arm of its extension branch returned
+    // the extension's language, the "modeline agrees" arm included (#1111).
+    let lang = lang_from_ext(path.as_ref())
+        .or_else(|| get_emacs_mode(buf).and_then(|mode| get_from_emacs_mode(&mode)))
+        .or_else(|| get_shebang_lang(buf));
 
-    let mode = get_emacs_mode(buf).unwrap_or_default();
-
-    let from_mode = get_from_emacs_mode(&mode);
-
-    if let Some(lang_ext) = from_ext {
-        if let Some(lang_mode) = from_mode {
-            if lang_ext == lang_mode {
-                (Some(lang_mode), lang_mode.name())
-            } else {
-                // we should probably rely on extension here
-                (Some(lang_ext), lang_ext.name())
-            }
-        } else {
-            (Some(lang_ext), lang_ext.name())
-        }
-    } else if let Some(lang_mode) = from_mode {
-        (Some(lang_mode), lang_mode.name())
-    } else if let Some(lang_shebang) = get_shebang_lang(buf) {
-        (Some(lang_shebang), lang_shebang.name())
-    } else {
-        (None, "")
-    }
+    lang.map_or((None, ""), |lang| (Some(lang), lang.name()))
 }
 
 /// Normalises all CR-only and CRLF line endings to LF throughout the buffer,

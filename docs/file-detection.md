@@ -26,7 +26,8 @@ There are two public entry points, both returning a
 
 ### `get_language_for_file(path)`: extension only
 
-Lowercases the file's extension and looks it up. Returns `None` if the
+Lowercases the file's extension (borrowing it when it is already
+lowercase) and looks it up. Returns `None` if the
 path has no extension, the extension is not valid UTF-8, or no language
 claims that extension. This is the cheap path; no buffer required.
 
@@ -71,6 +72,12 @@ as follows:
    come back empty, so an explicit `.py` extension or `mode: python`
    line on a script with `#!/bin/sh` still resolves to Python.
 6. **Nothing matches**: return `(None, "")`.
+
+Each fallback is evaluated lazily: because the extension wins rules 1–3
+outright, the mode-line scan runs only when the extension resolves to
+nothing, and the shebang scan only when the mode line does too (#1111).
+The resolution order above is the observable contract; the skipped work
+cannot change an answer.
 
 #### Shebang scan
 
