@@ -13,13 +13,6 @@ headroom = 0.95
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 1080.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::from_str"
 start_line = 380
 metric = "halstead.effort"
@@ -147,14 +140,14 @@ value = 5.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/init.rs"
 qualified = "run_command_init"
-start_line = 211
+start_line = 184
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/init.rs"
 qualified = "scaffold_baseline"
-start_line = 143
+start_line = 116
 metric = "nargs"
 value = 7.0
 
@@ -251,6 +244,13 @@ value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report/sections.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.ploc"
+value = 551.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/html_report/sections.rs"
 qualified = "write_language_section"
 start_line = 664
 metric = "halstead.effort"
@@ -266,7 +266,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 654
+start_line = 655
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -274,8 +274,8 @@ value = 59351.805921378844
 path = "big-code-analysis-cli/src/markdown_report.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 883.0
+metric = "loc.ploc"
+value = 601.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -288,8 +288,8 @@ value = 52993.355167839094
 path = "big-code-analysis-cli/src/markdown_report/hotspot.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 987.0
+metric = "loc.ploc"
+value = 650.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/sections.rs"
@@ -328,24 +328,10 @@ value = 66737.04848699087
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 908.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
 start_line = 790
 metric = "halstead.effort"
 value = 56531.05676283881
-
-[[entry]]
-path = "big-code-analysis-cli/src/vcs_command.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 787.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -409,13 +395,6 @@ qualified = "analyze_paths"
 start_line = 622
 metric = "nexits"
 value = 5.0
-
-[[entry]]
-path = "big-code-analysis-py/src/lib.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 913.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
@@ -505,8 +484,8 @@ value = 6.0
 path = "big-code-analysis-py/src/types_codegen.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 875.0
+metric = "loc.ploc"
+value = 745.0
 
 [[entry]]
 path = "big-code-analysis-py/src/vcs.rs"
@@ -563,6 +542,13 @@ qualified = "options_from"
 start_line = 180
 metric = "nexits"
 value = 8.0
+
+[[entry]]
+path = "src/alterator.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.ploc"
+value = 545.0
 
 [[entry]]
 path = "src/ast.rs"
@@ -654,13 +640,6 @@ qualified = "RubyCode::get_op_type"
 start_line = 21
 metric = "halstead.effort"
 value = 84039.86210807812
-
-[[entry]]
-path = "src/macros/mod.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 768.0
 
 [[entry]]
 path = "src/metrics/abc/c.rs"
@@ -819,7 +798,7 @@ value = 55025.91689557041
 [[entry]]
 path = "src/metrics/loc/shared.rs"
 qualified = "add_multiline_string_ploc"
-start_line = 136
+start_line = 171
 metric = "nargs"
 value = 7.0
 
