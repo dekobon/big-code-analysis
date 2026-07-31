@@ -427,10 +427,13 @@ mod tests {
         // literals are counted as structure.
         //
         // The rewrite was additionally checked against the old walker
-        // over 3.4M generated predicates (random nestings plus an
-        // exhaustive sweep of every string up to length 7 over
-        // `a ( ) , <space> t`) with zero disagreements; this table is
-        // the cheap, checked-in residue of that run.
+        // over millions of generated predicates with zero disagreements;
+        // this table is the cheap, checked-in residue of that run. Note
+        // the generator alphabet has to be able to spell `test`:
+        // `trimmed == "test"` is the only check in either implementation
+        // that can return `true`, so a sweep over an alphabet without
+        // `e` and `s` agrees trivially on every input and proves nothing
+        // about the bug class that matters (a missed match).
         let cases: &[(&str, bool)] = &[
             // Unbalanced or truncated parens: the `all(...)` shape check
             // needs the operand's *last* byte to be `)`, so trailing
@@ -438,15 +441,28 @@ mod tests {
             ("all(test", false),
             ("all(test))", false),
             ("all((test)", false),
+            // `all(test)(x)` is the load-bearing member of this pair:
+            // under matching-paren semantics it would be `true`. Its
+            // neighbour classifies the same either way — keep both, but
+            // do not drop this one.
             ("all(test)(x)", false),
             ("all(a)(test)", false),
             ("all(test)x", false),
             (")test", false),
             ("test)", false),
             ("(test", false),
-            // A stray `)` drives the depth counter negative, so the
-            // following comma is not a top-level split point and the
-            // trailing `test` stays buried in a single dead operand.
+            // A stray `)` drives the depth counter negative. A comma at
+            // negative depth belongs to no region and is dropped, so it
+            // splits nothing: `a),test` is one dead operand rather than
+            // two. Clamping the depth at 0 instead would make that comma
+            // a top-level split and wrongly surface the trailing `test`,
+            // so this row is the end-to-end guard on the signed counter.
+            ("a),test", false),
+            // These two are *not* negative-depth cases despite the stray
+            // `)`: the following `(` restores depth to 0, so the comma
+            // does split. They are false because the second operand ends
+            // in a trailing paren. Kept for the last-byte rule, not the
+            // depth rule.
             ("all(a))(b, test)", false),
             ("all(a))(b, all(test))", false),
             ("any(test", false),
@@ -512,6 +528,17 @@ mod tests {
             ("all(any(unix), test)", true),
             ("all(a, b, c, test)", true),
             ("all(a, b, c, unix)", false),
+            // Sibling regions at the same depth, where the *earlier*
+            // sibling contains a comma. Nothing else in this table has
+            // that shape, and without it the lower bound of the index
+            // lookup is never varied: dropping it leaves every other row
+            // passing while these panic on an inverted slice range.
+            ("any(all(unix, test), all(windows, foo))", true),
+            ("all(all(a,b), all(c,d))", false),
+            // A top-level comma list whose `test` follows a nested
+            // region. The index must be ordered for the trailing operand
+            // to be reached at all.
+            ("a,all(b,c),test", true),
         ];
         for &(pred, expected) in cases {
             assert_eq!(
@@ -551,10 +578,16 @@ mod tests {
         // A `)` with no opener drives the depth counter negative, so the
         // comma that follows splits nothing and is dropped entirely —
         // the behaviour the former `cfg_split_top_level_args` had, and
-        // what makes `all(a))(b, test)` a single dead operand.
-        let stray = CommaIndex::build("a),b");
-        assert!(
-            stray.entries.is_empty(),
+        // what makes `a),test` a single dead operand.
+        //
+        // Seeded with a depth-0 comma *before* the stray `)` so the
+        // assertion distinguishes "dropped the negative-depth comma"
+        // from "recorded no commas at all"; against an empty index both
+        // readings look identical (.claude/rules/testing.md).
+        let stray = CommaIndex::build("x,y),z");
+        assert_eq!(
+            stray.entries,
+            vec![(0, 1)],
             "a comma at negative depth belongs to no region"
         );
         // The following `(` brings the counter back to zero, restoring
