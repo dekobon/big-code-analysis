@@ -114,6 +114,21 @@ else
 fi
 
 echo ""
+echo "Optional Tools (Test runner):"
+echo "  (optional because 'make test' falls back to 'cargo test', which runs"
+echo "   the same tests one binary at a time instead of in one global pool)"
+
+nextest_missing=0
+if command -v cargo-nextest >/dev/null 2>&1; then
+	nextest_version=$(cargo-nextest nextest --version 2>/dev/null | awk 'NR==1{print $2; exit}' || true)
+	nextest_version=${nextest_version:-unknown}
+	echo "  ✓ cargo-nextest (version: $nextest_version)"
+else
+	echo "  ✗ cargo-nextest (not found)"
+	nextest_missing=1
+fi
+
+echo ""
 echo "Optional Tools (GitHub Actions linting):"
 
 actionlint_missing=0
@@ -187,7 +202,7 @@ fi
 echo ""
 
 core_missing=$((cargo_missing + nightly_missing + udeps_missing + insta_missing + checkmake_missing))
-optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + actionlint_missing + mdbook_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
+optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + nextest_missing + actionlint_missing + mdbook_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
 
 if [ "$core_missing" -gt 0 ]; then
 	echo "Missing core tools:"
@@ -227,6 +242,10 @@ if [ "$optional_missing" -gt 0 ]; then
 	fi
 	if [ "$shfmt_missing" -eq 1 ]; then
 		echo "  - shfmt: Install from https://github.com/mvdan/sh/releases"
+	fi
+	if [ "$nextest_missing" -eq 1 ]; then
+		echo "  - cargo-nextest: Install with: cargo install --locked cargo-nextest"
+		echo "                   ('make test' still works without it, just slower)"
 	fi
 	if [ "$actionlint_missing" -eq 1 ]; then
 		echo "  - actionlint: Download from https://github.com/rhysd/actionlint/releases or run 'go install github.com/rhysd/actionlint/cmd/actionlint@latest'"
