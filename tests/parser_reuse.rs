@@ -103,11 +103,18 @@ class Point {
         ast.as_tree_sitter().root_node().to_sexp()
     }
 
+    /// The fixture a language is exercised with. Single source of truth:
+    /// the reference tree and the tree under test must come from the same
+    /// bytes, and selecting them at two separate sites is how they drift.
+    fn fixture(lang: LANG) -> &'static str {
+        if lang == LANG::Rust { RUST_SRC } else { TS_SRC }
+    }
+
     /// A tree is only evidence if it actually has structure in it — a
     /// grammar that failed to bind would yield a tiny ERROR tree, and
     /// every "identical to the reference" assertion would still hold if
     /// the reference were equally broken.
-    fn assert_parsed_cleanly(sexp: &str, what: &str) {
+    fn assert_parsed_cleanly(sexp: &str, what: LANG) {
         assert!(
             !sexp.contains("ERROR") && !sexp.contains("MISSING"),
             "{what}: fixture must parse without errors, got {sexp}"
@@ -125,16 +132,13 @@ class Point {
 
     #[test]
     fn cached_parser_matches_a_fresh_parser_per_language() {
-        for (lang, src, label) in [
-            (LANG::Rust, RUST_SRC, "rust"),
-            (LANG::Typescript, TS_SRC, "typescript"),
-        ] {
-            let reference = reference_sexp(lang, src);
-            assert_parsed_cleanly(&reference, label);
+        for lang in [LANG::Rust, LANG::Typescript] {
+            let reference = reference_sexp(lang, fixture(lang));
+            assert_parsed_cleanly(&reference, lang);
             assert_eq!(
-                cached_sexp(lang, src),
+                cached_sexp(lang, fixture(lang)),
                 reference,
-                "{label}: cached parser must produce the reference tree"
+                "{lang}: cached parser must produce the reference tree"
             );
         }
     }
@@ -145,10 +149,10 @@ class Point {
     /// language's grammar.
     #[test]
     fn alternating_languages_on_one_thread_stay_correct() {
-        let rust_reference = reference_sexp(LANG::Rust, RUST_SRC);
-        let ts_reference = reference_sexp(LANG::Typescript, TS_SRC);
-        assert_parsed_cleanly(&rust_reference, "rust");
-        assert_parsed_cleanly(&ts_reference, "typescript");
+        let rust_reference = reference_sexp(LANG::Rust, fixture(LANG::Rust));
+        let ts_reference = reference_sexp(LANG::Typescript, fixture(LANG::Typescript));
+        assert_parsed_cleanly(&rust_reference, LANG::Rust);
+        assert_parsed_cleanly(&ts_reference, LANG::Typescript);
         assert_ne!(
             rust_reference, ts_reference,
             "the two fixtures must be distinguishable, or alternating proves nothing"
@@ -175,8 +179,8 @@ class Point {
     /// a failed parse must not colour the next one.
     #[test]
     fn parse_state_does_not_survive_between_files() {
-        let reference = reference_sexp(LANG::Rust, RUST_SRC);
-        assert_parsed_cleanly(&reference, "rust");
+        let reference = reference_sexp(LANG::Rust, fixture(LANG::Rust));
+        assert_parsed_cleanly(&reference, LANG::Rust);
 
         // Seed the thread's parser with a parse that ends in error
         // recovery, which is the state most likely to leak forward.
@@ -204,8 +208,10 @@ class Point {
     /// languages so no thread can rely on another's binding.
     #[test]
     fn threads_are_isolated_and_trees_outlive_their_thread() {
-        let rust_reference = reference_sexp(LANG::Rust, RUST_SRC);
-        let ts_reference = reference_sexp(LANG::Typescript, TS_SRC);
+        let rust_reference = reference_sexp(LANG::Rust, fixture(LANG::Rust));
+        let ts_reference = reference_sexp(LANG::Typescript, fixture(LANG::Typescript));
+        assert_parsed_cleanly(&rust_reference, LANG::Rust);
+        assert_parsed_cleanly(&ts_reference, LANG::Typescript);
 
         let mut handles = Vec::new();
         for id in 0..8 {
@@ -221,7 +227,7 @@ class Point {
                 let mut trees = Vec::new();
                 for _ in 0..8 {
                     for lang in [first, second] {
-                        let src = if lang == LANG::Rust { RUST_SRC } else { TS_SRC };
+                        let src = fixture(lang);
                         trees.push((
                             lang,
                             Ast::parse(Source::new(lang, src.as_bytes())).expect("feature enabled"),
