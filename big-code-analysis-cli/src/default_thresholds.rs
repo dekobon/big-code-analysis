@@ -38,8 +38,11 @@ pub(crate) struct DefaultThreshold {
     /// scaffold should emit; a future fractional default would need
     /// this widened and [`render_thresholds_block`] adjusted.
     pub(crate) limit: u32,
-    /// Why this value, in one or two rendered comment lines. Wrapped by
-    /// the caller at the manifest's 72-column comment width.
+    /// Why this value, in one or more rendered comment lines. Wrapped at
+    /// authoring time rather than reflowed at render time, so a line
+    /// that overflows the manifest's comment column fails a test instead
+    /// of silently rewrapping. The width itself lives with the test that
+    /// enforces it, `every_default_has_a_rationale_that_fits_the_comment_column`.
     pub(crate) rationale: &'static [&'static str],
 }
 
@@ -139,16 +142,16 @@ pub(crate) const DEFAULT_THRESHOLDS: &[DefaultThreshold] = &[
     },
 ];
 
-/// Render the `[thresholds]` block for the `bca init` scaffold from
-/// [`DEFAULT_THRESHOLDS`], header prose included.
+/// Prose that heads the rendered `[thresholds]` block. Split from
+/// [`render_thresholds_block`] because the two change for unrelated
+/// reasons: this is copy that moves when the docs move, the renderer is
+/// loop logic that moves when [`DefaultThreshold`] changes shape.
 ///
-/// Keeping this a render rather than a hand-maintained string literal is
-/// what makes the table above the single source of truth: there is no
-/// second copy of the numbers to drift.
-pub(crate) fn render_thresholds_block() -> String {
-    let mut out = String::from(
-        "\
-# bca per-function threshold configuration.
+/// The two metric-name inventories below are hand-curated for grouping
+/// rather than rendered from the registry, and are pinned against it by
+/// `rendered_prose_lists_every_known_metric`.
+const THRESHOLDS_HEADER: &str = "\
+# bca metric threshold configuration.
 #
 # These are the shipped defaults (#1140): anchored to published
 # thresholds where one exists, and calibrated against a 20-language
@@ -178,17 +181,34 @@ pub(crate) fn render_thresholds_block() -> String {
 #     that were previously invisible to the gate.
 #
 # Metrics intentionally NOT gated:
-#   halstead.{volume,difficulty,time,bugs}, cyclomatic.modified, mi.*,
-#   npm, npa, tokens
+#         cyclomatic.modified,
+#         halstead.volume, halstead.difficulty, halstead.time,
+#         halstead.bugs,
+#         loc.lloc, loc.cloc, loc.blank,
+#         mi.original, mi.sei, mi.visual_studio,
+#         npm, npa, tokens
 # They are still computed and visible in `bca report markdown|html`.
 # halstead.volume is the notable omission: the widely-cited \"function
 # volume under 1000\" guideline fires on ~7% of functions in the median
 # language and 20% in the worst, which is advisory-grade, not
 # gate-grade.
 [thresholds]
-",
-    );
-    for entry in DEFAULT_THRESHOLDS {
+";
+
+/// Render the `[thresholds]` block for the `bca init` scaffold from
+/// [`DEFAULT_THRESHOLDS`], header prose included.
+///
+/// Keeping this a render rather than a hand-maintained string literal is
+/// what makes the table the single source of truth: there is no second
+/// copy of the numbers to drift.
+pub(crate) fn render_thresholds_block() -> String {
+    let mut out = String::from(THRESHOLDS_HEADER);
+    for (index, entry) in DEFAULT_THRESHOLDS.iter().enumerate() {
+        // Blank line between entries so a rationale block visibly
+        // attaches to the key below it rather than to the key above.
+        if index > 0 {
+            out.push('\n');
+        }
         for line in entry.rationale {
             out.push_str("# ");
             out.push_str(line);
