@@ -215,14 +215,12 @@ pub(crate) fn render_thresholds_block() -> String {
             out.push('\n');
         }
         // TOML requires quoting on dotted keys; bare keys stay bare so
-        // the scaffold reads the way the docs spell these names.
-        if entry.name.contains('.') {
-            out.push('"');
-            out.push_str(entry.name);
-            out.push('"');
-        } else {
-            out.push_str(entry.name);
-        }
+        // the scaffold reads the way the docs spell these names. Deciding
+        // the quoting separately keeps the name itself emitted once.
+        let quote = if entry.name.contains('.') { "\"" } else { "" };
+        out.push_str(quote);
+        out.push_str(entry.name);
+        out.push_str(quote);
         out.push_str(" = ");
         out.push_str(&entry.limit.to_string());
         out.push('\n');
