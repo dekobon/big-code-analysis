@@ -139,5 +139,5 @@ fn test_pdfjs() {
         "**/pdf.js/web/pdf_sidebar.js",
     ];
 
-    compare_rca_output_with_files("pdf.js", &["*.js"], exclude);
+    compare_rca_output_with_files("pdf.js", &["*.js"], exclude, 266);
 }

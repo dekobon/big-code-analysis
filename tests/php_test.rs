@@ -12,5 +12,5 @@ fn test_php() {
         .join("repositories")
         .join("big-code-analysis-output");
 
-    compare_rca_output_with_files_under(&source_root, "php", &["*.php"], &[]);
+    compare_rca_output_with_files_under(&source_root, "php", &["*.php"], &[], 6);
 }
