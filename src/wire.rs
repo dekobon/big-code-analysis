@@ -21,11 +21,15 @@
 //! reads into these `wire` structs and round-trips byte-for-byte.
 //!
 //! Delegation materializes an owned projection per serialize (a deep clone
-//! for the recursive `FuncSpace`/`Ops` trees). This is the deliberate cost
+//! for the recursive `FuncSpace` tree). This is the deliberate cost
 //! of a single source of truth that also round-trips: a borrowing
 //! serialize-only mirror would double the struct set and could not derive
 //! `Deserialize`. Serialization runs once per file and the projection is
 //! dropped immediately, so it is not on a tight inner loop.
+//!
+//! [`Ops`] is the one measured exception: it serializes through a
+//! borrowed mirror instead, for the reasons the private `ops_view`
+//! submodule documents.
 //!
 //! ## Field conventions
 //!
@@ -41,6 +45,8 @@
 //!   skipped when `None`); on read, a present key ⇒ selected, absent ⇒
 //!   unselected. [`CodeMetrics::selected`] reconstructs the
 //!   [`MetricSet`] from the present keys.
+
+use std::cell::Cell;
 
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -62,6 +68,9 @@ mod metrics;
 // re-export) keeps default-feature builds free of unused-import noise.
 #[cfg(feature = "vcs-git")]
 mod vcs;
+// `crate::Ops`'s borrowed serialize path. Nothing to re-export: it
+// defines no public type, only the `Serialize` impl `Ops` delegates to.
+mod ops_view;
 
 pub use metrics::*;
 #[cfg(feature = "vcs-git")]
@@ -550,8 +559,27 @@ pub struct Ops {
 // the same de-recursion (#1056). See [`crate::recursion`].
 crate::recursion::impl_iterative_drop!(Ops, spaces);
 
+thread_local! {
+    /// Owned [`Ops`] projections built on this thread.
+    ///
+    /// Both projections emit the same document, so no assertion on the
+    /// output can tell which path ran and a revert to
+    /// `serialize_via_wire!` would be silent. This is the observable
+    /// `serializing_ops_builds_no_owned_projection` reads. One `Cell`
+    /// bump per whole-tree conversion costs nothing against it.
+    static OWNED_OPS_PROJECTIONS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many owned [`Ops`] projections this thread has built. Only the
+/// accessor is test-gated, so tests observe the production path.
+#[cfg(test)]
+fn owned_ops_projections_on_this_thread() -> usize {
+    OWNED_OPS_PROJECTIONS.with(Cell::get)
+}
+
 impl From<&ops::Ops> for Ops {
     fn from(o: &ops::Ops) -> Self {
+        OWNED_OPS_PROJECTIONS.with(|built| built.set(built.get() + 1));
         map_tree(
             o,
             |source| &source.spaces,
@@ -624,8 +652,15 @@ serialize_via_wire!(tokens::Stats => Tokens);
 serialize_via_wire!(wmc::Stats => Wmc);
 serialize_via_wire!(crate::spaces::CodeMetrics => CodeMetrics);
 serialize_via_wire!(crate::spaces::FuncSpace => FuncSpace);
-serialize_via_wire!(ops::Ops => Ops);
+// `ops::Ops` is absent on purpose: it serializes through the borrowed
+// mirror in `ops_view`.
 serialize_via_wire!(function::FunctionSpan => FunctionSpan);
+
+// Own file so their prose does not spend this file's `loc.sloc`
+// budget (#1066); `.bcaignore` keeps `*_tests.rs` out of the self-scan.
+#[cfg(test)]
+#[path = "wire_ops_tests.rs"]
+mod ops_tests;
 
 #[cfg(test)]
 // The round-trip assertions compare floats exactly on purpose: CBOR stores
@@ -948,7 +983,7 @@ fn run() {
 
     /// Rust source nesting `depth` functions, one `FuncSpace` per level
     /// below the file-level `Unit`.
-    fn nested_functions(depth: usize) -> String {
+    pub(super) fn nested_functions(depth: usize) -> String {
         use std::fmt::Write as _;
         let mut source = String::with_capacity(depth * 14);
         for level in 0..depth {

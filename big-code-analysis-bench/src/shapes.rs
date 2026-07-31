@@ -11,7 +11,9 @@
 //! `byte_growth_is_affine` unit test below pins, rather than leaving it
 //! a convention someone has to remember.
 
-use big_code_analysis::{CodeMetrics, LANG, Metric};
+use std::hint::black_box;
+
+use big_code_analysis::{Ast, CodeMetrics, LANG, Metric, MetricsError, MetricsOptions, Ops};
 
 /// Renders a source shape at a given nesting depth.
 ///
@@ -264,29 +266,79 @@ pub fn nested_arrows(depth: usize) -> String {
     )
 }
 
-/// One depth-scaling probe: a shape, the metric selection that
-/// exercises the hot path under test, and the complexity class the
-/// walk is expected to stay within.
+/// The walk a probe times.
+///
+/// Two seams reach the AST walker — `Ast::metrics` and `Ast::ops` — and
+/// they share no options type, so the selection a metric probe needs
+/// lives on the variant that uses it rather than on every probe (#1110).
+#[derive(Clone, Copy)]
+pub enum Workload {
+    /// `Ast::metrics` under `selection`.
+    Metrics {
+        /// Metric selection handed to `MetricsOptions::with_only`. Kept
+        /// as narrow as the probe allows so an unrelated metric's cost
+        /// cannot dominate and misattribute a regression.
+        selection: &'static [Metric],
+        /// Headline value the selection produces on the probe's shape.
+        reading: fn(&CodeMetrics) -> u64,
+    },
+    /// `Ast::ops`, the Halstead operator/operand walk, which takes no
+    /// metric selection.
+    Ops {
+        /// Headline value the walk produces on the probe's shape.
+        reading: fn(&Ops) -> u64,
+    },
+}
+
+impl Workload {
+    /// The options this workload walks under, resolved once so option
+    /// resolution stays outside the timed region. `Ast::ops` takes none,
+    /// so the default stands in and is ignored.
+    #[must_use]
+    pub fn options(self) -> MetricsOptions {
+        match self {
+            Self::Metrics { selection, .. } => MetricsOptions::default().with_only(selection),
+            Self::Ops { .. } => MetricsOptions::default(),
+        }
+    }
+
+    /// Walks `ast` once and returns the headline reading.
+    ///
+    /// The walk's product is `black_box`ed before the reading is taken,
+    /// so an optimiser cannot narrow the walk to whatever the reading
+    /// happens to touch.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the underlying seam raises — in practice, a language
+    /// feature disabled in the build.
+    pub fn walk(self, ast: &Ast, options: MetricsOptions) -> Result<u64, MetricsError> {
+        Ok(match self {
+            Self::Metrics { reading, .. } => reading(&black_box(ast.metrics(options)?).metrics),
+            Self::Ops { reading } => reading(&black_box(ast.ops()?)),
+        })
+    }
+}
+
+/// One depth-scaling probe: a shape, the workload that exercises the
+/// hot path under test, and the complexity class the walk is expected
+/// to stay within.
+///
+/// A probe's `reading` is reported alongside every timing so a reader
+/// can see the walk did real work, and asserted non-zero by
+/// `probe_workload_is_exercised`: a shape paired with a workload that
+/// scores zero on it would time the walk's fixed overhead and report an
+/// excellent exponent forever.
 #[derive(Clone, Copy)]
 pub struct Probe {
     /// Stable `<metric>/<shape>` identifier, used as the report key.
     pub name: &'static str,
     /// Language whose grammar the shape is written for.
     pub lang: LANG,
-    /// Metric selection handed to `MetricsOptions::with_only`. Kept as
-    /// narrow as the probe allows so an unrelated metric's cost cannot
-    /// dominate and misattribute a regression.
-    pub metrics: &'static [Metric],
+    /// The walk this probe times, and how its headline reading is taken.
+    pub workload: Workload,
     /// Generator for the probe's input.
     pub render: Render,
-    /// Headline value the probe's metric selection produces.
-    ///
-    /// Reported alongside every timing so a reader can see the walk
-    /// did real work, and asserted non-zero by
-    /// `probe_metric_selection_is_exercised`: a shape paired with a
-    /// metric that scores zero on it would time the walk's fixed
-    /// overhead and report an excellent exponent forever.
-    pub reading: fn(&CodeMetrics) -> u64,
     /// The three depths measured, each a doubling of the previous so
     /// the fitted exponent reads directly as "cost per doubling".
     pub depths: [usize; 3],
@@ -346,9 +398,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "tokens/nested-paren",
         lang: LANG::Rust,
-        metrics: &[Metric::Tokens],
+        workload: Workload::Metrics {
+            selection: &[Metric::Tokens],
+            reading: |m| m.tokens.tokens_sum(),
+        },
         render: nested_parens,
-        reading: |m| m.tokens.tokens_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1052: `tokens` inherits the in-comment flag down the \
@@ -366,9 +420,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cognitive/nested-while",
         lang: LANG::C,
-        metrics: &[Metric::Cognitive],
+        workload: Workload::Metrics {
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
         render: nested_whiles,
-        reading: |m| m.cognitive.cognitive_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062 on a statement shape, and the linear control for \
@@ -378,9 +434,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-while",
         lang: LANG::C,
-        metrics: &[Metric::Nom],
+        workload: Workload::Metrics {
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
         render: nested_whiles,
-        reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Metric control. `Cognitive` declares `Nom` as a \
@@ -390,9 +448,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cognitive/nested-if",
         lang: LANG::C,
-        metrics: &[Metric::Cognitive],
+        workload: Workload::Metrics {
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
         render: nested_ifs,
-        reading: |m| m.cognitive.cognitive_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: `Checker::is_else_if` reads the enclosing \
@@ -404,9 +464,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-while",
         lang: LANG::C,
-        metrics: &[Metric::Loc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.lloc(),
+        },
         render: nested_whiles,
-        reading: |m| m.loc.lloc(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-declaration`: the same \
@@ -416,9 +478,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-declaration",
         lang: LANG::C,
-        metrics: &[Metric::Loc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.lloc(),
+        },
         render: nested_declarations,
-        reading: |m| m.loc.lloc(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: `loc`'s C-family arm calls \
@@ -433,9 +497,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "halstead/nested-paren",
         lang: LANG::Rust,
-        metrics: &[Metric::Halstead],
+        workload: Workload::Metrics {
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.length(),
+        },
         render: nested_parens,
-        reading: |m| m.halstead.length(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `halstead/nested-not`: the same \
@@ -445,9 +511,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "halstead/nested-not",
         lang: LANG::Rust,
-        metrics: &[Metric::Halstead],
+        workload: Workload::Metrics {
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.length(),
+        },
         render: nested_nots,
-        reading: |m| m.halstead.length(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: `Getter::get_op_type` asks every `!` token \
@@ -461,9 +529,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "abc/nested-block",
         lang: LANG::C,
-        metrics: &[Metric::Abc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.assignments_sum(),
+        },
         render: nested_blocks,
-        reading: |m| m.abc.assignments_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `abc/nested-if`: the same nesting \
@@ -473,9 +543,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "abc/nested-if",
         lang: LANG::C,
-        metrics: &[Metric::Abc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Abc],
+            reading: |m| m.abc.conditions_sum(),
+        },
         render: nested_ifs,
-        reading: |m| m.abc.conditions_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: every `if (…)` head routes its condition \
@@ -490,9 +562,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cyclomatic/nested-and",
         lang: LANG::Python,
-        metrics: &[Metric::Cyclomatic],
+        workload: Workload::Metrics {
+            selection: &[Metric::Cyclomatic],
+            reading: |m| m.cyclomatic.cyclomatic_sum(),
+        },
         render: nested_ands,
-        reading: |m| m.cyclomatic.cyclomatic_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `cyclomatic/nested-ternary`: the \
@@ -502,9 +576,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cyclomatic/nested-ternary",
         lang: LANG::Python,
-        metrics: &[Metric::Cyclomatic],
+        workload: Workload::Metrics {
+            selection: &[Metric::Cyclomatic],
+            reading: |m| m.cyclomatic.cyclomatic_sum(),
+        },
         render: nested_ternaries,
-        reading: |m| m.cyclomatic.cyclomatic_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: Python's `Cyclomatic` asks every `else` token \
@@ -516,9 +592,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-quote",
         lang: LANG::Elixir,
-        metrics: &[Metric::Loc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.lloc(),
+        },
         render: nested_quotes,
-        reading: |m| m.loc.lloc(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: Elixir's `loc` catch-all arm asks every named \
@@ -531,9 +609,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-quote",
         lang: LANG::Elixir,
-        metrics: &[Metric::Nom],
+        workload: Workload::Metrics {
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
         render: nested_quotes,
-        reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: Elixir's `is_func` asks \
@@ -545,9 +625,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-fn",
         lang: LANG::Rust,
-        metrics: &[Metric::Nom],
+        workload: Workload::Metrics {
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
         render: nested_fns,
-        reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "One `FuncSpace` per level: the space-nesting \
@@ -559,9 +641,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cognitive/nested-fn",
         lang: LANG::Rust,
-        metrics: &[Metric::Cognitive],
+        workload: Workload::Metrics {
+            selection: &[Metric::Cognitive],
+            reading: |m| m.cognitive.cognitive_sum(),
+        },
         render: nested_fns,
-        reading: |m| m.cognitive.cognitive_sum(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062: `increment_function_depth` asks every function \
@@ -574,11 +658,43 @@ pub const PROBES: &[Probe] = &[
                     the cognitive walk.",
     },
     Probe {
+        name: "ops/nested-fn",
+        lang: LANG::Rust,
+        workload: Workload::Ops {
+            // Depth-invariant on purpose: `nested_fns` reuses one
+            // identifier at every level, so the root vocabulary is the
+            // same four operands at any depth. It is here to prove the
+            // walk produced something, which is all
+            // `probe_workload_is_exercised` asks of it; the depth
+            // signal is in the timing column.
+            reading: |ops| ops.operands.len() as u64,
+        },
+        render: nested_fns,
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1110: the only probe that runs `ops_inner`, which \
+                    was otherwise unmeasured. It covers the walk — the \
+                    space stack, the Halstead map merge up it, and the \
+                    per-space vocabulary render — on a shape whose \
+                    vocabulary is constant, so the reading is the walk \
+                    alone. The *vocabulary* term cannot be probed the \
+                    same way: `Ops` publishes a `Vec<String>` per space \
+                    and a parent's vocabulary is a superset of every \
+                    descendant's, so a shape with distinct identifiers \
+                    per level has quadratic output by construction and no \
+                    implementation can fit under a linear bound. \
+                    `nom/nested-fn` is the same shape through \
+                    `Ast::metrics`, which merges the same maps without \
+                    rendering them.",
+    },
+    Probe {
         name: "loc/nested-fn",
         lang: LANG::Rust,
-        metrics: &[Metric::Loc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.lloc(),
+        },
         render: nested_fns,
-        reading: |m| m.loc.lloc(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-fn-rows`: the same \
@@ -590,9 +706,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-fn-rows",
         lang: LANG::Rust,
-        metrics: &[Metric::Loc],
+        workload: Workload::Metrics {
+            selection: &[Metric::Loc],
+            reading: |m| m.loc.ploc(),
+        },
         render: nested_fns_by_row,
-        reading: |m| m.loc.ploc(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1109: `Ploc` / `Cloc` union each space's physical-row \
@@ -607,9 +725,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
-        metrics: &[Metric::Nom],
+        workload: Workload::Metrics {
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
         render: nested_fns_by_row,
-        reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Metric control for `loc/nested-fn-rows`: the same \
@@ -620,9 +740,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-declared-function",
         lang: LANG::Javascript,
-        metrics: &[Metric::Nom],
+        workload: Workload::Metrics {
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
         render: nested_declared_functions,
-        reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `nom/nested-arrow`: one function and \
@@ -633,9 +755,11 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-arrow",
         lang: LANG::Javascript,
-        metrics: &[Metric::Nom],
+        workload: Workload::Metrics {
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
         render: nested_arrows,
-        reading: |m| m.nom.total(),
         depths: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1088: the JS-family `Checker::is_func` / `is_closure` \
@@ -651,7 +775,7 @@ pub const PROBES: &[Probe] = &[
 
 #[cfg(test)]
 mod tests {
-    use big_code_analysis::{Ast, MetricsOptions, Source};
+    use big_code_analysis::{Ast, Source};
 
     use super::{PROBES, Probe};
 
@@ -744,22 +868,23 @@ mod tests {
         }
     }
 
-    /// Every probe's metric selection produces a non-zero reading on
-    /// its own shape.
+    /// Every probe's workload produces a non-zero reading on its own
+    /// shape.
     ///
-    /// Pairing a shape with a metric that scores zero on it would
+    /// Pairing a shape with a workload that scores zero on it would
     /// benchmark the walk's fixed overhead and nothing else, and the
     /// resulting exponent would look excellent forever.
     #[test]
-    fn probe_metric_selection_is_exercised() {
+    fn probe_workload_is_exercised() {
         for probe in PROBES {
             let ast = parse(probe, 8);
-            let space = ast
-                .metrics(MetricsOptions::default().with_only(probe.metrics))
+            let reading = probe
+                .workload
+                .walk(&ast, probe.workload.options())
                 .unwrap_or_else(|e| panic!("{}: walker must succeed: {e}", probe.name));
             assert!(
-                (probe.reading)(&space.metrics) > 0,
-                "{}: selected metrics scored zero on their own shape",
+                reading > 0,
+                "{}: workload scored zero on its own shape",
                 probe.name,
             );
         }

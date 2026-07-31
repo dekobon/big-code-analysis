@@ -6,6 +6,9 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
 
+use std::borrow::Cow;
+use std::cell::Cell;
+
 use crate::checker::Checker;
 use crate::error::MetricsError;
 use crate::getter::Getter;
@@ -141,13 +144,100 @@ fn push_synthetic_unit_root<T: ParserTrait>(
     }
 }
 
-/// Convert `&[u8]` source text to an owned `String`.
+thread_local! {
+    /// Space-kind classifications [`ops_inner`] has performed on this
+    /// thread.
+    ///
+    /// The classification only ever reaches [`Ops::new`], so running it
+    /// on a node that opens no space is work thrown away — and nothing
+    /// about the walk's *output* can tell the two apart. The counter is
+    /// the observable: it reads one per space after the lookup was moved
+    /// inside the `func_space` branch, and one per *node* before, which
+    /// is what makes hoisting it back out a test failure rather than a
+    /// silent regression (#1110).
+    static SPACE_KIND_LOOKUPS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Classifies a node that is about to open a function space.
+///
+/// Mirrors [`crate::spaces::compute`]'s `open_func_space`, which
+/// likewise classifies only after deciding a space opens (#522). The
+/// lookup is a per-language `match` on the node's kind for most
+/// grammars, but C#'s reaches a child scan for a bodied indexer or
+/// property, so it is not free on every node either.
+fn classify_space_kind<T: ParserTrait>(node: &Node) -> SpaceKind {
+    SPACE_KIND_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
+    T::Getter::get_space_kind(node)
+}
+
+/// How many space-kind classifications the ops walk has performed on
+/// this thread.
+///
+/// Only the accessor is test-gated; the counter itself is unconditional
+/// so a test observes the production path byte for byte.
+#[cfg(test)]
+pub(crate) fn space_kind_lookups_on_this_thread() -> usize {
+    SPACE_KIND_LOOKUPS.with(Cell::get)
+}
+
+/// Render a space's vocabulary: byte-lexicographically ordered, one
+/// owned `String` per distinct entry.
+///
+/// # Order
+///
+/// `HashMap`'s hasher is randomly seeded per instance, so key order
+/// differs between two runs — and even between two parses in one
+/// process. Without a canonical order the same input renders and
+/// serializes differently every time, which makes `bca ops` output
+/// undiffable and unusable as a cache key (#1091).
+///
+/// Byte-lexicographic, not first-appearance, order: `finalize` merges
+/// a child space's maps into its parent, so an insertion-ordered map
+/// would give the parent "what it saw directly, then whatever each
+/// child contributed" — a walk artifact that shifts when nesting
+/// changes. Sorting is also stable across platforms and hasher
+/// versions, which insertion order via a different map type is not.
+///
+/// # Why the sort runs before the `String`s exist
+///
+/// Every ancestor of a space re-renders that space's whole vocabulary:
+/// `finalize` merges each child's Halstead maps into its parent, so a
+/// parent's key set is a superset of every descendant's and an entry
+/// nested `D` spaces deep is rendered `D + 1` times. Sorting the
+/// borrowed keys first makes each swap a fat pointer rather than a
+/// 24-byte `String`, and — because the `String`s are then allocated in
+/// output order — it hands every later pass over them (the wire
+/// projection, serialization, the `dump_ops` tree) a heap laid out in
+/// the order it reads. Issue #1110 measured both effects.
+///
+/// # Non-UTF-8 keys
+///
 /// Tree-sitter sources are expected to be valid UTF-8; non-UTF-8 bytes
 /// are replaced with the Unicode replacement character to keep the entry
 /// visible (rather than silently dropping it or using a sentinel string
-/// that could collide with a real identifier).
-fn bytes_to_string(b: &[u8]) -> String {
-    String::from_utf8_lossy(b).into_owned()
+/// that could collide with a real identifier). That rendering is not
+/// order-preserving — `b"\xffA"` sorts after `"\u{fffd}B"` by raw bytes
+/// and before it once both are rendered — so a vocabulary that actually
+/// lost bytes is re-sorted on the rendered text, which is the order the
+/// pre-#1110 render-then-sort code produced. Valid UTF-8, which is every
+/// key in practice, takes the single sort.
+fn sorted_vocabulary(mut keys: Vec<&[u8]>) -> Vec<String> {
+    keys.sort_unstable();
+    let mut lossy = false;
+    let mut rendered: Vec<String> = keys
+        .into_iter()
+        .map(|key| match String::from_utf8_lossy(key) {
+            Cow::Borrowed(text) => text.to_owned(),
+            Cow::Owned(text) => {
+                lossy = true;
+                text
+            }
+        })
+        .collect();
+    if lossy {
+        rendered.sort_unstable();
+    }
+    rendered
 }
 
 fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
@@ -156,36 +246,15 @@ fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
     // Primitive-type operators live in a second map (keyed by text rather
     // than by token id), so the operator vocabulary is the concatenation
     // of both key sets.
-    let mut operators: Vec<String> = maps
+    let operators = maps
         .operators
         .keys()
-        .map(|k| T::Getter::get_operator_id_as_str(*k).to_owned())
-        .chain(
-            maps.primitive_operators
-                .keys()
-                .copied()
-                .map(bytes_to_string),
-        )
+        .map(|k| T::Getter::get_operator_id_as_str(*k).as_bytes())
+        .chain(maps.primitive_operators.keys().copied())
         .collect();
-    let mut operands: Vec<String> = maps.operands.keys().copied().map(bytes_to_string).collect();
 
-    // `HashMap`'s hasher is randomly seeded per instance, so key order
-    // differs between two runs — and even between two parses in one
-    // process. Without a canonical order the same input renders and
-    // serializes differently every time, which makes `bca ops` output
-    // undiffable and unusable as a cache key (#1091).
-    //
-    // Byte-lexicographic, not first-appearance, order: `finalize` merges
-    // a child space's maps into its parent, so an insertion-ordered map
-    // would give the parent "what it saw directly, then whatever each
-    // child contributed" — a walk artifact that shifts when nesting
-    // changes. Sorting is also stable across platforms and hasher
-    // versions, which insertion order via a different map type is not.
-    operators.sort_unstable();
-    operands.sort_unstable();
-
-    state.ops.operators = operators;
-    state.ops.operands = operands;
+    state.ops.operators = sorted_vocabulary(operators);
+    state.ops.operands = sorted_vocabulary(maps.operands.keys().copied().collect());
 }
 
 /// Close up to `diff_level` open spaces, folding each into its parent.
@@ -272,12 +341,12 @@ pub(crate) fn ops_inner<T: ParserTrait>(
             last_level = level;
         }
 
-        let kind = T::Getter::get_space_kind(&node);
         let ancestors = Ancestors::checked(&chain, &node);
 
         let func_space = T::Checker::is_func(&node, ancestors) || T::Checker::is_func_space(&node);
 
         let new_level = if func_space {
+            let kind = classify_space_kind::<T>(&node);
             let state = State {
                 ops: Ops::new::<T::Getter>(&node, code, ancestors, kind),
                 halstead_maps: HalsteadMaps::new(),
@@ -1144,5 +1213,136 @@ mod tests {
         let render =
             |ops: &Ops| serde_json::to_string(&ops.to_wire()).expect("wire Ops serializes to JSON");
         assert_eq!(render(&first), render(&second));
+    }
+
+    /// A vocabulary that lost bytes is ordered by its *rendered* text.
+    ///
+    /// #1110 moved the sort ahead of the lossy UTF-8 rendering, which is
+    /// only order-preserving while every key is valid UTF-8. Here it is
+    /// not: the two string operands are `"\xffA"` and `"\u{fffd}B"`, so
+    /// by raw bytes the first sorts *after* the second (`0xff` > `0xef`)
+    /// and by rendered text — both start `U+FFFD`, then `A` before `B` —
+    /// it sorts before. The rendered order is what the pre-#1110
+    /// render-then-sort code produced and what `Ops` documents, so
+    /// dropping the fallback re-sort flips this pair and fails here.
+    #[test]
+    #[cfg(feature = "rust")]
+    fn ops_vocabulary_orders_lossy_entries_by_rendered_text_1110() {
+        let mut src = b"fn f() { let a = \"".to_vec();
+        src.push(0xff);
+        src.extend_from_slice(b"A\"; let b = \"");
+        src.extend_from_slice(&[0xef, 0xbf, 0xbd]);
+        src.extend_from_slice(b"B\"; }\n");
+
+        let ops = Ast::parse(Source::new(LANG::Rust, &src).with_name(Some("foo.rs".to_owned())))
+            .expect("rust feature enabled")
+            .ops()
+            .expect("ops walk must yield a top-level Ops");
+
+        let position = |needle: &str| {
+            ops.operands
+                .iter()
+                .position(|operand| operand == needle)
+                .unwrap_or_else(|| panic!("operands must contain {needle:?}: {:?}", ops.operands))
+        };
+        assert!(
+            position("\"\u{fffd}A\"") < position("\"\u{fffd}B\""),
+            "lossy entries must be ordered by rendered text, got {:?}",
+            ops.operands
+        );
+        assert!(
+            ops.operands.is_sorted(),
+            "the whole vocabulary must be sorted as rendered, got {:?}",
+            ops.operands
+        );
+    }
+
+    /// The walk classifies a space kind once per space, not once per node.
+    ///
+    /// Nothing in the output distinguishes the two: the classification
+    /// only ever reaches `Ops::new`, so running it on every node produces
+    /// the same tree and merely throws the extra answers away. #1110
+    /// moved the call inside the `func_space` branch, mirroring
+    /// `spaces::compute::open_func_space`; the counter is what makes
+    /// hoisting it back out a failure. The node-count assertion is what
+    /// makes the counts distinguishable — a fixture whose nodes and
+    /// spaces were equal in number could not tell the two apart.
+    #[test]
+    // Gated on the language that guarantees a non-empty case list, so
+    // the emptiness assertion below cannot fire on a minimal build.
+    #[cfg(feature = "rust")]
+    fn ops_classifies_space_kind_once_per_space_1110() {
+        let cases: &[(LANG, &str, &str)] = &[
+            #[cfg(feature = "rust")]
+            (
+                LANG::Rust,
+                "foo.rs",
+                "fn outer(a: u32) -> u32 { fn inner(b: u32) -> u32 { b + 1 } inner(a) * 2 }\n",
+            ),
+            #[cfg(feature = "python")]
+            (
+                LANG::Python,
+                "foo.py",
+                "def outer(a):\n    def inner(b):\n        return b + 1\n    return inner(a) * 2\n",
+            ),
+            #[cfg(feature = "cpp")]
+            (
+                LANG::Cpp,
+                "foo.cpp",
+                "struct S { int m(int a) { return a + 1; } }; int f(int b) { return b * 2; }\n",
+            ),
+            #[cfg(feature = "java")]
+            (
+                LANG::Java,
+                "Foo.java",
+                "class C { int m(int a) { return a + 1; } int n(int b) { return b * 2; } }\n",
+            ),
+            #[cfg(feature = "javascript")]
+            (
+                LANG::Javascript,
+                "foo.js",
+                "function outer(a) { function inner(b) { return b + 1; } return inner(a) * 2; }\n",
+            ),
+        ];
+        assert!(
+            !cases.is_empty(),
+            "at least one language feature must be enabled for this test to mean anything"
+        );
+
+        for (lang, file, source) in cases {
+            let ast = Ast::parse(
+                Source::new(*lang, source.as_bytes()).with_name(Some((*file).to_owned())),
+            )
+            .expect("language feature enabled");
+
+            let before = crate::ops::space_kind_lookups_on_this_thread();
+            let ops = ast.ops().expect("ops walk must yield a top-level Ops");
+            let lookups = crate::ops::space_kind_lookups_on_this_thread() - before;
+
+            let mut spaces = 0;
+            let mut stack = vec![&ops];
+            while let Some(space) = stack.pop() {
+                spaces += 1;
+                stack.extend(space.spaces.iter());
+            }
+
+            let mut nodes = 0;
+            let mut cursor = vec![ast.as_tree_sitter().root_node()];
+            while let Some(node) = cursor.pop() {
+                nodes += 1;
+                let mut walker = node.walk();
+                cursor.extend(node.children(&mut walker));
+            }
+
+            assert!(
+                nodes > spaces * 4,
+                "{lang:?} fixture must have many more nodes ({nodes}) than spaces ({spaces}) \
+                 for the two counts to be distinguishable"
+            );
+            assert_eq!(
+                lookups, spaces,
+                "{lang:?} must classify once per space, not once per node ({nodes} nodes)"
+            );
+        }
     }
 }
