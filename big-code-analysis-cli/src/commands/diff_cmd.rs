@@ -181,6 +181,7 @@ pub(crate) fn compute_since_diff(
         before_tree.path(),
         side_globals(globals, scope),
         before_json.path(),
+        DiffSide::Before,
     )?;
 
     // After side: always the working tree, rooted at the *git repo root*
@@ -193,8 +194,12 @@ pub(crate) fn compute_since_diff(
     // same files on each side instead of mis-rooting the after walk.
     let after_root = diff::git_repo_root().unwrap_or_else(|reason| die(reason));
     let after_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
-    let after =
-        crate::walk_metric_set(&after_root, side_globals(globals, scope), after_json.path())?;
+    let after = crate::walk_metric_set(
+        &after_root,
+        side_globals(globals, scope),
+        after_json.path(),
+        DiffSide::After,
+    )?;
 
     Ok(crate::metric_diff::MetricDiff::from_sets(
         &before,

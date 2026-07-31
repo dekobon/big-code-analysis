@@ -80,7 +80,7 @@ use std::fmt::Display;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -92,6 +92,7 @@ use check_format::AggregatedFormat;
 use formats::{JitFormat, MetricsFormat, ReportFormat, TrendFormat, VcsFormat};
 use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
+use metric_diff::DiffSide;
 use thresholds::{
     ParsedThresholds, ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold,
     parse_fail_above, split_thresholds_table,
@@ -185,11 +186,16 @@ struct Config {
     /// permission denied, a broken symlink, a path that vanished
     /// mid-walk. A failed read deliberately leaves `files_dispatched`
     /// untouched, so this counter is the only record that the runner
-    /// saw the file. `Action::Check` reads it after the walk and exits
-    /// 1 rather than reporting a gate verdict derived from a partially
-    /// analysed input set (#1060). `None` for flows that do not enforce
-    /// the rule.
-    read_failures: Option<Arc<AtomicUsize>>,
+    /// saw the file.
+    ///
+    /// Unconditional rather than `Option`, because every walk enforces
+    /// the same rule: [`run_walk_resolved_tallying`] installs it and the
+    /// post-walk guard exits 1 rather than let a command report a result
+    /// derived from a partially analysed input set — a gate verdict
+    /// (#1060), a metrics document, or a `diff --since` comparison whose
+    /// missing files read as removed rather than as an I/O failure
+    /// (#1098).
+    read_failures: Arc<AtomicUsize>,
     /// Seeds the user named *explicitly as files* on the command line
     /// (or via `--paths-from` / a manifest `paths` key), in the emitted
     /// path form. A file in this set whose language is unrecognized is a
@@ -308,7 +314,7 @@ impl Config {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
-            read_failures: None,
+            read_failures: Arc::new(AtomicUsize::new(0)),
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
             explicit_unrecognized: None,
             output_produced: None,
@@ -367,13 +373,70 @@ impl Config {
 /// per-line BOM strip the previous `collect_lines` reader applied).
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
+/// Process an already-resolved terminal file list concurrently and
+/// return how many of those files could not be read at all.
+///
+/// The single seam every walk passes through, so the read-failure tally
+/// is collected once here instead of per command runner (#1098). Callers
+/// that want the standard exit-1 contract go through the `run_walk*`
+/// wrappers; `bca diff --since` uses this directly so it can unwind its
+/// temp trees before reporting.
+fn run_walk_resolved_tallying(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) -> usize {
+    let read_failures = Arc::clone(&cfg.read_failures);
+    ConcurrentRunner::new(num_jobs, act_on_file)
+        .run(cfg, FilesData { paths })
+        .unwrap_or_else(|e| die(format_args!("{e:?}")));
+    read_failures.load(Ordering::Relaxed)
+}
+
+/// Resolve the seeds and process the file set concurrently, returning
+/// the read-failure tally. The seed-expanding counterpart to
+/// [`run_walk_resolved_tallying`].
+fn run_walk_tallying(globals: GlobalOpts, mut cfg: Config) -> usize {
+    let (resolved, num_jobs) = resolve_walk_files(globals);
+    cfg.explicit_seeds = Arc::new(resolved.explicit_files);
+    run_walk_resolved_tallying(resolved.files, num_jobs, cfg)
+}
+
+/// Summarize a walk that could not read every input file. Shared by the
+/// post-walk guard below and by `bca diff --since`, which surfaces the
+/// same wording through [`metric_diff::DiffError`] (#1098).
+pub(crate) fn read_failure_summary(count: usize) -> String {
+    let noun = if count == 1 { "file" } else { "files" };
+    format!(
+        "{count} input {noun} could not be read (see the errors above); \
+         refusing to trust a partially analysed input set"
+    )
+}
+
+/// Exit 1 when the walk could not read every input file.
+///
+/// A command that analysed less than its input has no complete result to
+/// report, and the omission is invisible in the output: a missing file
+/// silently shrinks a metrics document, a report, a node count, or a
+/// `diff` side. `EXIT_TOOL_ERROR` is documented to cover unreadable
+/// input, so every walking subcommand fails the same way `check` does
+/// (#1060, #1098) rather than only when the run produced nothing.
+///
+/// The consumer has already printed one `error processing <path>: …`
+/// line per failure, so this is a summary, not the first notice. It runs
+/// before any aggregate document is written, so no artifact that looks
+/// complete reaches disk.
+///
+/// Deliberately unprefixed by a subcommand name: `bca init` scaffolds
+/// its baseline through `run_check`, so naming a subcommand here would
+/// misattribute the failure to a command the user never ran.
+fn enforce_readable_input(read_failures: usize) {
+    if read_failures > 0 {
+        die(read_failure_summary(read_failures));
+    }
+}
+
 /// Resolve the seeds and process the file set concurrently. The common
 /// walk entry point; callers that also need the resolved file list (only
 /// `bca preproc`, for `#include` grouping) use [`run_walk_collecting`].
-fn run_walk(globals: GlobalOpts, mut cfg: Config) {
-    let (resolved, num_jobs) = resolve_walk_files(globals);
-    cfg.explicit_seeds = Arc::new(resolved.explicit_files);
-    run_walk_resolved(resolved.files, num_jobs, cfg);
+fn run_walk(globals: GlobalOpts, cfg: Config) {
+    enforce_readable_input(run_walk_tallying(globals, cfg));
 }
 
 /// Process an already-resolved terminal file list concurrently. Lets a
@@ -381,9 +444,7 @@ fn run_walk(globals: GlobalOpts, mut cfg: Config) {
 /// rejects a multi-file match) before dispatching the workers, without
 /// re-running the seed expansion.
 fn run_walk_resolved(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) {
-    ConcurrentRunner::new(num_jobs, act_on_file)
-        .run(cfg, FilesData { paths })
-        .unwrap_or_else(|e| die(format_args!("{e:?}")));
+    enforce_readable_input(run_walk_resolved_tallying(paths, num_jobs, cfg));
 }
 
 /// Like [`run_walk`], but returns the resolved terminal file list.
@@ -394,14 +455,7 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
     let (resolved, num_jobs) = resolve_walk_files(globals);
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
     let paths = resolved.files;
-    ConcurrentRunner::new(num_jobs, act_on_file)
-        .run(
-            cfg,
-            FilesData {
-                paths: paths.clone(),
-            },
-        )
-        .unwrap_or_else(|e| die(format_args!("{e:?}")));
+    enforce_readable_input(run_walk_resolved_tallying(paths.clone(), num_jobs, cfg));
     paths
 }
 
@@ -425,10 +479,19 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
 /// (`src/foo.rs.json`). The key is then just that path relative to
 /// `json_out_dir` — byte-identical across the two sides whenever the
 /// same logical file exists in both trees.
+///
+/// `side` names this tree in the error a partially-readable walk raises
+/// ("before" / "after"). Unreadable input is an error rather than a gap
+/// here for a reason specific to diffing: a file missing from one side's
+/// set is indistinguishable from a file the commit added or removed, so
+/// tolerating the read failure yields a *wrong* comparison, not merely
+/// an incomplete one (#1098). It is returned rather than exited on so
+/// the caller's temp trees still unwind.
 pub(crate) fn walk_metric_set(
     root: &Path,
     globals: GlobalOpts,
     json_out_dir: &Path,
+    side: DiffSide,
 ) -> Result<metric_diff::MetricSet, metric_diff::DiffError> {
     let action = Action::Metrics {
         format: Some(MetricsFormat::Json),
@@ -451,12 +514,18 @@ pub(crate) fn walk_metric_set(
     // explicit dir) pair on the same keys despite different absolute
     // roots, without depending on `reanchor_seed`'s under-CWD rewrite.
     //
-    // `bca diff` runs `run_walk` to completion synchronously here — the
+    // `bca diff` runs the walk to completion synchronously here — the
     // worker threads spawn and join inside this call — so the scoped
     // CWD swap cannot race another command's walk.
     let restore = with_cwd(root)?;
-    run_walk(globals, cfg);
+    let read_failures = run_walk_tallying(globals, cfg);
     drop(restore);
+    if read_failures > 0 {
+        return Err(metric_diff::DiffError::UnreadableInputs {
+            side,
+            count: read_failures,
+        });
+    }
 
     // The JSON writer emitted one document per source file under
     // `json_out_dir`, keyed by the root-relative source path — the same

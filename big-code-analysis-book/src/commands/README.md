@@ -60,6 +60,45 @@ errors — usage errors included, so a typo'd flag never lands in the
 gate band — CI can always distinguish "the gate found a regression"
 (`2`–`5`) from "the tool itself crashed" (`1`).
 
+### Unreadable input {#unreadable-input}
+
+Every subcommand that walks source files — `metrics`, `ops`, `report`,
+`functions`, `find`, `count`, `dump`, `exemptions`, `preproc`,
+`strip-comments`, `check`, `init` (which scaffolds its baseline through
+`check`), and `diff --since` — exits `1` when **any** input file could
+not be read: permission denied, or a path that vanished between the
+walk and the read. Each failure is named on stderr as
+`error processing <path>: …`, followed by one summary line.
+
+The rule is "any read failure", not "no output at all", because a
+missing file is invisible in the result. A partial `metrics --output`
+document, a `report`, or a `count` looks complete; a `diff --since`
+side that lost a file reports it as *added* or *removed* rather than as
+the I/O error it was. Since the failure is only observable in the exit
+code, that code has to carry it.
+
+Output *streamed during* the walk is still emitted — the check runs
+after it — so a mixed run still shows the files that were read: the
+stdout trees of `metrics` / `ops` / `dump` / `find` / `functions`, and
+the per-file documents of `--output-dir`.
+
+Output *assembled after* the walk is suppressed entirely, because a
+partial one is indistinguishable from a complete one. That covers the
+`metrics --output` / `ops --output` aggregate document, the `report`
+document, `count`'s tally, `preproc`'s JSON, and the `exemptions`
+report — none of them is printed or written.
+
+If a tree legitimately contains files you cannot open, prune them with
+`--exclude` (or `--include` a narrower set). A file removed by those
+filters is never opened, so it is never a read failure.
+
+The rule covers files the walk selected and then failed to open. Paths
+the walk never selects are outside it: a *directory* it cannot list, and
+a broken symlink found by walking (neither is a regular file). Both warn
+— `bca: warning: skipping walk entry in …` — and the run continues. An
+explicitly named path that does not exist is a separate, pre-existing
+error (also exit `1`).
+
 ## Flag placement and input paths
 
 Most subcommands read the input they analyze as a trailing positional

@@ -518,6 +518,53 @@ fn since_keeps_export_ignored_files_on_before_side() {
     );
 }
 
+/// #1098: a file the after-side walk cannot read drops out of that
+/// side's `MetricSet` entirely, which pairs as a *removed* file against
+/// the before side — a wrong diff, not a missing one. The walk must
+/// surface the read failure as a tool error instead, naming the side so
+/// the user knows which tree to look at.
+///
+/// Staged on the after side because that is the reachable one: the
+/// before side is a fresh extraction of `<ref>` whose files this process
+/// just wrote, and git records no permission bits beyond the executable
+/// one, so a mode-000 committed file extracts readable.
+#[cfg(unix)]
+#[test]
+fn since_errors_when_the_after_side_has_an_unreadable_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = repo_with_flat_commit();
+    // A second file, committed so it exists on the before side, then
+    // locked in the working tree. Without the guard the after side
+    // simply omits it and the diff reports a removed file.
+    let extra = repo.path().join("src/extra.rs");
+    fs::write(&extra, FLAT_SOURCE).expect("write extra");
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "extra"]);
+    fs::set_permissions(&extra, fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    // Probe the real capability rather than the uid: root ignores mode
+    // bits, and then the scenario cannot be staged at all.
+    if fs::read(&extra).is_ok() {
+        eprintln!("skipping: this process can read a mode-000 file");
+        return;
+    }
+
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "src", "--format", "json"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("Permission denied"))
+        .stderr(predicate::str::contains(
+            "diff --since after tree: 1 input file could not be read",
+        ))
+        // No diff document at all, so the wrong comparison this
+        // replaces — `extra.rs` reported as a removed file — cannot be
+        // consumed. Before the fix this stream carried a full JSON diff
+        // with `extra.rs` in `removed_files`.
+        .stdout(predicate::str::is_empty());
+}
+
 /// Pull `(old, new)` for the `cyclomatic.sum` field out of the
 /// `--format json` diff document, searching the `cyclomatic` bucket's
 /// changed entries.

@@ -359,3 +359,32 @@ fn parse_error_is_surfaced() {
     let err = MetricDiff::compute(&path, &path, 0.0, &[]).expect_err("must error");
     assert!(matches!(err, DiffError::Parse { .. }));
 }
+
+/// #1098: the read-failure error names the side and pluralises the
+/// noun. The `Before` side is unreachable from an integration test — the
+/// `<ref>` extraction is written by this process and git records no
+/// permission bits beyond the executable one — so its rendering is
+/// pinned here, alongside the plural form the shared summary produces.
+#[test]
+fn unreadable_inputs_error_names_the_side() {
+    let before = DiffError::UnreadableInputs {
+        side: DiffSide::Before,
+        count: 1,
+    };
+    assert_eq!(
+        before.to_string(),
+        "diff --since before tree: 1 input file could not be read (see the \
+         errors above); refusing to trust a partially analysed input set"
+    );
+
+    let after = DiffError::UnreadableInputs {
+        side: DiffSide::After,
+        count: 2,
+    };
+    assert!(
+        after
+            .to_string()
+            .starts_with("diff --since after tree: 2 input files could not be read"),
+        "rendered: {after}"
+    );
+}
