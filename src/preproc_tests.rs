@@ -2,7 +2,10 @@
 //!
 //! Split out under the `#[path]` convention `src/tools.rs` already uses:
 //! the module is large enough that co-locating it pushed `preproc.rs`
-//! past the repository's own `loc.sloc` gate.
+//! past the *soft* tier of the repository's own `loc.sloc` gate. Only
+//! the attributes and blank lines around a pruned `#[cfg(test)]` module
+//! keep costing the parent file, so the split recovered 9 sloc — 769
+//! down to 760, measured — not the module's own length.
 
 #![allow(
     clippy::float_cmp,
@@ -431,12 +434,24 @@ fn merge_sorted_ids_yields_one_sorted_copy_of_each_id() {
     assert_eq!(out, vec![1, 3, 4, 5, 9]);
 
     // Either side empty degenerates to the other, order preserved.
-    out.clear();
     merge_sorted_ids(&[], &[2, 7], &mut out);
     assert_eq!(out, vec![2, 7]);
-    out.clear();
     merge_sorted_ids(&[2, 7], &[], &mut out);
     assert_eq!(out, vec![2, 7]);
+    // Both empty: the leaf case every closure bottoms out in.
+    merge_sorted_ids(&[], &[], &mut out);
+    assert!(out.is_empty());
+}
+
+/// The scratch buffer the fold reuses is cleared by `merge_sorted_ids`
+/// itself, not by its caller: a merge that appended to a stale buffer
+/// would hand back a union that is neither sorted nor a closure of its
+/// two inputs, and the `HashSet` it materializes into would hide it.
+#[test]
+fn merge_sorted_ids_replaces_the_scratch_buffer() {
+    let mut out = vec![100, 200, 300];
+    merge_sorted_ids(&[1, 4], &[2, 4], &mut out);
+    assert_eq!(out, vec![1, 2, 4]);
 }
 
 /// A straight chain: every file reaches itself and everything below it.
@@ -770,7 +785,7 @@ fn parsing_a_cpp_file_never_owns_the_macro_set() {
             (path.clone(), unit),
             (
                 PathBuf::from("dep.h"),
-                PreprocFile::new_macros(&["DBG", "FROM_DEP"]),
+                PreprocFile::new_macros(&["DBG", "FOO"]),
             ),
         ]);
         let pr = std::sync::Arc::new(PreprocResults { files });
@@ -784,7 +799,7 @@ fn parsing_a_cpp_file_never_owns_the_macro_set() {
         let space = crate::Ast::parse(
             crate::Source::new(
                 crate::LANG::Cpp,
-                b"int f(int x) { return DBG ? FROM_DEP : x; }".as_slice(),
+                b"int f(int x) { return DBG ? FOO : x; }".as_slice(),
             )
             .with_preproc_path(Some(&path))
             .with_preproc(Some(pr)),
@@ -792,9 +807,19 @@ fn parsing_a_cpp_file_never_owns_the_macro_set() {
         .expect("cpp feature enabled")
         .metrics(crate::MetricsOptions::default())
         .expect("walker succeeds");
-        // unit + function + ternary; proves the C-family preprocessor
-        // arm ran rather than the parse being skipped.
-        assert_eq!(space.metrics.cyclomatic.cyclomatic_sum(), 3);
+        // Both macros are three bytes, so the masking pass rewrites
+        // each to the same `$$$` run and the two operands collapse
+        // into one: `f`, `x`, `$$$`. Unmasked the count is four
+        // (`f`, `x`, `DBG`, `FOO`), so deleting the C-family arm of
+        // `get_fake_code` fails here.
+        //
+        // The name lengths are load-bearing. `$` is an identifier byte
+        // in tree-sitter-cpp, so masking a pair of *differently* named
+        // macros moves no metric at all — measured: the `DBG` /
+        // `FROM_DEP` pair this fixture used to carry left cyclomatic,
+        // both Halstead vocabularies, and lloc identical either way,
+        // and the assertion here was decorative.
+        assert_eq!(space.metrics.halstead.unique_operands(), 3);
 
         assert_eq!(
             owned_macro_sets::observed(),

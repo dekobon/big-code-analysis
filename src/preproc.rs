@@ -164,9 +164,7 @@ pub fn get_macros<S: ::std::hash::BuildHasher>(
 /// The crate-internal form of [`get_macros`], which owns the same names
 /// only because its `HashSet<String>` return type is published. Callers
 /// inside the crate just probe the result with `contains`, so borrowing
-/// suffices: over a 10_918-file C/C++ tree the owning form allocated
-/// 1_655_396 macro `String`s and 718_758 `PathBuf`s per pass, one set per
-/// file parsed (issue #1107). Still a *merged* set and not a list of
+/// suffices (issue #1107). Still a *merged* set and not a list of
 /// per-file sets to probe in turn, because it is consulted once per
 /// identifier run in the whole translation unit: an `O(headers)` probe
 /// would cost far more than the one-off merge it saves.
@@ -364,12 +362,6 @@ enum NodeContribution<'a> {
 /// merges its successors' finished closures instead of re-walking the graph;
 /// the per-file [`Dfs`] this replaced ran once per file and re-visited every
 /// shared header once per file that reached it (issue #1107).
-///
-/// Plain `usize` indices rather than interned `u32`: bar the rare
-/// [`PreprocDiagnostic::NotPreprocessed`] skip, every node materializes into
-/// a `HashSet<String>` that costs an order of magnitude more per reachable
-/// pair, so this transient can never be the term that matters — 5.7 MB of
-/// indices against tens of MB of owned strings on the tree above.
 struct IncludeClosures<'a> {
     entries: Vec<NodeContribution<'a>>,
     closures: Vec<Vec<usize>>,
@@ -407,10 +399,13 @@ impl IncludeClosures<'_> {
 }
 
 /// Merges two sorted, individually de-duplicated id slices into `out`,
-/// keeping it sorted and de-duplicated. A linear merge rather than
-/// `extend` + `sort` + `dedup` because the sort's log factor would land on
-/// the *closure* size — exactly what grows on a deep include chain.
+/// replacing whatever it held — the fold below reuses one scratch
+/// buffer, and appending to a stale one would emit a union that is
+/// neither sorted nor a closure. A linear merge rather than `extend` +
+/// `sort` + `dedup` because the sort's log factor would land on the
+/// *closure* size — exactly what grows on a deep include chain.
 fn merge_sorted_ids(a: &[usize], b: &[usize], out: &mut Vec<usize>) {
+    out.clear();
     out.reserve(a.len() + b.len());
     let (mut i, mut j) = (0, 0);
     while let (Some(&left), Some(&right)) = (a.get(i), b.get(j)) {
@@ -480,7 +475,6 @@ fn compute_include_closures<'a>(
         // A contiguous range is already sorted and unique.
         let mut acc: Vec<usize> = own[node.index()].clone().collect();
         for succ in g.neighbors_directed(node, Direction::Outgoing) {
-            merged.clear();
             merge_sorted_ids(&acc, &closures[succ.index()], &mut merged);
             std::mem::swap(&mut acc, &mut merged);
         }
@@ -500,15 +494,17 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
     scc_map: &HashMap<NodeIndex, HashSet<String>>,
     diagnostics: &mut Vec<PreprocDiagnostic>,
 ) {
-    let closures = compute_include_closures(g, scc_map);
+    let precomputed = compute_include_closures(g, scc_map);
     for (path, start) in nodes {
         let Some(pf) = files.get_mut(path) else {
             diagnostics.push(PreprocDiagnostic::NotPreprocessed { file: path.clone() });
             continue;
         };
-        if let Some(closures) = &closures {
+        if let Some(closures) = &precomputed {
             closures.materialize(*start, &mut pf.indirect_includes, diagnostics);
         } else {
+            // Unreachable, hence untested: `collapse_scc` leaves the
+            // graph acyclic. `assert_closures` pins the two agree.
             accumulate_reachable_includes(
                 g,
                 *start,
@@ -540,7 +536,7 @@ fn accumulate_reachable_includes(
         let w = g
             .node_weight(node)
             .expect("invariant: DFS-visited node must have weight in graph");
-        if w == &PathBuf::from("") {
+        if w.as_os_str().is_empty() {
             let paths = scc_map.get(&node).expect(
                 "every empty-path node is an SCC replacement and must have a scc_map entry",
             );
@@ -573,11 +569,12 @@ fn accumulate_reachable_includes(
 /// Panics if any of the lockstep invariants between the include graph
 /// `g`, the `nodes` map, and the `scc_map` is violated at runtime —
 /// specifically: an SCC component node missing from the graph, a graph
-/// node weight without a `nodes` map entry, a DFS-visited node without
-/// a stored weight, or an empty-path replacement node without a
-/// `scc_map` entry. These data structures are built in lockstep by
-/// this function, so all four conditions represent unrecoverable
-/// programmer errors rather than reachable input failures.
+/// node weight without a `nodes` map entry, a DFS-visited node without a
+/// stored weight, or an empty-path replacement node without a `scc_map`
+/// entry. These are built in lockstep here, so all four are unrecoverable
+/// programmer errors rather than reachable input failures. The last two
+/// live on the per-file fallback walk, which now runs only when the
+/// precomputed include closures could not order the graph.
 pub fn fix_includes<S: ::std::hash::BuildHasher>(
     files: &mut HashMap<PathBuf, PreprocFile, S>,
     all_files: &HashMap<String, Vec<PathBuf>, S>,

@@ -495,13 +495,47 @@ fn rust_item_is_test_only<'a>(node: &Node<'a>, code: &[u8], ancestors: Ancestors
 /// and that 420 ns did not move with the sibling index, so the
 /// break-even sits near six children.
 ///
-/// Cutting at the *shallow* break-even is the conservative choice: the
-/// backward walk only gets more expensive with depth, so a parent
-/// narrow enough to read forward at depth 1 is still worth reading
-/// forward at depth 1_000. That makes the forward scan a strict
-/// improvement where it applies (#1100) and leaves a generated file of
-/// thousands of top-level items on exactly the walk it had before.
+/// This is the budget at depth 1 only; deeper nodes get
+/// [`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH`] more per level. It
+/// still bounds the shallow-and-wide shape — a generated file of
+/// thousands of top-level items stays on exactly the walk it had
+/// before.
 const MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN: usize = 6;
+
+/// Children the budget above gains per level of depth.
+///
+/// Dispatching on width alone (#1100) reads the break-even as a
+/// constant, but only the forward scan's price is: a
+/// [`Node::previous_sibling`] descends from the root, so every extra
+/// level makes the backward walk dearer while a cursor step stays flat.
+/// One child too many therefore returned the whole `O(depth²)` walk —
+/// measured on nested `mod` bodies of `#[inline] fn`s, a 7-child body
+/// nested 3_200 deep took 2.67 s against 0.045 s for the same shape one
+/// child narrower.
+///
+/// Sized from a crossover sweep of a forward-only against a
+/// backward-only build over that fixture family: the *marginal* cost of
+/// one more level of depth measured ~120 ns against ~35 ns for a cursor
+/// step, and the observed break-even tracked that ratio — near 6
+/// children at depth 1, near 13 at depth 3, and past 161 at depth 100.
+/// (Marginal end-to-end figures, so they run below the isolated ~68 ns
+/// / ~420 ns above; it is the ratio the budget uses, not either
+/// absolute.) Three per level rounds the ratio down, keeping the
+/// backward walk for the shallow-but-wide shape it is genuinely
+/// cheaper on.
+const FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH: usize = 3;
+
+/// The widest parent worth reading forward from, for a node at
+/// `ancestors`' depth. A node reached without a chain has no depth to
+/// scale by, so the shallow cut stands.
+fn forward_attribute_scan_budget(ancestors: Ancestors<'_, '_>) -> usize {
+    ancestors
+        .depth()
+        .map_or(0, |depth| {
+            depth.saturating_mul(FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH)
+        })
+        .max(MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN)
+}
 
 // The tree-sitter Rust grammar exposes outer attributes (`#[...]`) as
 // `AttributeItem` siblings *before* the decorated item, so what marks
@@ -519,7 +553,7 @@ fn rust_outer_attr_marks_test<'a>(
     ancestors: Ancestors<'a, '_>,
 ) -> bool {
     match ancestors.parent(node) {
-        Some(parent) if parent.child_count() <= MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN => {
+        Some(parent) if parent.child_count() <= forward_attribute_scan_budget(ancestors) => {
             rust_attribute_run_under(&parent, node, code)
         }
         _ => rust_attribute_run_before(node, code),
@@ -527,13 +561,17 @@ fn rust_outer_attr_marks_test<'a>(
 }
 
 /// Reads the attribute run ending at `node` forward from `parent`,
-/// which the walker already holds. `O(parent.child_count())`, and
-/// independent of how deep `node` sits.
+/// which the walker already holds. `O(parent.child_count())` — two
+/// cursor passes over the children when a preceding run exists, one
+/// otherwise — and independent of how deep `node` sits.
 ///
 /// Two passes and not one: classifying each attribute as the first pass
 /// goes by would classify every attribute in the parent rather than
 /// only the adjacent run, and classification is itself `O(len)` in the
-/// attribute body (#1105).
+/// attribute body (#1105). Folding them into a single-pass boolean
+/// would reclassify a huge `#[cfg(all(all(…)))]` once per subsequent
+/// sibling and put that quadratic straight back; the second
+/// [`Node::children`] cursor is the cheaper half of that trade.
 fn rust_attribute_run_under(parent: &Node, node: &Node, code: &[u8]) -> bool {
     let mut run_start = None;
     for child in parent.children() {
@@ -548,11 +586,12 @@ fn rust_attribute_run_under(parent: &Node, node: &Node, code: &[u8]) -> bool {
             run_start = None;
         }
     }
-    // No preceding attribute — and also the shape a `parent` that is
-    // not `node`'s parent lands in, since the first pass then ends at
-    // the parent's own trailing run rather than at `node`. The walker
-    // constructs its chain through `Ancestors::checked`, so that is a
-    // caller error rather than a shape to answer for.
+    // No preceding attribute. A `parent` that is not `node`'s parent is
+    // a caller error, not a shape answered for here: the first pass then
+    // runs to the end of `parent`'s children, so the answer depends on
+    // whether those end in an attribute run and is meaningless either
+    // way. The walker constructs its chain through `Ancestors::checked`,
+    // which catches the mismatch in debug builds.
     let Some(run_start) = run_start else {
         return false;
     };
@@ -976,9 +1015,10 @@ mod tests {
     ///
     /// This is the acceptance criterion for #1100, not a nicety:
     /// `rust_outer_attr_marks_test` picks between the two by the
-    /// parent's width, so a disagreement would make `exclude_tests`
-    /// prune a different set of subtrees on one shape than on another
-    /// and move published metric values. The comparison is against the
+    /// parent's width against the node's depth, so a disagreement would
+    /// make `exclude_tests` prune a different set of subtrees on one
+    /// shape than on another and move published metric values —
+    /// including as the budget is retuned. The comparison is against the
     /// backward reading directly rather than against the dispatcher,
     /// which would compare the backward walk with itself on every wide
     /// parent.
@@ -1022,11 +1062,24 @@ mod tests {
             // A bare item: no parent for the root, no preceding
             // sibling for the item.
             "fn a() {}\n",
+            // The dispatch boundary at depth 1, where the budget is
+            // `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN`: three attributed
+            // items make a `source_file` exactly six children wide, and
+            // a fourth bare item makes seven. Neither width occurred in
+            // any fixture above, so `<=` against `<` went untested.
+            "#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n#[cfg(test)]\nfn c() {}\n",
+            "#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n#[cfg(test)]\nfn c() {}\nfn d() {}\n",
+            // The same seven items one level down: two braces make the
+            // `declaration_list` nine wide, which is exactly the budget
+            // at depth 3, so the reading flips back to forward.
+            "mod m {\n#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n\
+             #[cfg(test)]\nfn c() {}\nfn d() {}\n}\n",
             &long_run,
             &wide,
         ];
 
-        let (mut marked, mut unmarked, mut widened) = (0_usize, 0_usize, 0_usize);
+        let (mut marked, mut unmarked) = (0_usize, 0_usize);
+        let (mut read_forward, mut read_backward) = (0_usize, 0_usize);
         for source in sources {
             let code = source.as_bytes();
             let visited = for_each_node_with_chain::<RustCode>(code, |node, chain| {
@@ -1053,8 +1106,10 @@ mod tests {
                 } else {
                     unmarked += 1;
                 }
-                if parent.child_count() > MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN {
-                    widened += 1;
+                if parent.child_count() > forward_attribute_scan_budget(Ancestors::known(chain)) {
+                    read_backward += 1;
+                } else {
+                    read_forward += 1;
                 }
             });
             assert!(visited > 0, "fixture must have nodes to compare");
@@ -1064,10 +1119,52 @@ mod tests {
             "the comparison saw only one answer ({marked} marked, {unmarked} unmarked), \
              so agreeing proves nothing"
         );
-        // The `wide` fixture exists to drive the dispatch's other arm;
-        // without a node over the width cut, the second assertion above
-        // would only ever compare the backward walk with itself.
-        assert!(widened > 0, "no fixture exceeded the forward-scan width");
+        // Both arms have to fire: the dispatcher assertion above
+        // compares the backward walk with itself on every node that
+        // took the backward arm, so without forward readings it proves
+        // nothing, and without backward ones the `wide` shape is unmet.
+        assert!(
+            read_forward > 0 && read_backward > 0,
+            "one dispatch arm went unexercised ({read_forward} forward, \
+             {read_backward} backward)"
+        );
+    }
+
+    /// The budget is a width *per level of depth*, not a flat width.
+    ///
+    /// Pinned as a table because the shape of the formula is the whole
+    /// point of #1100's follow-up: a flat cut returned the `O(depth²)`
+    /// walk to any parent one child too wide, however deep it sat.
+    #[cfg(feature = "rust")]
+    #[test]
+    fn the_forward_attribute_scan_budget_grows_with_depth() {
+        assert_eq!(
+            forward_attribute_scan_budget(Ancestors::unknown()),
+            MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN,
+            "no chain means no depth to scale by"
+        );
+
+        // `depth` reads the chain's length and nothing else, so one
+        // real node repeated stands in for any ancestry — which is what
+        // lets the table reach depths a fixture could not.
+        let mut checked = 0_usize;
+        for_each_node_with_chain::<RustCode>(b"fn a() {}\n", |node, _| {
+            checked += 1;
+            // The shallow cut floors the scaled one, so it governs
+            // until the depth term overtakes it at depth 3.
+            for (depth, want) in [(0, 6), (1, 6), (2, 6), (3, 9), (10, 30), (1_000, 3_000)] {
+                let chain = vec![*node; depth];
+                assert_eq!(
+                    forward_attribute_scan_budget(Ancestors::known(&chain)),
+                    want,
+                    "budget at depth {depth}"
+                );
+            }
+        });
+        assert!(
+            checked > 0,
+            "fixture must yield a node to build chains from"
+        );
     }
 
     /// The same equivalence one level up, on the hook the walker calls.

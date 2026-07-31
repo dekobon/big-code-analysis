@@ -867,10 +867,9 @@ pub const PROBES: &[Probe] = &[
                     `Node::previous_sibling` re-resolved the parent from \
                     the root per step; it is now one forward pass over \
                     the parent the walker already holds. `nom/nested-fn` \
-                    is the same nesting without the attributes, and — \
-                    since it is the only probe in the set that leaves \
-                    `exclude_tests` off on a Rust shape — also the \
-                    control for the flag itself.",
+                    renders the same nesting without the attributes and \
+                    with `exclude_tests` off, so it controls for both \
+                    the nesting and the flag at once.",
     },
     Probe {
         name: "nom/nested-cfg-predicate",
