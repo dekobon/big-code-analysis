@@ -85,6 +85,56 @@ fn check_violation_exits_two_with_stable_stderr() {
         .stderr(predicate::str::contains("(limit 1)"));
 }
 
+/// The violation report is buffered before it reaches stderr (#1115), so
+/// it must be drained before anything else writes to either stream —
+/// otherwise the very run that has offenders reports them out of order,
+/// or (once `run_check` reaches `process::exit`, which runs no
+/// destructors) not at all.
+///
+/// `--summary-file` pointed at a path under a missing directory makes
+/// `write_step_summary` fail, which `emit_check_results` reports with a
+/// bare `eprintln!` — an unbuffered write straight to fd 2, emitted after
+/// the buffered block. Pinning the two in order is what makes the flush
+/// observable: delete both the explicit `stderr.flush()` and the
+/// `drop(stderr)` that precede the step-summary call and the diagnostic
+/// overtakes the offenders, failing here.
+#[test]
+fn check_violations_are_flushed_before_later_stderr_writes() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let unwritable = dir.path().join("absent").join("summary.md");
+
+    let output = cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &path,
+            "--threshold",
+            "cyclomatic=1",
+            "--summary-file",
+            unwritable.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(output).expect("utf8 stderr");
+
+    let offender = stderr
+        .find("classify")
+        .unwrap_or_else(|| panic!("offender line missing from stderr:\n{stderr}"));
+    let diagnostic = stderr
+        .find("failed to append step summary")
+        .unwrap_or_else(|| panic!("step-summary diagnostic missing from stderr:\n{stderr}"));
+
+    assert!(
+        offender < diagnostic,
+        "the buffered offender report must be flushed before the unbuffered \
+         step-summary diagnostic; got:\n{stderr}"
+    );
+}
+
 /// The remediation block's "Detailed reports" line reads
 /// `GITHUB_REPOSITORY` / `GITHUB_RUN_ID` and points at the CI artifact
 /// URL when both are set, falling back to `run bca report …` locally

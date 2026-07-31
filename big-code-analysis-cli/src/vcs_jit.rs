@@ -21,7 +21,7 @@ use std::process;
 use big_code_analysis::vcs::{score_commit, score_diff};
 use serde::Serialize;
 
-use crate::formats::{CBOR_STDOUT_ERROR, JitFormat, ensure_parent_dir, write_text};
+use crate::formats::{CBOR_STDOUT_ERROR, JitFormat, write_buffered_file, write_text};
 use crate::{JitArgs, VcsArgs, die};
 
 /// Entry point for `bca vcs commit`. `root` is the repository-discovery
@@ -140,11 +140,9 @@ fn emit<R: Serialize>(report: &R, jit: &JitArgs) -> std::io::Result<()> {
                 std::io::ErrorKind::InvalidInput,
                 CBOR_STDOUT_ERROR,
             )),
-            Some(path) => {
-                ensure_parent_dir(path)?;
-                ciborium::into_writer(report, std::fs::File::create(path)?)
-                    .map_err(std::io::Error::other)
-            }
+            Some(path) => write_buffered_file(path, |w| {
+                ciborium::into_writer(report, w).map_err(std::io::Error::other)
+            }),
         },
     }
 }

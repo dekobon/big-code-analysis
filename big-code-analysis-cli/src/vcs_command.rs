@@ -25,7 +25,9 @@ use big_code_analysis::vcs::{
 };
 use big_code_analysis::wire;
 
-use crate::formats::{CBOR_STDOUT_ERROR, VcsFormat, ensure_parent_dir, write_text};
+use crate::formats::{
+    CBOR_STDOUT_ERROR, VcsFormat, write_buffered, write_buffered_file, write_text,
+};
 use crate::{GlobalOpts, VcsArgs, die, warn};
 
 /// One ranked file in the report: its repo-relative path plus the VCS
@@ -451,7 +453,7 @@ fn emit(report: &Report, args: &VcsArgs) -> std::io::Result<()> {
             write_text(&crate::vcs_report::render_markdown(report), output)
         }
         Some(VcsFormat::Html) => write_text(&crate::vcs_report::render_html(report), output),
-        Some(VcsFormat::Csv) => write_csv(report, output),
+        Some(VcsFormat::Csv) => write_csv(report, output.map(PathBuf::as_path)),
         Some(VcsFormat::Json) => {
             let json = if args.pretty {
                 serde_json::to_string_pretty(report)
@@ -480,11 +482,9 @@ fn emit(report: &Report, args: &VcsArgs) -> std::io::Result<()> {
                 std::io::ErrorKind::InvalidInput,
                 CBOR_STDOUT_ERROR,
             )),
-            Some(path) => {
-                ensure_parent_dir(path)?;
-                ciborium::into_writer(report, std::fs::File::create(path)?)
-                    .map_err(std::io::Error::other)
-            }
+            Some(path) => write_buffered_file(path, |w| {
+                ciborium::into_writer(report, w).map_err(std::io::Error::other)
+            }),
         },
     }
 }
@@ -553,14 +553,14 @@ fn write_bus_factor(out: &mut impl Write, bf: &vcs::BusFactor) -> std::io::Resul
 /// CSV output: one flat row per file. Written by hand (rather than
 /// serde) because the `#[serde(flatten)]` shape isn't representable in
 /// the `csv` crate's record model.
-fn write_csv(report: &Report, output: Option<&PathBuf>) -> std::io::Result<()> {
-    let sink: Box<dyn Write> = match output {
-        Some(path) => {
-            ensure_parent_dir(path)?;
-            Box::new(std::fs::File::create(path)?)
-        }
-        None => Box::new(std::io::stdout().lock()),
-    };
+fn write_csv(report: &Report, output: Option<&Path>) -> std::io::Result<()> {
+    write_buffered(output, |sink| write_csv_rows(report, sink))
+}
+
+/// Emit the header plus one row per ranked file into `sink`. Split from
+/// [`write_csv`] so the destination-and-buffering choice stays in one
+/// place and the row shape in another.
+fn write_csv_rows(report: &Report, sink: &mut dyn Write) -> std::io::Result<()> {
     let mut wtr = csv::Writer::from_writer(sink);
     wtr.write_record([
         "path",
@@ -945,7 +945,7 @@ mod tests {
         };
         let dir = tempfile::tempdir().expect("tempdir");
         let out = dir.path().join("vcs.csv");
-        write_csv(&report, Some(&out)).expect("write_csv to temp file");
+        write_csv(&report, Some(out.as_path())).expect("write_csv to temp file");
         std::fs::read_to_string(&out).expect("read CSV back")
     }
 

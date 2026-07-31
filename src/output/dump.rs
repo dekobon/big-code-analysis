@@ -6,10 +6,11 @@
 // function so the per-language impl blocks stay readable.
 #![allow(clippy::enum_glob_use, clippy::ref_option, clippy::wildcard_imports)]
 
-use termcolor::{Color, StandardStream, WriteColor};
+use termcolor::{Color, WriteColor};
 
 use crate::node::Node;
 use crate::output::ColorMode;
+use crate::output::color::print_to_stdout;
 use crate::tools::{color, intense_color};
 
 /// Dumps the `AST` of a code.
@@ -79,19 +80,23 @@ pub fn dump_node_with_color(
     line_end: Option<usize>,
     color_mode: ColorMode,
 ) -> std::io::Result<()> {
-    let stdout = StandardStream::stdout(color_mode.to_color_choice());
-    let mut stdout = stdout.lock();
-    let mut state = DumpState {
-        code,
-        line_start: &line_start,
-        line_end: &line_end,
-        stdout: &mut stdout,
-    };
-    let ret = dump_tree_helper(&mut state, node, depth);
+    // bca: suppress(nargs)
+    // `nargs` sums the six published parameters with the rendering
+    // closure's writer, which no caller supplies: `function_args_max`
+    // is still 6, and the signature is frozen by the stability contract.
+    print_to_stdout(color_mode, |stdout| {
+        let mut state = DumpState {
+            code,
+            line_start: &line_start,
+            line_end: &line_end,
+            stdout,
+        };
+        let ret = dump_tree_helper(&mut state, node, depth);
 
-    color(&mut stdout, Color::White)?;
+        color(state.stdout, Color::White)?;
 
-    ret
+        ret
+    })
 }
 
 /// Recursion-invariant rendering state threaded through the AST walk:

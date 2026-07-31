@@ -15,7 +15,7 @@
 //! crate modules.
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
