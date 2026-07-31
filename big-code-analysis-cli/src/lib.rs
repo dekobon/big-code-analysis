@@ -41,6 +41,7 @@ mod check_flags;
 mod check_format;
 mod cli_args;
 mod commands;
+mod default_thresholds;
 mod deprecations;
 mod diag;
 mod diff;
