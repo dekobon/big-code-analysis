@@ -5,6 +5,41 @@
 //! the `Loc` trait, and `min_or_zero` stay in the parent module; only
 //! the cross-language line-counting helpers live here so the parent
 //! clears the 800-SLOC self-scan limit (#976).
+//!
+//! # The `Loc` catch-all arm is fail-*open*, unlike every sibling metric
+//!
+//! `Cognitive`, `Cyclomatic`, and `Abc` end their per-language matches
+//! with `_ => {}`, so a token the author never considered costs
+//! nothing. Every `Loc` implementation instead ends with
+//!
+//! ```ignore
+//! _ => {
+//!     check_comment_ends_on_code_line(stats, start);
+//!     stats.ploc.lines.insert(start);
+//! }
+//! ```
+//!
+//! which asserts *this row is code*. The default is inverted from the
+//! one the neighbouring metric modules train you to expect: an
+//! unrecognised token does not fall through harmlessly, it adds a
+//! physical line of code — and via [`check_comment_ends_on_code_line`]
+//! can reclassify a comment-only row as code-and-comment.
+//!
+//! Two shipped defects came from exactly this. Tcl and iRules are the
+//! only grammars that surface the row terminator as a token child of
+//! the root; its start row is the row it *terminates*, so every
+//! comment-only and whitespace-only row was credited to PLOC — a
+//! realistic fourteen-row Tcl file reported `ploc 13` against a true
+//! `7` (#1135). Perl's `#` sits *inside* its `comments` node and did
+//! the same to every Perl file carrying a comment row (#1137).
+//!
+//! When adding a language, enumerate the tokens its grammar emits that
+//! are not code — row terminators, comment punctuation, string-internal
+//! tokens — and give them an explicit no-op arm. `bca dump` over a
+//! small fixture is the fastest way to see them. The parent module's
+//! `a_comment_row_is_never_counted_as_code` and
+//! `whitespace_only_input_is_the_documented_carve_out` sweep every
+//! language for both shapes.
 #![allow(
     clippy::enum_glob_use,
     clippy::match_same_arms,
