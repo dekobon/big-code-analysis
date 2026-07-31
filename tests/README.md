@@ -79,15 +79,25 @@ accepted YAML snapshots in
 `tests/repositories/big-code-analysis-output/snapshots/<repo>/`.
 
 All five share the same driver: `tests/common/mod.rs::act_on_file`,
-called concurrently via `ConcurrentRunner` (4 jobs) and dispatched by
+called concurrently via `ConcurrentRunner` with one consumer thread per
+core (sized from `available_parallelism()`, #1123), and dispatched by
 one of:
 
-- `compare_rca_output_with_files(repo, include, exclude)` — corpus is
-  a sibling of `big-code-analysis-output/` under `tests/repositories/`
-- `compare_rca_output_with_files_under(source_root, repo, …)` — corpus
-  lives *inside* the `big-code-analysis-output` submodule (needed for
-  C# and PHP so snapshot paths don't pick up the submodule directory
-  as an extra component)
+- `compare_rca_output_with_files(repo, include, exclude, expected_files)`
+  — corpus is a sibling of `big-code-analysis-output/` under
+  `tests/repositories/`
+- `compare_rca_output_with_files_under(source_root, repo, …, expected_files)`
+  — corpus lives *inside* the `big-code-analysis-output` submodule
+  (needed for C# and PHP so snapshot paths don't pick up the submodule
+  directory as an extra component)
+
+`expected_files` is the exact number of files the corpus must resolve
+to, asserted twice: once against the resolved path list and once
+against the number of snapshot assertions actually executed. The two
+differ when a file resolves but `act_on_file` returns early on it, so
+both are needed to make a silent coverage loss loud. **After a
+deliberate corpus bump, update this count alongside the snapshots** —
+a legitimate corpus growth is expected to fail these assertions first.
 
 Floats are rounded to 3 decimal places before comparison (machine
 portability) and the `name` field is redacted to `[filepath]` (path
