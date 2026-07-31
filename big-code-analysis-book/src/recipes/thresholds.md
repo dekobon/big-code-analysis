@@ -112,8 +112,8 @@ tighten, not evidence that you should.
 | TSX | 14 | 10 | 65 | 95000 | 400 |
 
 "Thin sample" marks a language whose file count in the corpus is too small to derive a file-size
-figure from. The per-function figures for Bash, Tcl, JavaScript, and C++ rest on the smallest
-samples in the table and are the ones most worth re-deriving against your own code.
+figure from. The per-function figures for Bash, Tcl, JavaScript, and Objective-C rest on the
+smallest samples in the table and are the ones most worth re-deriving against your own code.
 
 ### What to change, and why {#per-language-changes}
 
