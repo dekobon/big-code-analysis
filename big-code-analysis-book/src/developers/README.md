@@ -80,13 +80,22 @@ make test-doc   # cargo test --workspace --all-features --doc
 ```
 
 `make test` prefers [cargo-nextest](https://nexte.st/), which is also
-what CI runs. Plain `cargo test` finishes each of the workspace's 72
-test binaries before starting the next, so parallelism exists only
-within a binary; nextest schedules every binary's tests into one global
-pool. Install it with `cargo install --locked cargo-nextest`. Without
-it `make test` falls back to `cargo test --workspace --all-features
---lib --bins --tests`, which runs the identical set of tests, just
-serialized per binary.
+what CI runs. Plain `cargo test` finishes each test binary before
+starting the next, so parallelism exists only within a binary; nextest
+schedules every binary's tests into one global pool. Install it with
+`cargo install --locked cargo-nextest`.
+
+Without it, `make test` falls back to `cargo test --workspace
+--all-features --lib --bins --tests`, which runs the same set of tests.
+The two runners are not quite interchangeable, though: nextest runs each
+test in its own process, so anything sharing state across tests within a
+binary — a `OnceLock` cache, an environment variable, the working
+directory — is isolated under nextest and shared under `cargo test`.
+Preferring nextest locally means local runs match CI on that axis.
+
+Set `NEXTEST=` to force the fallback without uninstalling anything
+(`make test NEXTEST=`), or point it at a specific binary
+(`make test NEXTEST=/path/to/cargo-nextest`).
 
 Doctests are a separate target because nextest cannot run them.
 `make pre-commit` and `make ci` run both.

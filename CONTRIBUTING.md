@@ -49,7 +49,8 @@ gate. In one parallel pass it runs, among other stages:
 - `cargo fmt --check`.
 - `cargo clippy --workspace --all-targets -- -D warnings` in both
   default-features and `--all-features` flavours.
-- `cargo test --workspace --all-features`.
+- The full test suite via `make test` (`cargo-nextest` when present,
+  otherwise `cargo test`) plus `make test-doc` for doctests.
 - `cargo doc --no-deps --workspace --all-features` with
   `RUSTDOCFLAGS="-D warnings"`.
 - `cargo +nightly udeps`.
