@@ -473,6 +473,104 @@ fn guess_language_shebang_loses_to_mode_line() {
     assert_eq!(guess_language(buf, "run"), (Some(LANG::Python), "python"));
 }
 
+/// Regression for #1111: the modeline scan is now computed lazily, only
+/// when the extension fails to resolve. That is a pure computation change,
+/// so these pin the *result* of every extension/modeline combination the
+/// short-circuit could have perturbed — agreement, disagreement, an
+/// unrecognised modeline, and an unrecognised extension that must still
+/// fall through to the modeline.
+#[test]
+fn guess_language_extension_beats_disagreeing_modeline() {
+    // Disagreement: the extension wins, and the modeline's language must
+    // not leak into the result even though it is no longer consulted.
+    let buf = b"// -*- mode: python -*-\nint a = 42;\n";
+    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
+
+    // Same via a trailing Vim modeline, which the backward scan would
+    // otherwise reach.
+    let buf = b"int a = 42;\n// vim: set ft=python\n";
+    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
+}
+
+#[test]
+fn guess_language_extension_agrees_with_modeline() {
+    // Agreement: the pre-#1111 code returned the *modeline's* language
+    // here, which is the same value by construction. Pin the equivalence.
+    let buf = b"// -*- mode: python -*-\nx = 1\n";
+    assert_eq!(
+        guess_language(buf, "foo.py"),
+        (Some(LANG::Python), "python")
+    );
+}
+
+#[test]
+fn guess_language_unknown_extension_falls_back_to_modeline() {
+    // An extension that resolves to nothing must still reach the modeline
+    // scan — the short-circuit only skips it when the extension resolved.
+    let buf = b"# -*- mode: python -*-\nx = 1\n";
+    assert_eq!(
+        guess_language(buf, "foo.txt"),
+        (Some(LANG::Python), "python")
+    );
+}
+
+#[test]
+fn guess_language_unrecognised_modeline_keeps_extension() {
+    // A modeline naming a language we do not support leaves the extension
+    // in charge, as before.
+    let buf = b"// -*- mode: cobol -*-\nint a = 42;\n";
+    assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
+}
+
+#[test]
+fn guess_language_uppercase_extension_matches_lowercase_table() {
+    // #1111 replaced an unconditional `to_lowercase` with a borrow in the
+    // already-lowercase case. Mixed and upper case extensions must keep
+    // resolving exactly as they did.
+    assert_eq!(
+        guess_language(b"x = 1\n", "foo.PY"),
+        (Some(LANG::Python), "python")
+    );
+    assert_eq!(
+        guess_language(b"x = 1\n", "foo.Py"),
+        (Some(LANG::Python), "python")
+    );
+    // `.C` folds to `.c`, i.e. `LANG::C` — the long-standing behaviour of
+    // this lookup, not the Unix convention that upper-case `.C` is C++.
+    assert_eq!(guess_language(b"int a;\n", "foo.C"), (Some(LANG::C), "c"));
+    assert_eq!(get_language_for_file(Path::new("foo.C")), Some(LANG::C));
+    assert_eq!(get_language_for_file(Path::new("foo.RS")), Some(LANG::Rust));
+}
+
+#[test]
+fn guess_language_empty_buffer_and_no_extension() {
+    // No extension, no modeline, no shebang, nothing to read.
+    assert_eq!(guess_language(b"", "run"), (None, ""));
+    // A bare dotfile has no extension at all (`Path::extension` is `None`).
+    assert_eq!(guess_language(b"x = 1\n", ".bashrc"), (None, ""));
+}
+
+#[test]
+fn lowercase_ext_borrows_only_when_already_ascii_lowercase() {
+    // Already lowercase: no allocation.
+    assert!(matches!(lowercase_ext("rs"), Cow::Borrowed("rs")));
+    assert!(matches!(lowercase_ext("php7"), Cow::Borrowed("php7")));
+    assert!(matches!(lowercase_ext(""), Cow::Borrowed("")));
+
+    // Uppercase ASCII: folded through an owned buffer. Matching on the
+    // variant, not just the contents, is what distinguishes the two paths.
+    assert!(matches!(lowercase_ext("RS"), Cow::Owned(s) if s == "rs"));
+    assert!(matches!(lowercase_ext("Rs"), Cow::Owned(s) if s == "rs"));
+
+    // Non-ASCII must take the owned path even with no ASCII uppercase
+    // byte: `to_lowercase` folds `U+212A KELVIN SIGN` onto ASCII `k`, so
+    // borrowing it would change the lookup key.
+    assert!(matches!(lowercase_ext("\u{212a}"), Cow::Owned(s) if s == "k"));
+    // A non-ASCII character that lowercases to itself is still owned — the
+    // guard keys on `is_ascii`, not on whether the fold changed anything.
+    assert!(matches!(lowercase_ext("é"), Cow::Owned(s) if s == "é"));
+}
+
 #[test]
 fn normalize_line_endings_normalizes_crlf() {
     let mut d = b"code\r\n# comment\r\n".to_vec();
