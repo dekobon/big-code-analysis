@@ -153,6 +153,59 @@ for historical reference.
 
 ### Performance
 
+- Every file destination and terminal dump writes through an
+  explicitly-flushed 64 KiB buffer, replacing the raw `File` and
+  `LineWriter` handles the incremental serializers wrote through one
+  structural token at a time (#1115). A 165-file `metrics --format json
+  --output-dir` run falls from 4,757,028 `write(2)` calls to 303 (1.55 s
+  → 0.13 s); the 12 MB `--output` aggregate from 4,757,194 to 197
+  (3.36 s → 0.20 s); the `metrics` text tree from 1,524,444 to 165;
+  `check --output-format sarif` from 5,622 to 16. The terminal dumps
+  emit in bounded chunks rather than one whole-document buffer, so peak
+  resident memory for a deeply nested file is 21 MB rather than 545 MB.
+  Output is byte-identical in every format.
+- The Rust `exclude_tests` prune no longer resolves siblings from the
+  node to find the `#[…]` run before an item (#1100). That cost
+  `O(attributes × depth)`, because `tree_sitter` resolves a parent by
+  descending from the root. The run is now read forward from the parent
+  the walker already carries, under a budget that grows with depth;
+  a parent too wide for that budget keeps the backward walk, so the
+  shallow-and-wide shape is unaffected. A Rust shape with an attributed
+  item at each of 4,000 nesting levels drops from 2.05 s to 8.1 ms
+  (fitted exponent 2.00 → 1.21).
+- `Loc` stores its per-space physical- and comment-line sets as a
+  word-array bitset instead of a hash set, making the space-stack merge
+  a word-wise OR (#1109). This fixes a quadratic in function-space
+  nesting depth — a new `loc/nested-fn-rows` scaling probe fits 2.11
+  before and 1.10 after — removes ~7.5M hash probes over the corpus
+  repositories, and cuts the retained set payload roughly 29×. LOC
+  values are unchanged.
+- The C/C++ indirect-include closure is computed once per include-graph
+  node in reverse topological order rather than by a fresh DFS per file,
+  and `Parser::new` borrows a file's visible macro names out of
+  `PreprocResults` instead of deep-cloning them (#1107). Measured over a
+  10,918-file tree: `record_indirect_includes` 126.6 ms → 83.0 ms, and
+  2.37M fewer allocations per metrics pass, with identical output.
+- `Ops` serializes through a borrowed projection instead of cloning an
+  owned `wire::Ops` first (#1110). `serde_json::to_string` on a
+  hundred-level space nest is 5.4× faster, and a tree past the
+  serialization depth limit is refused without cloning it at all
+  (109 ms → 0.007 ms at 2,000 levels). Per-space vocabularies are sorted
+  before their `String`s are rendered, making `Ast::ops` ~22% faster on
+  vocabulary-heavy input. Output is byte-identical in every format.
+- `HalsteadMaps::operators` hashes its `kind_id` keys with the crate's
+  integer hasher instead of SipHash-1-3, closing the gap left by #1069
+  (#1108). Output is bit-identical. The text-keyed `primitive_operators`
+  and `operands` maps deliberately stay on SipHash: their keys come from
+  the analysed source, so hash-flooding resistance is load-bearing.
+- `guess_language` evaluates its extension → modeline → shebang
+  precedence lazily, so a file with a recognised extension no longer
+  runs the Emacs/Vim modeline regex scan, and an already-lowercase
+  extension is borrowed rather than reallocated (#1111). Detection
+  results are unchanged.
+- `Tree::new` reuses one `tree_sitter::Parser` per thread instead of
+  constructing one per file, saving ~2.5% of parse time on trees of
+  small files (#1118). Internal only — no public API change.
 - `#[cfg(...)]` predicate classification is now linear in the attribute
   body rather than `O(len²)` on deeply nested predicates such as
   `all(all(all(…test…)))` (#1105). Every operand previously rescanned the
@@ -269,6 +322,28 @@ for historical reference.
 
 ### Fixed
 
+- `bca` no longer exits `0` when an input file cannot be read (#1098).
+  #1060 fixed this for `check` only; `metrics`, `ops`, `report`,
+  `functions`, `find`, `count`, `dump`, `exemptions`, `preproc`,
+  `strip-comments`, and `diff --since` all exited `0` after printing
+  `error processing <path>: …` to stderr. The guard now lives in the
+  shared walk layer, so any read failure is a tool error (exit `1`) for
+  every walking subcommand. `diff --since` reports which side failed,
+  and a partial aggregate, report, tally, or preproc document is no
+  longer emitted — output already streamed during the walk is kept.
+  **This can turn a previously-green CI job red**: a run that tolerated
+  unreadable files now fails. Use `--exclude` to skip them deliberately.
+- Every walking subcommand exits `1` when an output document could not
+  be written — an unwritable `--output-dir`, a full disk — mirroring the
+  unreadable-input contract above (#1115). Previously the per-file error
+  went to stderr and the process reported success, leaving a truncated
+  document behind. A broken pipe still exits `0`.
+- `bca dump` and `bca find` no longer interleave one file's `== path ==`
+  banner with another worker's tree under `--jobs N` (#1115). The stdout
+  lock is held across banner and tree.
+- `bca check`'s unreadable-input summary reads `error: N input files
+  could not be read …` rather than `error: bca: N input files could not
+  be read …`; the `bca:` prefix was duplicated by `error:` (#1098).
 - `bca check` no longer exits `0` when input files could not be read
   (#1060). The counter backing the "no input files matched" guard was
   bumped before the read was attempted, so a tree whose every file was
