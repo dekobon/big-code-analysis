@@ -198,6 +198,25 @@ pub fn nested_fns(depth: usize) -> String {
     )
 }
 
+/// Rust: [`nested_fns`] with one nesting level per source row.
+///
+/// The same space nesting, spread over rows instead of packed onto one.
+/// That is what makes it a `loc` probe: `Ploc` / `Cloc` keep a set of
+/// physical rows per space and union each child's into its parent, so
+/// here the set folded upward at level *k* holds `O(depth - k)` rows
+/// where [`nested_fns`] folds a single row at every level (#1109).
+///
+/// Still affine in depth — nine bytes for the opening row, two for the
+/// closing one, and no indentation, per the module docs.
+#[must_use]
+pub fn nested_fns_by_row(depth: usize) -> String {
+    format!(
+        "{}let x = 1;\n{}",
+        "fn f() {\n".repeat(depth),
+        "}\n".repeat(depth)
+    )
+}
+
 /// JavaScript: `function f() { function f() { … 1; … } }`.
 ///
 /// The linear control for [`nested_arrows`]: one function per nesting
@@ -305,20 +324,24 @@ const LINEAR_BOUND: f64 = 1.5;
 
 /// The depth-scaling probe set.
 ///
-/// One entry per hot path identified during the #1052 / #1062 / #1084
-/// work, plus the controls that make those readings interpretable:
+/// One entry per hot path identified during the #1052 / #1062 / #1084 /
+/// #1096 / #1109 work, plus the controls that make those readings
+/// interpretable. Two kinds of control appear:
 ///
-/// - two *metric* controls, `nom/nested-while` and `nom/nested-fn`.
-///   `Cognitive` declares `Nom` as a dependency, so the
-///   cognitive-attributable cost of a `cognitive/…` row is its
-///   difference from the `nom/…` row on the same shape, not the
-///   `cognitive` reading alone.
-/// - two *shape* controls, `cognitive/nested-while` and
-///   `loc/nested-while`. Each is the same nesting as the ancestor-walk
-///   probe below it with the one node that triggers the walk removed.
-///   That pairing is what attributed the pre-#1084 quadratic readings
-///   to those calls rather than to nesting in general, and it is what
-///   would localise a future regression the same way.
+/// - *metric* controls, such as `nom/nested-while` and
+///   `nom/nested-fn-rows`: the same shape under a metric that does not
+///   run the path under test. `Cognitive` declares `Nom` as a
+///   dependency, so the cognitive-attributable cost of a `cognitive/…`
+///   row is its difference from the `nom/…` row on the same shape, not
+///   the `cognitive` reading alone.
+/// - *shape* controls, such as `loc/nested-while` and `loc/nested-fn`:
+///   the same metric on the same nesting with the one feature that
+///   triggers the path removed. That pairing is what attributed the
+///   pre-#1084 quadratic readings to those calls rather than to nesting
+///   in general, and it is what would localise a future regression the
+///   same way.
+///
+/// See `docs/development/benchmarking.md` for the per-probe table.
 pub const PROBES: &[Probe] = &[
     Probe {
         name: "tokens/nested-paren",
@@ -549,6 +572,50 @@ pub const PROBES: &[Probe] = &[
                     languages, counting the four the JS-family macro \
                     expands to. `nom/nested-fn` is the same shape without \
                     the cognitive walk.",
+    },
+    Probe {
+        name: "loc/nested-fn",
+        lang: LANG::Rust,
+        metrics: &[Metric::Loc],
+        render: nested_fns,
+        reading: |m| m.loc.lloc(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Shape control for `loc/nested-fn-rows`: the same \
+                    function nesting with every level on one physical row, \
+                    so each `Ploc::merge` up the space stack folds a \
+                    one-row set. Isolates the per-merge overhead from the \
+                    per-row cost the row-spread shape adds.",
+    },
+    Probe {
+        name: "loc/nested-fn-rows",
+        lang: LANG::Rust,
+        metrics: &[Metric::Loc],
+        render: nested_fns_by_row,
+        reading: |m| m.loc.ploc(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1109: `Ploc` / `Cloc` union each space's physical-row \
+                    set into its parent, so a row inside `D` nested spaces \
+                    is folded `D` times. The sets are word-array bitsets \
+                    and the fold is a word-wise OR; re-inserting element by \
+                    element into a hash set instead put a probe per row on \
+                    that path. `loc/nested-fn` is the same nesting with one \
+                    row in total, and `nom/nested-fn-rows` is the same \
+                    shape under a metric that keeps no per-row set.",
+    },
+    Probe {
+        name: "nom/nested-fn-rows",
+        lang: LANG::Rust,
+        metrics: &[Metric::Nom],
+        render: nested_fns_by_row,
+        reading: |m| m.nom.total(),
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "Metric control for `loc/nested-fn-rows`: the same \
+                    row-spread nesting under a metric whose merge is a \
+                    counter add, so the loc-attributable cost of that row \
+                    is its difference from this one.",
     },
     Probe {
         name: "nom/nested-declared-function",

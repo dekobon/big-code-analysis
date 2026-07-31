@@ -107,6 +107,9 @@ Read it as follows.
 | `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | linear |
 | `nom/nested-fn` | Rust | `FuncSpace` nesting; metric control for the row below | linear |
 | `cognitive/nested-fn` | Rust | `increment_function_depth` (#1062) | linear |
+| `loc/nested-fn` | Rust | shape control for the row below | linear |
+| `loc/nested-fn-rows` | Rust | `Ploc::merge` / `Cloc::merge` row-set union (#1109) | linear |
+| `nom/nested-fn-rows` | Rust | metric control for the row above | linear |
 | `nom/nested-declared-function` | JavaScript | shape control for the row below | linear |
 | `nom/nested-arrow` | JavaScript | JS-family `is_func` / `is_closure` (#1088) | linear |
 | `halstead/nested-paren` | Rust | shape control for the row below | linear |
@@ -185,25 +188,36 @@ threading, not every `O(depth)` lookup in the crate.
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088
 [halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
 
-The eight control probes are what make the other readings mean
+The ten control probes are what make the other readings mean
 something.
 
-- `nom/nested-while` and `nom/nested-fn` are **metric** controls.
+- `nom/nested-while`, `nom/nested-fn` and `nom/nested-fn-rows` are
+  **metric** controls.
   `Cognitive` declares `Nom` as a dependency in `src/metric_set.rs`, so
   the cognitive-attributable cost of each `cognitive/…` row is its
   difference from the `nom/…` row on the same shape, not the
-  `cognitive` reading alone.
+  `cognitive` reading alone. `nom/nested-fn-rows` plays the same part
+  for `loc/nested-fn-rows`: `Nom`'s merge is a counter add, so the
+  difference is the cost of `Loc`'s per-space row sets.
 - `loc/nested-while`, `cognitive/nested-while`,
   `nom/nested-declared-function`, `halstead/nested-paren`,
-  `abc/nested-block`, and `cyclomatic/nested-and` are **shape**
+  `abc/nested-block`, `cyclomatic/nested-and` and `loc/nested-fn` are
+  **shape**
   controls: each is the same nesting as
   the ancestor-walk probe it sits next to, with the one node that
   triggers the walk removed. Before [#1084][parent-walk] each fitted
   near 1.0 where its counterpart fitted near 2.0, which is what
   attributed the quadratic cost to that call rather than to nesting in
-  general. Now that all eighteen fit near 1.0, the pair is what would
+  general. Now that all twenty-one fit near 1.0, the pair is what would
   localise a relapse: a probe drifting up while its control holds means
   the ancestor lookup, not the shape.
+
+  `loc/nested-fn` is the shape control of a different kind: it is the
+  same function nesting as `loc/nested-fn-rows` compressed onto a single
+  physical row, so the space stack still merges at every level but each
+  merge carries one row. A regression in the per-*row* fold moves
+  `loc/nested-fn-rows` and leaves it flat; a regression in the
+  per-*merge* overhead moves both.
 
   `loc/nested-quote` is the one #1096 probe with no shape control of its
   own: its Elixir arm fires for every named node, so there is no version

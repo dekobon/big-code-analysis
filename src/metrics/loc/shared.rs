@@ -55,7 +55,7 @@ pub(crate) fn init(node: &Node, stats: &mut Stats, is_func_space: bool) -> (usiz
 pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
     debug_assert!(end >= start, "add_cloc_lines: end {end} < start {start}");
     let comment_diff = end - start;
-    let is_comment_after_code_line = stats.ploc.lines.contains(&start);
+    let is_comment_after_code_line = stats.ploc.lines.contains(start);
     if is_comment_after_code_line && comment_diff == 0 {
         // A comment is *entirely* next to a code line
         add_code_comment_line(stats, start);
@@ -88,14 +88,14 @@ pub(crate) fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
 pub(crate) fn check_comment_ends_on_code_line(stats: &mut Stats, start_code_line: usize) {
     if let Some(end) = stats.cloc.comment_line_end
         && end == start_code_line
-        && !stats.ploc.lines.contains(&start_code_line)
+        && !stats.ploc.lines.contains(start_code_line)
     {
         // Comment entirely *before* a code line: reclassify the line
         // from comment-only to code-comment. Remove it from the
         // comment-only set (so `blank` no longer credits it) and add it
         // to the code-comment set. Both operations are idempotent, so a
         // line already reclassified stays correct (issue #461).
-        stats.cloc.only_comment_line_starts.remove(&start_code_line);
+        stats.cloc.only_comment_line_starts.remove(start_code_line);
         add_code_comment_line(stats, start_code_line);
     }
 }
@@ -115,7 +115,7 @@ pub(crate) fn add_code_comment_line(stats: &mut Stats, line: usize) {
 // physical line (`/*a*/ /*b*/`) count once, while each distinct row of
 // a genuine multi-line block comment still counts (issue #461).
 pub(crate) fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize) {
-    stats.cloc.only_comment_line_starts.extend(start..=end);
+    stats.cloc.only_comment_line_starts.insert_range(start, end);
 }
 
 // Adds every physical row spanned by a multi-line string literal to PLOC.
