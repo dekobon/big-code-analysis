@@ -223,12 +223,14 @@ fn init_refuses_to_baseline_a_partially_readable_tree() {
         .args(["init"])
         .assert()
         .code(1)
-        // The diagnostic names the tool, not `check` — the user ran
-        // `init` and never invoked a subcommand called `check`.
+        // The diagnostic names no subcommand — the user ran `init` and
+        // never invoked one called `check`, even though the baseline is
+        // scaffolded through `run_check` (#1098 moved this guard into
+        // the shared walk layer, which dropped the `bca:` prefix too).
+        .stderr(predicate::str::contains("check:").not())
         .stderr(predicate::str::contains(
-            "error: bca: 1 input file could not be read",
-        ))
-        .stderr(predicate::str::contains("bca check:").not());
+            "error: 1 input file could not be read",
+        ));
 
     assert!(
         !dir.path().join(".bca-baseline.toml").exists(),

@@ -55,6 +55,27 @@ const METRICS_KEY: &str = "metrics";
 /// pairing identity when a single file — not a directory — is diffed).
 const NAME_KEY: &str = "name";
 
+/// Which of the two trees a `bca diff --since` walk was analysing.
+/// Named rather than a bare `&str` so a caller cannot label the
+/// extracted `<ref>` tree "after" — the two sides are otherwise
+/// interchangeable at the [`crate::walk_metric_set`] signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiffSide {
+    /// The `git archive` extraction of `<ref>`.
+    Before,
+    /// The working tree (or the explicit directory positional).
+    After,
+}
+
+impl std::fmt::Display for DiffSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Before => "before",
+            Self::After => "after",
+        })
+    }
+}
+
 /// Error surfaced while loading or diffing the two metric-output sets.
 /// Rendered by the caller as a tool error (exit 1); a successful diff
 /// exits 0 by default, or 2 under `--exit-code` when it is non-empty.
@@ -75,6 +96,11 @@ pub(crate) enum DiffError {
     /// (no `to_string_lossy`), so this is a hard error rather than a
     /// silent rename.
     NonUtf8Path { path: PathBuf },
+    /// A `--since` walk could not read every file on one side, so that
+    /// side's set is missing files the other side has — which the
+    /// comparison would otherwise report as added or removed rather
+    /// than as the I/O failure it is (#1098).
+    UnreadableInputs { side: DiffSide, count: usize },
 }
 
 impl std::fmt::Display for DiffError {
@@ -88,6 +114,13 @@ impl std::fmt::Display for DiffError {
             }
             Self::NonUtf8Path { path } => {
                 write!(f, "path is not valid UTF-8: {}", path.display())
+            }
+            Self::UnreadableInputs { side, count } => {
+                write!(
+                    f,
+                    "diff --since {side} tree: {}",
+                    crate::read_failure_summary(*count)
+                )
             }
         }
     }

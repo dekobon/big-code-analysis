@@ -34,6 +34,11 @@ bca metrics --paths /path/to/your/file/or/directory
 > only by walking a *directory* are skipped silently (a tree full of
 > READMEs and configs must not be noisy); pass `-w` to surface those
 > skips too.
+>
+> A file that *is* recognized but cannot be **read** is a stricter case
+> and follows the [unreadable-input rule](README.md#unreadable-input):
+> the run exits 1 even when other files analyzed fine, because a
+> silently-shorter metrics document reads as a complete one.
 
 ## Exporting metrics
 

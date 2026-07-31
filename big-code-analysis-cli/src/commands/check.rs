@@ -157,59 +157,42 @@ pub(crate) fn run_check(
     }
 }
 
-/// What the check walk produced: the sorted violations plus the two
-/// post-walk tallies `run_check` consults before it trusts the gate
-/// verdict. Named fields rather than a tuple because the counters are
-/// the same primitive type and mean opposite things — swapping them
-/// would turn "nothing matched" into "everything was unreadable".
+/// What the check walk produced: the sorted violations plus the
+/// post-walk tally `run_check` consults before it trusts the gate
+/// verdict.
 struct CheckWalk {
     violations: Vec<Violation>,
     /// Files whose contents were read and handed to the pre-dispatch
     /// filters. Zero means nothing survived `--paths` expansion plus
     /// `--include` / `--exclude` filtering.
     files_dispatched: usize,
-    /// Files the runner could not read at all (#1060). Non-zero means
-    /// the gate saw less than its input set.
-    read_failures: usize,
 }
 
-/// Fail the run when the walk did not see a usable input set — any file
-/// that could not be read at all, or no files whatsoever. Both are tool
-/// errors (exit 1) rather than gate results (exit 2), because a gate
-/// that analysed less than its input has no verdict to report, and both
-/// fire before the gate is evaluated, so neither is suppressed by
-/// `--no-fail` (which suppresses threshold failures, not broken input)
-/// and neither lets `--write-baseline` record a partial run. Mirrors
+/// Fail the run when the walk saw no input files at all. A tool error
+/// (exit 1) rather than a gate result (exit 2), because a gate that
+/// analysed nothing has no verdict to report; it fires before the gate
+/// is evaluated, so it is not suppressed by `--no-fail` (which
+/// suppresses threshold failures, not broken input) and does not let
+/// `--write-baseline` record an empty run. Mirrors
 /// `enforce_explicit_unrecognized` on the analyze side.
 ///
-/// Both messages are prefixed `bca:` rather than `bca check:`: `bca
-/// init` scaffolds its baseline through `run_check`
-/// (`commands::init::scaffold_baseline`), so naming the subcommand here
-/// misattributes the failure to a command the user never ran.
+/// The companion guard — any file that could not be *read* (#1060) —
+/// now lives in the shared walk layer (`enforce_readable_input`), so it
+/// fires for every subcommand and still runs first, naming the real
+/// cause instead of blaming the path filters (#1098).
+///
+/// Like its companion, the message names no subcommand: `bca init`
+/// scaffolds its baseline through `run_check`
+/// (`commands::init::scaffold_baseline`), so naming one here
+/// misattributes the failure to a command the user never ran. `die`
+/// already prefixes `error:`.
 fn enforce_usable_input(walk: &CheckWalk) {
-    if walk.read_failures > 0 {
-        // The consumer has already printed one `error processing <path>:
-        // …` line per failure. Checked before the empty-input guard so
-        // an all-unreadable run names its real cause instead of blaming
-        // the path filters (#1060).
-        let noun = if walk.read_failures == 1 {
-            "file"
-        } else {
-            "files"
-        };
-        die(format_args!(
-            "bca: {} input {noun} could not be read (see the errors \
-             above); refusing to trust a partially analysed input set",
-            walk.read_failures
-        ));
-    }
-
     if walk.files_dispatched == 0 {
         // No files survived `--paths` expansion + `--include`/`--exclude`
         // filtering. Treat this as a tool error (exit 1), not a clean
         // pass (exit 0): a typo in `--paths` would otherwise silently
         // green-light CI.
-        die("bca: no input files matched; check --paths, --include, --exclude");
+        die("no input files matched; check --paths, --include, --exclude");
     }
 }
 
@@ -225,12 +208,10 @@ fn run_check_walk(
 ) -> CheckWalk {
     let (tx, rx) = std::sync::mpsc::channel();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
-    let read_failures = Arc::new(AtomicUsize::new(0));
     let cfg = Config {
         threshold_set: Some(set),
         check_tx: Some(Mutex::new(tx)),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
-        read_failures: Some(Arc::clone(&read_failures)),
         suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
         report_suppressed: args.report_suppressed,
         // Compute body hashes during the walk only when fuzzy matching
@@ -257,7 +238,6 @@ fn run_check_walk(
     CheckWalk {
         violations,
         files_dispatched: files_dispatched.load(Ordering::Relaxed),
-        read_failures: read_failures.load(Ordering::Relaxed),
     }
 }
 

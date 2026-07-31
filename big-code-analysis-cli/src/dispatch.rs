@@ -110,9 +110,7 @@ fn validate_and_resolve_file(
     // failure is tallied separately so the caller can distinguish
     // "nothing matched" from "everything was unreadable".
     let source = read_file_with_eol(&path).inspect_err(|_| {
-        if let Some(counter) = &cfg.read_failures {
-            counter.fetch_add(1, Ordering::Relaxed);
-        }
+        cfg.read_failures.fetch_add(1, Ordering::Relaxed);
     })?;
 
     if let Some(counter) = &cfg.files_dispatched {
@@ -653,7 +651,7 @@ mod tests {
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,
-            read_failures: None,
+            read_failures: Arc::new(AtomicUsize::new(0)),
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
             explicit_unrecognized: None,
             output_produced: None,
@@ -672,10 +670,11 @@ mod tests {
         }
     }
 
-    // The two post-walk counters `run_check` consults, owned together
-    // with the `Config` that feeds them. Named fields rather than a pair
-    // of `Arc<AtomicUsize>` arguments: transposing them at a call site
-    // would invert the very distinction these tests exist to pin.
+    // The two post-walk counters the pre-dispatch filters feed, owned
+    // together with the `Config` that carries them. Named fields rather
+    // than a pair of `Arc<AtomicUsize>` arguments: transposing them at a
+    // call site would invert the very distinction these tests exist to
+    // pin.
     struct Counters {
         dispatched: Arc<AtomicUsize>,
         failures: Arc<AtomicUsize>,
@@ -692,7 +691,7 @@ mod tests {
         fn config(&self) -> Config {
             Config {
                 files_dispatched: Some(Arc::clone(&self.dispatched)),
-                read_failures: Some(Arc::clone(&self.failures)),
+                read_failures: Arc::clone(&self.failures),
                 ..preproc_test_config(None)
             }
         }
