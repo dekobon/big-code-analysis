@@ -102,6 +102,12 @@ project-wide default and tighten a single metric for a specific run:
 bca check --paths src/ --config bca.toml
 ```
 
+`bca init` scaffolds a starting table for you. For where those numbers
+come from, which ones to override for the language you are gating, and
+how to pick a different set for agent feedback, legacy triage, or
+safety-critical work, see
+[Choosing thresholds](../recipes/thresholds.md).
+
 ### Accepted metric names
 
 Top-level scalar metrics use their `list-metrics` names directly:
