@@ -181,3 +181,35 @@ impl Drop for CwdGuard {
         let _ = std::env::set_current_dir(&self.prior);
     }
 }
+
+/// Strip every permission bit from `path` so reading it fails with
+/// `EACCES`, returning whether the denial actually took effect.
+///
+/// `false` means this process can read the file regardless (root
+/// ignores mode bits), so the scenario the caller wants to stage does
+/// not exist here and the test should skip rather than fail. The
+/// capability is probed rather than inferred from the uid.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn deny_all_access(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    std::fs::read(path).is_err()
+}
+
+/// Write `body` to `name` under `dir` and lock it with
+/// [`deny_all_access`], returning the path — or `None` when the lock
+/// could not be made to bite.
+///
+/// Five tests across the suite stage this same "one file the walk
+/// cannot read" scenario; they share the helper so the capability probe
+/// cannot drift out of one of them and turn a privileged run into a
+/// spurious failure.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn unreadable_fixture(dir: &Path, name: &str, body: &str) -> Option<std::path::PathBuf> {
+    let path = dir.join(name);
+    std::fs::write(&path, body).expect("write fixture");
+    deny_all_access(&path).then_some(path)
+}

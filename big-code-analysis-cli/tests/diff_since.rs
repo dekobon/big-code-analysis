@@ -531,8 +531,6 @@ fn since_keeps_export_ignored_files_on_before_side() {
 #[cfg(unix)]
 #[test]
 fn since_errors_when_the_after_side_has_an_unreadable_file() {
-    use std::os::unix::fs::PermissionsExt;
-
     let repo = repo_with_flat_commit();
     // A second file, committed so it exists on the before side, then
     // locked in the working tree. Without the guard the after side
@@ -541,10 +539,7 @@ fn since_errors_when_the_after_side_has_an_unreadable_file() {
     fs::write(&extra, FLAT_SOURCE).expect("write extra");
     git(repo.path(), &["add", "."]);
     git(repo.path(), &["commit", "-q", "-m", "extra"]);
-    fs::set_permissions(&extra, fs::Permissions::from_mode(0o000)).expect("chmod 000");
-    // Probe the real capability rather than the uid: root ignores mode
-    // bits, and then the scenario cannot be staged at all.
-    if fs::read(&extra).is_ok() {
+    if !common::deny_all_access(&extra) {
         eprintln!("skipping: this process can read a mode-000 file");
         return;
     }

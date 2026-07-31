@@ -21,7 +21,7 @@ use std::process;
 use big_code_analysis::vcs::{score_commit, score_diff};
 use serde::Serialize;
 
-use crate::formats::{CBOR_STDOUT_ERROR, JitFormat, write_buffered_file, write_text};
+use crate::formats::{JitFormat, write_cbor, write_json, write_toml, write_yaml};
 use crate::{JitArgs, VcsArgs, die};
 
 /// Entry point for `bca vcs commit`. `root` is the repository-discovery
@@ -113,36 +113,9 @@ fn read_diff(source: &Path) -> std::io::Result<String> {
 fn emit<R: Serialize>(report: &R, jit: &JitArgs) -> std::io::Result<()> {
     let output = jit.output.as_ref();
     match jit.format {
-        JitFormat::Json => {
-            let json = if jit.pretty {
-                serde_json::to_string_pretty(report)
-            } else {
-                serde_json::to_string(report)
-            }
-            .map_err(std::io::Error::other)?;
-            write_text(&json, output)
-        }
-        JitFormat::Yaml => {
-            let yaml = serde_yaml::to_string(report).map_err(std::io::Error::other)?;
-            write_text(&yaml, output)
-        }
-        JitFormat::Toml => {
-            let toml = if jit.pretty {
-                toml::to_string_pretty(report)
-            } else {
-                toml::to_string(report)
-            }
-            .map_err(std::io::Error::other)?;
-            write_text(&toml, output)
-        }
-        JitFormat::Cbor => match output {
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                CBOR_STDOUT_ERROR,
-            )),
-            Some(path) => write_buffered_file(path, |w| {
-                ciborium::into_writer(report, w).map_err(std::io::Error::other)
-            }),
-        },
+        JitFormat::Json => write_json(report, jit.pretty, output),
+        JitFormat::Yaml => write_yaml(report, output),
+        JitFormat::Toml => write_toml(report, jit.pretty, output),
+        JitFormat::Cbor => write_cbor(report, output),
     }
 }

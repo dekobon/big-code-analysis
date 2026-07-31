@@ -143,3 +143,75 @@ fn dump_with_explicit_path_works() {
         .success()
         .stdout(predicate::str::contains(format!("== {a} ==")));
 }
+
+/// The number of chunks a file's tree is emitted in is what makes this
+/// test worth running in parallel: a tree under the library's stdout
+/// chunk size lands in a single locked write no matter how the workers
+/// are scheduled, so the fixture is sized to render well past it.
+const STATEMENTS_PER_FIXTURE: usize = 400;
+
+/// Files walked concurrently. Enough that a worker is very likely to
+/// reach `println!` for its banner while another is mid-tree.
+const PARALLEL_FIXTURE_FILES: usize = 30;
+
+/// #1115: `dispatch_dump` holds the stdout lock across the banner *and*
+/// the tree, so a parallel walk cannot land one worker's output inside
+/// another's. Without that guard, `bca dump --jobs 8` over this fixture
+/// interleaves — measured 5 detached banners across 3 runs of 60 files.
+///
+/// The invariant asserted is positional, not merely presence-based: the
+/// line immediately after every banner must be a root node (`{…}` at
+/// column 0), and each banner's block must name only its own function.
+/// An interleaved run breaks both.
+#[test]
+fn dump_holds_the_banner_and_tree_together_under_parallel_jobs() {
+    let dir = TempDir::new().unwrap();
+    let mut body = String::new();
+    for i in 0..STATEMENTS_PER_FIXTURE {
+        use std::fmt::Write as _;
+        let _ = writeln!(body, "    let v{i} = {i} + 1;");
+    }
+    let mut paths = Vec::new();
+    for i in 0..PARALLEL_FIXTURE_FILES {
+        let path = dir.path().join(format!("f{i}.rs"));
+        fs::write(&path, format!("fn unique_fn_{i}() {{\n{body}}}\n")).unwrap();
+        paths.push(path.to_str().unwrap().to_string());
+    }
+
+    let mut cmd = common::bca_command();
+    cmd.args(["dump", "--jobs", "8", "--color", "never"]);
+    for path in &paths {
+        cmd.args(["--paths", path]);
+    }
+    let out = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(out).expect("utf8");
+
+    let mut lines = text.lines().peekable();
+    let mut banners = 0;
+    while let Some(line) = lines.next() {
+        if !(line.starts_with("== ") && line.ends_with(" ==")) {
+            continue;
+        }
+        banners += 1;
+        let next = lines.peek().copied().unwrap_or("");
+        assert!(
+            next.starts_with("{source_file"),
+            "banner `{line}` is not followed by its own root node, got `{next}`"
+        );
+    }
+    assert_eq!(banners, PARALLEL_FIXTURE_FILES);
+
+    for (i, path) in paths.iter().enumerate() {
+        let block =
+            block_under_banner(&text, path).unwrap_or_else(|| panic!("missing header for {path}"));
+        // Trailing space is load-bearing: it keeps `unique_fn_1`
+        // from matching `unique_fn_10`.
+        let own = format!(": unique_fn_{i} ");
+        assert!(block.contains(&own), "{path}'s block lost its own function");
+        let foreign = (0..PARALLEL_FIXTURE_FILES)
+            .filter(|other| *other != i)
+            .filter(|other| block.contains(&format!(": unique_fn_{other} ")))
+            .count();
+        assert_eq!(foreign, 0, "{path}'s block absorbed another file's tree");
+    }
+}

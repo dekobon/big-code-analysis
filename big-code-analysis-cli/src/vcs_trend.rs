@@ -13,7 +13,7 @@ use std::path::Path;
 use big_code_analysis::vcs::{build_trend, parse_window};
 use big_code_analysis::wire;
 
-use crate::formats::{CBOR_STDOUT_ERROR, TrendFormat, write_buffered_file, write_text};
+use crate::formats::{TrendFormat, write_cbor, write_json, write_yaml};
 use crate::{TrendArgs, VcsArgs, die, warn};
 
 /// Entry point for `bca vcs trend`. `root` is the repository-discovery
@@ -41,27 +41,8 @@ pub(crate) fn run(root: &Path, args: &VcsArgs, trend: &TrendArgs) {
 fn emit(report: &wire::VcsTrend, trend: &TrendArgs) -> std::io::Result<()> {
     let output = trend.output.as_ref();
     match trend.format {
-        TrendFormat::Json => {
-            let json = if trend.pretty {
-                serde_json::to_string_pretty(report)
-            } else {
-                serde_json::to_string(report)
-            }
-            .map_err(std::io::Error::other)?;
-            write_text(&json, output)
-        }
-        TrendFormat::Yaml => {
-            let yaml = serde_yaml::to_string(report).map_err(std::io::Error::other)?;
-            write_text(&yaml, output)
-        }
-        TrendFormat::Cbor => match output {
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                CBOR_STDOUT_ERROR,
-            )),
-            Some(path) => write_buffered_file(path, |w| {
-                ciborium::into_writer(report, w).map_err(std::io::Error::other)
-            }),
-        },
+        TrendFormat::Json => write_json(report, trend.pretty, output),
+        TrendFormat::Yaml => write_yaml(report, output),
+        TrendFormat::Cbor => write_cbor(report, output),
     }
 }

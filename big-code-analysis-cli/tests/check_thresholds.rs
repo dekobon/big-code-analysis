@@ -1768,22 +1768,11 @@ fn no_cyclomatic_try_alias_warns_but_honors() {
         ));
 }
 
-/// Write `body` to `name` and strip every permission bit so reading it
-/// fails with `EACCES`. Returns `None` when the caller is privileged
-/// enough to read it anyway (root ignores mode bits), because then the
-/// scenario under test cannot be staged at all.
+/// [`common::unreadable_fixture`] with this suite's `String`-path
+/// convention.
 #[cfg(unix)]
 fn unreadable_fixture(dir: &TempDir, name: &str, body: &str) -> Option<String> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let path = dir.path().join(name);
-    fs::write(&path, body).expect("write fixture");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("chmod 000");
-    // Probe the actual capability rather than the uid: `fs::read`
-    // succeeding here means mode bits do not deny this process.
-    if fs::read(&path).is_ok() {
-        return None;
-    }
+    let path = common::unreadable_fixture(dir.path(), name, body)?;
     Some(path.to_str().expect("utf8 fixture path").to_string())
 }
 

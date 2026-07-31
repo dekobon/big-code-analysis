@@ -204,16 +204,9 @@ fn init_no_baseline_writes_empty_placeholder() {
 #[cfg(unix)]
 #[test]
 fn init_refuses_to_baseline_a_partially_readable_tree() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("lib.rs"), TRIVIAL_RUST).unwrap();
-    let locked = dir.path().join("locked.rs");
-    fs::write(&locked, TRIVIAL_RUST).unwrap();
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-    // Probe the real capability rather than the uid: root ignores mode
-    // bits, and then the scenario cannot be staged at all.
-    if fs::read(&locked).is_ok() {
+    if common::unreadable_fixture(dir.path(), "locked.rs", TRIVIAL_RUST).is_none() {
         eprintln!("skipping: this process can read a mode-000 file");
         return;
     }

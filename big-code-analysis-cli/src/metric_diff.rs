@@ -101,6 +101,10 @@ pub(crate) enum DiffError {
     /// comparison would otherwise report as added or removed rather
     /// than as the I/O failure it is (#1098).
     UnreadableInputs { side: DiffSide, count: usize },
+    /// A `--since` walk could not write every per-file document it later
+    /// reloads, so that side's set is short the same way — and for the
+    /// same reason it must not be reported as a code change.
+    UnwritableOutputs { side: DiffSide, count: usize },
 }
 
 impl std::fmt::Display for DiffError {
@@ -114,6 +118,13 @@ impl std::fmt::Display for DiffError {
             }
             Self::NonUtf8Path { path } => {
                 write!(f, "path is not valid UTF-8: {}", path.display())
+            }
+            Self::UnwritableOutputs { side, count } => {
+                write!(
+                    f,
+                    "diff --since {side} tree: {}",
+                    crate::write_failure_summary(*count)
+                )
             }
             Self::UnreadableInputs { side, count } => {
                 write!(
