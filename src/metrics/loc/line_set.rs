@@ -559,4 +559,15 @@ mod tests {
         assert!(unit.contains(ROWS));
         assert!(!unit.contains(ROWS + 1));
     }
+
+    /// `LineSet` is a bitset, so its derived-looking `Debug` is
+    /// hand-written to print rows rather than words. Sparse, non-adjacent
+    /// rows spanning more than one word make a word-order or
+    /// offset mistake visible; a set of `{0, 1}` would not.
+    #[test]
+    fn debug_renders_rows_not_words() {
+        let rendered = format!("{:?}", set_of(&[3, BITS_PER_WORD + 1, 200]));
+        assert_eq!(rendered, format!("{{3, {}, 200}}", BITS_PER_WORD + 1));
+        assert_eq!(format!("{:?}", LineSet::default()), "{}");
+    }
 }

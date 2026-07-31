@@ -376,4 +376,78 @@ mod tests {
         render_chunked(&sink, |_| Ok(())).expect("no output, no failure");
         assert!(sink.chunks.borrow().is_empty());
     }
+
+    /// A sink whose buffers carry ANSI color, so the delegating
+    /// `WriteColor` impl has something to delegate *to*.
+    #[derive(Default)]
+    struct AnsiSink {
+        bytes: RefCell<Vec<u8>>,
+    }
+
+    impl ColorSink for AnsiSink {
+        fn new_buffer(&self) -> Buffer {
+            Buffer::ansi()
+        }
+
+        fn emit(&self, buffer: &Buffer) -> std::io::Result<()> {
+            self.bytes.borrow_mut().extend_from_slice(buffer.as_slice());
+            Ok(())
+        }
+    }
+
+    /// `ChunkedSink` sits between the renderer and the buffer, so every
+    /// `WriteColor` method has to reach the buffer rather than answer for
+    /// it. Both sinks are exercised because a hardcoded `true` or a
+    /// `set_color` that dropped its spec would still pass the ANSI half
+    /// alone — the no-color half is what discriminates.
+    #[test]
+    fn chunked_sink_delegates_color_capability_to_its_buffer() {
+        let ansi = AnsiSink::default();
+        let mut ansi_supported = None;
+        render_chunked(&ansi, |out| {
+            ansi_supported = Some(out.supports_color());
+            out.set_color(ColorSpec::new().set_bold(true))?;
+            write!(out, "bold")?;
+            out.reset()?;
+            write!(out, "plain")
+        })
+        .expect("ansi render");
+
+        assert_eq!(ansi_supported, Some(true), "an ansi buffer supports color");
+        let text = String::from_utf8(ansi.bytes.borrow().clone()).expect("utf-8");
+        // Positional, not a bare `contains`: `reset` alone emits an
+        // escape, so "there is an escape somewhere" passes even when
+        // `set_color` silently drops its spec. Requiring one escape
+        // *before* the styled word and another *between* the two words
+        // pins each method separately.
+        let (before, rest) = text.split_once("bold").expect("styled word present");
+        let (between, after) = rest.split_once("plain").expect("plain word present");
+        assert!(
+            before.contains('\u{1b}'),
+            "set_color must emit before the styled text: {text:?}"
+        );
+        assert!(
+            between.contains('\u{1b}'),
+            "reset must emit between the styled and plain text: {text:?}"
+        );
+        assert!(after.is_empty(), "nothing trails the render: {text:?}");
+
+        let plain = CountingSink::default();
+        let mut plain_supported = None;
+        render_chunked(&plain, |out| {
+            plain_supported = Some(out.supports_color());
+            out.set_color(ColorSpec::new().set_bold(true))?;
+            write!(out, "bold")?;
+            out.reset()
+        })
+        .expect("no-color render");
+
+        assert_eq!(
+            plain_supported,
+            Some(false),
+            "a no-color buffer reports no color support"
+        );
+        let text = String::from_utf8(plain.bytes.borrow().clone()).expect("utf-8");
+        assert_eq!(text, "bold", "a no-color buffer emits no escapes");
+    }
 }
