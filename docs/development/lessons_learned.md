@@ -4576,6 +4576,24 @@ lesson #33, which covers per-slot revert granularity, and to
 the distinct claim here is that the coverage tool actively reports a
 false all-clear on this class.
 
+**A second instance, cheaper to see: the metric a test is *named* for
+is the one it pins** (#1135, #1137). Every `Loc` implementation ends
+its match with a catch-all that inserts the row into PLOC, so a token
+the author never considered silently becomes a line of code. Tcl and
+iRules routed their row terminator through it and Perl routed the `#`
+inside its `comments` node through it, and both shipped: a realistic
+fourteen-row Tcl file reported `ploc 13` against a true `7`. The
+per-language guards that should have caught this are the `*_cloc`
+tests — and several of them, `irules_cloc` among them, assert `cloc`
+and `blank` and leave `ploc` unasserted. So the catch-all's own metric
+was precisely the one no test named, while `src/metrics/loc/tcl.rs`
+measured 95% line coverage carrying the bug. The generalising repair
+is the same shape as the one above: a sweep
+(`a_comment_row_is_never_counted_as_code`) that asserts *all four* LOC
+sub-metrics for every language and comment spelling, so no metric is
+left unpinned merely because it is not the one in the test's name. It
+found the Perl case immediately after being written for the Tcl one.
+
 ---
 
 ## 86. A test helper that normalizes the value under test blinds every caller at once
