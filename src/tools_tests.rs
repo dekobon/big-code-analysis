@@ -515,11 +515,75 @@ fn guess_language_unknown_extension_falls_back_to_modeline() {
 }
 
 #[test]
-fn guess_language_unrecognised_modeline_keeps_extension() {
+fn guess_language_unrecognised_modeline_falls_through() {
     // A modeline naming a language we do not support leaves the extension
-    // in charge, as before.
+    // in charge, as before. Note this case never consults the modeline at
+    // all — `foo.c` resolves first and short-circuits — so it is the two
+    // below that pin the unrecognised-modeline branch itself.
     let buf = b"// -*- mode: cobol -*-\nint a = 42;\n";
     assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
+
+    // With no extension to resolve, an unrecognised modeline must yield to
+    // the shebang rather than end the search. `get_emacs_mode` does find
+    // `cobol` here; it is `get_from_emacs_mode` that returns `None`, and
+    // that `None` has to keep flowing. Perturbing the chain so an
+    // unrecognised modeline resolves to *something* (`get_from_emacs_mode(
+    // &mode).or(Some(LANG::Rust))`) failed zero tests across the whole
+    // workspace before this assertion existed.
+    let buf = b"#!/usr/bin/env python3\n// -*- mode: cobol -*-\nx = 1\n";
+    assert_eq!(guess_language(buf, "run"), (Some(LANG::Python), "python"));
+
+    // …and with nothing left to fall through to, the answer is "unknown",
+    // not the unrecognised mode name.
+    let buf = b"// -*- mode: cobol -*-\nint a = 42;\n";
+    assert_eq!(guess_language(buf, "foo.txt"), (None, ""));
+}
+
+/// The guard for #1111's laziness rather than for its results.
+///
+/// Every other assertion in this file pins what `guess_language`
+/// *returns*, and all of them hold just as well if the modeline scan is
+/// computed eagerly and thrown away — which is precisely the work #1111
+/// removed. Only a scan count sees the difference.
+///
+/// Runs on its own thread so the count starts from zero regardless of
+/// which other tests shared this one.
+#[test]
+fn a_resolving_extension_never_runs_the_modeline_scan() {
+    std::thread::spawn(|| {
+        assert_eq!(
+            MODELINE_SCANS.with(Cell::get),
+            0,
+            "a fresh thread must not have scanned yet"
+        );
+
+        // A disagreeing modeline is present precisely so that an eager
+        // implementation would have something to find; the extension
+        // still wins, and the scan must not happen at all.
+        let buf = b"// -*- mode: python -*-\nint a = 42;\n";
+        for _ in 0..4 {
+            assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
+        }
+        assert_eq!(
+            MODELINE_SCANS.with(Cell::get),
+            0,
+            "a recognised extension must short-circuit before the scan"
+        );
+
+        // The counter is not stuck at zero: an unresolved extension does
+        // reach the scan, once per call.
+        assert_eq!(
+            guess_language(buf, "foo.unknownext"),
+            (Some(LANG::Python), "python")
+        );
+        assert_eq!(
+            MODELINE_SCANS.with(Cell::get),
+            1,
+            "an unresolved extension must fall through to the scan"
+        );
+    })
+    .join()
+    .expect("detection thread must not panic");
 }
 
 #[test]

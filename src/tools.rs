@@ -18,6 +18,7 @@
 )]
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -263,14 +264,13 @@ pub fn get_language_for_file(path: &Path) -> Option<LANG> {
 }
 
 /// Borrows `ext` when it is already the ASCII-lowercase spelling
-/// [`get_from_ext`]'s table is keyed on, allocating only for the mixed-case
-/// minority (`foo.C`, `foo.PY`).
+/// [`get_from_ext`]'s table is keyed on, allocating only for the
+/// mixed-case minority (`foo.C`, `foo.PY`).
 ///
-/// The `is_ascii` guard is load-bearing: [`str::to_lowercase`] is
-/// Unicode-aware and folds `U+212A KELVIN SIGN` onto ASCII `k`, so a
-/// non-ASCII extension must still take that Unicode-aware path to keep
-/// the lookup key identical to the pre-#1111 one. Everything past the
-/// guard is ASCII by construction, hence the cheaper fold.
+/// The `is_ascii` guard is load-bearing: [`str::to_lowercase`] folds
+/// `U+212A KELVIN SIGN` onto ASCII `k`, so a non-ASCII extension must
+/// keep that Unicode-aware path to leave the lookup key as it was before
+/// #1111. Past the guard the input is ASCII, hence the cheaper fold.
 fn lowercase_ext(ext: &str) -> Cow<'_, str> {
     if !ext.is_ascii() {
         Cow::Owned(ext.to_lowercase())
@@ -475,7 +475,14 @@ fn get_from_interpreter(name: &str) -> Option<LANG> {
 // lines at each end covers both conventions without trawling the body.
 const MODE_LINE_SCAN_WINDOW: usize = 5;
 
+thread_local! {
+    /// Entries into [`get_emacs_mode`] — the only thing able to observe
+    /// #1111's laziness. Read by the test that pins it, which carries why.
+    static MODELINE_SCANS: Cell<usize> = const { Cell::new(0) };
+}
+
 fn get_emacs_mode(buf: &[u8]) -> Option<String> {
+    MODELINE_SCANS.with(|scans| scans.set(scans.get() + 1));
     // Forward scan: the first `MODE_LINE_SCAN_WINDOW` real lines may carry
     // an emacs `-*- … -*-` header or a Vim modeline. `split` yields one
     // element per line (no unbounded remainder), and `take` bounds the
@@ -533,11 +540,11 @@ fn get_emacs_mode(buf: &[u8]) -> Option<String> {
 ///
 /// [`LANG`]: enum.LANG.html
 pub fn guess_language<P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>, &'static str) {
-    // Precedence: extension, then emacs/vim modeline, then shebang. Each
-    // fallback is lazy, so a recognised extension never pays for the
-    // modeline regex scan — the previous form computed it for every file
-    // and discarded it, since every arm of its extension branch returned
-    // the extension's language, the "modeline agrees" arm included (#1111).
+    // Precedence: extension, then emacs/vim modeline, then shebang. The
+    // fallbacks are lazy, so a recognised extension never pays for the
+    // modeline scan; the previous form ran it for every file and
+    // discarded it, every arm of its extension branch having returned the
+    // extension's language — the "modeline agrees" arm included (#1111).
     let lang = get_language_for_file(path.as_ref())
         .or_else(|| get_emacs_mode(buf).and_then(|mode| get_from_emacs_mode(&mode)))
         .or_else(|| get_shebang_lang(buf));
