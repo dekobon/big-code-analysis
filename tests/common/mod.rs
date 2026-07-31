@@ -10,8 +10,11 @@
     clippy::too_many_lines
 )]
 
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use walkdir::{DirEntry, WalkDir};
@@ -43,6 +46,14 @@ const SNAPSHOT_PATH: &str = concat!(
 struct Config {
     language: Option<LANG>,
     source_root: PathBuf,
+    /// Files that reached the snapshot assertion.
+    ///
+    /// Counting resolved paths is not the same as counting assertions:
+    /// `act_on_file` returns `Ok(())` early for a file too short to read
+    /// and for one whose language cannot be guessed, so a resolved file
+    /// can still silently skip its snapshot. Shared across the runner's
+    /// consumer threads, hence the atomic.
+    snapshotted: Arc<AtomicUsize>,
 }
 
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
@@ -75,6 +86,8 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         MetricsOptions::default(),
     )
     .expect("analyze returned Err for fixture; the parser may have rejected the source");
+
+    cfg.snapshotted.fetch_add(1, Ordering::Relaxed);
 
     insta::with_settings!({snapshot_path => Path::new(SNAPSHOT_PATH)
                 .join(path.strip_prefix(&cfg.source_root).unwrap())
@@ -151,11 +164,16 @@ pub fn compare_rca_output_with_files_under(
     // not cost anything: only DeepSpeech runs longer than ~1.2s, so the
     // overlap window is short, and the small corpora leave most of their
     // consumers parked on an empty queue.
-    let num_jobs = std::thread::available_parallelism().map_or(4, |n| n.get() + 1);
+    // Written as `consumers + 1` so the fallback reads as a consumer count
+    // too: an unavailable parallelism figure keeps the previous hardcoded
+    // behaviour of 3 consumers rather than silently assuming 4 cores.
+    let num_jobs = std::thread::available_parallelism().map_or(3, NonZeroUsize::get) + 1;
 
+    let snapshotted = Arc::new(AtomicUsize::new(0));
     let cfg = Config {
         language: None,
         source_root: source_root.to_path_buf(),
+        snapshotted: Arc::clone(&snapshotted),
     };
 
     let mut gsbi = GlobSetBuilder::new();
@@ -209,6 +227,19 @@ pub fn compare_rca_output_with_files_under(
         // the binary's tests produce their own diagnostics.
         panic!("ConcurrentRunner failed: {e:?}");
     }
+
+    // Resolving a file is not the same as asserting its snapshot: the two
+    // early returns in `act_on_file` let a resolved file slip through
+    // without one. Close that gap so "the corpus shrank" and "a file
+    // stopped being analyzed" are both loud.
+    assert_eq!(
+        snapshotted.load(Ordering::Relaxed),
+        expected_files,
+        "resolved {expected_files} files under {} but only asserted a \
+         snapshot for some of them; a file became unreadable or its \
+         language stopped being guessable.",
+        corpus_root.display(),
+    );
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
