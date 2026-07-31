@@ -4543,6 +4543,18 @@ omits them. Diffing the executed-test set, generated the same way on both
 sides, showed zero removed. A count is a hash of the thing you care
 about, and like any hash it collides.
 
+**The same shape in a different subsystem** (#1054, PR #1092). The dump
+walk's `prefix.truncate` calls each restore one nesting level's rail
+after a subtree is rendered. `cyclomatic.modified` is the only nested
+metric object, so `dump_object`'s per-field truncate is the only thing
+keeping the fields that *follow* a nested object on the right rail;
+removing it mis-indents `cyclomatic`'s trailing `sum` / `value` in every
+dump — a visible output defect, with **all 2,869 lib tests still
+passing** (the lib suite as it stood then). That gap was found the same way,
+by perturbing each of the six `truncate` lines in turn rather than by
+consulting a report; every one of them is now covered by a test that
+fails when that single line is removed.
+
 **Lesson:** Never accept a coverage percentage as evidence that a line
 is tested; it is evidence that the line is reached. To learn whether a
 line is *protected*, perturb it and watch the suite — and treat "the
@@ -4563,5 +4575,114 @@ lesson #33, which covers per-slot revert granularity, and to
 `.claude/rules/testing.md`, which covers the perturbation technique;
 the distinct claim here is that the coverage tool actively reports a
 false all-clear on this class.
+
+---
+
+## 86. A test helper that normalizes the value under test blinds every caller at once
+
+Shared test support exists to make assertions terse, and the terseness
+usually comes from canonicalising: sort the collection, trim the
+whitespace, round the float, lowercase the key. Applied to the
+*expected* value that is fine — it lets a caller write its expectation in
+whatever order reads best. Applied to the *actual* value it silently
+stops testing a property, and stops testing it for every caller at once.
+Nothing in any individual test looks wrong; the assertion is
+still specific, still compares real data, still fails on a real
+regression in the dimensions that survive normalisation. The dimension
+that was normalised away simply stops being tested anywhere, and the
+larger the helper's caller list the more complete the blindness.
+
+**`check_ops` sorted both sides, so eighteen per-language tests could not
+see a nondeterministic vocabulary** (#1091, PR #1093). The helper was
+introduced sorting `operators_str` and `operands_str` — the values
+returned by the code under test — alongside `correct_operators` and
+`correct_operands`. `Ops::operators` and `Ops::operands` were built from
+`HashMap` keys, and Rust's `RandomState` reseeds per map instance, so
+their order differed on every run and even between two parses in one
+process. The consequence reached users: `bca ops` printed byte-different
+output for an unchanged input on consecutive invocations, with the
+connector glyphs moving so that a different entry got the closing
+`` `- `` each time. Every one of the eighteen per-language callers parsed
+real source and compared real vocabularies, and not one of them could
+observe it. Note the order was *documented* as arbitrary, so the helper's
+sort was accommodating a sanctioned non-guarantee rather than hiding a
+stated contract — which is exactly why it survived: nothing was being
+violated, so nothing complained, and the property could never become a
+contract by accident. The fix sorts in production and removes only the
+actual-side sort from the helper, which turned those same eighteen
+callers into ordering regression tests for free. Reverting the production
+`sort_unstable` calls fails 20 of the 27 tests under `ops` and
+`output::dump_ops` as they stood then — the eighteen callers plus the two
+tests the fix added alongside them.
+
+**Lesson:** In a test helper, normalise the expectation, never the
+observation. Before adding a `sort`, `trim`, `round`, or `to_lowercase`
+to a value that came back from the code under test, ask what property
+you are deleting and whether anything else asserts it — the answer is
+usually nothing, because the helper exists precisely so that callers do
+not restate shared properties. Where a helper already normalises, the
+cheap check is to remove the normalisation and see how many callers
+fail: none means the dimension is untested, and a large number means you
+have just recovered a guard across the whole caller list for free. This
+rhymes with lesson #23 rather than repeating it — there a
+compensation constant was added deliberately to make a known failure
+pass, here a canonicalisation was incidental and present from the
+helper's first commit. The consequences differ too: lesson #23's
+constant blinded a test to the bug it was written to catch, whereas a
+normalising helper blinds every caller to a property no test was aimed
+at — which is precisely why nobody misses it, and why the blindness
+scales with the caller list instead of stopping at one test.
+
+---
+
+## 87. An assertion can be correct and still be about the wrong rows
+
+When a test asserts over rendered output it first has to *select* what to
+assert on: filter the lines at some indent, find the entry with some
+prefix, search for a substring. The assertion then gets all the review
+attention, because that is where the claim lives. But the selector is
+what decides whether the claim is about the thing the test names, and a
+selector that matches the wrong rows — or no rows — produces a test that
+passes for reasons unrelated to its subject. Hierarchical text makes this
+sharper than it sounds: indentation-based output has rows that are
+prefixes and suffixes of each other, so an off-by-one in a column count,
+or a `contains` where a whole-line comparison was needed, lands on a real
+line and asserts something true about it.
+
+**A connector test that asserted about the `metrics` header instead of
+the metric groups** (#1054, PR #1092).
+`last_emitted_metric_group_uses_closing_connector` selected group lines
+with `line.starts_with("   |- ")` and `"   `- "` — three columns — while
+metric groups sit six columns in: three for the root space's own
+connector, three more for the `metrics` line's. The filter therefore
+matched exactly one line, the `metrics` header itself, and the assertion
+that the last match uses the closing `` `- `` was a true statement about
+that header. The test passed with **every metric group rendering a
+dangling `|-`**, which is the precise defect its name claims to prevent.
+The repair filters at six columns, asserts more than one group was found
+so the filter cannot silently empty, and checks every non-final group
+uses `|-` rather than only inspecting the last.
+
+**Substring matching cannot work on rail-indented output** (#1054,
+PR #1092). The same fix records why `contains` is not an option here: a
+deeper rail *ends with* the shallower one, and labels like `sum` and
+`value` recur across several groups, so a substring search accepts
+exactly the mis-indentation under test. Whole-line sequence comparison is
+the only form that discriminates.
+
+**Lesson:** Review the selector as carefully as the assertion, and treat
+"how many rows did this match" as part of the test. Assert the match
+count is what you expect — `> 1` where several are required, an exact
+number where the shape is fixed — so a filter that matches nothing, or
+one row where it should match six, fails loudly instead of making the
+following assertion vacuously true. For indentation-structured output,
+prefer comparing whole lines or whole line sequences over `contains`,
+since prefix and suffix relationships between rails mean a substring
+search cannot distinguish a correct rail from a wrong one. And when a
+test's name states a property, check that the rows it selected are
+capable of violating that property; if they are not, the test is
+decoration regardless of how specific its assertion looks. Related to
+lesson #85, which covers a covered-but-unguarded line: there the value
+never varied, here the assertion never saw the rows that matter.
 
 ---
