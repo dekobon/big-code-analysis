@@ -23,7 +23,6 @@
 )]
 
 use crate::checker::Checker;
-use crate::int_hash::IntKeyHashSet;
 use crate::metrics::npa::python_is_block;
 use std::fmt;
 
@@ -64,14 +63,8 @@ fn span_rows(start_row: usize, end_row: usize, end_column: usize) -> usize {
     (end_row - start_row) + usize::from(end_column > 0)
 }
 
-/// Set of physical source rows, keyed by 0-based row number.
-///
-/// The hasher is deliberately not the default SipHash: the keys are line
-/// numbers this crate derived from tree-sitter positions, so there is no
-/// untrusted key to flood the table with, and `Loc` is default-selected
-/// (as well as an MI input) with at least one probe per AST node. See
-/// [`crate::int_hash`].
-type LineSet = IntKeyHashSet<usize>;
+mod line_set;
+use line_set::LineSet;
 
 /// The `SLoc` metric suite.
 #[derive(Debug, Clone, PartialEq)]
@@ -240,10 +233,11 @@ impl Ploc {
     /// Folds `other` into `self`, unioning the line set and updating min/max.
     #[inline]
     pub fn merge(&mut self, other: &Ploc) {
-        // Merge ploc lines
-        for l in &other.lines {
-            self.lines.insert(*l);
-        }
+        // Union the child's physical lines in, so a line shared with a
+        // sibling space is counted once. A word-wise OR rather than an
+        // insert per row: a line inside D nested spaces is folded upward
+        // D times (#1109).
+        self.lines.union_with(&other.lines);
 
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.ploc_min = self.ploc_min.min(other.ploc_min);
@@ -310,8 +304,7 @@ impl Cloc {
         // sets are disjoint by construction, but a union is used
         // defensively so a stray overlap cannot inflate the count.
         self.only_comment_line_starts
-            .union(&self.code_comment_line_starts)
-            .count() as u64
+            .union_len(&self.code_comment_line_starts) as u64
     }
 
     /// The `Cloc` metric minimum value. See `min_or_zero` for the
@@ -335,9 +328,9 @@ impl Cloc {
         // Union both per-line sets so a comment line shared across
         // merged spaces is counted once (mirrors `Ploc`'s line union).
         self.only_comment_line_starts
-            .extend(&other.only_comment_line_starts);
+            .union_with(&other.only_comment_line_starts);
         self.code_comment_line_starts
-            .extend(&other.code_comment_line_starts);
+            .union_with(&other.code_comment_line_starts);
 
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.cloc_min = self.cloc_min.min(other.cloc_min);
@@ -490,10 +483,9 @@ impl Stats {
         // any real span row, so `cloc()` (the set's cardinality) equals
         // the requested count without colliding with sloc attribution.
         let synthetic_base = sloc_end_row + 1;
-        stats
-            .cloc
-            .code_comment_line_starts
-            .extend(synthetic_base..synthetic_base + code_comment_lines);
+        for line in synthetic_base..synthetic_base + code_comment_lines {
+            stats.cloc.code_comment_line_starts.insert(line);
+        }
         stats
     }
 
@@ -9455,6 +9447,127 @@ class A {
             0,
             "blank() must clamp the negative subtraction to 0"
         );
+    }
+
+    /// A physical line shared by two *sibling* function spaces must
+    /// count once in the parent that merges them.
+    ///
+    /// This is the semantics `Ploc::merge` / `Cloc::merge` encode, and
+    /// the reason the per-space line stores are sets rather than
+    /// counters. It is asserted here across four language families —
+    /// Rust, the C family, the JS family, and Python's indentation-based
+    /// spaces — because the merge is shared by all of them and each
+    /// family reaches it through a different `Loc::compute` body.
+    ///
+    /// Every fixture puts both spaces on one row, so a merge that summed
+    /// instead of unioning would report `ploc`/`cloc` of 2 against an
+    /// `sloc` of 1 — an impossible reading that also drives `blank`
+    /// negative.
+    #[test]
+    fn sibling_spaces_sharing_a_line_count_it_once() {
+        check_metrics::<RustParser>(
+            "fn a() { let x = 1; } fn b() { let y = 2; }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 1);
+                assert_eq!(metric.loc.ploc(), 1, "one physical row, two spaces");
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        check_metrics::<CppParser>(
+            "int a() { return 1; } int b() { return 2; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 1);
+                assert_eq!(metric.loc.ploc(), 1, "one physical row, two spaces");
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        check_metrics::<JavascriptParser>(
+            "function a() { let x = 1; } function b() { let y = 2; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 1);
+                assert_eq!(metric.loc.ploc(), 1, "one physical row, two spaces");
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+
+        // Python cannot open two spaces on one row, so the shared row is
+        // the nested `def`'s: it belongs to the inner space's span and to
+        // the outer space's, and the unit merges both.
+        check_metrics::<PythonParser>(
+            "def a():
+    def b(): return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 2);
+                assert_eq!(metric.loc.ploc(), 2, "two physical rows, three spaces");
+                assert_eq!(metric.loc.blank(), 0);
+            },
+        );
+    }
+
+    /// The same union property for comment lines: two sibling spaces that
+    /// each carry a comment on the one shared row must yield `cloc == 1`.
+    ///
+    /// Summing rather than unioning would report `cloc == 2` against
+    /// `sloc == 1`, the `cloc > sloc` state that pushes MI's
+    /// comments_percentage above 100% (the failure mode of issue #461,
+    /// here across the space merge rather than within one space).
+    #[test]
+    fn sibling_spaces_sharing_a_comment_line_count_it_once() {
+        check_metrics::<CppParser>(
+            "int a() { /*x*/ return 1; } int b() { /*y*/ return 2; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 1);
+                assert_eq!(metric.loc.cloc(), 1, "one comment row, two spaces");
+                assert!(
+                    metric.loc.cloc() <= metric.loc.sloc(),
+                    "cloc must never exceed sloc"
+                );
+            },
+        );
+
+        check_metrics::<RustParser>(
+            "fn a() { /*x*/ let p = 1; } fn b() { /*y*/ let q = 2; }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 1);
+                assert_eq!(metric.loc.cloc(), 1, "one comment row, two spaces");
+                assert!(
+                    metric.loc.cloc() <= metric.loc.sloc(),
+                    "cloc must never exceed sloc"
+                );
+            },
+        );
+    }
+
+    /// A row inside a chain of nested spaces is folded upward once per
+    /// level, and must still count once at the top.
+    ///
+    /// Fifteen levels rather than two: at one level a union and a sum
+    /// agree whenever the sets happen to be disjoint, and the point of
+    /// #1109 is the repeated fold. The body row belongs to every level's
+    /// span, so a merge that accumulated would report `ploc == 15`.
+    #[test]
+    fn a_row_folded_through_nested_spaces_counts_once() {
+        const DEPTH: usize = 15;
+        let source = format!(
+            "{}let x = 1;{}",
+            "fn f() { ".repeat(DEPTH),
+            "} ".repeat(DEPTH)
+        );
+
+        check_metrics::<RustParser>(&source, "foo.rs", |metric| {
+            assert_eq!(metric.loc.sloc(), 1);
+            assert_eq!(metric.loc.ploc(), 1, "one physical row, {DEPTH} spaces");
+            assert_eq!(metric.loc.ploc_max(), 1);
+            assert_eq!(metric.loc.blank(), 0);
+        });
     }
 
     /// Two inline block comments on a single code line must count as a
