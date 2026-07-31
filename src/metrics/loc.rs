@@ -4279,6 +4279,11 @@ my $b = 2;",
         );
     }
 
+    /// expected: row 0 is comment-only, row 1 is code carrying a trailing
+    /// comment, row 2 is code — so `ploc 2` and `cloc 2`, with row 1 in
+    /// both tallies. This pinned `ploc 3` until #1137: the `#` token
+    /// inside the `comments` node reached the PLOC catch-all, which also
+    /// reclassified row 0 from comment-only to code-and-comment.
     #[test]
     fn perl_cloc_line_comments() {
         check_metrics::<PerlParser>(
@@ -4290,12 +4295,12 @@ my $b = 2;",
                 insta::assert_json_snapshot!(metric.loc, @r#"
                 {
                   "sloc": 3,
-                  "ploc": 3,
+                  "ploc": 2,
                   "lloc": 2,
                   "cloc": 2,
                   "blank": 0,
                   "sloc_average": 3.0,
-                  "ploc_average": 3.0,
+                  "ploc_average": 2.0,
                   "lloc_average": 2.0,
                   "cloc_average": 2.0,
                   "blank_average": 0.0,
@@ -4303,8 +4308,8 @@ my $b = 2;",
                   "sloc_max": 3,
                   "cloc_min": 2,
                   "cloc_max": 2,
-                  "ploc_min": 3,
-                  "ploc_max": 3,
+                  "ploc_min": 2,
+                  "ploc_max": 2,
                   "lloc_min": 2,
                   "lloc_max": 2,
                   "blank_min": 0,
@@ -10554,10 +10559,12 @@ class A {
                 "{lang:?}: trailing whitespace on a blank row must not make it code"
             );
 
-            // The comment-only half of the same defect, and the reason it
-            // escaped `unterminated_one_line_file_reports_one_source_line`:
-            // that sweep's fixtures are one-liners with no comment row, so
-            // its `cloc + ploc <= sloc` assertion had nothing to bite on.
+            // The comment-only half of the same defect. It escaped
+            // `unterminated_one_line_file_reports_one_source_line`
+            // because that sweep's fixtures are one-liners with no
+            // comment row. The cross-language version of this case is
+            // `a_comment_row_is_never_counted_as_code`; the two rows here
+            // stay so the Tcl-family regression reads in one place.
             let commented = metrics_verbatim(
                 lang,
                 b"# lead-in\nproc f {} {}\n",
@@ -10568,13 +10575,78 @@ class A {
             assert_eq!(commented.ploc(), 1, "{lang:?} commented ploc");
             assert_eq!(commented.cloc(), 1, "{lang:?} commented cloc");
             assert_eq!(commented.blank(), 0, "{lang:?} commented blank");
-            assert!(
-                commented.cloc() + commented.ploc() <= commented.sloc(),
-                "{lang:?}: cloc {} + ploc {} exceeds sloc {}",
-                commented.cloc(),
-                commented.ploc(),
-                commented.sloc(),
-            );
+        }
+    }
+
+    /// The comment spellings to sweep for each language: the line form
+    /// every language has, then the block and doc forms where one exists.
+    ///
+    /// Nothing here needs to be exhaustive per language — the defect this
+    /// guards against is a stray *token* inside (or terminating) a
+    /// comment node reaching a PLOC catch-all, which any one spelling of
+    /// a comment exposes. The block and doc entries are there because
+    /// those nodes have child tokens the line form does not.
+    fn comment_spellings(lang: crate::LANG) -> &'static [&'static str] {
+        use crate::LANG::*;
+        match lang {
+            Python | Ruby | Bash | Elixir | Tcl | Irules | Perl => &["# c"],
+            Lua => &["-- c", "--[[ c ]]"],
+            Php => &["# c", "/* c */", "/** c */"],
+            Rust => &["// c", "/* c */", "/// c"],
+            _ => &["// c", "/* c */"],
+        }
+    }
+
+    /// A comment-only row is never a physical line of code — in any
+    /// language, in any comment spelling, on either side of the code.
+    ///
+    /// Two separate defects broke this, both by letting a token reach the
+    /// `_` catch-all that ends `stats.ploc.lines.insert(start)`. In Tcl
+    /// and iRules it was the row terminator, whose start row is the row
+    /// it terminates (#1135). In Perl it was the `#` *inside* the
+    /// `comments` node, which additionally tripped
+    /// `check_comment_ends_on_code_line` into reclassifying the row from
+    /// comment-only to code-and-comment (#1137).
+    ///
+    /// Neither was visible to the per-language `*_cloc` tests — several
+    /// assert `cloc` and `blank` and leave `ploc` unpinned — nor to
+    /// `unterminated_one_line_file_reports_one_source_line`, whose
+    /// fixtures carry no comment row at all. Since the failure mode is
+    /// structural rather than language-specific, the sweep is per
+    /// language rather than a sample.
+    #[test]
+    fn a_comment_row_is_never_counted_as_code() {
+        for (lang, code) in UNTERMINATED_ONE_LINERS {
+            // PHP is the one language whose code fixture must open the
+            // file: outside `<?php` every row is inline HTML, so a
+            // comment placed before it is not a comment at all.
+            let must_lead = *lang == crate::LANG::Php;
+            for &comment in comment_spellings(*lang) {
+                let orders: &[bool] = if must_lead { &[false] } else { &[true, false] };
+                for &comment_first in orders {
+                    let mut src = Vec::new();
+                    let (first, second): (&[u8], &[u8]) = if comment_first {
+                        (comment.as_bytes(), code)
+                    } else {
+                        (code, comment.as_bytes())
+                    };
+                    src.extend_from_slice(first);
+                    src.push(b'\n');
+                    src.extend_from_slice(second);
+                    src.push(b'\n');
+
+                    let loc = metrics_verbatim(*lang, &src, MetricsOptions::default()).loc;
+                    let text = String::from_utf8_lossy(&src);
+                    assert_eq!(loc.sloc(), 2, "{lang:?} sloc for {text:?}");
+                    assert_eq!(
+                        loc.ploc(),
+                        1,
+                        "{lang:?} ploc for {text:?} — the comment row is not code"
+                    );
+                    assert_eq!(loc.cloc(), 1, "{lang:?} cloc for {text:?}");
+                    assert_eq!(loc.blank(), 0, "{lang:?} blank for {text:?}");
+                }
+            }
         }
     }
 }
