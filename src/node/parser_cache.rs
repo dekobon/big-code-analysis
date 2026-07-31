@@ -25,24 +25,15 @@ use tree_sitter::{Language, Parser, Tree};
 thread_local! {
     /// The parser this thread reuses across the files it analyzes.
     static SCRATCH_PARSER: Cell<Option<Parser>> = const { Cell::new(None) };
-
-    /// Parsers built on this thread, so a test can observe that reuse
-    /// actually happens. Every assertion on parse *output* holds just as
-    /// well when the write-back below is deleted, which would silently
-    /// restore the one-parser-per-file behaviour #1118 removed. The
-    /// counter sits on the slot-miss path, which runs once per thread,
-    /// so it costs nothing per file.
-    static PARSERS_BUILT: Cell<usize> = const { Cell::new(0) };
 }
 
-/// How many parsers this thread has built.
-///
-/// Only the accessor is test-gated; the counter itself is unconditional
-/// so the path a test observes is byte-for-byte the production one.
-#[cfg(test)]
-pub(crate) fn parsers_built_on_this_thread() -> usize {
-    PARSERS_BUILT.with(Cell::get)
-}
+// Parsers built on this thread, so a test can observe that reuse
+// actually happens. Every assertion on parse *output* holds just as well
+// when the write-back in `parse_on_scratch_parser` is deleted, which
+// would silently restore the one-parser-per-file behaviour #1118
+// removed. The counter sits on the slot-miss path, which runs once per
+// thread, so it costs nothing per file.
+crate::observation::counter!(parsers_built);
 
 /// Parses `code` under `language` on this thread's reusable parser.
 ///
@@ -83,7 +74,7 @@ pub(crate) fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> Tree 
 }
 
 fn build_parser() -> Parser {
-    PARSERS_BUILT.with(|built| built.set(built.get() + 1));
+    parsers_built::record();
     Parser::new()
 }
 
@@ -119,7 +110,7 @@ mod tests {
 
         std::thread::spawn(|| {
             assert_eq!(
-                parsers_built_on_this_thread(),
+                parsers_built::observed(),
                 0,
                 "a fresh thread must start with an empty slot"
             );
@@ -132,7 +123,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                parsers_built_on_this_thread(),
+                parsers_built::observed(),
                 1,
                 "{PARSES} parses must share one parser"
             );
@@ -164,7 +155,7 @@ mod tests {
                 let language = rust_language();
                 parse_on_scratch_parser(&language, b"fn f() {}");
                 parse_on_scratch_parser(&language, b"fn g() {}");
-                parsers_built_on_this_thread()
+                parsers_built::observed()
             });
             counts.push(handle.join().expect("parsing thread must not panic"));
         }
@@ -202,7 +193,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                parsers_built_on_this_thread(),
+                parsers_built::observed(),
                 1,
                 "{FILES} files parsed through `Ast::parse` must share one parser"
             );

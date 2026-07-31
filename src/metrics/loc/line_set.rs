@@ -31,10 +31,23 @@
 //!
 //! The trade against a hash set is the gap between the lowest and
 //! highest row a single space records: the array covers that whole
-//! interval whether or not the rows inside it are set. That is a win
-//! whenever more than one row in 80 is populated, which every real space
-//! clears — the rows a space records are the code and comment lines of
-//! its own body.
+//! interval whether or not the rows inside it are set. One word per 64
+//! rows of *span*, against roughly 10 bytes per *recorded* row for a
+//! `HashSet<usize>` at hashbrown's load factor — so the ratio argument
+//! ("a win above about one row in 80") holds for `Ploc::lines`, whose
+//! rows are the space's own code lines, but not for `Cloc`'s two sets:
+//! a 200-line body carrying one comment is one row in 200.
+//!
+//! What survives regardless of density is the absolute bound — a space
+//! costs `span / 8` bytes whatever it records, so the loss is capped by
+//! the file's line count rather than unbounded. A comment-sparse,
+//! blank-line-heavy file is the honest counterexample: two rows spread
+//! over 100 000 cost 12 504 bytes where the hash set costs about 36,
+//! and a synthetic 1.9 MB Rust file of two million blank lines measured
+//! 12.6 MB peak before #1109 against 13.5 MB after. Real sources are
+//! not that shape, and the walk-time win (a word-wise `|=` per merge in
+//! place of a probe per row per nesting level) is paid for by every
+//! space.
 
 use std::fmt;
 
@@ -79,11 +92,13 @@ impl LineSet {
     /// Adds every row in the inclusive range `start..=end`.
     ///
     /// A no-op when `end < start`. No caller passes an inverted span
-    /// today — `add_only_comment_lines` reaches the two-argument form
-    /// only on the `end > start` branch — but without the guard the
-    /// slice fill below would panic on one, which is a worse way to
-    /// learn that a span adjustment (such as the Rust doc-comment one in
-    /// #1051) started underflowing.
+    /// today, and `add_cloc_lines` debug-asserts that it does not — but
+    /// that assertion is compiled out in release, which is exactly where
+    /// the guard earns its keep: without it an inverted span reaches the
+    /// slice fill below with `last < first` and panics mid-walk.
+    /// Returning is a better way to survive a span adjustment that
+    /// started underflowing (such as the Rust doc-comment one in #1051)
+    /// than an index panic in a release build.
     pub(super) fn insert_range(&mut self, start: usize, end: usize) {
         if end < start {
             return;
@@ -126,6 +141,12 @@ impl LineSet {
     }
 
     /// Number of rows in the set.
+    ///
+    /// O(words), where `HashSet::len` was O(1) — this popcounts the
+    /// whole array. That is a new cliff: a caller asking for it once
+    /// per *node* would be quadratic in the span. The walk asks once
+    /// per space, from `compute_minmax` and the `cloc` / `blank`
+    /// readers.
     #[inline]
     pub(super) fn len(&self) -> usize {
         self.words.iter().map(|w| w.count_ones() as usize).sum()
@@ -211,6 +232,15 @@ impl LineSet {
 
     /// Grows the array so absolute index `word` is covered, in whichever
     /// direction is needed.
+    ///
+    /// The two directions do not cost the same. Upward is a
+    /// `Vec::resize`, amortised O(1); downward is a `splice(0..0, …)`
+    /// that shifts every existing word, O(len) per call — so a strictly
+    /// descending insertion order would be quadratic in words. Not
+    /// reachable today: the walk visits rows roughly ascending, and
+    /// merges fold child into parent rather than the reverse. It is the
+    /// shape to check first if a caller ever starts feeding rows
+    /// backwards.
     fn reserve(&mut self, word: usize) {
         if self.words.is_empty() {
             self.first_word = word;
@@ -334,11 +364,54 @@ mod tests {
     }
 
     /// An inverted span is a no-op, not a wrap into a full fill.
+    ///
+    /// The cross-word case is the one that pins the guard. Inverted
+    /// *within* a word the mask arithmetic already yields zero, so
+    /// deleting `if end < start` leaves that case passing; across a word
+    /// boundary `first` exceeds `last` and the interior fill indexes
+    /// `words[2..0]`, which panics.
     #[test]
     fn insert_range_ignores_an_inverted_span() {
-        let mut set = set_of(&[10]);
-        set.insert_range(9, 8);
-        assert_eq!(rows_of(&set), vec![10]);
+        let mut within_word = set_of(&[10]);
+        within_word.insert_range(9, 8);
+        assert_eq!(rows_of(&within_word), vec![10]);
+
+        let mut across_words = set_of(&[10]);
+        across_words.insert_range(BITS_PER_WORD, BITS_PER_WORD - 1);
+        assert_eq!(rows_of(&across_words), vec![10]);
+    }
+
+    /// `insert_range` must grow a set that has already been written to,
+    /// in either direction. Every other range case starts from a default
+    /// set, whose first `reserve` simply anchors the offset, so neither
+    /// growth branch is reached from `insert_range` at all.
+    ///
+    /// The first range starts below the current offset and ends inside
+    /// it: that `reserve` prepends and shifts `first_word`, which is
+    /// what the "reserve both ends before taking either slot index"
+    /// comment defends — an index captured beforehand would underflow
+    /// (`word_of(70) - 3`). The second range sits past the last word
+    /// held, taking the upward branch.
+    #[test]
+    fn insert_range_grows_a_seeded_set_in_both_directions() {
+        // Both seeds live in word 3 (rows 192..=255).
+        let mut set = set_of(&[200, 205]);
+
+        set.insert_range(70, 202);
+        set.insert_range(300, 301);
+
+        assert!(set.contains(70), "the prepended low end must be set");
+        assert!(set.contains(202));
+        assert!(set.contains(205), "the seeded rows must survive the growth");
+        assert!(set.contains(300));
+        assert!(!set.contains(69));
+        assert!(!set.contains(203));
+        assert!(!set.contains(204));
+        assert!(!set.contains(299));
+        assert!(!set.contains(302));
+        // 70..=202 is 133 rows, plus the seed at 205 and the pair at
+        // 300..=301; the seed at 200 falls inside the first range.
+        assert_eq!(set.len(), 136);
     }
 
     /// `check_comment_ends_on_code_line` reclassifies a row by removing

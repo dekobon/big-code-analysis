@@ -46,8 +46,6 @@
 //!   unselected. [`CodeMetrics::selected`] reconstructs the
 //!   [`MetricSet`] from the present keys.
 
-use std::cell::Cell;
-
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::metric_set::{Metric, MetricSet};
@@ -64,13 +62,13 @@ use crate::{function, ops};
 // shapes (`CodeMetrics`, `FuncSpace`, `Ops`, `FunctionSpan`), the
 // shared helpers, and the round-trip tests stay here.
 mod metrics;
+// `crate::Ops`'s borrowed serialize path. Nothing to re-export: it
+// defines no public type, only the `Serialize` impl `Ops` delegates to.
+mod ops_view;
 // The VCS arm is wholly `vcs-git`-gated; gating the module (and its
 // re-export) keeps default-feature builds free of unused-import noise.
 #[cfg(feature = "vcs-git")]
 mod vcs;
-// `crate::Ops`'s borrowed serialize path. Nothing to re-export: it
-// defines no public type, only the `Serialize` impl `Ops` delegates to.
-mod ops_view;
 
 pub use metrics::*;
 #[cfg(feature = "vcs-git")]
@@ -559,27 +557,17 @@ pub struct Ops {
 // the same de-recursion (#1056). See [`crate::recursion`].
 crate::recursion::impl_iterative_drop!(Ops, spaces);
 
-thread_local! {
-    /// Owned [`Ops`] projections built on this thread.
-    ///
-    /// Both projections emit the same document, so no assertion on the
-    /// output can tell which path ran and a revert to
-    /// `serialize_via_wire!` would be silent. This is the observable
-    /// `serializing_ops_builds_no_owned_projection` reads. One `Cell`
-    /// bump per whole-tree conversion costs nothing against it.
-    static OWNED_OPS_PROJECTIONS: Cell<usize> = const { Cell::new(0) };
-}
-
-/// How many owned [`Ops`] projections this thread has built. Only the
-/// accessor is test-gated, so tests observe the production path.
-#[cfg(test)]
-fn owned_ops_projections_on_this_thread() -> usize {
-    OWNED_OPS_PROJECTIONS.with(Cell::get)
-}
+// Owned `Ops` projections built on this thread.
+//
+// Both projections emit the same document, so no assertion on the output
+// can tell which path ran and a revert to `serialize_via_wire!` would be
+// silent. This is the observable `serializing_ops_builds_no_owned_projection`
+// reads. One `Cell` bump per whole-tree conversion costs nothing against it.
+crate::observation::counter!(owned_ops_projections);
 
 impl From<&ops::Ops> for Ops {
     fn from(o: &ops::Ops) -> Self {
-        OWNED_OPS_PROJECTIONS.with(|built| built.set(built.get() + 1));
+        owned_ops_projections::record();
         map_tree(
             o,
             |source| &source.spaces,

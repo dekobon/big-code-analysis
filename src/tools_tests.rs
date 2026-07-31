@@ -552,7 +552,7 @@ fn guess_language_unrecognised_modeline_falls_through() {
 fn a_resolving_extension_never_runs_the_modeline_scan() {
     std::thread::spawn(|| {
         assert_eq!(
-            MODELINE_SCANS.with(Cell::get),
+            modeline_scans::observed(),
             0,
             "a fresh thread must not have scanned yet"
         );
@@ -565,7 +565,7 @@ fn a_resolving_extension_never_runs_the_modeline_scan() {
             assert_eq!(guess_language(buf, "foo.c"), (Some(LANG::C), "c"));
         }
         assert_eq!(
-            MODELINE_SCANS.with(Cell::get),
+            modeline_scans::observed(),
             0,
             "a recognised extension must short-circuit before the scan"
         );
@@ -577,7 +577,7 @@ fn a_resolving_extension_never_runs_the_modeline_scan() {
             (Some(LANG::Python), "python")
         );
         assert_eq!(
-            MODELINE_SCANS.with(Cell::get),
+            modeline_scans::observed(),
             1,
             "an unresolved extension must fall through to the scan"
         );

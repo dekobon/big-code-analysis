@@ -79,6 +79,33 @@ pub(crate) fn space_verbatim(lang: LANG, source: &[u8], options: MetricsOptions)
     analyze(Source::new(lang, source), options).expect("verbatim source must analyse")
 }
 
+/// Parses `source` as `lang` through the [`crate::Ast`] seam, naming the
+/// unit `name`.
+///
+/// Returns the [`crate::Ast`] rather than one of its projections so a
+/// caller can reach both the seam's output (`ops`, `metrics`) and the
+/// underlying tree-sitter tree; the `ops` tests need both to compare a
+/// space count against a node count.
+#[track_caller]
+pub(crate) fn parse_named(lang: LANG, name: &str, source: &str) -> crate::Ast {
+    crate::Ast::parse(Source::new(lang, source.as_bytes()).with_name(Some(name.to_owned())))
+        .expect("language feature enabled")
+}
+
+/// Asserts a per-language fixture list is non-empty.
+///
+/// Lists of this shape gate each entry on its own language feature, so a
+/// build with none of them enabled leaves an empty list, a loop with zero
+/// iterations, and a test that reports as passing while asserting
+/// nothing. Calling this is what makes that state loud.
+#[track_caller]
+pub(crate) fn assert_fixtures_present<T>(fixtures: &[T]) {
+    assert!(
+        !fixtures.is_empty(),
+        "at least one language feature must be enabled for this test to mean anything"
+    );
+}
+
 /// Asserts that `func_space` has a direct child space named `name` and that
 /// its `kind` matches `expected`.
 ///

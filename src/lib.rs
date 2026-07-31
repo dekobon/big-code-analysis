@@ -126,16 +126,22 @@ mod c_macro;
 mod cfg_predicate;
 mod checker;
 mod getter;
-// Fast hashing for the walk's integer-keyed maps and sets. Shared by
-// `spaces` (node ids), `metrics::loc` (line numbers), and
-// `metrics::halstead` (grammar `kind_id`s). The module doc is the
-// single place that lists them and says why the text-keyed collections
-// are excluded — extend it, not this line, when a fourth arrives.
+// Fast hashing for the walk's integer-keyed maps. Shared by `spaces`
+// (node ids) and `metrics::halstead` (grammar `kind_id`s); `metrics::loc`
+// was the third until #1109 moved its line sets to a bitset. The module
+// doc is the single place that lists them and says why the text-keyed
+// collections are excluded — extend it, not this line, when a third
+// arrives.
 mod int_hash;
 #[cfg(test)]
 mod language_enum_roundtrip;
 mod languages;
 mod macros;
+// One declaration form for the thread-local counters that make an
+// output-invisible optimization testable. The module doc states the
+// shared invariant (the counter is unconditional, only its accessor is
+// test-gated) once; each invocation carries its own narrative.
+mod observation;
 // Parse-and-inspect shims shared by the per-metric test modules. Kept out
 // of any production file so the self-scan gate does not spend a shipping
 // module's metric budget on test-only code (#1066).
