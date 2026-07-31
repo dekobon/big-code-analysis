@@ -756,14 +756,14 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 490
+start_line = 501
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 490
+start_line = 501
 metric = "nexits"
 value = 6.0
 
@@ -895,8 +895,15 @@ value = 10.0
 
 [[entry]]
 path = "src/node.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 800.0
+
+[[entry]]
+path = "src/node.rs"
 qualified = "Node<'a>"
-start_line = 75
+start_line = 125
 metric = "nom"
 value = 34.0
 
@@ -1029,7 +1036,7 @@ value = 8.0
 [[entry]]
 path = "src/tools.rs"
 qualified = "read_file_with_eol"
-start_line = 141
+start_line = 142
 metric = "nexits"
 value = 7.0
 

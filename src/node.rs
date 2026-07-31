@@ -10,12 +10,71 @@
     clippy::cast_sign_loss
 )]
 
+use std::cell::Cell;
+
 use tree_sitter::Node as OtherNode;
 use tree_sitter::Tree as OtherTree;
-use tree_sitter::{Parser, TreeCursor};
+use tree_sitter::{Language, Parser, TreeCursor};
 
 use crate::checker::Checker;
 use crate::traits::{LanguageInfo, Search};
+
+thread_local! {
+    /// The parser this thread reuses across the files it analyzes.
+    ///
+    /// A `tree_sitter::Parser` owns a lexer, a GLR stack with its
+    /// stack-node pool, a subtree pool and several scratch arrays.
+    /// `set_language` and `parse` reset that state without releasing the
+    /// capacity behind it, so a parser that has handled one file starts
+    /// the next with those buffers already grown. Construction is *not*
+    /// what costs — under 0.3 us against a 200-350 us parse of a 4 KiB
+    /// file — the re-grown buffers are, and only modestly (#1118):
+    /// ~2.5% of in-situ parse time over 8.8k small files, 8-9% in a
+    /// parse-only loop where they stay cache-hot, and under the noise
+    /// floor of a wall-clock A/B over a whole CLI run. Tree-sitter's own
+    /// pool caps bound what is retained, so a long-lived worker holds a
+    /// few KiB whatever it has parsed.
+    ///
+    /// Only the parser is cached, not the language bound to it:
+    /// rebinding per file costs nothing measurable (the gain survives
+    /// consecutive files alternating language), so a cache key whose
+    /// staleness would misparse a file buys nothing.
+    static SCRATCH_PARSER: Cell<Option<Parser>> = const { Cell::new(None) };
+}
+
+/// Parses `code` under `language` on this thread's reusable parser.
+///
+/// The parser is moved out of the thread-local for the duration of the
+/// parse and moved back afterwards, so a re-entrant call finds an empty
+/// slot and builds its own parser rather than observing one mid-parse.
+/// Both accesses go through `try_with`, which cannot panic: a parse
+/// issued from another thread-local's destructor runs after this slot
+/// may already have been destroyed, where `LocalKey::with` aborts the
+/// process outright (`thread local panicked on drop`).
+///
+/// The returned tree is independent of the parser that produced it: it
+/// owns its subtrees and its own handle on the grammar, and releases
+/// them through a pool of its own (`ts_tree_delete`). It outlives both
+/// the cached parser and the thread that built it.
+fn parse_on_scratch_parser(language: &Language, code: &[u8]) -> OtherTree {
+    // `Parser::default` is `Parser::new`.
+    let mut parser = SCRATCH_PARSER
+        .try_with(Cell::take)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    // `ts_parser_set_language` resets the parse state itself, so the
+    // `Parser::reset` tree-sitter documents for reuse is redundant here.
+    parser
+        .set_language(language)
+        .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
+    let tree = parser
+        .parse(code, None)
+        .expect("invariant: parser has a language set and no cancellation flag");
+    // Dropped rather than cached when the slot is already gone.
+    let _ = SCRATCH_PARSER.try_with(|slot| slot.set(Some(parser)));
+    tree
+}
 
 /// A parsed source tree wrapping a [`tree_sitter::Tree`].
 ///
@@ -28,7 +87,6 @@ pub(crate) struct Tree(OtherTree);
 
 impl Tree {
     pub(crate) fn new<T: LanguageInfo>(code: &[u8]) -> Self {
-        let mut parser = Parser::new();
         // `Tree::new::<T>` is only reachable from the `mk_action!`
         // dispatchers, which themselves cfg-gate each `LANG::*` arm
         // behind the matching per-language feature (see #252). When
@@ -38,15 +96,7 @@ impl Tree {
         let language = T::lang().get_ts_language().expect(
             "invariant: dispatcher cfg-gates this call behind the per-language Cargo feature",
         );
-        parser
-            .set_language(&language)
-            .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
-
-        Self(
-            parser
-                .parse(code, None)
-                .expect("invariant: parser has a language set and no cancellation flag"),
-        )
+        Self(parse_on_scratch_parser(&language, code))
     }
 
     pub(crate) fn from_ts_tree(tree: OtherTree) -> Self {
