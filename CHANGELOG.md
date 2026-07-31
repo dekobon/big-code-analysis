@@ -333,6 +333,20 @@ for historical reference.
   whitespace — trailing whitespace on an otherwise blank line — was
   not. **PLOC, `ploc_average`, `ploc_min` / `ploc_max`, and `blank`
   move for Tcl and iRules sources**; no other language is affected.
+- Documented the one input class where a trailing newline does change a
+  LOC value (#1087). #1067 established that a trailing newline is a
+  formatting detail no LOC sub-metric may depend on, but whitespace-only
+  source violates that: most grammars collapse tree-sitter's root to a
+  zero-width node at end-of-input, so `b"  "` reports `sloc 1` and
+  `b"  \n"` reports `sloc 0`. This is upstream grammar behaviour and is
+  now stated as an explicit carve-out rather than left as an unspoken
+  exception. Measuring it across the tree (it had only been checked for
+  Rust) found the split is 20 grammars collapsing and 5 — Elixir, Tcl,
+  iRules, `preproc`, `ccomment` — keeping the span; both halves are
+  pinned per language, so a grammar bump that moves a language across
+  fails a test rather than silently changing a metric. No behaviour
+  change. See
+  [`developers/loc.md`](big-code-analysis-book/src/developers/loc.md).
 - `bca` no longer exits `0` when an input file cannot be read (#1098).
   #1060 fixed this for `check` only; `metrics`, `ops`, `report`,
   `functions`, `find`, `count`, `dump`, `exemptions`, `preproc`,

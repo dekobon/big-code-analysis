@@ -57,6 +57,26 @@ METRIC VALUE: 6
 Last but not least, this metric counts the blank lines present in a code.
 METRIC VALUE: 2
 
+## Whitespace-only files
+
+Source that contains no token at all — a file of nothing but spaces,
+tabs, and newlines — is the one input class where a trailing newline
+changes a LoC value. Everywhere else it is a formatting detail that no
+metric depends on.
+
+Most grammars collapse tree-sitter's root node to a zero-width node at
+end-of-input for such input, rather than spanning the file. SLOC is
+derived from that span, so those files report `sloc 0` when they end in
+a newline and `sloc 1` when they do not. Five grammars — Elixir, Tcl,
+iRules, and the `preproc` / `ccomment` helpers — keep the root span and
+report the rows either way.
+
+Which side a language falls on is upstream grammar behaviour, not a
+decision this crate makes, so a grammar bump can move one across. The
+counts are pinned per language by
+`whitespace_only_input_is_the_documented_carve_out` in
+[/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/main/src/metrics/loc.rs).
+
 ## Implementation
 
 To implement the LoC related metrics described above you need to
