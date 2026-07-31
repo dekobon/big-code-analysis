@@ -982,29 +982,38 @@ fn exit_code_tiered_maps_each_category() {
     assert_eq!(CheckOutcome::HardBreach.exit_code(true), Some(5));
 }
 
-/// `bca init` writes a `bca.toml` manifest from the embedded
-/// [`INIT_MANIFEST_TEMPLATE`], whose doc-comment promises its
-/// `[thresholds]` values mirror the repo's own gate. Since #483 the
-/// repo's own gate lives in the consolidated root `bca.toml` manifest,
-/// so this guard compares the template's `[thresholds]` against the
-/// manifest's `[thresholds]` table. Nothing else enforces that, so
-/// this guards against the two silently diverging when either gate is
-/// retuned (e.g. the `loc.sloc` 300->800 change that motivated this
-/// test). Only the `[thresholds]` table is compared — the two files
-/// carry different explanatory prose by design.
+/// `bca init` writes a `bca.toml` manifest whose `[thresholds]` block
+/// is rendered from `default_thresholds::DEFAULT_THRESHOLDS`. This
+/// guard pins the *assembled* manifest to that table — the round-trip
+/// test in `default_thresholds_tests.rs` only covers the rendered block
+/// in isolation, so without this one a bad `format!` in
+/// [`init_manifest_template`] could drop or mangle the block and no
+/// test would notice.
+///
+/// Until #1140 this test compared the template against the repo-root
+/// `bca.toml` instead. That coupling is gone deliberately: the shipped
+/// defaults answer "what should an arbitrary project gate at", while
+/// the root manifest answers "what does this Rust codebase, with
+/// `exclude_tests = true` and a comment-dense house style, gate itself
+/// at". They are expected to differ, and asserting they do not is what
+/// kept the shipped defaults uncalibrated.
 #[test]
-fn init_template_thresholds_match_repo_root() {
-    let root_text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../bca.toml"))
-        .expect("repo-root bca.toml must be readable from the CLI crate dir");
-    let root: toml::Table = toml::from_str(&root_text).expect("root bca.toml parses");
+fn init_template_thresholds_match_the_default_table() {
     let template: toml::Table =
-        toml::from_str(INIT_MANIFEST_TEMPLATE).expect("INIT_MANIFEST_TEMPLATE parses");
+        toml::from_str(&init_manifest_template()).expect("init manifest template parses");
+    let thresholds = template
+        .get("thresholds")
+        .and_then(toml::Value::as_table)
+        .expect("the scaffolded manifest has a [thresholds] table");
+    let expected: toml::Table = crate::default_thresholds::DEFAULT_THRESHOLDS
+        .iter()
+        .map(|e| (e.name.to_string(), toml::Value::Integer(i64::from(e.limit))))
+        .collect();
     assert_eq!(
-        template.get("thresholds"),
-        root.get("thresholds"),
-        "the `bca init` scaffold's [thresholds] drifted from the repo-root \
-         bca.toml manifest; update INIT_MANIFEST_TEMPLATE (commands.rs) and \
-         the manifest's [thresholds] table together"
+        *thresholds, expected,
+        "the `bca init` scaffold's [thresholds] drifted from \
+         default_thresholds::DEFAULT_THRESHOLDS, which is the single source \
+         of truth for the shipped limits"
     );
 }
 

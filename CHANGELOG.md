@@ -87,6 +87,18 @@ for historical reference.
 
 ### Changed
 
+- Retuned the `[thresholds]` table `bca init` scaffolds, deriving each
+  limit from published thresholds plus a 20-language corpus measurement
+  (#1140). `cognitive` 25 to 15 (SonarSource's own default for the
+  metric), `nargs` 7 to 5 (RuboCop's value; 7 fired on under 1% of
+  functions and so could not catch anything), `abc` 50 to 40, and file
+  size split into a `loc.ploc` working limit of 600 with `loc.sloc`
+  demoted to a 1200-line bloat backstop (#1138). `cyclomatic`,
+  `nexits`, `halstead.effort`, `nom`, and `wmc` are unchanged. Existing
+  `bca.toml` files are unaffected; this changes what a fresh `bca init`
+  writes. The derivation, a per-language override table, and
+  per-use-case profiles are in the book's new *Choosing thresholds*
+  recipe.
 - `make test` now runs the suite through `cargo-nextest` when it is
   available, matching CI, and falls back to `cargo test` otherwise
   (#1120). nextest schedules every binary's tests into one global pool

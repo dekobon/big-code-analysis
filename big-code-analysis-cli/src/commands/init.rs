@@ -6,20 +6,23 @@ use super::*;
 /// This is the consolidated config `bca` auto-discovers when climbing
 /// from the working directory to the repo root (#374, #483): a bare
 /// `bca check` (no flags) reproduces the gate once this file exists.
-/// The `[thresholds]` values mirror the project's own root `bca.toml`,
-/// so `bca init` hands adopters the same limits the project gates
-/// itself with. The two `[thresholds]` tables are kept in lock-step by
-/// the `init_template_thresholds_match_repo_root` drift test: retuning
-/// the root gate fails that test until this template is updated to
-/// match, and vice versa.
 ///
-/// Only the surrounding prose differs by design — the root file
-/// carries the repo-specific rationale for each limit, while this
-/// template keeps the generic editing-rules header. Adopters typically
-/// run `--write-baseline` right after `init`, which pins today's
-/// offenders so subsequent runs fail only on regressions, then tighten
-/// limits over time.
-pub(crate) const INIT_MANIFEST_TEMPLATE: &str = "\
+/// The `[thresholds]` block is rendered from
+/// [`crate::default_thresholds::DEFAULT_THRESHOLDS`], the single source
+/// of truth for the shipped limits. Before #1140 it was a hand-written
+/// literal held equal to this repository's own root `bca.toml` by a
+/// drift test; that conflated two different questions — what an
+/// arbitrary project should gate at on day one, versus what this
+/// particular Rust codebase gates itself at — so retuning either forced
+/// retuning the other. The two are now free to diverge, and the root
+/// manifest says so in its own prose.
+///
+/// Adopters typically run `--write-baseline` right after `init`, which
+/// pins today's offenders so subsequent runs fail only on regressions,
+/// then tighten limits over time.
+pub(crate) fn init_manifest_template() -> String {
+    format!(
+        "\
 # bca.toml — project manifest, auto-discovered by `bca` when climbing
 # from the working directory to the repo root. This is the single
 # source of truth for the metric gate: with this file present, a bare
@@ -43,40 +46,7 @@ exclude_from = \".bcaignore\"
 [check]
 baseline = \".bca-baseline.toml\"
 
-# bca per-function threshold configuration.
-#
-# Editing rules:
-#   * Each key is a stable metric name (or dotted sub-metric name) from
-#     `bca list-metrics` / `bca check --help`. Available names:
-#         cognitive, cyclomatic, cyclomatic.modified,
-#         halstead.volume, halstead.difficulty, halstead.effort,
-#         halstead.time, halstead.bugs,
-#         loc.sloc, loc.ploc, loc.lloc, loc.cloc, loc.blank,
-#         nom, tokens, nexits, nargs,
-#         mi.original, mi.sei, mi.visual_studio,
-#         abc, wmc, npm, npa
-#   * Quote keys containing a dot (TOML requires it).
-#   * Values are per-function limits. A function whose metric exceeds the
-#     limit becomes an offender; the baseline file decides whether it
-#     fails CI.
-#   * Adding a metric is a tightening — regenerate `.bca-baseline.toml`
-#     in the same change so day-one CI does not flip red on offenders
-#     that were previously invisible to the gate.
-#
-# Metrics intentionally NOT gated (yet):
-#   halstead.{volume,difficulty,time,bugs}, cyclomatic.modified, mi.*
-# They are still computed and visible in `bca report markdown|html`.
-[thresholds]
-cognitive = 25
-cyclomatic = 15
-\"halstead.effort\" = 50000
-\"loc.sloc\" = 800
-nom = 30
-nargs = 7
-nexits = 5
-abc = 50
-wmc = 60
-
+{thresholds}
 # Aggregated-report options for `bca report markdown|html` (#501). By
 # default the report honours in-source suppression markers
 # (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) and omits a
@@ -86,7 +56,10 @@ wmc = 60
 # `bca report --no-suppress`).
 # [report]
 # no_suppress = true
-";
+",
+        thresholds = crate::default_thresholds::render_thresholds_block(),
+    )
+}
 
 /// Canonical contents of a freshly-scaffolded `.bcaignore`. The
 /// patterns are commented out so the file is a no-op until the
@@ -249,7 +222,7 @@ pub(crate) fn run_command_init(
         }
     }
 
-    write_atomic(&manifest_path, INIT_MANIFEST_TEMPLATE.as_bytes())
+    write_atomic(&manifest_path, init_manifest_template().as_bytes())
         .unwrap_or_else(|e| die_io("write", &manifest_path, e));
     eprintln!("bca init: wrote {}", manifest_path.display());
 

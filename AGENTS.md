@@ -376,6 +376,47 @@ A behaviour-changing fix without the matching submodule bump leaves
 the next fresh clone with either an unfetchable submodule SHA or
 stranded `.snap.new` drift that blocks CI on every subsequent change.
 
+## Metric thresholds
+
+The limits `bca init` scaffolds are defined once, in
+`big-code-analysis-cli/src/default_thresholds.rs`. They are derived
+from published thresholds plus a 20-language corpus measurement (#1140),
+and each carries its rationale inline. Change them there, not in a
+copy: the scaffolded `bca.toml` renders its `[thresholds]` block from
+that table, and `init_template_thresholds_match_the_default_table` fails
+if a second copy appears.
+
+| Metric | Default | Scope |
+|--------|---------|-------|
+| `cognitive` | 15 | function |
+| `cyclomatic` | 15 | function |
+| `abc` | 40 | function |
+| `nargs` | 5 | function |
+| `nexits` | 5 | function |
+| `halstead.effort` | 50000 | function |
+| `loc.ploc` | 600 | file |
+| `loc.sloc` | 1200 | file |
+| `nom` | 30 | container |
+| `wmc` | 60 | container |
+
+Three things to know before quoting a number at anyone:
+
+- **These are language-agnostic defaults, and no language is
+  agnostic.** Measured 97.5th-percentile `cognitive` runs from 4 (C#)
+  to 50 (C). C, Tcl, Bash, Lua, Perl, and Go want roughly double the
+  defaults; Java, Ruby, Kotlin, C#, and Elixir sit far under them. The
+  per-language table lives in
+  [Choosing thresholds](big-code-analysis-book/src/recipes/thresholds.md).
+- **The right limit depends on the job.** A blocking CI gate, an agent
+  edit loop, a legacy triage pass, and a safety-critical build want
+  four different tables. That page has one profile for each.
+- **This repository's own `bca.toml` deliberately differs from the
+  shipped defaults.** It is a Rust-specific calibration with
+  `exclude_tests = true` and a comment-dense house style. `cognitive`,
+  `nargs`, and `abc` are still at their pre-#1140 values here, tracked
+  in #1143. Do not "fix" one file to match the other; they answer
+  different questions.
+
 ## Responding to bca metric feedback
 
 This repo dogfoods its own analyzer: a `bca check` threshold violation
