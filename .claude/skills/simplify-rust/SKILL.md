@@ -24,7 +24,11 @@ Determine what to review based on `$ARGUMENTS`:
 
 1. Collect the diff for the chosen scope
 2. Read each changed file to understand context around the diff hunks
-3. Use the Agent tool to spawn three parallel **read-only** review agents (one per dimension below). Agents analyse and return findings — they do NOT edit files.
+3. Review against the three dimensions below, scaling the work to the diff.
+   A diff you can hold in one context — roughly one crate, under ~10
+   changed files — is faster to review directly than to farm out. Beyond
+   that, spawn **read-only** review agents, one per dimension and no more
+   than three. Agents analyse and return findings — they do NOT edit files.
 4. Aggregate findings, deduplicate, and classify by priority
 5. Apply fixes directly to the code (orchestrator only — not the review agents)
 6. Run `make pre-commit` to validate formatting, linting, and tests. Fall

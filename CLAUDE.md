@@ -42,6 +42,59 @@ destroys other agents' in-progress work:
 - For non-code files: use targeted `Edit` tool calls with scoped
   `old_string` / `new_string` pairs.
 
+### Communication during a task
+
+- Say in one sentence what you are about to do before the first tool
+  call. After that, speak up when you find something that changes the
+  plan or the conclusion — not once per file read.
+- Lead the closing message with the outcome: what happened, what
+  broke, or what you found. Supporting detail goes underneath it, for
+  the reader who wants it.
+- Keep answers short and caveats shorter. When asked to explain a
+  design decision or a metric, give the high-level answer and expand
+  only if asked.
+
+### Length of written deliverables
+
+Documents produced here — audit and triage reports, GitHub issue
+bodies, changelog entries, lessons-learned drafts, book pages — should
+be as long as their substance requires and no longer. No filler
+sections, no summary that restates the section above it, no
+boilerplate heading carrying nothing. A skill's report template is a
+maximum shape, not a quota: drop a section with no findings rather
+than padding it. `doc-author` and
+[`docs/conventions/documentation.md`](docs/conventions/documentation.md)
+own the prose rules; this length rule applies to every other written
+artifact too.
+
+### Delegating to subagents
+
+Skills that fan work out set their own agent counts — follow them.
+Outside those, the default is to do the work yourself:
+
+- Delegate only for work that is genuinely independent and larger than
+  a handful of tool calls: a wide multi-file investigation, one fix
+  per crate. Reading three files and editing one is not worth an
+  agent.
+- One agent that can carry the whole task beats three that split it.
+- Do not spawn an agent to check work you just did. The independent
+  reviewers in `simplify-rust`, `review`, and `doc-author` exist
+  because a fresh context catches what an authoring context cannot;
+  that is a different thing from re-verifying your own output, which
+  costs tokens and finds nothing.
+- Keep concurrent `isolation: "worktree"` agents to six or fewer.
+  Each clones the workspace, and this workspace has twelve crate
+  manifests, so unbounded fan-out has filled the disk with scratch
+  clones. Queue the remainder and start each as a slot frees. The
+  fan-out skills encode this same six: `batch-fix` caps wave size,
+  `improve-crate` and `cleanup-crate` cap concurrent area agents.
+- Match the model to the stage. The Agent tool takes `model`, so a
+  mechanical pass (collecting a diff, running a lint, filling in a
+  template) can run on a smaller one while analysis keeps the default.
+  There is no reasoning-effort knob on the Agent tool — only
+  `Workflow`'s `agent()` accepts one, and no skill here uses
+  `Workflow`.
+
 ### Skills available under `.claude/skills/`
 
 | Skill | Use when… |

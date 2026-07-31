@@ -189,7 +189,10 @@ to apply."
 #### Worktree mode
 
 **CRITICAL**: every agent MUST be launched with `isolation: "worktree"`.
-Launch all change area agents in parallel.
+Launch change area agents in parallel, at most six at a time — each one
+clones the workspace, and a crate with a dozen change areas will fill
+the disk with scratch clones if they all start at once. Queue the rest
+and launch each as a slot frees.
 
 #### Branch mode
 

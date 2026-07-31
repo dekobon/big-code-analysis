@@ -408,6 +408,10 @@ smaller.
   [Suppression markers](big-code-analysis-book/src/commands/suppression.md)
   and the full recipe at
   [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md).
+- **Keep the fix where the violation is.** The flag is scoped to the
+  function you just edited. Fix it there, mention anything larger you
+  noticed, and do not widen the change into a module rewrite to bring
+  the number down.
 
 The per-edit hook is an early-warning convenience; the task-boundary
 gate (`make self-scan` / `make pre-commit`) is the real check before

@@ -127,13 +127,17 @@ case "$status" in
      exit 0 ;;
 esac
 
-# Exit 2 makes Claude read stderr as context about the edit.
+# Exit 2 makes Claude read stderr as context about the edit. Default
+# CLAUDE_PROJECT_DIR and test the guidance file: under `set -u` an unset
+# variable aborts the hook, and a missing file would emit a bare `cat`
+# error where the guidance should be.
+guidance="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/bca-guidance.txt"
 cat >&2 <<EOF
 bca flagged complexity in the file you just edited:
 
 $report
 
-$(cat "${CLAUDE_PROJECT_DIR}/.claude/hooks/bca-guidance.txt")
+$([ -f "$guidance" ] && cat "$guidance")
 EOF
 exit 2
 ```
@@ -201,7 +205,9 @@ not the number smaller. Do not extract a meaningless helper or split a
 cohesive function to dodge the count — a spurious helper often raises
 file-level nom/nargs and helps nothing. If the complexity is essential
 and the function is clearest left whole, add a suppression marker with
-a one-line reason instead of contorting the code.
+a one-line reason instead of contorting the code. Keep the fix in the
+function that was flagged rather than widening it into a module
+rewrite.
 `.trim()
 
 export const BcaCheck = async ({ $ }) => {
@@ -301,6 +307,10 @@ down.
   machine. For these, do not contort the code: add a suppression marker
   with a one-line rationale and move on. A clear function with an
   honest `// bca: suppress(...)` is better than a "compliant" tangle.
+- **Keep the fix where the violation is.** The flag is scoped to the
+  function you just edited. Fix it there, mention anything larger you
+  noticed, and do not widen the change into a module rewrite to bring
+  the number down.
 ```
 
 ## Honest suppression (exact syntax) {#honest-suppression-exact-syntax}
@@ -346,9 +356,16 @@ mid-refactor just produces transient violations that resolve
 themselves a few edits later — noise the agent then wastes a turn
 "fixing". Let the agent finish a coherent change, then gate once.
 
+One instruction to leave out of the rules file: a standing "verify your
+fix, then re-check the metrics" step layered on top of the hook.
+Current models re-read and re-check their own edits without being asked,
+and an explicit instruction compounds with that — the loop spends turns
+re-running a gate whose input has not changed. The hook already fires on
+its own when an edit lands. Let that be the signal.
+
 ## Caveats
 
-Two caveats the recipe depends on; ignore them and the loop does more
+Three caveats the recipe depends on; ignore them and the loop does more
 harm than good.
 
 - **Goodhart's law / metric-gaming.** "Make this number smaller" is not
@@ -366,3 +383,10 @@ harm than good.
   judgement call, not a defect. Set expectations accordingly — wire
   complexity feedback as advice the agent weighs, not a pass/fail it
   must drive to zero at any cost.
+- **Complexity feedback invites scope creep.** "This function is hard to
+  follow" reads to an agent as an invitation to restructure, and the
+  restructuring does not reliably stop at the function the hook named —
+  a two-line fix becomes a module rewrite nobody asked to review. Bound
+  it in the rules file: the violation is scoped to the edit that
+  triggered it. Fix it where it was flagged, mention anything larger you
+  noticed, and do not widen the change to chase the number.
