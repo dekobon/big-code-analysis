@@ -1,6 +1,6 @@
 //! Tests for the shipped default `[thresholds]` table (#1140).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use big_code_analysis::metric_catalog::MetricScope;
 
@@ -146,11 +146,7 @@ fn doc_summary_tables_match_the_default_table() {
             .unwrap_or_else(|e| panic!("{path} must be readable from the CLI crate dir: {e}"));
 
         for entry in DEFAULT_THRESHOLDS {
-            let scope = match metric_scope(entry.name) {
-                MetricScope::File => "file",
-                MetricScope::Container => "container",
-                MetricScope::Function => "function",
-            };
+            let scope = scope_word(entry.name);
             // A prefix match, so a table may carry extra trailing
             // columns (the book's adds an "Anchor" column).
             let row = format!("| `{}` | {} | {scope} |", entry.name, entry.limit);
@@ -161,7 +157,51 @@ fn doc_summary_tables_match_the_default_table() {
                  default_thresholds::DEFAULT_THRESHOLDS"
             );
         }
+
+        // The per-entry loop above only catches a *missing* row. Retiring
+        // or renaming a default leaves its old row behind, and a stale row
+        // advertises a default `bca init` does not write — so pin the set
+        // of documented metrics as well, not just its members.
+        let documented = documented_threshold_rows(&text);
+        let expected: BTreeSet<String> = DEFAULT_THRESHOLDS
+            .iter()
+            .map(|e| e.name.to_string())
+            .collect();
+        assert_eq!(
+            documented, expected,
+            "{path}: the threshold summary table documents a different set of \
+             metrics than default_thresholds::DEFAULT_THRESHOLDS; drop the \
+             rows for metrics that are no longer shipped defaults"
+        );
     }
+}
+
+/// The scope column as the doc tables spell it.
+fn scope_word(name: &str) -> &'static str {
+    match metric_scope(name) {
+        MetricScope::File => "file",
+        MetricScope::Container => "container",
+        MetricScope::Function => "function",
+    }
+}
+
+/// Metric names appearing as threshold-summary rows in a Markdown doc.
+///
+/// A row is recognized only by its full shape — backticked name, integer
+/// limit, then one of the three scope words — because both documents
+/// carry unrelated tables whose first cell is also backticked (AGENTS.md
+/// lists the workspace crates that way, and the book's per-language table
+/// backticks metric names in its header row).
+fn documented_threshold_rows(text: &str) -> BTreeSet<String> {
+    text.lines()
+        .filter_map(|line| {
+            let (name, rest) = line.strip_prefix("| `")?.split_once("` | ")?;
+            let (limit, rest) = rest.split_once(" | ")?;
+            limit.parse::<u32>().ok()?;
+            let scope = rest.split(" |").next()?;
+            matches!(scope, "file" | "container" | "function").then(|| name.to_owned())
+        })
+        .collect()
 }
 
 /// The rendered prose carries two hand-curated metric-name inventories:
@@ -171,33 +211,64 @@ fn doc_summary_tables_match_the_default_table() {
 ///
 /// This caught a real omission: the NOT-gated list read as exhaustive
 /// while silently missing `loc.lloc`, `loc.cloc`, and `loc.blank`.
+///
+/// Both halves assert against the parsed inventory block, never against
+/// the whole rendered string. Searching the whole string makes the
+/// assertion unfalsifiable: every known metric also appears as a
+/// rendered `name = limit` key or in the *other* inventory, so deleting
+/// the "Available names" list outright failed zero tests. Token
+/// equality rather than `contains` additionally stops `cyclomatic` from
+/// being satisfied by `cyclomatic.modified`.
 #[test]
 fn rendered_prose_lists_every_known_metric() {
     let rendered = render_thresholds_block();
     let gated: Vec<&str> = DEFAULT_THRESHOLDS.iter().map(|e| e.name).collect();
+    let available = inventory_after(&rendered, "Available names:");
+    let not_gated = inventory_after(&rendered, "# Metrics intentionally NOT gated:");
 
     for name in known_metric_names() {
         assert!(
-            rendered.contains(name),
+            available.contains(name),
             "the scaffold's \"Available names\" list omits the known metric \
-             {name:?}; add it in default_thresholds::THRESHOLDS_HEADER"
+             {name:?}; add it in default_thresholds::THRESHOLDS_HEADER. \
+             Listed: {available:?}"
         );
         if gated.contains(&name) {
             continue;
         }
-        // An ungated metric must be named in the NOT-gated paragraph.
-        // Split on its heading so a hit in the available-names list
-        // above cannot satisfy this half of the assertion.
-        let (_, not_gated) = rendered
-            .split_once("# Metrics intentionally NOT gated:")
-            .expect("the rendered header names its NOT-gated section");
         assert!(
             not_gated.contains(name),
             "{name:?} is a known metric that no default gates, but the \
              scaffold's \"NOT gated\" list does not mention it; that list \
-             reads as exhaustive, so a gap there is a wrong claim"
+             reads as exhaustive, so a gap there is a wrong claim. \
+             Listed: {not_gated:?}"
         );
     }
+}
+
+/// Parse one of the rendered header's hand-curated metric-name
+/// inventories: the run of deeply-indented comment lines that follows
+/// `marker`, split into comma-separated names.
+///
+/// The indent is what delimits the block — an inventory continuation
+/// line is `#` plus nine spaces, while the surrounding editing-rule
+/// bullets use `#   * ` / `#     `. Bounding the block this way is the
+/// point of the helper: prose elsewhere in the header happens to name
+/// `nom`, `wmc`, `npm`, and `npa`, so a looser slice would let those
+/// four go missing from the inventory undetected.
+fn inventory_after(rendered: &str, marker: &str) -> BTreeSet<String> {
+    const CONTINUATION: &str = "#         ";
+    let (_, rest) = rendered
+        .split_once(marker)
+        .unwrap_or_else(|| panic!("the rendered header is missing {marker:?}"));
+    rest.lines()
+        .skip_while(|line| !line.starts_with(CONTINUATION))
+        .take_while(|line| line.starts_with(CONTINUATION))
+        .flat_map(|line| line[CONTINUATION.len()..].split(','))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Every default carries a rationale, and it fits the manifest's

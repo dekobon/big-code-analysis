@@ -383,8 +383,13 @@ The limits `bca init` scaffolds are defined once, in
 from published thresholds plus a 20-language corpus measurement (#1140),
 and each carries its rationale inline. Change them there, not in a
 copy: the scaffolded `bca.toml` renders its `[thresholds]` block from
-that table, and `init_template_thresholds_match_the_default_table` fails
-if a second copy appears.
+that table, so there is no second copy of the numbers to drift.
+
+Two copies of the *summary table* do exist — the one below and the one
+in the book's recipe — and `doc_summary_tables_match_the_default_table`
+pins both, in each direction. Do not add a third: it would be
+unguarded, since that test only knows the paths listed in
+`DOCS_REPEATING_THE_TABLE`.
 
 | Metric | Default | Scope |
 |--------|---------|-------|
