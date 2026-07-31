@@ -553,11 +553,18 @@ pub(crate) fn emit_check_results(
     // exit-code contract is honored.
     //
     // `stderr` is unbuffered — one `write(2)` per violation line — so the
-    // lock is wrapped in a `BufWriter`. The explicit flush below is not
-    // optional: `run_check` calls `process::exit` on a failing gate,
-    // which runs no destructors, so a buffer left to `Drop` would
-    // discard the entire violation report on exactly the runs that have
-    // one.
+    // lock is wrapped in a `BufWriter`. What makes that safe is the
+    // explicit `drop` at the end of this function, and it is about
+    // *ordering*, not about `process::exit`: `BufWriter::drop` does
+    // flush (it only discards the error), and this buffer is dropped
+    // here, long before `run_check` ever reaches `process::exit`.
+    // Deleting that drop lets the `eprintln!` diagnostic and the stdout
+    // document that follow overtake the violation report — which is what
+    // `check_violations_are_flushed_before_later_stderr_writes` catches.
+    //
+    // The one thing buffering does cost: a panic between the writes
+    // below and that drop loses the entire report, because
+    // `BufWriter::drop` skips the flush when `self.panicked`.
     let mut stderr = BufWriter::new(std::io::stderr().lock());
     for (v, tag) in &pairs {
         let _ = writeln!(stderr, "{}", render_violation_line(v, tag.as_ref()));
@@ -585,11 +592,10 @@ pub(crate) fn emit_check_results(
     if let Some(block) = remediation {
         let _ = write!(stderr, "{block}");
     }
-    // Flush before anything else writes: the step-summary diagnostic
+    // Drop before anything else writes: the step-summary diagnostic
     // below goes to `stderr` through `eprintln!` and the aggregated
     // document to stdout, and both must land *after* the violation
-    // report a reader is scanning for.
-    let _ = stderr.flush();
+    // report a reader is scanning for. `BufWriter::drop` flushes.
     drop(stderr);
 
     // Append the markdown digest to `$GITHUB_STEP_SUMMARY` (or the

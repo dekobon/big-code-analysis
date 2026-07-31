@@ -70,6 +70,28 @@ pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     let Some((path, source, language)) = validate_and_resolve_file(path, cfg)? else {
         return Ok(());
     };
+    // Tally here rather than in the runner's error printer: everything
+    // that reaches this point has already been read, so an error can
+    // only have come from emitting the result. The error itself is still
+    // returned so the runner prints its per-file line.
+    //
+    // `BrokenPipe` is excluded for the same reason the printer swallows
+    // it — `bca metrics | head` closing the pipe is routine.
+    dispatch_action(language, source, path, cfg).inspect_err(|err| {
+        if err.kind() != std::io::ErrorKind::BrokenPipe {
+            cfg.write_failures.fetch_add(1, Ordering::Relaxed);
+        }
+    })
+}
+
+/// Route one read, non-empty, language-resolved file to the helper that
+/// implements `cfg.action`.
+fn dispatch_action(
+    language: LANG,
+    source: Vec<u8>,
+    path: PathBuf,
+    cfg: &Config,
+) -> std::io::Result<()> {
     let pr = cfg.preproc.clone();
     match &cfg.action {
         Action::Dump => dispatch_dump(language, source, path, pr, cfg),
@@ -664,6 +686,7 @@ mod tests {
             exemptions_tx: None,
             files_dispatched: None,
             read_failures: Arc::new(AtomicUsize::new(0)),
+            write_failures: Arc::new(AtomicUsize::new(0)),
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
             explicit_unrecognized: None,
             output_produced: None,

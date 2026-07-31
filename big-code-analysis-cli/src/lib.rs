@@ -196,6 +196,15 @@ struct Config {
     /// missing files read as removed rather than as an I/O failure
     /// (#1098).
     read_failures: Arc<AtomicUsize>,
+    /// Counts input files whose *output* could not be written — a
+    /// read-only `--output-dir`, a full disk. The mirror image of
+    /// `read_failures`, enforced by the same post-walk guard: the
+    /// per-file error already reached stderr, but until it was tallied
+    /// `bca dump` onto a filling filesystem left a truncated document
+    /// and still exited 0. `BrokenPipe` is excluded, matching the
+    /// swallow-it policy the walk's error printer applies to a closed
+    /// `| head`.
+    write_failures: Arc<AtomicUsize>,
     /// Seeds the user named *explicitly as files* on the command line
     /// (or via `--paths-from` / a manifest `paths` key), in the emitted
     /// path form. A file in this set whose language is unrecognized is a
@@ -315,6 +324,7 @@ impl Config {
             exemptions_tx: None,
             files_dispatched: None,
             read_failures: Arc::new(AtomicUsize::new(0)),
+            write_failures: Arc::new(AtomicUsize::new(0)),
             explicit_seeds: Arc::new(std::collections::HashSet::new()),
             explicit_unrecognized: None,
             output_produced: None,
@@ -381,18 +391,30 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 /// that want the standard exit-1 contract go through the `run_walk*`
 /// wrappers; `bca diff --since` uses this directly so it can unwind its
 /// temp trees before reporting.
-fn run_walk_resolved_tallying(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) -> usize {
+fn run_walk_resolved_tallying(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) -> WalkFailures {
     let read_failures = Arc::clone(&cfg.read_failures);
+    let write_failures = Arc::clone(&cfg.write_failures);
     ConcurrentRunner::new(num_jobs, act_on_file)
         .run(cfg, FilesData { paths })
         .unwrap_or_else(|e| die(format_args!("{e:?}")));
-    read_failures.load(Ordering::Relaxed)
+    WalkFailures {
+        read: read_failures.load(Ordering::Relaxed),
+        write: write_failures.load(Ordering::Relaxed),
+    }
+}
+
+/// How many files a walk failed on, split by which end gave way. Both
+/// are fatal; counted apart so the summary names the actionable cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WalkFailures {
+    read: usize,
+    write: usize,
 }
 
 /// Resolve the seeds and process the file set concurrently, returning
 /// the read-failure tally. The seed-expanding counterpart to
 /// [`run_walk_resolved_tallying`].
-fn run_walk_tallying(globals: GlobalOpts, mut cfg: Config) -> usize {
+fn run_walk_tallying(globals: GlobalOpts, mut cfg: Config) -> WalkFailures {
     let (resolved, num_jobs) = resolve_walk_files(globals);
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
     run_walk_resolved_tallying(resolved.files, num_jobs, cfg)
@@ -409,7 +431,17 @@ pub(crate) fn read_failure_summary(count: usize) -> String {
     )
 }
 
-/// Exit 1 when the walk could not read every input file.
+/// The write-side counterpart to [`read_failure_summary`].
+pub(crate) fn write_failure_summary(count: usize) -> String {
+    let noun = if count == 1 { "file" } else { "files" };
+    format!(
+        "{count} output {noun} could not be written (see the errors above); \
+         refusing to report success for an incomplete result"
+    )
+}
+
+/// Exit 1 when the walk could not read every input file, or could not
+/// write every output document.
 ///
 /// A command that analysed less than its input has no complete result to
 /// report, and the omission is invisible in the output: a missing file
@@ -417,6 +449,10 @@ pub(crate) fn read_failure_summary(count: usize) -> String {
 /// `diff` side. `EXIT_TOOL_ERROR` is documented to cover unreadable
 /// input, so every walking subcommand fails the same way `check` does
 /// (#1060, #1098) rather than only when the run produced nothing.
+///
+/// The write side is the same argument backwards: an unwritable
+/// `--output-dir` printed one error per file and still exited 0, which
+/// a CI script reads as a clean run over a missing output tree.
 ///
 /// The consumer has already printed one `error processing <path>: …`
 /// line per failure, so this is a summary, not the first notice. It runs
@@ -426,36 +462,50 @@ pub(crate) fn read_failure_summary(count: usize) -> String {
 /// Deliberately unprefixed by a subcommand name: `bca init` scaffolds
 /// its baseline through `run_check`, so naming a subcommand here would
 /// misattribute the failure to a command the user never ran.
-fn enforce_readable_input(read_failures: usize) {
-    if read_failures > 0 {
-        die(read_failure_summary(read_failures));
+fn enforce_complete_walk(failures: WalkFailures) {
+    // Reads first: when a file could not be read there is no output to
+    // write either, so naming the read is naming the cause.
+    if failures.read > 0 {
+        die(read_failure_summary(failures.read));
+    }
+    if failures.write > 0 {
+        die(write_failure_summary(failures.write));
     }
 }
 
 /// Resolve the seeds and process the file set concurrently. The common
 /// walk entry point; callers that also need the resolved file list (only
 /// `bca preproc`, for `#include` grouping) use [`run_walk_collecting`].
+///
+/// Exits 1 if any input file could not be read or any output document
+/// could not be written, so anything assembled *after* this returns is
+/// suppressed — while output already streamed *during* the walk is kept.
 fn run_walk(globals: GlobalOpts, cfg: Config) {
-    enforce_readable_input(run_walk_tallying(globals, cfg));
+    enforce_complete_walk(run_walk_tallying(globals, cfg));
 }
 
 /// Process an already-resolved terminal file list concurrently. Lets a
 /// caller inspect the resolved set (e.g. `strip-comments --output`, which
 /// rejects a multi-file match) before dispatching the workers, without
 /// re-running the seed expansion.
+///
+/// Exits 1 on an unreadable input or unwritable output, as [`run_walk`].
 fn run_walk_resolved(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) {
-    enforce_readable_input(run_walk_resolved_tallying(paths, num_jobs, cfg));
+    enforce_complete_walk(run_walk_resolved_tallying(paths, num_jobs, cfg));
 }
 
 /// Like [`run_walk`], but returns the resolved terminal file list.
 /// `bca preproc` needs it to group files by basename for cross-file
 /// `#include` resolution after the analysis (#495); it is the only
 /// caller that consumes the list, so only this variant clones it.
+///
+/// Exits 1 like [`run_walk`], so the list is only handed back for a
+/// complete walk.
 fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
     let (resolved, num_jobs) = resolve_walk_files(globals);
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
     let paths = resolved.files;
-    enforce_readable_input(run_walk_resolved_tallying(paths.clone(), num_jobs, cfg));
+    enforce_complete_walk(run_walk_resolved_tallying(paths.clone(), num_jobs, cfg));
     paths
 }
 
@@ -518,12 +568,18 @@ pub(crate) fn walk_metric_set(
     // worker threads spawn and join inside this call — so the scoped
     // CWD swap cannot race another command's walk.
     let restore = with_cwd(root)?;
-    let read_failures = run_walk_tallying(globals, cfg);
+    let failures = run_walk_tallying(globals, cfg);
     drop(restore);
-    if read_failures > 0 {
+    if failures.read > 0 {
         return Err(metric_diff::DiffError::UnreadableInputs {
             side,
-            count: read_failures,
+            count: failures.read,
+        });
+    }
+    if failures.write > 0 {
+        return Err(metric_diff::DiffError::UnwritableOutputs {
+            side,
+            count: failures.write,
         });
     }
 

@@ -26,7 +26,7 @@ use big_code_analysis::vcs::{
 use big_code_analysis::wire;
 
 use crate::formats::{
-    CBOR_STDOUT_ERROR, VcsFormat, write_buffered, write_buffered_file, write_text,
+    VcsFormat, write_buffered, write_cbor, write_json, write_text, write_toml, write_yaml,
 };
 use crate::{GlobalOpts, VcsArgs, die, warn};
 
@@ -454,38 +454,10 @@ fn emit(report: &Report, args: &VcsArgs) -> std::io::Result<()> {
         }
         Some(VcsFormat::Html) => write_text(&crate::vcs_report::render_html(report), output),
         Some(VcsFormat::Csv) => write_csv(report, output.map(PathBuf::as_path)),
-        Some(VcsFormat::Json) => {
-            let json = if args.pretty {
-                serde_json::to_string_pretty(report)
-            } else {
-                serde_json::to_string(report)
-            }
-            .map_err(std::io::Error::other)?;
-            write_text(&json, output)
-        }
-        Some(VcsFormat::Yaml) => {
-            let yaml = serde_yaml::to_string(report).map_err(std::io::Error::other)?;
-            write_text(&yaml, output)
-        }
-        Some(VcsFormat::Toml) => {
-            let toml = if args.pretty {
-                toml::to_string_pretty(report)
-            } else {
-                toml::to_string(report)
-            }
-            .map_err(std::io::Error::other)?;
-            write_text(&toml, output)
-        }
-        // CBOR is binary, so it must land in a file — never stdout.
-        Some(VcsFormat::Cbor) => match output {
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                CBOR_STDOUT_ERROR,
-            )),
-            Some(path) => write_buffered_file(path, |w| {
-                ciborium::into_writer(report, w).map_err(std::io::Error::other)
-            }),
-        },
+        Some(VcsFormat::Json) => write_json(report, args.pretty, output),
+        Some(VcsFormat::Yaml) => write_yaml(report, output),
+        Some(VcsFormat::Toml) => write_toml(report, args.pretty, output),
+        Some(VcsFormat::Cbor) => write_cbor(report, output),
     }
 }
 

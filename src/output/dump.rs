@@ -84,6 +84,10 @@ pub fn dump_node_with_color(
     // `nargs` sums the six published parameters with the rendering
     // closure's writer, which no caller supplies: `function_args_max`
     // is still 6, and the signature is frozen by the stability contract.
+    // This trips the soft tier only — at the hard limit of 7 the count
+    // of 7 is not `> 7` — so a reader checking against the hard gate
+    // will find the marker apparently dead. It is not; deleting it
+    // reddens `make self-scan-headroom`.
     print_to_stdout(color_mode, |stdout| {
         let mut state = DumpState {
             code,

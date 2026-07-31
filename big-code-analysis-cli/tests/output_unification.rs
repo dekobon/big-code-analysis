@@ -8,6 +8,9 @@
 //! - #669: `--output <FILE>` means one aggregate file everywhere;
 //!   `metrics`/`ops` gain `--output-dir <DIR>` for the per-file tree;
 //!   passing both is an error.
+//! - #1115: every file destination is written through a buffer that is
+//!   explicitly flushed, so a document larger than the buffer is
+//!   complete on disk rather than missing its tail.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -19,17 +22,39 @@ fn cli() -> Command {
     common::bca_command()
 }
 
-/// Recursively count `*.json` files under `dir`, accumulating into
-/// `count`. Used to assert the per-file-tree (`--output-dir`) shape.
-fn count_json_files(dir: &std::path::Path, count: &mut usize) {
-    for e in std::fs::read_dir(dir).unwrap().flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            count_json_files(&p, count);
-        } else if p.extension().and_then(|x| x.to_str()) == Some("json") {
-            *count += 1;
+/// Bytes buffered in front of every output destination, mirroring
+/// `formats::OUTPUT_BUFFER_BYTES`. A fixture larger than this spans
+/// several buffer fills, which is what makes a lost final partial
+/// buffer observable.
+const OUTPUT_BUFFER_BYTES: u64 = 64 * 1_024;
+
+/// Every file under `dir`, recursively, in directory order.
+///
+/// Backs both the per-file-tree (`--output-dir`) shape assertions and
+/// the "find the one document that was written" lookups; those were two
+/// separate hand-rolled `read_dir` walks.
+fn files_under(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push(path);
         }
     }
+    found
+}
+
+/// The `*.json` subset of [`files_under`].
+fn json_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    files_under(dir)
+        .into_iter()
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
+        .collect()
 }
 
 // ---------------------------------------------------------------------
@@ -183,9 +208,11 @@ fn output_dir_writes_per_file_tree() {
         .assert()
         .success();
 
-    let mut count = 0;
-    count_json_files(&out_dir, &mut count);
-    assert_eq!(count, 2, "one per-file JSON document per analyzed file");
+    assert_eq!(
+        json_files(&out_dir).len(),
+        2,
+        "one per-file JSON document per analyzed file"
+    );
 }
 
 /// `--output` and `--output-dir` together is a usage error (exit 1):
@@ -279,29 +306,14 @@ fn output_without_format_errors() {
 // #1115 — every file destination writes through a buffer
 // ---------------------------------------------------------------------
 
-/// A Rust source whose metric document comfortably exceeds the 64 KiB
-/// output buffer in every format, so the written file spans several
-/// buffer fills rather than landing in one.
+/// A Rust source whose metric document comfortably exceeds
+/// [`OUTPUT_BUFFER_BYTES`] in every format, so the written file spans
+/// several buffer fills rather than landing in one.
 ///
 /// Each function is distinct so the *last* one can be looked for by
 /// name: a document that lost its final partial buffer parses as
 /// truncated JSON but would still contain the earlier functions, which
 /// is exactly the failure a small fixture cannot distinguish.
-fn find_single_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        let found = if path.is_dir() {
-            find_single_file(&path)
-        } else {
-            Some(path)
-        };
-        if found.is_some() {
-            return found;
-        }
-    }
-    None
-}
-
 fn many_functions(count: usize) -> String {
     use std::fmt::Write as _;
 
@@ -328,7 +340,6 @@ fn many_functions(count: usize) -> String {
 #[test]
 fn per_file_documents_survive_spanning_several_output_buffers() {
     const FUNCTIONS: usize = 400;
-    const MIN_MULTI_BUFFER_BYTES: u64 = 64 * 1_024;
 
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("big.rs"), many_functions(FUNCTIONS)).unwrap();
@@ -348,12 +359,19 @@ fn per_file_documents_survive_spanning_several_output_buffers() {
             .assert()
             .success();
 
-        let written = find_single_file(&out_dir)
-            .unwrap_or_else(|| panic!("{format}: --output-dir produced no file"));
-        let bytes = std::fs::read(&written).unwrap();
+        // Exactly one input file, so exactly one document — asserting
+        // the count rather than picking the first entry also catches a
+        // stray sibling the writer never should have created.
+        let written = files_under(&out_dir);
+        assert_eq!(
+            written.len(),
+            1,
+            "{format}: --output-dir produced {written:?} for one input"
+        );
+        let bytes = std::fs::read(&written[0]).unwrap();
 
         assert!(
-            bytes.len() as u64 > MIN_MULTI_BUFFER_BYTES,
+            bytes.len() as u64 > OUTPUT_BUFFER_BYTES,
             "{format}: fixture must exceed one output buffer to be a \
              meaningful truncation test, got {} bytes",
             bytes.len()
@@ -421,7 +439,7 @@ fn aggregate_document_survives_spanning_several_output_buffers() {
 
     let bytes = std::fs::read(&out).expect("aggregate written");
     assert!(
-        bytes.len() > 64 * 1_024,
+        bytes.len() as u64 > OUTPUT_BUFFER_BYTES,
         "fixture must span several buffers"
     );
     let doc: serde_json::Value = serde_json::from_slice(&bytes)

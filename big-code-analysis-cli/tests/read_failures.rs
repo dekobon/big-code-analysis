@@ -1,4 +1,4 @@
-//! Integration tests for the unreadable-input exit contract (#1098).
+//! Integration tests for the walk's I/O-failure exit contract (#1098).
 //!
 //! `#1060` made `bca check` exit 1 when an input file could not be read;
 //! every other walking subcommand still exited 0 with only a per-file
@@ -6,6 +6,12 @@
 //! resolved contract: **any** read failure is a tool error (exit 1) for
 //! every walking subcommand, whether or not the run also produced
 //! output.
+//!
+//! The second half covers the mirror image, which #1098 left open: a
+//! failure to *write* a per-file document — an unwritable
+//! `--output-dir`, a full disk — printed the same per-file error and
+//! still exited 0, so a CI script read a missing or truncated output
+//! tree as a clean run.
 //!
 //! Unix-only, because the scenario is staged with a mode-000 file.
 //! `unreadable_fixture` probes the real capability rather than the uid,
@@ -44,22 +50,10 @@ mod unix {
         path.to_str().expect("utf8 fixture path").to_owned()
     }
 
-    /// Write `name` under `dir` and strip every permission bit so reading it
-    /// fails with `EACCES`. Returns `None` when this process can read it
-    /// anyway (root ignores mode bits), because then the scenario under test
-    /// cannot be staged at all. Mirrors the helper of the same name in
-    /// `check_thresholds.rs`.
+    /// [`common::unreadable_fixture`] over [`TRIVIAL_C`], with this
+    /// suite's `String`-path convention.
     fn unreadable_fixture(dir: &TempDir, name: &str) -> Option<String> {
-        use std::os::unix::fs::PermissionsExt;
-
-        let path = dir.path().join(name);
-        fs::write(&path, TRIVIAL_C).expect("write fixture");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("chmod 000");
-        // Probe the actual capability rather than the uid: `fs::read`
-        // succeeding here means mode bits do not deny this process.
-        if fs::read(&path).is_ok() {
-            return None;
-        }
+        let path = common::unreadable_fixture(dir.path(), name, TRIVIAL_C)?;
         Some(path.to_str().expect("utf8 fixture path").to_owned())
     }
 
@@ -345,5 +339,131 @@ mod unix {
             .success()
             .stdout(predicate::str::contains("readable.c"))
             .stderr(predicate::str::contains("could not be read").not());
+    }
+
+    /// The write-side summary line. Mirrors [`SUMMARY`].
+    const WRITE_SUMMARY: &str = "1 output file could not be written";
+
+    /// Create `name` under `dir` and strip its write bits so a per-file
+    /// document cannot be created inside it. `None` when the denial does
+    /// not bite (root ignores mode bits), same as `unreadable_fixture`.
+    ///
+    /// The caller must restore the mode before the `TempDir` drops, or
+    /// cleanup fails.
+    fn readonly_dir(dir: &TempDir, name: &str) -> Option<String> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = dir.path().join(name);
+        fs::create_dir(&path).expect("create output dir");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).expect("chmod 555");
+        // Probe the real capability: creating a file here must fail.
+        if fs::write(path.join(".probe"), b"x").is_ok() {
+            return None;
+        }
+        Some(path.to_str().expect("utf8 dir path").to_owned())
+    }
+
+    /// Run `subcommand` over one perfectly readable file, writing JSON
+    /// into `output_dir`, and return the assertion.
+    fn run_into_output_dir(
+        dir: &TempDir,
+        subcommand: &str,
+        source: &str,
+        output_dir: &str,
+    ) -> assert_cmd::assert::Assert {
+        cli(dir)
+            .arg(subcommand)
+            .args([
+                "--no-config",
+                "--paths",
+                source,
+                "-O",
+                "json",
+                "--output-dir",
+                output_dir,
+            ])
+            .assert()
+    }
+
+    /// #1098's mirror image: the input read fine, the output document
+    /// did not, and that must be exit 1 rather than a silent success.
+    ///
+    /// The writable control run in the same test is what keeps this
+    /// honest — without it, any unrelated exit-1 path (a rejected flag,
+    /// a missing fixture) would satisfy the assertion.
+    fn assert_write_failure_exits_one(subcommand: &str) {
+        let dir = TempDir::new().expect("tempdir");
+        let source = write_fixture(&dir, "ok.c", TRIVIAL_C);
+        let Some(locked) = readonly_dir(&dir, "locked-out") else {
+            eprintln!("skipping: this process can write into a mode-555 directory");
+            return;
+        };
+
+        run_into_output_dir(&dir, subcommand, &source, &locked)
+            .code(1)
+            .stderr(predicate::str::contains("error processing"))
+            .stderr(predicate::str::contains("Permission denied"))
+            .stderr(predicate::str::contains(WRITE_SUMMARY));
+
+        // Same command, writable destination: exit 0 and no summary. The
+        // exit-1 above therefore came from the write, not the invocation.
+        let open = dir.path().join("open-out");
+        run_into_output_dir(
+            &dir,
+            subcommand,
+            &source,
+            open.to_str().expect("utf8 dir path"),
+        )
+        .success()
+        .stderr(predicate::str::contains("could not be written").not());
+
+        restore_dir_permissions(&locked);
+    }
+
+    /// Give the mode-555 fixture its write bits back so `TempDir`'s
+    /// recursive delete can remove it.
+    fn restore_dir_permissions(path: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("chmod 755");
+    }
+
+    #[test]
+    fn metrics_exits_one_when_an_output_document_cannot_be_written() {
+        assert_write_failure_exits_one("metrics");
+    }
+
+    #[test]
+    fn ops_exits_one_when_an_output_document_cannot_be_written() {
+        assert_write_failure_exits_one("ops");
+    }
+
+    /// Every failing file is counted, not just the first — the summary
+    /// is what tells the user how much of the output tree is missing.
+    #[test]
+    fn every_unwritable_output_document_is_counted() {
+        let dir = TempDir::new().expect("tempdir");
+        let sources = dir.path().join("src");
+        fs::create_dir(&sources).expect("create src dir");
+        for name in ["a.c", "b.c", "c.c"] {
+            fs::write(sources.join(name), TRIVIAL_C).expect("write fixture");
+        }
+        let Some(locked) = readonly_dir(&dir, "locked-out") else {
+            eprintln!("skipping: this process can write into a mode-555 directory");
+            return;
+        };
+
+        run_into_output_dir(
+            &dir,
+            "metrics",
+            sources.to_str().expect("utf8 src path"),
+            &locked,
+        )
+        .code(1)
+        .stderr(predicate::str::contains(
+            "3 output files could not be written",
+        ));
+
+        restore_dir_permissions(&locked);
     }
 }

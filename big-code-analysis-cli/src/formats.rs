@@ -641,7 +641,7 @@ impl WriteFile for Cbor {
 /// Create the parent directory of `path` if it does not yet exist, so a
 /// `--output sub/dir/report.json` to a missing directory succeeds rather
 /// than failing with "No such file or directory" (issue #709).
-pub(crate) fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
+fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -662,6 +662,68 @@ pub(crate) fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Re
         }
         None => std::io::stdout().lock().write_all(content.as_bytes()),
     }
+}
+
+/// Serialize `value` as JSON and write it through [`write_text`].
+///
+/// One of the four single-document serializers the `vcs` emit paths
+/// share (`vcs`, `vcs commit`, `vcs trend`). Each had its own verbatim
+/// copy, so a fix to one — the `map_err` that turns a serializer failure
+/// into an `io::Error`, say — reached only a third of the commands.
+pub(crate) fn write_json<T: Serialize>(
+    value: &T,
+    pretty: bool,
+    output: Option<&PathBuf>,
+) -> std::io::Result<()> {
+    let json = if pretty {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+    .map_err(std::io::Error::other)?;
+    write_text(&json, output)
+}
+
+/// Serialize `value` as YAML and write it through [`write_text`]. See
+/// [`write_json`] for why these live here.
+pub(crate) fn write_yaml<T: Serialize>(value: &T, output: Option<&PathBuf>) -> std::io::Result<()> {
+    let yaml = serde_yaml::to_string(value).map_err(std::io::Error::other)?;
+    write_text(&yaml, output)
+}
+
+/// Serialize `value` as TOML and write it through [`write_text`]. See
+/// [`write_json`] for why these live here.
+pub(crate) fn write_toml<T: Serialize>(
+    value: &T,
+    pretty: bool,
+    output: Option<&PathBuf>,
+) -> std::io::Result<()> {
+    let toml = if pretty {
+        toml::to_string_pretty(value)
+    } else {
+        toml::to_string(value)
+    }
+    .map_err(std::io::Error::other)?;
+    write_text(&toml, output)
+}
+
+/// Serialize `value` as CBOR into the file at `output`.
+///
+/// CBOR is binary, so it must land in a file — never stdout. That rule
+/// lives here, next to [`CBOR_STDOUT_ERROR`], because the three `vcs`
+/// emit paths (`vcs`, `vcs commit`, `vcs trend`) each carried a
+/// byte-identical copy of it that differed only in the format enum they
+/// matched on.
+pub(crate) fn write_cbor<T: Serialize>(value: &T, output: Option<&PathBuf>) -> std::io::Result<()> {
+    let Some(path) = output else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            CBOR_STDOUT_ERROR,
+        ));
+    };
+    write_buffered_file(path, |w| {
+        ciborium::into_writer(value, w).map_err(std::io::Error::other)
+    })
 }
 
 #[cfg(test)]
