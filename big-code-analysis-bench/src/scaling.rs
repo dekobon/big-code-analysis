@@ -28,9 +28,10 @@
 //!   because busy".
 //!
 //! Parsing is excluded: each cell parses once up front and the timed
-//! region is [`Ast::metrics`] alone. This harness is about the metric
-//! walk, and `tree_sitter`'s own depth behaviour would otherwise be
-//! folded into the exponent.
+//! region is the probe's [`Workload`] walk alone. This harness is about
+//! the walks the crate runs over an already-parsed tree, and
+//! `tree_sitter`'s own depth behaviour would otherwise be folded into
+//! the exponent.
 #![allow(
     // Every cast here is a measurement (`Duration` -> f64 nanoseconds,
     // byte counts -> f64) feeding a ratio or a logarithm. Precision
@@ -46,7 +47,7 @@ use std::time::{Duration, Instant};
 
 use big_code_analysis::{Ast, MetricsError, MetricsOptions, Source};
 
-use crate::shapes::Probe;
+use crate::shapes::{Probe, Workload};
 
 /// Measurement rounds performed when the caller does not choose.
 ///
@@ -264,6 +265,7 @@ struct Pending {
     reading: u64,
     iterations: u32,
     ast: Ast,
+    workload: Workload,
     options: MetricsOptions,
     timings: Vec<Duration>,
 }
@@ -354,13 +356,13 @@ pub fn run_with_budget(
         for depth in probe.depths {
             let source = (probe.render)(depth);
             let ast = Ast::parse(Source::new(probe.lang, source.as_bytes()))?;
-            let options = MetricsOptions::default().with_only(probe.metrics);
+            let options = probe.workload.options();
             // One untimed walk serves three purposes: it proves the
-            // metric selection works on this shape, it produces the
-            // reading the report shows, and its duration sizes the
-            // inner repetition count.
+            // workload works on this shape, it produces the reading the
+            // report shows, and its duration sizes the inner repetition
+            // count.
             let started = Instant::now();
-            let space = ast.metrics(options)?;
+            let reading = probe.workload.walk(&ast, options)?;
             let single_walk = started.elapsed();
             if single_walk > max_cell_walk {
                 over_budget[index] = Some((depth, single_walk));
@@ -370,7 +372,8 @@ pub fn run_with_budget(
                 probe: index,
                 depth,
                 bytes: source.len(),
-                reading: (probe.reading)(&space.metrics),
+                reading,
+                workload: probe.workload,
                 iterations: iterations_for(single_walk),
                 ast,
                 options,
@@ -391,8 +394,7 @@ pub fn run_with_budget(
             let cell = &mut pending[(offset + round) % cell_count];
             let started = Instant::now();
             for _ in 0..cell.iterations {
-                let space = cell.ast.metrics(cell.options)?;
-                black_box(&space);
+                black_box(cell.workload.walk(&cell.ast, cell.options)?);
             }
             let elapsed = started.elapsed() / cell.iterations;
             if round >= WARMUP_ROUNDS {

@@ -57,8 +57,9 @@ git submodule update --init --recursive
 
 ## The complexity-class gate {#complexity-gate}
 
-Each probe pairs a generated source shape with the metric selection
-that exercises one hot path. The shape is rendered at three doubling
+Each probe pairs a generated source shape with the workload that
+exercises one hot path — a metric selection through `Ast::metrics`, or
+the operator/operand walk behind `Ast::ops`. The shape is rendered at three doubling
 depths, every (probe, depth) cell is measured once per round with the
 visit order rotated between rounds, and the reported figure is the
 slope of `ln(time)` against `ln(depth)`. A linear walk sits near 1.0;
@@ -89,10 +90,13 @@ Read it as follows.
   cheapest cells run in a few hundred microseconds, where clock
   resolution is a visible fraction of the reading, so the harness
   repeats them until a sample reaches a millisecond.
-- `reading` is the headline metric value the walk produced. It is
-  there so a probe that stopped measuring anything is visible: a shape
-  paired with a metric that scores zero on it would time the walk's
-  fixed overhead and report an excellent exponent forever.
+- `reading` is the headline value the walk produced. It is there so a
+  probe that stopped measuring anything is visible: a shape paired with
+  a workload that scores zero on it would time the walk's fixed
+  overhead and report an excellent exponent forever. A reading that
+  does not grow with depth is fine as long as it is non-zero — the
+  depth signal lives in the timing column — but say so in the probe's
+  `rationale`, as `ops/nested-fn` does.
 
 ### What the probes cover
 
@@ -107,6 +111,7 @@ Read it as follows.
 | `nom/nested-quote` | Elixir | `elixir_is_inside_quote_block` | linear |
 | `nom/nested-fn` | Rust | `FuncSpace` nesting; metric control for the row below | linear |
 | `cognitive/nested-fn` | Rust | `increment_function_depth` (#1062) | linear |
+| `ops/nested-fn` | Rust | the `Ast::ops` walk (#1110) | linear |
 | `loc/nested-fn` | Rust | shape control for the row below | linear |
 | `loc/nested-fn-rows` | Rust | `Ploc::merge` / `Cloc::merge` row-set union (#1109) | linear |
 | `nom/nested-fn-rows` | Rust | metric control for the row above | linear |
@@ -225,12 +230,33 @@ something.
   source under a metric that does not ask for a parent — is the metric
   control that stands in for one.
 
+### What `ops/nested-fn` does not cover {#ops-vocabulary}
+
+`ops/nested-fn` is the only probe that runs `ops_inner`, and it covers
+that walk's per-node cost: the space stack, the Halstead map merge up
+it, and the per-space vocabulary render. It cannot cover the *size* of
+that vocabulary, and no probe can.
+
+`Ops` publishes a `Vec<String>` of distinct operands and operators per
+space, and the walk merges each child space's Halstead maps into its
+parent, so a parent's vocabulary is a superset of every descendant's. A
+file with `D` nested spaces and a fresh identifier at each level
+therefore has `O(D²)` entries in its *output*, and any implementation
+that produces that output is quadratic. Measured at depth 2 000 on such
+a shape, `Ast::ops` costs ~0.6 s and returns ~6 million vocabulary
+entries. Making that linear needs a shared, interned representation in
+the public type, which is a breaking change (#1110).
+
+`nested_fns` sidesteps it by reusing one identifier at every level, so
+the vocabulary is four operands at any depth and the timing is the walk
+alone.
+
 ### Adding a probe
 
 Add a `Probe` to `PROBES` in `big-code-analysis-bench/src/shapes.rs`.
 The unit tests in that module enforce what a probe has to satisfy:
 bytes affine in depth, no parse errors, AST depth growing with the
-depth parameter, a non-zero metric reading, and depths that double.
+depth parameter, a non-zero workload reading, and depths that double.
 Set `max_exponent` from a measurement on an idle host, not from
 theory, and say in `rationale` which call the probe is watching.
 

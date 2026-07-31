@@ -165,8 +165,8 @@ fn bench_shapes(criterion: &mut Criterion) {
             );
             continue;
         };
-        let options = MetricsOptions::default().with_only(probe.metrics);
-        if ast.metrics(options).is_err() {
+        let options = probe.workload.options();
+        if probe.workload.walk(&ast, options).is_err() {
             eprintln!("skipping {}: the walker rejected its shape", probe.name);
             continue;
         }
@@ -174,7 +174,9 @@ fn bench_shapes(criterion: &mut Criterion) {
         group.bench_function(probe.name, |b| {
             b.iter(|| {
                 black_box(
-                    ast.metrics(options)
+                    probe
+                        .workload
+                        .walk(&ast, options)
                         .expect("the same call succeeded during setup"),
                 );
             });
