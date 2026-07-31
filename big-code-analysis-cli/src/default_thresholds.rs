@@ -84,7 +84,7 @@ pub(crate) const DEFAULT_THRESHOLDS: &[DefaultThreshold] = &[
         rationale: &[
             "Matches RuboCop's ParameterLists; Code Climate is stricter at 4.",
             "Note Bash, Perl, and Elixir report 0 arguments unconditionally,",
-            "so this limit is inert for them (#1142).",
+            "so this limit is inert for them (#1142, #1147).",
         ],
     },
     DefaultThreshold {

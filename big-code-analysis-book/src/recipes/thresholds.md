@@ -166,11 +166,13 @@ Ruby. Prefer re-deriving from your own repository over adopting any of those fou
 
 ### Metrics that do not apply to every language {#language-gaps}
 
-`nargs` reports 0 for every Bash, Perl, and Elixir function. Bash and Perl have no formal parameter
-lists, so 0 is correct and the limit is simply inert. Elixir does have them and the zero is a gap,
-tracked in [issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142). In all three
-cases a `nargs` limit passes unconditionally, which reads as "no offenders" rather than "not
-measured".
+`nargs` reports 0 for every Bash, Perl, and Elixir function. For Bash that is correct: the shell has
+no formal parameter list, arguments arrive as `$1`, `$2`, and so on, and the limit is simply inert.
+For Perl and Elixir it is a gap. Both have formal parameter lists, and both are parsed but not
+counted — Perl subroutine signatures (`sub add($x, $y)`, stable since 5.20 and on by default under
+`use v5.36`) in [issue #1147](https://github.com/dekobon/big-code-analysis/issues/1147), Elixir in
+[issue #1142](https://github.com/dekobon/big-code-analysis/issues/1142). In all three cases a
+`nargs` limit passes unconditionally, which reads as "no offenders" rather than "not measured".
 
 `wmc`, `npm`, and `npa` are only produced for languages with a class-like container. They are absent
 from Bash, C, Go, Lua, Perl, and Tcl output.
