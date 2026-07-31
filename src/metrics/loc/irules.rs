@@ -18,7 +18,12 @@ impl Loc for IrulesCode {
         let (start, end) = init(node, stats, is_func_space);
 
         match node.kind_id().into() {
-            Irules::SourceFile => {}
+            // Same row-terminator quirk as the Tcl impl this dialect
+            // forked from: `LF` is a token child of the root whose start
+            // row is the row it terminates, so the `_` catch-all below
+            // credited comment-only and whitespace-only rows to PLOC
+            // (#1135).
+            Irules::SourceFile | Irules::LF => {}
 
             Irules::Comment => {
                 add_cloc_lines(stats, start, end);
@@ -53,11 +58,14 @@ impl Loc for IrulesCode {
                 stats.lloc.logical_lines += 1;
             }
 
-            // `expr` at statement level is a logical line; inside [...] it is a
-            // sub-expression and is not counted (same semantics as Command).
-            Irules::ExprCmd
-            // Commands inside [...] are sub-expressions, not top-level statements.
-            | Irules::Command
+            // `expr` and a bare command are logical lines at statement
+            // level only; inside `[...]` each is a sub-expression, which
+            // is why the two share one guard. The rationale sits above
+            // the arm rather than between the alternatives because a
+            // comment *inside* a match pattern makes rustfmt emit the
+            // whole match verbatim while `cargo fmt --check` still exits
+            // 0 — see `.claude/rules/formatting.md`.
+            Irules::ExprCmd | Irules::Command
                 if ancestors
                     .parent(node)
                     .is_none_or(|p| p.kind_id() != Irules::CommandSubstitution) =>

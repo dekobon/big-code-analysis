@@ -43,22 +43,49 @@ rustfmt reformats the whole body.
 
 ## Where it currently bites
 
-Eight sites, all under `src/metrics/`: the modules `c.rs`, `cpp.rs`,
-`java.rs`, `mozcpp.rs`, `objc.rs`, `perl.rs`, and `rust.rs` under
-`cognitive/`, plus the `js_cognitive!` macro body in `cognitive.rs`.
+Ten sites, all under `src/metrics/`:
+
+- `cognitive/`: `c.rs`, `cpp.rs`, `java.rs`, `mozcpp.rs`, `objc.rs`,
+  `perl.rs`, `rust.rs`, plus the `js_cognitive!` macro body in
+  `cognitive.rs`.
+- `loc/`: `perl.rs` and `python.rs`.
+
+`loc/tcl.rs` and `loc/irules.rs` were on that second list until #1135
+hoisted their in-pattern comment above the arm; the `loc/` entries were
+missing entirely until then, which is the point of the next paragraph.
 
 That list is a snapshot — regenerate it rather than trusting it, since
-it moves whenever an arm gains or loses a comment:
+it moves whenever an arm gains or loses a comment, and since a
+directory nobody has swept yet reads as clean. The script below takes
+the directory as an argument; run it over each `src/metrics/*/` family
+rather than assuming `cognitive/` is the only one affected.
 
 ```bash
-# Prints modules rustfmt refuses to format. Run from the repo root.
-tmp=$(mktemp -d) && cp -r src/metrics/cognitive "$tmp/" && for f in "$tmp"/cognitive/*.rs; do
-  perl -0pi -e 's/^            _ => \{\}/                        _ => {}/m' "$f"
+# Prints modules rustfmt refuses to format. Run from the repo root, e.g.
+#   ./thisscript src/metrics/cognitive
+#   ./thisscript src/metrics/loc
+dir=${1:?usage: $0 <dir>}; tmp=$(mktemp -d); cp "$dir"/*.rs "$tmp/"
+for f in "$tmp"/*.rs; do
+  b=$(basename "$f")
+  # Over-indent the first block-bodied arm, then see if rustfmt puts it back.
+  line=$(rg -n '^\s+[A-Za-z_:]+.*=> \{' "$f" | head -1 | cut -d: -f1)
+  [ -z "$line" ] && { echo "SKIP  $b (no block-bodied arm)"; continue; }
+  python3 -c "
+import pathlib
+p = pathlib.Path('$f'); L = p.read_text().split('\n')
+L[$line - 1] = ' ' * 30 + L[$line - 1].strip()
+p.write_text('\n'.join(L))"
+  # Do not discard stderr: a file with `mod` decls errors out, which is
+  # not the same thing as a bail.
   err=$(rustfmt --edition 2024 "$f" 2>&1)
-  [ -n "$err" ] && { echo "ERROR $(basename "$f"): $err"; continue; }
-  grep -qE '^ {20,}_ => \{\}' "$f" && echo "BAILS $(basename "$f")"
+  [ -n "$err" ] && { echo "ERROR $b: $err"; continue; }
+  if sed -n "${line}p" "$f" | rg -q '^ {26,}'; then echo "BAILS $b"; else echo "ok    $b"; fi
 done; rm -rf "$tmp"
 ```
+
+Checking the perturbed line *by number* matters: grepping for the
+restored indentation finds some other already-correct line and reports
+a false "formatted".
 
 ## Why it matters
 
