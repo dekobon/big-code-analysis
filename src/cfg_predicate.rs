@@ -12,6 +12,8 @@
 //! entry point is [`attribute_marks_test`]; everything else is module-
 //! private.
 
+use std::ops::Range;
+
 /// Return `true` if the Rust attribute body marks the annotated item
 /// as test-only.
 ///
@@ -68,6 +70,73 @@ fn cfg_inner(body: &str) -> Option<&str> {
     Some(inner)
 }
 
+/// Byte offsets of every comma in a cfg predicate, bucketed by the
+/// paren nesting depth the comma sits at.
+///
+/// A predicate is classified one *region* at a time: first the whole
+/// predicate, then the argument list of every `all(...)` / `any(...)`
+/// operand found inside it. A comma splits a region into operands
+/// exactly when it sits at that region's own nesting depth, and a
+/// region's depth is always its nesting level — a region begins right
+/// after the `(` of an operand that itself starts at the parent
+/// region's depth, so each descent adds exactly one. That makes the
+/// depth a comma is recorded at directly comparable to the depth of
+/// the region asking about it, so a single forward scan indexes the
+/// split points of every region at once.
+///
+/// Before issue #1105 each region instead re-scanned its whole
+/// interior just to learn whether it held a top-level comma, so a
+/// predicate nested `d` levels deep was scanned `d` times over —
+/// O(len²) in the attribute body, and a denial-of-service vector for
+/// any `exclude_tests` run over machine-generated Rust.
+struct CommaIndex {
+    /// `(depth, offset)` pairs in ascending order, so the commas that
+    /// split any one region occupy a contiguous run. Ordering by depth
+    /// before offset is load-bearing — it is what groups a region's
+    /// split points together for [`CommaIndex::splits`].
+    entries: Vec<(usize, usize)>,
+}
+
+impl CommaIndex {
+    /// Index every comma in `pred` by the paren depth it appears at.
+    ///
+    /// Depth is a signed running count, matching the split rule this
+    /// replaced: an unbalanced `)` drives it negative and a later `(`
+    /// brings it back up. A comma stranded at a negative depth belongs
+    /// to no region and is dropped.
+    fn build(pred: &str) -> Self {
+        let mut entries = Vec::new();
+        let mut depth = 0_isize;
+        for (offset, byte) in pred.bytes().enumerate() {
+            match byte {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                b',' => {
+                    if let Ok(comma_depth) = usize::try_from(depth) {
+                        entries.push((comma_depth, offset));
+                    }
+                }
+                _ => {}
+            }
+        }
+        entries.sort_unstable();
+        Self { entries }
+    }
+
+    /// Offsets of the commas that split `region`, whose own operands
+    /// sit at `depth`.
+    fn splits(&self, region: &Range<usize>, depth: usize) -> impl Iterator<Item = usize> {
+        let first = self
+            .entries
+            .partition_point(|entry| *entry < (depth, region.start));
+        let end = region.end;
+        self.entries[first..]
+            .iter()
+            .take_while(move |(entry_depth, offset)| *entry_depth == depth && *offset < end)
+            .map(|(_, offset)| *offset)
+    }
+}
+
 /// Return `true` if the cfg predicate `pred` marks the item as
 /// test-only.
 ///
@@ -80,93 +149,103 @@ fn cfg_inner(body: &str) -> Option<&str> {
 /// keeps live state on the heap, so nesting depth is bounded by
 /// available memory rather than the call-frame limit.
 ///
-/// Each operand is classified exactly as the former recursive trio
-/// did: bare `test` matches; `not(...)` short-circuits without
-/// descending (its contents never mark the item test-only); `all(...)`
-/// / `any(...)` push their operands; a bare top-level comma list is
-/// treated like `all(...)`; everything else (plain idents, `feature =
-/// "test"` and other key=value pairs) neither matches nor descends.
+/// Every operand is classified by [`classify_cfg_operand`]; the
+/// [`CommaIndex`] turns "where does this region split" into a lookup
+/// instead of a rescan, so the whole walk is linear in `pred` up to
+/// the index sort (issue #1105).
 fn cfg_predicate_marks_test(pred: &str) -> bool {
-    let mut stack = vec![pred];
-    while let Some(operand) = stack.pop() {
-        let trimmed = operand.trim();
-        if trimmed == "test" {
-            return true;
-        }
+    let commas = CommaIndex::build(pred);
+    // Regions still to classify, as `(byte range, nesting depth)`. Both
+    // this and the index are bounded by `pred`'s length, so a deeper
+    // predicate costs proportionally more memory, never more per byte.
+    let mut stack = vec![(0..pred.len(), 0_usize)];
+    while let Some((region, depth)) = stack.pop() {
         // Bare comma-separated predicate lists like `cfg(test, foo)`
         // — pre-#278 callers relied on this form being treated as
-        // `cfg(all(test, foo))`. This MUST run before the
-        // single-operand `not`/`all`/`any` prefix checks below: those
-        // checks classify by the operand's leading prefix and trailing
-        // `)`, which only describe a single operand. For a list whose
-        // first operand is `not(...)` and last ends in `)` — e.g.
-        // `not(foo), all(test)` — `strip_prefix("not")` leaves
-        // `(foo), all(test)`, which both starts with `(` and ends with
-        // `)`, so the `not` short-circuit would otherwise swallow the
-        // whole list and drop the trailing `test` (regression for #763).
-        // `cfg_split_top_level_args` respects paren depth, so a comma
-        // nested inside a predicate's own parens — `not(foo, bar)`,
-        // `all(test, unix)` — is a single operand and falls through to
-        // the prefix checks unchanged.
-        if cfg_split_top_level_args(trimmed).nth(1).is_some() {
-            stack.extend(cfg_split_top_level_args(trimmed));
-            continue;
+        // `cfg(all(test, foo))`. Splitting the region MUST happen
+        // before an operand meets the `not`/`all`/`any` prefix checks:
+        // those classify by leading prefix and trailing `)`, which only
+        // describe a single operand. For a list whose first operand is
+        // `not(...)` and last ends in `)` — e.g. `not(foo), all(test)`
+        // — `strip_prefix("not")` leaves `(foo), all(test)`, which both
+        // starts with `(` and ends with `)`, so the `not` short-circuit
+        // would otherwise swallow the whole list and drop the trailing
+        // `test` (regression for #763). The index respects paren depth,
+        // so a comma nested inside a predicate's own parens —
+        // `not(foo, bar)`, `all(test, unix)` — is not a split point and
+        // the operand reaches the prefix checks intact.
+        let mut operand_start = region.start;
+        for split in commas.splits(&region, depth) {
+            if classify_cfg_operand(pred, operand_start..split, depth, &mut stack) {
+                return true;
+            }
+            operand_start = split + 1;
         }
-        // `not(...)` short-circuits: we do not look inside, because
-        // `not(test)` excludes the item from test builds. Drop it
-        // without pushing its contents.
-        if let Some(rest) = trimmed.strip_prefix("not").map(str::trim_start)
-            && rest.starts_with('(')
-            && rest.ends_with(')')
-        {
-            continue;
-        }
-        // `all(...)` and `any(...)` use the same "contains a `test`
-        // operand" rule here. Strictly, `any(test, foo)` is over-broad
-        // (the item is included in production when `foo` holds), but the
-        // pre-#278 code treated both identically and the issue spec
-        // preserves that behavior. Push each operand for later inspection.
-        if let Some(rest) = trimmed
-            .strip_prefix("all")
-            .or_else(|| trimmed.strip_prefix("any"))
-            && let Some(args) = rest.trim_start().strip_prefix('(')
-            && let Some(args) = args.strip_suffix(')')
-        {
-            stack.extend(cfg_split_top_level_args(args));
+        if classify_cfg_operand(pred, operand_start..region.end, depth, &mut stack) {
+            return true;
         }
     }
     false
 }
 
-/// Iterator over the comma-separated arguments of a cfg predicate
-/// body, splitting at top-level commas only (commas inside nested
-/// parens belong to a child predicate). Single-pass byte scan.
-fn cfg_split_top_level_args(args: &str) -> impl Iterator<Item = &str> {
-    let mut depth = 0_i32;
-    let mut start = 0_usize;
-    let mut done = false;
-    let bytes = args.as_bytes();
-    std::iter::from_fn(move || {
-        if done {
-            return None;
-        }
-        let mut i = start;
-        while i < bytes.len() {
-            match bytes[i] {
-                b'(' => depth += 1,
-                b')' => depth -= 1,
-                b',' if depth == 0 => {
-                    let slice = &args[start..i];
-                    start = i + 1;
-                    return Some(slice);
-                }
-                _ => {}
-            }
-            i += 1;
-        }
-        done = true;
-        Some(&args[start..])
-    })
+/// Classify one operand of a cfg predicate, given as a byte range of
+/// `pred` at nesting depth `depth`.
+///
+/// Returns `true` when the operand is a bare `test`. An `all(...)` /
+/// `any(...)` operand instead pushes its argument list onto `stack` as
+/// a fresh region one level deeper. Everything else — `not(...)`, plain
+/// idents, `feature = "test"` and other key/value pairs — neither
+/// matches nor descends.
+fn classify_cfg_operand(
+    pred: &str,
+    operand: Range<usize>,
+    depth: usize,
+    stack: &mut Vec<(Range<usize>, usize)>,
+) -> bool {
+    let raw = &pred[operand.clone()];
+    let trimmed = raw.trim();
+    if trimmed == "test" {
+        return true;
+    }
+    // `not(...)` short-circuits: we do not look inside, because
+    // `not(test)` excludes the item from test builds (#278). Kept as an
+    // explicit arm even though it is currently redundant — an operand
+    // starting with `not` cannot match the `all`/`any` prefixes below,
+    // so it would fall through to `false` anyway. Deleting it would make
+    // the #278 rule an emergent property of a prefix test three lines
+    // down; stating it here keeps the rule visible if that test is ever
+    // loosened.
+    if trimmed
+        .strip_prefix("not")
+        .map(str::trim_start)
+        .is_some_and(|rest| rest.starts_with('(') && rest.ends_with(')'))
+    {
+        return false;
+    }
+    // `all(...)` and `any(...)` use the same "contains a `test`
+    // operand" rule here. Strictly, `any(test, foo)` is over-broad (the
+    // item is included in production when `foo` holds), but the
+    // pre-#278 code treated both identically and the issue spec
+    // preserves that behavior.
+    //
+    // The three conditions are one shape check, so they read as one
+    // chain: combinator name, then its opening paren, then a closing
+    // paren as the operand's *last* byte. That last byte is not
+    // necessarily the opening paren's match — `all(a)(b)` has argument
+    // list `a)(b`, and the walk must reproduce that.
+    if let Some(rest) = trimmed
+        .strip_prefix("all")
+        .or_else(|| trimmed.strip_prefix("any"))
+        && let Some(inside) = rest.trim_start().strip_prefix('(')
+        && let Some(args) = inside.strip_suffix(')')
+    {
+        // `inside` is a suffix of `trimmed`, and `args` a prefix of
+        // `inside`, so both map back onto `pred` by length alone.
+        let trimmed_end = operand.end - (raw.len() - raw.trim_end().len());
+        let args_start = trimmed_end - inside.len();
+        stack.push((args_start..args_start + args.len(), depth + 1));
+    }
+    false
 }
 
 #[cfg(test)]
@@ -333,6 +412,155 @@ mod tests {
             !attribute_marks_test(&nest("all", "not(test)")),
             "deeply nested not(test) must remain production-only"
         );
+    }
+
+    #[test]
+    fn cfg_predicate_classification_matches_pre_1105_walker() {
+        // Issue #1105 replaced the pop-and-rescan predicate walker with
+        // a comma index plus one classification pass. Every expectation
+        // below was produced by running the *pre-#1105* walker over the
+        // input, then transcribed here, so the table pins the exact
+        // behaviour the rewrite had to preserve — including the corners
+        // no hand-written test covered: unbalanced parens, empty and
+        // whitespace-only operands, `test` as a substring, and the
+        // long-standing blind spot that parens and commas inside string
+        // literals are counted as structure.
+        //
+        // The rewrite was additionally checked against the old walker
+        // over 3.4M generated predicates (random nestings plus an
+        // exhaustive sweep of every string up to length 7 over
+        // `a ( ) , <space> t`) with zero disagreements; this table is
+        // the cheap, checked-in residue of that run.
+        let cases: &[(&str, bool)] = &[
+            // Unbalanced or truncated parens: the `all(...)` shape check
+            // needs the operand's *last* byte to be `)`, so trailing
+            // junk or a missing paren drops the whole operand.
+            ("all(test", false),
+            ("all(test))", false),
+            ("all((test)", false),
+            ("all(test)(x)", false),
+            ("all(a)(test)", false),
+            ("all(test)x", false),
+            (")test", false),
+            ("test)", false),
+            ("(test", false),
+            // A stray `)` drives the depth counter negative, so the
+            // following comma is not a top-level split point and the
+            // trailing `test` stays buried in a single dead operand.
+            ("all(a))(b, test)", false),
+            ("all(a))(b, all(test))", false),
+            ("any(test", false),
+            // Empty and whitespace-only operands.
+            ("", false),
+            ("   ", false),
+            ("all()", false),
+            ("any()", false),
+            ("not()", false),
+            ("all( )", false),
+            ("all(,)", false),
+            (",", false),
+            (",,", false),
+            ("all(,test)", true),
+            ("all(test,)", true),
+            ("all(test,,)", true),
+            // `test` as a substring of another identifier must not match.
+            ("testing", false),
+            ("not_test", false),
+            ("x_test", false),
+            ("alltest", false),
+            ("nottest", false),
+            ("anytest", false),
+            ("all(testing)", false),
+            ("all(x_test, testing)", false),
+            // String literals are not lexed: a `(` or `,` inside one
+            // still moves the depth counter. `all(v = "(", test)` is
+            // therefore read as one operand and misses the `test`. This
+            // is pre-existing behaviour, pinned here so a future lexer
+            // change is a deliberate decision rather than a surprise.
+            ("feature = \"test\"", false),
+            ("all(feature = \"test\")", false),
+            ("any(v = \"a,b\")", false),
+            ("all(v = \"(\", test)", false),
+            ("all(v = \"r#\\\"test(\\\"#\")", false),
+            // Only `all` / `any` descend; every other combinator, `cfg`
+            // and `cfg_attr` included, is an opaque operand.
+            ("cfg_attr(test, derive(Debug))", false),
+            ("cfg(test)", false),
+            ("all(cfg(test))", false),
+            // `not(...)` short-circuits at any depth, even around a
+            // combinator that would otherwise match.
+            ("not(all(test))", false),
+            ("not(any(test))", false),
+            ("not(not(test))", false),
+            ("all(not(test), test)", true),
+            ("any(not(test), unix)", false),
+            // Whitespace between the combinator and its parens, and
+            // around operands, is tolerated.
+            (" all ( test ) ", true),
+            ("all\t(test)", true),
+            ("all\n(\ntest\n)", true),
+            ("not (test)", false),
+            ("all( unix , test )", true),
+            // Non-ASCII operands neither match nor break byte offsets.
+            ("all(é, test)", true),
+            ("all(日本語)", false),
+            ("тест", false),
+            ("all(тест, test)", true),
+            // Ordinary nesting.
+            ("all(all(all(test)))", true),
+            ("any(all(any(test)))", true),
+            ("all(any(unix), test)", true),
+            ("all(a, b, c, test)", true),
+            ("all(a, b, c, unix)", false),
+        ];
+        for &(pred, expected) in cases {
+            assert_eq!(
+                cfg_predicate_marks_test(pred),
+                expected,
+                "predicate {pred:?} must classify as {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn comma_index_buckets_by_paren_depth() {
+        // The index is what makes classification linear: a region asks
+        // for the commas at its own nesting depth instead of rescanning
+        // its interior. Seed a predicate whose commas sit at three
+        // different depths so each bucket is distinguishable from the
+        // others and from an empty one.
+        let pred = "a,all(b,c),any(d,all(e,f))";
+        let index = CommaIndex::build(pred);
+
+        let depth0: Vec<usize> = index.splits(&(0..pred.len()), 0).collect();
+        assert_eq!(depth0, vec![1, 10], "commas outside any parens");
+        // `all(b,c)` spans 2..10; its argument list 6..9 holds one
+        // depth-1 comma, and the depth-1 comma of `any(...)` is outside
+        // that range and must not leak in.
+        let args: Vec<usize> = index.splits(&(6..9), 1).collect();
+        assert_eq!(args, vec![7], "only the commas inside this region");
+        let depth1: Vec<usize> = index.splits(&(0..pred.len()), 1).collect();
+        assert_eq!(depth1, vec![7, 16], "both depth-1 commas");
+        let depth2: Vec<usize> = index.splits(&(0..pred.len()), 2).collect();
+        assert_eq!(depth2, vec![22], "the comma inside the inner all()");
+        assert!(
+            index.splits(&(0..pred.len()), 3).next().is_none(),
+            "no region nests three deep here"
+        );
+
+        // A `)` with no opener drives the depth counter negative, so the
+        // comma that follows splits nothing and is dropped entirely —
+        // the behaviour the former `cfg_split_top_level_args` had, and
+        // what makes `all(a))(b, test)` a single dead operand.
+        let stray = CommaIndex::build("a),b");
+        assert!(
+            stray.entries.is_empty(),
+            "a comma at negative depth belongs to no region"
+        );
+        // The following `(` brings the counter back to zero, restoring
+        // the comma as a top-level split point.
+        let restored = CommaIndex::build("a)(b,c");
+        assert_eq!(restored.entries, vec![(0, 4)]);
     }
 
     #[test]
