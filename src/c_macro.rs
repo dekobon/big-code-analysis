@@ -285,7 +285,7 @@ fn step_raw_string(
     1
 }
 
-pub fn replace<K: MacroName, S: ::std::hash::BuildHasher>(
+pub(crate) fn replace<K: MacroName, S: ::std::hash::BuildHasher>(
     code: &[u8],
     macros: &HashSet<K, S>,
 ) -> Option<Vec<u8>> {

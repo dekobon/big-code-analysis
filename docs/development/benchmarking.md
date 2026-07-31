@@ -203,18 +203,33 @@ depth 4000 against 8.3 ms for `nom/nested-fn`, the same nesting without
 the attributes. Reading the run forward from the parent the walker
 already holds took it to 1.21 and 8.1 ms — level with that control.
 
-That fix is *width*-gated, and the probe alone would not have caught
-why. A forward pass over the parent's children is `O(children)`, and a
-cursor sibling step measured ~68 ns against ~420 ns for a whole
-`previous_sibling` on a shallow node — a figure that did not move with
-the sibling index. Reading forward unconditionally therefore fixed the
-depth axis and broke the width one: a generated file of 2 000 top-level
-attributed items went from 6.0 ms to 569 ms, which is the shape
-`bindgen` output has. The scan now picks by the parent's child count,
-so it reads forward only where that is the cheaper bound and a wide
-parent keeps exactly the walk it had. No probe renders the wide shape —
-every generator here is affine in *depth* by construction — so that
-axis is pinned by the unit tests in `src/checker.rs` instead.
+That fix trades one axis against the other, and the probe alone would
+not have caught why. A forward pass over the parent's children is
+`O(children)` and flat in depth; the backward walk is the reverse. The
+measured costs behind that trade, and the break-even they put it at,
+live on `MAX_FORWARD_ATTRIBUTE_SCAN_CHILDREN` and
+`FORWARD_ATTRIBUTE_SCAN_CHILDREN_PER_DEPTH` in `src/checker.rs` — one
+copy, so re-measuring updates one place. Reading forward
+unconditionally fixed the depth axis and broke the width one: a
+generated file of 2 000 top-level attributed items went from 6.0 ms to
+569 ms, which is the shape `bindgen` output has. The scan now budgets
+the parent's child count against the node's depth, so it reads forward
+only where that is the cheaper bound and a shallow wide parent keeps
+exactly the walk it had.
+
+**The width axis is not guarded here.** No probe renders the wide
+shape. A fixed-depth width sweep would grow its input affinely, as the
+module requires, but it does not nest — and `shapes.rs` asserts that
+every probe's shape gains AST levels in proportion to its parameter
+(`shapes_nest_proportionally_to_depth`), which such a sweep would fail
+by construction. What the unit suite pins
+is the *dispatch*, not its cost —
+`the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget`
+in `src/node.rs` asserts which arm each boundary shape takes, so
+widening the budget past a shallow parent fails a test rather than
+slipping through. The numbers the budget is derived from have no
+automated guard at all; re-measure by hand when touching either
+constant.
 
 `nom/nested-cfg-predicate` guards [#1105][cfg-predicate] and is the only
 probe that grows one *attribute* rather than the code around it:

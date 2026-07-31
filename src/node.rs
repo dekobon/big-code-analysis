@@ -151,9 +151,8 @@ impl<'a> Node<'a> {
     ///
     /// **`O(depth)`, not `O(1)`.** tree-sitter stores no parent pointer:
     /// `ts_node_parent` restarts at the tree root and descends. A single
-    /// call in a per-node metric therefore costs `O(nodes × depth)` over
-    /// a walk, and an ancestor *loop* built on it costs `O(depth²)` per
-    /// call.
+    /// call in a per-node metric therefore costs `O(nodes × depth)` over a
+    /// walk, and an ancestor *loop* built on it costs `O(depth²)` per call.
     ///
     /// This has bitten the analyzer for real: #1052 was a per-leaf
     /// `successors(node, Node::parent)` walk in `Tokens` that made the
@@ -165,9 +164,8 @@ impl<'a> Node<'a> {
     ///
     /// As of #1096 no code the metric, `ops`, `bca function`, or
     /// comment-removal walks reach calls this; the remaining callers are
-    /// `Ancestors` itself (the no-chain fallback), the one-off start
-    /// node of a `dump`, and tests. `rg '\.parent\(\)' src/` is how
-    /// to check that is still true.
+    /// `Ancestors` itself (the no-chain fallback), the one-off start node
+    /// of a `dump`, and tests. `rg '\.parent\(\)' src/` re-checks that.
     pub(crate) fn parent(&self) -> Option<Node<'a>> {
         self.0.parent().map(Node)
     }
@@ -179,9 +177,8 @@ impl<'a> Node<'a> {
     /// closure-classification hot path (`check_if_arrow_func!`); see
     /// #521.
     ///
-    /// `ancestors` supplies the parent, because [`Node::parent`] costs
-    /// `O(depth)` — `tree_sitter` stores no parent pointer and resolves
-    /// one by descending from the root (#1088).
+    /// `ancestors` supplies the parent, for [`Node::parent`]'s
+    /// `O(depth)` reason (#1088).
     ///
     /// [`wraps_any`]: Self::wraps_any
     #[inline]
@@ -207,12 +204,10 @@ impl<'a> Node<'a> {
     /// The sibling immediately before this node among `parent`'s
     /// children, or `None` when this node is `parent`'s first child.
     ///
-    /// `tree_sitter`'s own `prev_sibling` resolves the parent first
-    /// (`ts_node__prev_sibling` opens with `ts_node_parent`), so it
-    /// carries [`Node::parent`]'s `O(depth)` cost. Callers that already
-    /// hold the parent — every ABC condition walker does, because it
-    /// descended from it — pay a cursor walk over the siblings instead
-    /// (#1096).
+    /// [`Node::previous_sibling`] would resolve the parent first and pay
+    /// its `O(depth)` cost; callers that already hold the parent — every
+    /// ABC condition walker does, because it descended from it — pay a
+    /// cursor walk over the siblings instead (#1096).
     ///
     /// A one-element chain is all [`Ancestors::previous_sibling`] reads,
     /// so this delegates rather than repeating the scan — including its
@@ -444,14 +439,12 @@ impl<'a> Node<'a> {
 /// The chain of a node's ancestors, root first, as recorded by a walker
 /// that descended to that node.
 ///
-/// `tree_sitter` stores no parent pointer: [`Node::parent`] restarts at
-/// the tree root and descends, so it costs `O(depth)`. A predicate that
-/// asks a node for its parent is therefore `O(depth)` per node and
-/// `O(depth²)` over a deeply nested file, however few parent steps it
-/// takes (#1084). A walker that visits parents before children already
-/// holds the chain, and handing it down turns each step into a slice
-/// index — the upward counterpart of the downward flag propagation
-/// #1052 and #1062 used.
+/// A predicate that asks a node for its parent pays [`Node::parent`]'s
+/// `O(depth)` once per node, so `O(depth²)` over a deeply nested file,
+/// however few parent steps it takes (#1084). A walker that visits
+/// parents before children already holds the chain, and handing it down
+/// turns each step into a slice index — the upward counterpart of the
+/// downward flag propagation #1052 and #1062 used.
 ///
 /// Callers that reached a node some other way pass
 /// [`Ancestors::unknown`], which climbs with [`Node::parent`]: the same
@@ -495,6 +488,13 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
             node.kind()
         );
         Self::known(chain)
+    }
+
+    /// How far the node this chain describes sits from the root, or
+    /// `None` when no chain is known — deriving it then would cost the
+    /// [`Node::parent`] climb the chain exists to remove.
+    pub(crate) fn depth(self) -> Option<usize> {
+        self.0.map(<[Node<'tree>]>::len)
     }
 
     /// `node`'s parent.
@@ -628,14 +628,13 @@ impl<'a> Cursor<'a> {
 /// Termination is driven by the cursor alone: each step yields the
 /// cursor's current node, then advances with `goto_next_sibling`,
 /// stopping the moment that returns false. This makes the cursor the
-/// single source of truth for both the emitted data and when to stop,
-/// so the sequence can never be padded with duplicates if
-/// `child_count` and the actual sibling walk disagree.
+/// single source of truth for both the emitted data and when to stop, so
+/// the sequence can never be padded with duplicates if `child_count` and
+/// the actual sibling walk disagree.
 ///
-/// The `ExactSizeIterator` length is reported from `child_count`
-/// (tracked in `remaining`). For well-formed trees the cursor walk and
-/// `child_count` agree, so the advertised length matches the data
-/// exactly.
+/// The `ExactSizeIterator` length is reported from `child_count` (tracked
+/// in `remaining`). For well-formed trees the cursor walk and
+/// `child_count` agree, so the advertised length matches the data.
 pub(crate) struct Children<'a> {
     cursor: Cursor<'a>,
     done: bool,
@@ -803,6 +802,50 @@ mod tests {
             "the metric walk resolved a sibling from a node; \
              read it off the ancestor chain instead (#1096 / #1100)"
         );
+    }
+
+    /// Which arm the `exclude_tests` attribute-scan dispatch takes, at
+    /// the boundary in both directions and on both of its axes.
+    ///
+    /// `rust_outer_attr_scans_agree` in `checker.rs` proves the two
+    /// readings answer the same thing, which is exactly why it cannot
+    /// see which one ran — it passes at any budget, including one that
+    /// never reads forward. This counter is the only observable that
+    /// tells them apart, and it lives here, so the boundary is pinned
+    /// here too.
+    ///
+    /// The third case is the one #1100 got wrong: dispatching on width
+    /// alone sent any over-wide body to the `O(depth)` walk however deep
+    /// it sat, which on a nested `mod` tree is quadratic (a 3_200-deep
+    /// fixture measured 2.67 s against 0.045 s for the same shape one
+    /// child narrower).
+    #[cfg(feature = "rust")]
+    #[test]
+    fn the_exclude_tests_prune_reads_forward_up_to_its_depth_scaled_budget() {
+        // Three attributed items make a `source_file` exactly six
+        // children wide — the depth-1 budget. A fourth, bare item makes
+        // seven, one over. Wrapping that in a `mod` puts the same seven
+        // between two braces, so its `declaration_list` is nine wide, at
+        // depth 3 — where the budget is also exactly nine.
+        let at_budget = "#[cfg(test)]\nfn a() {}\n#[inline]\nfn b() {}\n#[cfg(test)]\nfn c() {}\n";
+        let past_budget = format!("{at_budget}fn d() {{}}\n");
+        let nested = format!("mod m {{\n{past_budget}}}\n");
+
+        for (shape, source, resolves_siblings) in [
+            ("six children at depth 1", at_budget.to_string(), false),
+            ("seven children at depth 1", past_budget, true),
+            ("nine children at depth 3", nested, false),
+        ] {
+            let before = node_resolved_sibling_lookups::observed();
+            crate::test_support::parse_named(crate::LANG::Rust, "lib.rs", &source)
+                .metrics(crate::MetricsOptions::default().with_exclude_tests(true))
+                .expect("the walk must yield a top-level space");
+            let resolved = node_resolved_sibling_lookups::observed() > before;
+            assert_eq!(
+                resolved, resolves_siblings,
+                "{shape}: the prune took the wrong dispatch arm"
+            );
+        }
     }
 
     /// The `child(0)` + `next_sibling()` chain [`Node::wraps_any`] used
