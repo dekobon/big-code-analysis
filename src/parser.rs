@@ -32,7 +32,7 @@ use crate::getter::Getter;
 use crate::c_macro;
 use crate::langs::*;
 use crate::node::{Node, Tree};
-use crate::preproc::{PreprocResults, get_macros};
+use crate::preproc::{PreprocResults, visible_macros};
 use crate::traits::*;
 
 /// Parsed source plus the tree-sitter `Tree` for a given language `T`.
@@ -99,7 +99,7 @@ fn get_fake_code<T: LanguageInfo>(
             // macro-replacement pass: `C` (#721), upstream `Cpp`, and the
             // `Mozcpp` Gecko dialect (#720) all need `#define` expansion.
             LANG::C | LANG::Cpp | LANG::Mozcpp => {
-                let macros = get_macros(path, &pr.files);
+                let macros = visible_macros(path, &pr.files);
                 c_macro::replace(code, &macros)
             }
             _ => None,

@@ -15,7 +15,11 @@ use std::collections::{HashMap, HashSet, hash_map};
 use std::path::{Path, PathBuf};
 
 use petgraph::{
-    Direction, algo::kosaraju_scc, graph::NodeIndex, stable_graph::StableGraph, visit::Dfs,
+    Direction,
+    algo::{kosaraju_scc, toposort},
+    graph::NodeIndex,
+    stable_graph::StableGraph,
+    visit::{Dfs, NodeIndexable},
 };
 use serde::{Deserialize, Serialize};
 
@@ -136,22 +140,52 @@ impl PreprocFile {
     }
 }
 
+crate::observation::counter!(owned_macro_sets);
+
 /// Returns the macros contained in a `C/C++` file.
 pub fn get_macros<S: ::std::hash::BuildHasher>(
     file: &Path,
     files: &HashMap<PathBuf, PreprocFile, S>,
 ) -> HashSet<String> {
+    // Counts owned copies of a file's visible macro set. `Parser::new` used
+    // to build one per C/C++ file parsed and then only ever ask it
+    // `contains`; it now borrows through [`visible_macros`], so this stays
+    // at zero across a parse — which a parse's output cannot show.
+    owned_macro_sets::record();
+    visible_macros(file, files)
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// Every macro name visible to `file` — its own `#define`s plus those of
+/// every header it transitively includes — borrowed from `files`.
+///
+/// The crate-internal form of [`get_macros`], which owns the same names
+/// only because its `HashSet<String>` return type is published. Callers
+/// inside the crate just probe the result with `contains`, so borrowing
+/// suffices: over a 10_918-file C/C++ tree the owning form allocated
+/// 1_655_396 macro `String`s and 718_758 `PathBuf`s per pass, one set per
+/// file parsed (issue #1107). Still a *merged* set and not a list of
+/// per-file sets to probe in turn, because it is consulted once per
+/// identifier run in the whole translation unit: an `O(headers)` probe
+/// would cost far more than the one-off merge it saves.
+pub(crate) fn visible_macros<'a, S: ::std::hash::BuildHasher>(
+    file: &Path,
+    files: &'a HashMap<PathBuf, PreprocFile, S>,
+) -> HashSet<&'a str> {
     let mut macros = HashSet::new();
-    if let Some(pf) = files.get(file) {
-        for m in &pf.macros {
-            macros.insert(m.clone());
-        }
-        for f in &pf.indirect_includes {
-            if let Some(pf) = files.get(&PathBuf::from(f)) {
-                for m in &pf.macros {
-                    macros.insert(m.clone());
-                }
-            }
+    let Some(pf) = files.get(file) else {
+        return macros;
+    };
+    macros.extend(pf.macros.iter().map(String::as_str));
+    for include in &pf.indirect_includes {
+        // `Path::new` re-types the borrowed `str` in place; the
+        // `PathBuf::from` it replaced allocated once per indirect
+        // include, on every parse, purely to bridge to this map's key
+        // type.
+        if let Some(included) = files.get(Path::new(include)) {
+            macros.extend(included.macros.iter().map(String::as_str));
         }
     }
     macros
@@ -309,11 +343,156 @@ fn collapse_scc(
     scc_map
 }
 
-/// Walks the include graph from every file's node and records the transitive
-/// closure of reachable includes into that file's `indirect_includes`. An
-/// SCC replacement node (empty path) contributes every member path it stands
-/// in for. Files reachable only through the graph but never preprocessed are
-/// warned about.
+crate::observation::counter!(include_graph_walks);
+
+/// What one include-graph node contributes to every closure that reaches it.
+enum NodeContribution<'a> {
+    /// A decodable path, inserted into the reaching file's
+    /// `indirect_includes`.
+    Path(&'a str),
+    /// A path that is not valid UTF-8: it cannot go into the `String`-keyed
+    /// set, so every file reaching it reports it instead — the same
+    /// once-per-(file, node) multiplicity the per-file walk produced.
+    NonUtf8(&'a Path),
+}
+
+/// Every node's transitive closure over the cycle-free include graph.
+///
+/// `closures[node.index()]` holds sorted, de-duplicated indices into
+/// `entries` for everything reachable from that node, the node itself
+/// included. They are filled in reverse topological order, so each node
+/// merges its successors' finished closures instead of re-walking the graph;
+/// the per-file [`Dfs`] this replaced ran once per file and re-visited every
+/// shared header once per file that reached it (issue #1107).
+///
+/// Plain `usize` indices rather than interned `u32`: bar the rare
+/// [`PreprocDiagnostic::NotPreprocessed`] skip, every node materializes into
+/// a `HashSet<String>` that costs an order of magnitude more per reachable
+/// pair, so this transient can never be the term that matters — 5.7 MB of
+/// indices against tens of MB of owned strings on the tree above.
+struct IncludeClosures<'a> {
+    entries: Vec<NodeContribution<'a>>,
+    closures: Vec<Vec<usize>>,
+}
+
+impl IncludeClosures<'_> {
+    /// Writes the closure of `start` into `x_inc`, reporting the
+    /// undecodable paths it reaches rather than inserting them.
+    fn materialize(
+        &self,
+        start: NodeIndex,
+        x_inc: &mut HashSet<String>,
+        diagnostics: &mut Vec<PreprocDiagnostic>,
+    ) {
+        let Some(ids) = self.closures.get(start.index()) else {
+            return;
+        };
+        // The closure size is known up front, which the walk it replaced
+        // could not know: sizing once skips the repeated rehash a set
+        // growing from empty to ~70 entries would pay.
+        x_inc.reserve(ids.len());
+        for entry in ids.iter().filter_map(|&id| self.entries.get(id)) {
+            match entry {
+                NodeContribution::Path(path) => {
+                    x_inc.insert((*path).to_string());
+                }
+                NodeContribution::NonUtf8(path) => {
+                    diagnostics.push(PreprocDiagnostic::NonUtf8IndirectInclude {
+                        path: path.display().to_string(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Merges two sorted, individually de-duplicated id slices into `out`,
+/// keeping it sorted and de-duplicated. A linear merge rather than
+/// `extend` + `sort` + `dedup` because the sort's log factor would land on
+/// the *closure* size — exactly what grows on a deep include chain.
+fn merge_sorted_ids(a: &[usize], b: &[usize], out: &mut Vec<usize>) {
+    out.reserve(a.len() + b.len());
+    let (mut i, mut j) = (0, 0);
+    while let (Some(&left), Some(&right)) = (a.get(i), b.get(j)) {
+        // The smaller head is emitted once; an equal pair advances both
+        // cursors, which is what de-duplicates across the two inputs.
+        out.push(left.min(right));
+        if left <= right {
+            i += 1;
+        }
+        if right <= left {
+            j += 1;
+        }
+    }
+    out.extend_from_slice(&a[i..]);
+    out.extend_from_slice(&b[j..]);
+}
+
+/// Indexes each node's own contribution as a contiguous range of `entries`.
+/// An SCC replacement node (empty path) stands in for every member of the
+/// cycle and so contributes one entry per member.
+fn index_node_contributions<'a>(
+    g: &'a IncludeGraph,
+    scc_map: &'a HashMap<NodeIndex, HashSet<String>>,
+) -> (Vec<NodeContribution<'a>>, Vec<std::ops::Range<usize>>) {
+    let mut entries = Vec::with_capacity(g.node_count());
+    let mut own = vec![0..0; g.node_bound()];
+    for node in g.node_indices() {
+        let start = entries.len();
+        match g.node_weight(node) {
+            Some(weight) if weight.as_os_str().is_empty() => {
+                if let Some(paths) = scc_map.get(&node) {
+                    entries.extend(paths.iter().map(|p| NodeContribution::Path(p)));
+                }
+            }
+            Some(weight) => entries.push(
+                weight
+                    .to_str()
+                    .map_or_else(|| NodeContribution::NonUtf8(weight), NodeContribution::Path),
+            ),
+            None => {}
+        }
+        own[node.index()] = start..entries.len();
+    }
+    (entries, own)
+}
+
+/// Computes every node's closure in one reverse-topological pass.
+///
+/// Returns `None` when the graph still holds a cycle — which [`collapse_scc`]
+/// has removed by construction, since a node both entering and leaving a
+/// component would itself belong to it. Reporting rather than asserting keeps
+/// a violated assumption a slowdown (the caller falls back to the per-file
+/// walk) rather than a panic or a wrong closure.
+fn compute_include_closures<'a>(
+    g: &'a IncludeGraph,
+    scc_map: &'a HashMap<NodeIndex, HashSet<String>>,
+) -> Option<IncludeClosures<'a>> {
+    let order = toposort(g, None).ok()?;
+    include_graph_walks::record();
+
+    let (entries, own) = index_node_contributions(g, scc_map);
+    let mut closures: Vec<Vec<usize>> = vec![Vec::new(); g.node_bound()];
+    let mut merged = Vec::new();
+    // Reverse topological order: every successor's closure is final by the
+    // time the node that reaches it is merged.
+    for node in order.into_iter().rev() {
+        // A contiguous range is already sorted and unique.
+        let mut acc: Vec<usize> = own[node.index()].clone().collect();
+        for succ in g.neighbors_directed(node, Direction::Outgoing) {
+            merged.clear();
+            merge_sorted_ids(&acc, &closures[succ.index()], &mut merged);
+            std::mem::swap(&mut acc, &mut merged);
+        }
+        closures[node.index()] = acc;
+    }
+    Some(IncludeClosures { entries, closures })
+}
+
+/// Records into every file's `indirect_includes` the transitive closure of
+/// includes reachable from its node. An SCC replacement node (empty path)
+/// contributes every member path it stands in for. Files reachable only
+/// through the graph but never preprocessed are warned about.
 fn record_indirect_includes<S: ::std::hash::BuildHasher>(
     files: &mut HashMap<PathBuf, PreprocFile, S>,
     g: &IncludeGraph,
@@ -321,20 +500,33 @@ fn record_indirect_includes<S: ::std::hash::BuildHasher>(
     scc_map: &HashMap<NodeIndex, HashSet<String>>,
     diagnostics: &mut Vec<PreprocDiagnostic>,
 ) {
+    let closures = compute_include_closures(g, scc_map);
     for (path, start) in nodes {
         let Some(pf) = files.get_mut(path) else {
             diagnostics.push(PreprocDiagnostic::NotPreprocessed { file: path.clone() });
             continue;
         };
-        accumulate_reachable_includes(g, *start, scc_map, &mut pf.indirect_includes, diagnostics);
+        if let Some(closures) = &closures {
+            closures.materialize(*start, &mut pf.indirect_includes, diagnostics);
+        } else {
+            accumulate_reachable_includes(
+                g,
+                *start,
+                scc_map,
+                &mut pf.indirect_includes,
+                diagnostics,
+            );
+        }
     }
 }
 
 /// Walk the include graph from `start`, inserting the transitive closure of
 /// reachable include paths into `x_inc`. An SCC replacement node (empty path)
 /// contributes every member path it stands in for; a non-UTF-8 path is
-/// reported and skipped. Factored out of [`record_indirect_includes`] so the
-/// per-file accumulation reads as one step rather than three nested loops.
+/// reported and skipped.
+///
+/// The fallback for a graph [`compute_include_closures`] could not order,
+/// which is why it re-derives the same closure one file at a time.
 fn accumulate_reachable_includes(
     g: &IncludeGraph,
     start: NodeIndex,
@@ -342,6 +534,7 @@ fn accumulate_reachable_includes(
     x_inc: &mut HashSet<String>,
     diagnostics: &mut Vec<PreprocDiagnostic>,
 ) {
+    include_graph_walks::record();
     let mut dfs = Dfs::new(g, start);
     while let Some(node) = dfs.next(g) {
         let w = g
@@ -564,366 +757,5 @@ enum MacroEvent {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::similar_names,
-    clippy::doc_markdown,
-    clippy::needless_raw_string_hashes,
-    clippy::too_many_lines
-)]
-mod tests {
-    use super::*;
-
-    fn parse(source: &str) -> PreprocParser {
-        PreprocParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.h"), None)
-    }
-
-    /// Empty include strings (`#include ""`) must not panic — earlier
-    /// implementations called `unwrap()` on `position`/`rposition` of the
-    /// trimmed slice, which returns `None` for an all-whitespace or empty
-    /// payload.
-    #[test]
-    fn preprocess_empty_include_does_not_panic() {
-        let parser = parse("#include \"\"\n");
-        let mut results = PreprocResults::default();
-        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
-        let pf = results
-            .files
-            .get(&PathBuf::from("test.h"))
-            .expect("file entry must be inserted");
-        assert!(pf.direct_includes.is_empty());
-    }
-
-    /// Whitespace-only include strings (`#include "   "`) must not panic —
-    /// `position` returns `None` because no non-whitespace byte exists.
-    #[test]
-    fn preprocess_whitespace_only_include_does_not_panic() {
-        let parser = parse("#include \"   \"\n");
-        let mut results = PreprocResults::default();
-        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
-        let pf = results
-            .files
-            .get(&PathBuf::from("test.h"))
-            .expect("file entry must be inserted");
-        assert!(pf.direct_includes.is_empty());
-    }
-
-    /// A well-formed include is still recorded with surrounding whitespace
-    /// stripped.
-    #[test]
-    fn preprocess_valid_include_is_recorded() {
-        let parser = parse("#include \"  foo.h  \"\n");
-        let mut results = PreprocResults::default();
-        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
-        let pf = results
-            .files
-            .get(&PathBuf::from("test.h"))
-            .expect("file entry must be inserted");
-        assert!(pf.direct_includes.contains("foo.h"));
-    }
-
-    /// `#define` of a normal identifier records the macro name.
-    #[test]
-    fn preprocess_define_records_macro() {
-        let parser = parse("#define FOO 1\n");
-        let mut results = PreprocResults::default();
-        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
-        let pf = results
-            .files
-            .get(&PathBuf::from("test.h"))
-            .expect("file entry must be inserted");
-        assert!(pf.macros.contains("FOO"));
-    }
-
-    fn macros_of(source: &str) -> HashSet<String> {
-        let parser = parse(source);
-        let mut results = PreprocResults::default();
-        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
-        results
-            .files
-            .get(&PathBuf::from("test.h"))
-            .expect("file entry must be inserted")
-            .macros
-            .clone()
-    }
-
-    /// Regression for #705: `#undef FOO` after `#define FOO` must REMOVE
-    /// FOO from the macro set — the pre-fix code shared a `Define | Undef`
-    /// arm that inserted the identifier for both, leaving `#undef FOO`
-    /// recording FOO as *defined*.
-    #[test]
-    fn preprocess_undef_removes_defined_macro() {
-        let macros = macros_of("#define FOO 1\n#undef FOO\n");
-        assert!(
-            !macros.contains("FOO"),
-            "#undef FOO must un-define FOO; got {macros:?}"
-        );
-    }
-
-    /// `#undef` of a macro that was never defined is a no-op (and must not
-    /// leave the name recorded as defined).
-    #[test]
-    fn preprocess_undef_of_never_defined_is_noop() {
-        let macros = macros_of("#undef NEVER_DEFINED\n");
-        assert!(!macros.contains("NEVER_DEFINED"));
-    }
-
-    /// Regression for #705's source-order replay: a `#define` that follows a
-    /// `#undef` in source order re-introduces the macro. The AST walk visits
-    /// siblings in *reverse* source order, so the raw encounter order is
-    /// `define` then `undef` (which would drop FOO); only the byte-offset
-    /// re-sort in `apply_macro_events` recovers the correct `undef` → `define`
-    /// order. The fixture is deliberately asymmetric (undef first, define
-    /// last) so a missing or reversed sort flips the result — a `define`
-    /// … `undef` … `define` sequence ends on a `define` either way and would
-    /// not exercise the ordering at all.
-    #[test]
-    fn preprocess_define_after_undef_reintroduces_in_source_order() {
-        let macros = macros_of("#undef FOO\n#define FOO 1\n");
-        assert!(
-            macros.contains("FOO"),
-            "the trailing source-order #define must win; got {macros:?}"
-        );
-    }
-
-    /// `#undef` removes only the named macro; unrelated defines survive.
-    #[test]
-    fn preprocess_undef_leaves_other_macros() {
-        let macros = macros_of("#define FOO 1\n#define BAR 2\n#undef FOO\n");
-        assert!(!macros.contains("FOO"));
-        assert!(macros.contains("BAR"));
-    }
-
-    /// `classify_preproc_node` drops `#define`s of compiler/type "special"
-    /// tokens (the `is_specials` filter — `size_t`, `NULL`, keywords, …) so
-    /// they never pollute the recorded macro set, while an ordinary macro on
-    /// an adjacent line is still recorded. Pins the `is_specials` guard that
-    /// the #736 refactor moved out of the inline walk and into the helper.
-    #[test]
-    fn preprocess_define_of_special_token_is_skipped() {
-        let macros = macros_of("#define size_t unsigned\n#define APP_FLAG 1\n");
-        assert!(
-            !macros.contains("size_t"),
-            "special token `size_t` must be filtered out; got {macros:?}"
-        );
-        assert!(
-            macros.contains("APP_FLAG"),
-            "an ordinary adjacent macro must still be recorded; got {macros:?}"
-        );
-    }
-
-    /// Regression for #705 (ambiguous include fan-out): when an `#include`
-    /// basename resolves to several tied candidates, exactly ONE edge is
-    /// added — the lexicographically smallest path — so macros do not leak
-    /// from unrelated same-named files via `get_macros`, and the result is
-    /// independent of `all_files` Vec ordering.
-    #[test]
-    fn ambiguous_include_resolves_to_single_deterministic_candidate() {
-        // `main.c` includes `config.h`, which exists in two sibling
-        // directories equidistant from the includer; neither resolution
-        // heuristic disambiguates, so the min-distance fallback ties and
-        // would otherwise return both candidates.
-        let includer = PathBuf::from("proj/src/main.c");
-        let cfg_a = PathBuf::from("proj/aaa/config.h");
-        let cfg_b = PathBuf::from("proj/zzz/config.h");
-
-        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
-        let mut main = PreprocFile::default();
-        main.direct_includes.insert("config.h".to_string());
-        files.insert(includer.clone(), main);
-        files.insert(cfg_a.clone(), PreprocFile::new_macros(&["FROM_A"]));
-        files.insert(cfg_b.clone(), PreprocFile::new_macros(&["FROM_B"]));
-
-        // Reversed Vec order proves the tie-break does not depend on it.
-        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
-        all_files.insert("config.h".to_string(), vec![cfg_b.clone(), cfg_a.clone()]);
-        all_files.insert("main.c".to_string(), vec![includer.clone()]);
-
-        let diagnostics = fix_includes(&mut files, &all_files);
-        assert!(
-            diagnostics.is_empty(),
-            "no diagnostics expected for a clean ambiguous resolve; got {diagnostics:?}"
-        );
-
-        let main = files.get(&includer).expect("main.c retained");
-        // Exactly the lexicographically smallest candidate
-        // (`proj/aaa/config.h`) is wired in; the sibling does not leak.
-        assert!(main.indirect_includes.contains("proj/aaa/config.h"));
-        assert!(!main.indirect_includes.contains("proj/zzz/config.h"));
-
-        let macros = get_macros(&includer, &files);
-        assert!(macros.contains("FROM_A"));
-        assert!(
-            !macros.contains("FROM_B"),
-            "macros from the unselected candidate must not leak; got {macros:?}"
-        );
-    }
-
-    /// A `#include` that resolves back to the including file is reported as
-    /// a `SelfInclusion` diagnostic (not written to stderr) and adds no
-    /// self-edge.
-    #[test]
-    fn self_inclusion_is_reported_as_diagnostic() {
-        let self_path = PathBuf::from("a.h");
-        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
-        let mut a = PreprocFile::default();
-        a.direct_includes.insert("a.h".to_string());
-        files.insert(self_path.clone(), a);
-
-        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
-        all_files.insert("a.h".to_string(), vec![self_path.clone()]);
-
-        let diagnostics = fix_includes(&mut files, &all_files);
-        assert_eq!(
-            diagnostics,
-            vec![PreprocDiagnostic::SelfInclusion {
-                file: self_path.clone(),
-            }]
-        );
-    }
-
-    /// `fix_includes` collapses a 2-file include cycle into one SCC replacement
-    /// node and propagates every member of that SCC into the `indirect_includes`
-    /// of *both* files symmetrically. Also exercises the `let-else` /
-    /// `expect`-with-invariant paths added in the panic-safety refactor (#72).
-    #[test]
-    fn fix_includes_handles_simple_cycle() {
-        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
-        let mut a = PreprocFile::default();
-        a.direct_includes.insert("b.h".to_string());
-        let mut b = PreprocFile::default();
-        b.direct_includes.insert("a.h".to_string());
-        files.insert(PathBuf::from("a.h"), a);
-        files.insert(PathBuf::from("b.h"), b);
-
-        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
-        all_files.insert("a.h".to_string(), vec![PathBuf::from("a.h")]);
-        all_files.insert("b.h".to_string(), vec![PathBuf::from("b.h")]);
-
-        let diagnostics = fix_includes(&mut files, &all_files);
-
-        // The cycle is reported as a single, deterministic diagnostic
-        // (members sorted) rather than written to stderr.
-        assert_eq!(
-            diagnostics,
-            vec![PreprocDiagnostic::IncludeCycle {
-                members: vec!["a.h".to_string(), "b.h".to_string()],
-            }]
-        );
-
-        // After resolving the cycle each file's indirect_includes should
-        // contain both members of the SCC.
-        let a = files
-            .get(&PathBuf::from("a.h"))
-            .expect("a.h must be retained");
-        assert!(a.indirect_includes.contains("a.h"));
-        assert!(a.indirect_includes.contains("b.h"));
-
-        let b = files
-            .get(&PathBuf::from("b.h"))
-            .expect("b.h must be retained");
-        assert!(b.indirect_includes.contains("a.h"));
-        assert!(b.indirect_includes.contains("b.h"));
-    }
-
-    /// `ensure_node` must return the same `NodeIndex` for a repeated path
-    /// lookup and must not add a second graph node — the include-graph build
-    /// relies on this to coalesce a file referenced from multiple includes.
-    #[test]
-    fn ensure_node_returns_stable_index_on_repeat() {
-        let mut g: IncludeGraph = StableGraph::new();
-        let mut nodes: HashMap<PathBuf, NodeIndex> = HashMap::new();
-        let p = PathBuf::from("a.h");
-
-        let first = ensure_node(&mut g, &mut nodes, &p);
-        let second = ensure_node(&mut g, &mut nodes, &p);
-
-        assert_eq!(first, second);
-        assert_eq!(g.node_count(), 1);
-        assert_eq!(nodes.len(), 1);
-    }
-
-    /// `scc_external_neighbors` must (a) exclude intra-component nodes so the
-    /// replacement node only re-wires the cycle's external boundary, and (b)
-    /// de-duplicate a node reachable from multiple component members. Here the
-    /// component `{a, b}` has one external predecessor `x` (pointing into both)
-    /// and one external successor `y` (pointed to by both); each must appear
-    /// exactly once and neither `a` nor `b` may leak in.
-    #[test]
-    fn scc_external_neighbors_dedups_and_excludes_intra_component() {
-        let mut graph: IncludeGraph = StableGraph::new();
-        let member_a = graph.add_node(PathBuf::from("a.h"));
-        let member_b = graph.add_node(PathBuf::from("b.h"));
-        let pred = graph.add_node(PathBuf::from("x.h"));
-        let succ = graph.add_node(PathBuf::from("y.h"));
-        // Intra-component cycle member_a <-> member_b.
-        graph.add_edge(member_a, member_b, 0);
-        graph.add_edge(member_b, member_a, 0);
-        // `pred` points into both members (dedup on the incoming side).
-        graph.add_edge(pred, member_a, 0);
-        graph.add_edge(pred, member_b, 0);
-        // Both members point out to `succ` (dedup on the outgoing side).
-        graph.add_edge(member_a, succ, 0);
-        graph.add_edge(member_b, succ, 0);
-
-        let component = vec![member_a, member_b];
-        let incoming = scc_external_neighbors(&graph, &component, Direction::Incoming);
-        let outgoing = scc_external_neighbors(&graph, &component, Direction::Outgoing);
-
-        assert_eq!(incoming, vec![pred]);
-        assert_eq!(outgoing, vec![succ]);
-    }
-
-    /// Regression for #432: a `string_literal` span shorter than the two
-    /// surrounding quote bytes must not panic. Tree-sitter error recovery on a
-    /// truncated `#include "` (no closing quote) can yield such a node; the
-    /// pre-fix code sliced `code[start + 1..end - 1]` unconditionally, which
-    /// builds a reversed range and panics for `end < start + 2`.
-    ///
-    /// Exercised directly against the byte-span helper so the reversed-range
-    /// path is genuinely hit regardless of what the current pinned grammar
-    /// emits — reverting the `end < start + 2` guard makes the len-0 and len-1
-    /// cases panic with `slice index starts at .. but ends at ..`.
-    #[test]
-    fn strip_include_quotes_rejects_too_short_spans() {
-        let code = b"#include \"\"";
-        // Length 0 (empty span) and length 1 (just an opening quote) cannot
-        // hold both quotes and must be rejected before slicing.
-        assert_eq!(strip_include_quotes(code, 9, 9), None);
-        assert_eq!(strip_include_quotes(code, 9, 10), None);
-    }
-
-    /// The helper still trims and accepts well-formed spans, and rejects
-    /// empty/whitespace-only payloads via the existing `position`/`rposition`
-    /// guards rather than panicking.
-    #[test]
-    fn strip_include_quotes_handles_valid_and_empty_payloads() {
-        // `"  foo.h  "` -> trimmed to `foo.h`.
-        let code = b"#include \"  foo.h  \"";
-        assert_eq!(strip_include_quotes(code, 9, code.len()), Some("foo.h"));
-        // `""` (length 2) -> empty payload -> None.
-        let code = b"#include \"\"";
-        assert_eq!(strip_include_quotes(code, 9, 11), None);
-        // `"   "` -> whitespace-only -> None.
-        let code = b"#include \"   \"";
-        assert_eq!(strip_include_quotes(code, 9, 14), None);
-    }
-
-    /// End-to-end: a truncated `#include "` with no closing quote must not
-    /// panic the preprocessor pass (issue #432). The file entry is still
-    /// inserted with no recorded include.
-    #[test]
-    fn preprocess_truncated_include_does_not_panic() {
-        let parser = parse("#include \"\n");
-        let mut results = PreprocResults::default();
-        preprocess_with_parser(&parser, &PathBuf::from("test.h"), &mut results);
-        let pf = results
-            .files
-            .get(&PathBuf::from("test.h"))
-            .expect("file entry must be inserted");
-        assert!(pf.direct_includes.is_empty());
-    }
-}
+#[path = "preproc_tests.rs"]
+mod tests;

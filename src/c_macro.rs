@@ -1,6 +1,19 @@
+use std::borrow::Borrow;
 use std::collections::HashSet;
+use std::hash::Hash;
 
 use crate::c_langs_macros::is_predefined_macros;
+
+/// The macro-name oracle [`replace`] masks against.
+///
+/// Generic over the set's element type so the crate can pass a
+/// `HashSet<&str>` borrowed straight out of the preprocessor results
+/// (`preproc::visible_macros`) while the published
+/// `preproc::get_macros` shape (`HashSet<String>`) keeps working
+/// unchanged. Only `contains` is ever asked of it.
+pub(crate) trait MacroName: Borrow<str> + Eq + Hash {}
+
+impl<T: Borrow<str> + Eq + Hash> MacroName for T {}
 
 /// C++ caps raw-string d-char-sequence at 16 chars per [lex.string].
 const CPP_RAW_STRING_DELIM_MAX: usize = 16;
@@ -60,7 +73,7 @@ fn track_numeric_run(code: &[u8], i: usize, k_start: usize, in_number: &mut bool
 }
 
 #[inline]
-fn is_macro<S: ::std::hash::BuildHasher>(mac: &str, macros: &HashSet<String, S>) -> bool {
+fn is_macro<K: MacroName, S: ::std::hash::BuildHasher>(mac: &str, macros: &HashSet<K, S>) -> bool {
     macros.contains(mac) || is_predefined_macros(mac)
 }
 
@@ -103,11 +116,11 @@ struct MaskState {
     new_code: Vec<u8>,
 }
 
-fn step_normal<S: ::std::hash::BuildHasher>(
+fn step_normal<K: MacroName, S: ::std::hash::BuildHasher>(
     code: &[u8],
     i: usize,
     mask: &mut MaskState,
-    macros: &HashSet<String, S>,
+    macros: &HashSet<K, S>,
     state: &mut LexState,
 ) -> usize {
     // bca: suppress(cyclomatic)
@@ -272,9 +285,9 @@ fn step_raw_string(
     1
 }
 
-pub fn replace<S: ::std::hash::BuildHasher>(
+pub fn replace<K: MacroName, S: ::std::hash::BuildHasher>(
     code: &[u8],
-    macros: &HashSet<String, S>,
+    macros: &HashSet<K, S>,
 ) -> Option<Vec<u8>> {
     let mut mask = MaskState {
         k_start: 0,
