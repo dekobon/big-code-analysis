@@ -19,6 +19,10 @@ The recipes are grouped by goal:
   gate on a developer machine with a two-tier (hard + headroom)
   Makefile / `just` / `pre-commit` pattern, so regressions never
   reach the pull request.
+- [Choosing thresholds](thresholds.md) — where the shipped default
+  limits come from, which ones to override for the language you are
+  gating, and how to pick a different set for CI, agent feedback,
+  legacy triage, or safety-critical work.
 - [Feeding metrics to an agent](agent-feedback.md) — wire `bca check`
   into an agentic coding tool's after-edit feedback loop (Claude Code
   `PostToolUse` hook, opencode plugin), with the anti-gaming guidance
