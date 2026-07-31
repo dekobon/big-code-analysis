@@ -10284,6 +10284,15 @@ class A {
     /// value, may depend on it. This is the invariant #1067 violated, and
     /// it pins the fix from both sides: the newline-terminated path (the
     /// one every in-tree harness exercises) must not move either.
+    ///
+    /// **The invariant is scoped to source that contains a token.** It
+    /// does not extend to whitespace-only input, where most grammars
+    /// collapse the root to a zero-width node at end-of-input and `sloc`
+    /// has no span left to measure — so `b"  "` reports one row and
+    /// `b"  \n"` reports none. That carve-out is #1087: deliberate,
+    /// upstream-owned, and pinned language-by-language in
+    /// [`whitespace_only_input_is_the_documented_carve_out`] rather than
+    /// left as an unstated exception to the claim made here.
     #[test]
     fn trailing_newline_does_not_change_loc_or_mi() {
         for (lang, source) in UNTERMINATED_ONE_LINERS {
@@ -10367,13 +10376,115 @@ class A {
         let spaces = rust_loc(b"   ");
         assert_eq!(spaces.sloc(), 1);
         assert_eq!(spaces.blank(), 1);
-        // Known limitation, unchanged by #1067: for whitespace-only input
-        // that *is* newline-terminated, tree-sitter collapses the root to a
-        // zero-width node at end-of-input (`(1, 0)..(1, 0)` for `"\n"`), so
-        // there is no span left to attribute rows from. Both rows of
-        // `"\n\n"` are likewise invisible.
+        // Accepted limitation (#1087, unchanged by #1067): for
+        // whitespace-only input that *is* newline-terminated, tree-sitter
+        // collapses the root to a zero-width node at end-of-input
+        // (`(1, 0)..(1, 0)` for `"\n"`), so there is no span left to
+        // attribute rows from. Both rows of `"\n\n"` are likewise
+        // invisible. Rust is one of the twenty grammars that behave this
+        // way; the five that do not are pinned alongside it in
+        // `whitespace_only_input_is_the_documented_carve_out`.
         assert_eq!(rust_loc(b"\n").sloc(), 0);
         assert_eq!(rust_loc(b"\n\n").sloc(), 0);
+    }
+
+    /// Every grammar whose `Loc` behaviour this module owns, including the
+    /// two whose `compute` is the `implement_metric_trait!` no-op.
+    ///
+    /// [`UNTERMINATED_ONE_LINERS`] carries a fixture per language because
+    /// its sweeps need parseable code; the whitespace-only sweep needs
+    /// only the language, and must not omit `Preproc`/`Ccomment` — their
+    /// synthetic Unit root is seeded by `init_unit_span` like any other,
+    /// so they carry a real span and answer the #1087 question too.
+    fn all_loc_grammars() -> impl Iterator<Item = crate::LANG> {
+        UNTERMINATED_ONE_LINERS
+            .iter()
+            .map(|(lang, _)| *lang)
+            .chain([crate::LANG::Preproc, crate::LANG::Ccomment])
+    }
+
+    /// The grammars that keep a real root span for whitespace-only,
+    /// newline-terminated input, so [`trailing_newline_does_not_change_loc_or_mi`]'s
+    /// invariant holds for them unmodified. Every other entry in
+    /// [`all_loc_grammars`] collapses its root to a zero-width node at
+    /// end-of-input instead.
+    ///
+    /// Which list a language falls in is a property of its grammar, not
+    /// of anything this crate computes — so a grammar bump can move one
+    /// across, and the sweep below is what forces that to be noticed
+    /// rather than silently absorbed.
+    const WHITESPACE_ONLY_SPANNING_GRAMMARS: &[crate::LANG] = &[
+        crate::LANG::Elixir,
+        crate::LANG::Tcl,
+        crate::LANG::Irules,
+        crate::LANG::Preproc,
+        crate::LANG::Ccomment,
+    ];
+
+    /// #1087: whitespace-only source is the one input class where a
+    /// trailing newline *does* move `sloc`, and the resolution was to
+    /// accept it and state it precisely rather than paper over it with a
+    /// byte-derived row count (a second, non-AST source of truth for a
+    /// metric the AST otherwise owns).
+    ///
+    /// Accepting it is only defensible if the shape is known, and #1087
+    /// had measured Rust alone. It is not uniform: twenty grammars
+    /// collapse the root to a zero-width node at end-of-input, five keep
+    /// the span and are newline-independent already. This sweep pins both
+    /// halves so the carve-out documented on
+    /// [`trailing_newline_does_not_change_loc_or_mi`] stays true of the
+    /// grammars actually in the tree.
+    ///
+    /// The unterminated side is asserted too, and is uniform: every
+    /// grammar reports the row, as one blank line. That is the half a
+    /// regression would most plausibly break, since it is the half #1067
+    /// changed.
+    #[test]
+    fn whitespace_only_input_is_the_documented_carve_out() {
+        // Spaces and tabs both, so a grammar that lexes one as extra and
+        // the other as an error token cannot hide behind the sweep.
+        for bare in [&b"  "[..], b"\t\t"] {
+            let mut newline_terminated = bare.to_vec();
+            newline_terminated.push(b'\n');
+            for lang in all_loc_grammars() {
+                let text = String::from_utf8_lossy(bare);
+                let unterminated = metrics_verbatim(lang, bare, MetricsOptions::default()).loc;
+                let terminated =
+                    metrics_verbatim(lang, &newline_terminated, MetricsOptions::default()).loc;
+
+                assert_eq!(
+                    (unterminated.sloc(), unterminated.blank()),
+                    (1, 1),
+                    "{lang:?}: unterminated {text:?} is one blank row for every grammar"
+                );
+
+                let expected = if WHITESPACE_ONLY_SPANNING_GRAMMARS.contains(&lang) {
+                    // Root keeps the file's span: the row is still there.
+                    (1, 1)
+                } else {
+                    // Root collapsed to zero width at end-of-input.
+                    (0, 0)
+                };
+                assert_eq!(
+                    (terminated.sloc(), terminated.blank()),
+                    expected,
+                    "{lang:?}: newline-terminated {text:?} — if this moved, the \
+                     grammar changed sides and #1087's carve-out list is stale"
+                );
+
+                // Whitespace is never code and never a comment, whichever
+                // side of the carve-out the grammar sits on. This is the
+                // assertion #1135 broke for Tcl and iRules, whose row
+                // terminator used to land in their PLOC catch-all.
+                for loc in [&unterminated, &terminated] {
+                    assert_eq!(
+                        (loc.ploc(), loc.cloc(), loc.lloc()),
+                        (0, 0, 0),
+                        "{lang:?}: whitespace is neither code nor comment"
+                    );
+                }
+            }
+        }
     }
 
     /// The non-unit half of the same off-by-one. tree-sitter-perl's
