@@ -1001,4 +1001,157 @@ mod tests {
         let out_b = handle_path(&path_b, Path::new("out"), ".json");
         assert_ne!(out_a, out_b);
     }
+
+    /// A minimal serializable stand-in for a metrics document. Two
+    /// fields so a format that drops or reorders keys is visible, and a
+    /// float so the numeric encodings differ per format.
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+    struct Item {
+        name: String,
+        value: f64,
+    }
+
+    /// Mirrors the private wrapper `dump_aggregate` writes for TOML, so
+    /// a test can name the `files` key it must produce.
+    #[derive(serde::Deserialize)]
+    struct TomlAggregateDoc {
+        files: Vec<Item>,
+    }
+
+    fn items() -> Vec<Item> {
+        vec![
+            Item {
+                name: "alpha".to_owned(),
+                value: 1.5,
+            },
+            Item {
+                name: "beta".to_owned(),
+                value: -2.0,
+            },
+        ]
+    }
+
+    /// Every `dump_aggregate` arm must produce a document that reads
+    /// back as the list it was given. Round-tripping rather than
+    /// asserting bytes keeps the test on the contract — that the file is
+    /// a valid document of its format carrying the input — instead of on
+    /// each serializer's incidental spacing.
+    #[test]
+    fn dump_aggregate_round_trips_every_format() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let expected = items();
+
+        for pretty in [false, true] {
+            let json = dir.path().join(format!("agg-{pretty}.json"));
+            dump_aggregate(GenericFormat::Json, &expected, &json, pretty).expect("json");
+            let got: Vec<Item> =
+                serde_json::from_slice(&std::fs::read(&json).expect("read")).expect("parse json");
+            assert_eq!(got, expected, "json pretty={pretty}");
+
+            let toml_path = dir.path().join(format!("agg-{pretty}.toml"));
+            dump_aggregate(GenericFormat::Toml, &expected, &toml_path, pretty).expect("toml");
+            let text = std::fs::read_to_string(&toml_path).expect("read");
+            // TOML has no top-level array, so the aggregate is wrapped
+            // under `files`. Deserializing through a struct that names
+            // that field asserts the wrapper: drop it and this fails,
+            // where a bare "is it valid TOML" check would not.
+            let doc: TomlAggregateDoc = toml::from_str(&text).expect("parse toml");
+            assert_eq!(doc.files, expected, "toml pretty={pretty}");
+
+            let cbor = dir.path().join(format!("agg-{pretty}.cbor"));
+            dump_aggregate(GenericFormat::Cbor, &expected, &cbor, pretty).expect("cbor");
+            let got: Vec<Item> = ciborium::from_reader(&std::fs::read(&cbor).expect("read")[..])
+                .expect("parse cbor");
+            assert_eq!(got, expected, "cbor pretty={pretty}");
+        }
+
+        let yaml = dir.path().join("agg.yaml");
+        dump_aggregate(GenericFormat::Yaml, &expected, &yaml, false).expect("yaml");
+        let got: Vec<Item> =
+            serde_yaml::from_str(&std::fs::read_to_string(&yaml).expect("read")).expect("parse");
+        assert_eq!(got, expected);
+    }
+
+    /// The `pretty` flag has to reach the serializer. Both spellings
+    /// parse back to the same value, so a round-trip alone cannot tell
+    /// them apart — the discriminating check is that exactly one of them
+    /// is multi-line.
+    #[test]
+    fn pretty_selects_a_different_encoding_than_compact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let value = items();
+
+        let compact = dir.path().join("compact.json");
+        let pretty = dir.path().join("pretty.json");
+        write_json(&value, false, Some(&compact)).expect("compact json");
+        write_json(&value, true, Some(&pretty)).expect("pretty json");
+        let compact_text = std::fs::read_to_string(&compact).expect("read");
+        let pretty_text = std::fs::read_to_string(&pretty).expect("read");
+        assert_eq!(compact_text.lines().count(), 1, "compact json is one line");
+        assert!(
+            pretty_text.lines().count() > 1,
+            "pretty json spans lines: {pretty_text}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Vec<Item>>(&compact_text).expect("compact parses"),
+            serde_json::from_str::<Vec<Item>>(&pretty_text).expect("pretty parses"),
+            "the two encodings carry the same value"
+        );
+
+        // `write_toml`'s pretty flag picks `to_string_pretty`; both are
+        // valid TOML for the same document.
+        let toml_compact = dir.path().join("compact.toml");
+        let toml_pretty = dir.path().join("pretty.toml");
+        write_toml(&value[0], false, Some(&toml_compact)).expect("compact toml");
+        write_toml(&value[0], true, Some(&toml_pretty)).expect("pretty toml");
+        let a: Item =
+            toml::from_str(&std::fs::read_to_string(&toml_compact).expect("read")).expect("parse");
+        let b: Item =
+            toml::from_str(&std::fs::read_to_string(&toml_pretty).expect("read")).expect("parse");
+        assert_eq!(a, b);
+        assert_eq!(a, value[0]);
+
+        let yaml = dir.path().join("out.yaml");
+        write_yaml(&value, Some(&yaml)).expect("yaml");
+        assert_eq!(
+            serde_yaml::from_str::<Vec<Item>>(&std::fs::read_to_string(&yaml).expect("read"))
+                .expect("parse"),
+            value
+        );
+    }
+
+    /// The reason `dump_csv_aggregate` exists: a per-file `write_csv`
+    /// loop repeats the header before every file's rows, which corrupts
+    /// the concatenated document. Two spaces must yield exactly one
+    /// header line.
+    #[test]
+    fn csv_aggregate_emits_the_header_once_for_many_files() {
+        let space = big_code_analysis::analyze(
+            big_code_analysis::Source::new(big_code_analysis::LANG::Rust, b"fn a() {}\n"),
+            big_code_analysis::MetricsOptions::default(),
+        )
+        .expect("snippet analyzes");
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("agg.csv");
+        dump_csv_aggregate(
+            &[
+                (space.clone(), PathBuf::from("a.rs")),
+                (space, PathBuf::from("b.rs")),
+            ],
+            &out,
+        )
+        .expect("csv aggregate");
+
+        let text = std::fs::read_to_string(&out).expect("read");
+        // `CSV_HEADER` is the column list, so rebuild the header row
+        // from it rather than assuming a rendering.
+        let header = big_code_analysis::CSV_HEADER.join(",");
+        let header_lines = text.lines().filter(|line| *line == header).count();
+        assert_eq!(header_lines, 1, "exactly one header line in:\n{text}");
+        assert!(
+            text.lines().count() > 2,
+            "both files contributed rows:\n{text}"
+        );
+    }
 }
