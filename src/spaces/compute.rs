@@ -615,11 +615,18 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             last_level = level;
         }
 
+        // Bound above the prune because the prune reads it too: Rust's
+        // hook finds the `#[…]` run before an item through the parent,
+        // and `chain` is already correct here — the truncate above is
+        // the only thing that touches it between the pop and this
+        // point (#1100).
+        let ancestors = Ancestors::checked(&chain, &node);
+
         // Prune test-only subtrees before any per-metric work runs.
         // The hook is gated on `exclude_tests` so the default
         // `metrics()` entry point keeps emitting the pre-#182
         // numbers byte-for-byte.
-        if options.exclude_tests && T::Checker::should_skip_subtree(&node, code) {
+        if options.exclude_tests && T::Checker::should_skip_subtree(&node, code, ancestors) {
             // `sloc` is span-based, not node-accumulated, so unlike every
             // other loc sub-metric it does not shrink just because we
             // skip the subtree. Record the pruned node's row span on the
@@ -642,7 +649,6 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             continue;
         }
 
-        let ancestors = Ancestors::checked(&chain, &node);
         let func_space = T::Checker::promotes_to_func_space_with_code(&node, code, ancestors);
 
         let new_level = if func_space {

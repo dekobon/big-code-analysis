@@ -240,6 +240,49 @@ pub fn nested_declared_functions(depth: usize) -> String {
     )
 }
 
+/// Rust: `#[inline] fn f() { #[inline] fn f() { … } }`.
+///
+/// [`nested_fns`] with an outer attribute on every function, which is
+/// what makes it an `exclude_tests` probe: the prune hook only scans
+/// for a preceding `#[…]` run once the node's kind is an item kind, so
+/// a shape without attributes leaves the scan with nothing to walk. The
+/// attribute is `#[inline]` rather than `#[test]` on purpose — a test
+/// attribute prunes the outermost function and the walk stops there,
+/// timing nothing (#1100).
+///
+/// Still affine in depth, and no `if`: the reading comes from `nom`, so
+/// nothing here needs cognitive weight.
+#[must_use]
+pub fn nested_attributed_fns(depth: usize) -> String {
+    format!(
+        "{}let x = 1;{}\n",
+        "#[inline] fn f() { ".repeat(depth),
+        "} ".repeat(depth)
+    )
+}
+
+/// Rust: `#[cfg(all(all(… test …)))] fn gone() {}` plus one retained
+/// function.
+///
+/// Nesting inside one *attribute* rather than in the code: the cfg
+/// predicate is classified by a string-level mini-parser reading the
+/// attribute's text, so what grows with `depth` is the length of a
+/// single attribute while the file keeps its two items. (The token
+/// tree nests along with the text, which is what
+/// `shapes_nest_proportionally_to_depth` sees.)
+///
+/// The retained `fn keep` is what gives the probe a non-zero reading:
+/// the attributed item is pruned, so a file holding only it scores zero
+/// at every depth.
+#[must_use]
+pub fn nested_cfg_predicate(depth: usize) -> String {
+    format!(
+        "#[cfg({}test{})] fn gone() {{}}\nfn keep() {{ let x = 1; }}\n",
+        "all(".repeat(depth),
+        ")".repeat(depth)
+    )
+}
+
 /// JavaScript: `const f = a => { a => { … 1 … } };`.
 ///
 /// The JS grammars have no production for "named function": `const f =
@@ -279,6 +322,14 @@ pub enum Workload {
         /// as narrow as the probe allows so an unrelated metric's cost
         /// cannot dominate and misattribute a regression.
         selection: &'static [Metric],
+        /// Whether the walk runs under `MetricsOptions::exclude_tests`,
+        /// which is the only way to reach `Checker::should_skip_subtree`
+        /// and the cfg-predicate classifier behind it (#1100). Lives on
+        /// this variant rather than on [`Probe`] for the reason
+        /// `selection` does: `Ast::ops` takes no options at all, so a
+        /// probe that could set it there would be setting something
+        /// nothing reads.
+        exclude_tests: bool,
         /// Headline value the selection produces on the probe's shape.
         reading: fn(&CodeMetrics) -> u64,
     },
@@ -297,7 +348,13 @@ impl Workload {
     #[must_use]
     pub fn options(self) -> MetricsOptions {
         match self {
-            Self::Metrics { selection, .. } => MetricsOptions::default().with_only(selection),
+            Self::Metrics {
+                selection,
+                exclude_tests,
+                ..
+            } => MetricsOptions::default()
+                .with_only(selection)
+                .with_exclude_tests(exclude_tests),
             Self::Ops { .. } => MetricsOptions::default(),
         }
     }
@@ -399,6 +456,7 @@ pub const PROBES: &[Probe] = &[
         name: "tokens/nested-paren",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Tokens],
             reading: |m| m.tokens.tokens_sum(),
         },
@@ -421,6 +479,7 @@ pub const PROBES: &[Probe] = &[
         name: "cognitive/nested-while",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Cognitive],
             reading: |m| m.cognitive.cognitive_sum(),
         },
@@ -435,6 +494,7 @@ pub const PROBES: &[Probe] = &[
         name: "nom/nested-while",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
@@ -449,6 +509,7 @@ pub const PROBES: &[Probe] = &[
         name: "cognitive/nested-if",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Cognitive],
             reading: |m| m.cognitive.cognitive_sum(),
         },
@@ -465,6 +526,7 @@ pub const PROBES: &[Probe] = &[
         name: "loc/nested-while",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
@@ -479,6 +541,7 @@ pub const PROBES: &[Probe] = &[
         name: "loc/nested-declaration",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
@@ -498,6 +561,7 @@ pub const PROBES: &[Probe] = &[
         name: "halstead/nested-paren",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Halstead],
             reading: |m| m.halstead.length(),
         },
@@ -512,6 +576,7 @@ pub const PROBES: &[Probe] = &[
         name: "halstead/nested-not",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Halstead],
             reading: |m| m.halstead.length(),
         },
@@ -530,6 +595,7 @@ pub const PROBES: &[Probe] = &[
         name: "abc/nested-block",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Abc],
             reading: |m| m.abc.assignments_sum(),
         },
@@ -544,6 +610,7 @@ pub const PROBES: &[Probe] = &[
         name: "abc/nested-if",
         lang: LANG::C,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Abc],
             reading: |m| m.abc.conditions_sum(),
         },
@@ -563,6 +630,7 @@ pub const PROBES: &[Probe] = &[
         name: "cyclomatic/nested-and",
         lang: LANG::Python,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Cyclomatic],
             reading: |m| m.cyclomatic.cyclomatic_sum(),
         },
@@ -577,6 +645,7 @@ pub const PROBES: &[Probe] = &[
         name: "cyclomatic/nested-ternary",
         lang: LANG::Python,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Cyclomatic],
             reading: |m| m.cyclomatic.cyclomatic_sum(),
         },
@@ -593,6 +662,7 @@ pub const PROBES: &[Probe] = &[
         name: "loc/nested-quote",
         lang: LANG::Elixir,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
@@ -610,6 +680,7 @@ pub const PROBES: &[Probe] = &[
         name: "nom/nested-quote",
         lang: LANG::Elixir,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
@@ -626,6 +697,7 @@ pub const PROBES: &[Probe] = &[
         name: "nom/nested-fn",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
@@ -642,6 +714,7 @@ pub const PROBES: &[Probe] = &[
         name: "cognitive/nested-fn",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Cognitive],
             reading: |m| m.cognitive.cognitive_sum(),
         },
@@ -691,6 +764,7 @@ pub const PROBES: &[Probe] = &[
         name: "loc/nested-fn",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
@@ -707,6 +781,7 @@ pub const PROBES: &[Probe] = &[
         name: "loc/nested-fn-rows",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.ploc(),
         },
@@ -726,6 +801,7 @@ pub const PROBES: &[Probe] = &[
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
@@ -741,6 +817,7 @@ pub const PROBES: &[Probe] = &[
         name: "nom/nested-declared-function",
         lang: LANG::Javascript,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
@@ -756,6 +833,7 @@ pub const PROBES: &[Probe] = &[
         name: "nom/nested-arrow",
         lang: LANG::Javascript,
         workload: Workload::Metrics {
+            exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
@@ -770,6 +848,50 @@ pub const PROBES: &[Probe] = &[
                     steps now index the walker's ancestor chain. \
                     `nom/nested-declared-function` is the same nesting \
                     without the walk.",
+    },
+    Probe {
+        name: "nom/nested-attributed-fn",
+        lang: LANG::Rust,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_attributed_fns,
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1100: under `exclude_tests` the walker asks every \
+                    node whether it opens a test-only subtree, and Rust \
+                    answers by reading the run of `#[…]` siblings before \
+                    an item. Walking that run backwards with \
+                    `Node::previous_sibling` re-resolved the parent from \
+                    the root per step; it is now one forward pass over \
+                    the parent the walker already holds. `nom/nested-fn` \
+                    is the same nesting without the attributes, and — \
+                    since it is the only probe in the set that leaves \
+                    `exclude_tests` off on a Rust shape — also the \
+                    control for the flag itself.",
+    },
+    Probe {
+        name: "nom/nested-cfg-predicate",
+        lang: LANG::Rust,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: nested_cfg_predicate,
+        depths: LINEAR_DEPTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1105: `cfg(all(all(… test …)))` is classified by a \
+                    string-level mini-parser, which re-scanned each \
+                    region's whole interior to find its split points — \
+                    O(len^2) in the attribute body, and a denial-of-\
+                    service vector on machine-generated Rust. The commas \
+                    are now indexed by paren depth in one pass. The \
+                    only probe that grows one *attribute* rather than \
+                    the code around it, so `nom/nested-fn` is not a \
+                    control for it; the bound alone is the guard.",
     },
 ];
 

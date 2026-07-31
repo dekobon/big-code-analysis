@@ -896,16 +896,16 @@ value = 10.0
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
-start_line = 125
+start_line = 82
 metric = "nom"
 value = 34.0
 
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 242
+start_line = 305
 metric = "halstead.effort"
-value = 74781.76504632097
+value = 74314.37901478147
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -1017,7 +1017,7 @@ path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
 start_line = 514
 metric = "halstead.effort"
-value = 124910.02765596088
+value = 125902.05368685763
 
 [[entry]]
 path = "src/suppression.rs"
@@ -1288,7 +1288,7 @@ value = 56240.27018612609
 [[entry]]
 path = "src/wire.rs"
 qualified = "CodeMetrics::from"
-start_line = 330
+start_line = 337
 metric = "halstead.effort"
 value = 49790.15156224738
 
