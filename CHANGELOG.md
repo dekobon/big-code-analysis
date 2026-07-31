@@ -322,6 +322,20 @@ for historical reference.
 
 ### Fixed
 
+- `make book-pot` writes `messages.pot` to the book's `po/` directory
+  again, and now refuses to run against an unsupported mdBook. The
+  target passed a relative `-d po`, which mdBook 0.4 resolved against
+  the book root but 0.5 resolves against the working directory, so
+  under 0.5 the pot silently landed in `./po/` at the repository root
+  and `make book-po-update` then failed on a missing file. The
+  destination is now absolute. A version guard was added alongside it:
+  mdbook-i18n-helpers 0.3.x pairs only with mdBook 0.4.x, and the
+  mismatched pair that does *not* error — helpers 0.4.x — extracts
+  fenced code blocks one entry per line instead of one per block, so
+  the following `msgmerge` marks every code-block entry fuzzy and
+  rewrites `po/ja.po` against msgids the pinned toolchain never
+  produces. `docs/development/translations.md` now pins both halves of
+  the toolchain and describes both failure modes.
 - Comment-only rows are no longer counted as physical lines of code in
   Tcl, iRules (#1135), and Perl (#1137). Both defects let a token reach
   the `_` catch-all that ends `stats.ploc.lines.insert(start)`: in the

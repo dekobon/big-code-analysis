@@ -952,9 +952,26 @@ book-serve:
 # demand and is not tracked. Untranslated or stale (fuzzy) entries
 # fall back to English at build time, so doc PRs never block on
 # translation. See docs/development/translations.md.
+#
+# `-d` is absolute on purpose: mdbook 0.4 resolved a relative dest
+# against the book root, 0.5 resolves it against the cwd. Under 0.5 the
+# former `-d po` silently wrote the pot to ./po/ at the repo root, and
+# book-po-update then failed on the missing file.
 book-pot:
 	@command -v mdbook-xgettext >/dev/null 2>&1 || { echo "mdbook-xgettext not found; install with: cargo install mdbook-i18n-helpers --version '=0.3.6' --locked"; exit 1; }
-	MDBOOK_OUTPUT='{"xgettext": {}}' mdbook build big-code-analysis-book -d po
+	@command -v mdbook >/dev/null 2>&1 || { echo "mdbook not found; this workflow needs the 0.4.x line (see MDBOOK_VERSION in .github/workflows/pages.yml and docs/development/translations.md)"; exit 1; }
+	@ver="$$(mdbook --version | awk '{print $$2}' | tr -d v)"; \
+	case "$$ver" in \
+	  0.4.*) ;; \
+	  *) echo "mdbook $$ver cannot be paired with mdbook-i18n-helpers 0.3.x."; \
+	     echo "CI pins mdbook 0.4.40 + helpers 0.3.6 (MDBOOK_VERSION in"; \
+	     echo ".github/workflows/pages.yml); helpers 0.4.0+ target mdbook 0.5."; \
+	     echo "A mismatched pair still produces a pot, but one that splits"; \
+	     echo "code blocks per line instead of whole — msgmerge then marks"; \
+	     echo "every code-block entry fuzzy and silently shreds po/ja.po."; \
+	     exit 1 ;; \
+	esac
+	MDBOOK_OUTPUT='{"xgettext": {}}' mdbook build big-code-analysis-book -d "$(CURDIR)/big-code-analysis-book/po"
 
 book-po-update: book-pot
 	msgmerge --update --backup=off big-code-analysis-book/po/ja.po big-code-analysis-book/po/messages.pot

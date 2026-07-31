@@ -23,12 +23,25 @@ marks every paragraph the English edit touched.
 
 ```console
 cargo install mdbook-i18n-helpers --version '=0.3.6' --locked
+cargo install mdbook --version '=0.4.40' --locked
 ```
 
-The 0.3.x line pairs with the mdbook 0.4.x pinned in
-`.github/workflows/pages.yml` (`MDBOOK_VERSION` /
+Both pins are load-bearing, and installing only the first is the
+common mistake. The 0.3.x helper line pairs with the mdbook 0.4.x
+pinned in `.github/workflows/pages.yml` (`MDBOOK_VERSION` /
 `MDBOOK_I18N_HELPERS_VERSION`); mdbook-i18n-helpers 0.4.0+ targets
-mdbook 0.5 and the two pins must move together. The preprocessor is
+mdbook 0.5 and the two pins must move together.
+
+A mismatch fails in one of two ways, neither of which is a normal
+build error. Helpers 0.3.x under mdbook 0.5.x aborts with
+`missing field 'sections'` — loud, and `make book-pot` now refuses to
+run rather than reaching it. The dangerous direction is helpers 0.4.x
+under any mdbook: extraction succeeds but splits fenced code blocks
+one entry per line instead of one entry per block, so the next
+`msgmerge` marks every code-block entry fuzzy and shreds `ja.po`
+against msgids that do not exist upstream. If a routine doc edit
+suddenly reports dozens of fuzzy code-block entries, check the helper
+version before touching the translations. The preprocessor is
 registered in `book.toml` with `optional = true`, so a plain
 `mdbook build` keeps working without it (English output only).
 GNU gettext (`msgmerge`, `msgfmt`, `msgattrib`) comes from the system
