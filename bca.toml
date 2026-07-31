@@ -47,7 +47,7 @@ exclude_tests = true
 [check]
 baseline = ".bca-baseline.toml"
 
-# bca per-function threshold configuration.
+# bca metric threshold configuration.
 #
 # These limits are this repository's own calibration and are expected to
 # differ from the defaults `bca init` scaffolds (which live in
@@ -83,7 +83,12 @@ baseline = ".bca-baseline.toml"
 #     that were previously invisible to the gate.
 #
 # Metrics intentionally NOT gated (yet):
-#   halstead.{volume,difficulty,time,bugs}, cyclomatic.modified, mi.*
+#         cyclomatic.modified,
+#         halstead.volume, halstead.difficulty, halstead.time,
+#         halstead.bugs,
+#         loc.lloc, loc.cloc, loc.blank,
+#         mi.original, mi.sei, mi.visual_studio,
+#         npm, npa, tokens
 # Their distributions on this codebase are dominated by macro-expanded
 # language modules; gating them would either require thresholds high
 # enough to be meaningless, or fire on the long tail of dispatch arms.

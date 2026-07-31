@@ -32,7 +32,7 @@ use crate::qualified_name::qualified_symbol;
 /// the library catalog so the CLI gate and the Python `to_sarif` binding
 /// cannot drift on which kinds a metric measures, exactly as they share
 /// the lower-is-worse direction.
-fn metric_scope(name: &str) -> MetricScope {
+pub(crate) fn metric_scope(name: &str) -> MetricScope {
     // Every name reaching here has resolved to a catalog entry (pinned by
     // `extractor_ids_match_library_catalog`), so the lookup is infallible;
     // an unknown id defaults to the narrowest scope rather than ever

@@ -2,7 +2,9 @@
 
 use super::*;
 
-/// Canonical contents of a freshly-scaffolded `bca.toml` manifest.
+/// Render the canonical contents of a freshly-scaffolded `bca.toml`
+/// manifest.
+///
 /// This is the consolidated config `bca` auto-discovers when climbing
 /// from the working directory to the repo root (#374, #483): a bare
 /// `bca check` (no flags) reproduces the gate once this file exists.

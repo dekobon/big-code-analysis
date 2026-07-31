@@ -5,12 +5,23 @@ use std::collections::BTreeMap;
 use big_code_analysis::metric_catalog::MetricScope;
 
 use super::{DEFAULT_THRESHOLDS, render_thresholds_block};
-use crate::thresholds::{ThresholdSet, known_metric_names};
+use crate::thresholds::{ThresholdSet, known_metric_names, metric_scope};
 
-/// Longest line the scaffolded manifest's comment prose may occupy.
-/// The rendered rationale is prefixed with `"# "`, so a rationale line
-/// may be two characters shorter than this.
+/// Longest line the scaffolded manifest's comment prose may occupy. A
+/// [`super::DefaultThreshold::rationale`] line renders with a `"# "`
+/// prefix, so it may be two characters shorter than this. Lives here
+/// rather than beside the field because this test is the only thing
+/// that enforces it, and a production const nothing reads is dead code.
 const MANIFEST_COMMENT_WIDTH: usize = 72;
+
+/// Docs that repeat the default table verbatim. Each is a second copy
+/// of the numbers, and a second copy drifts, so each is pinned by
+/// `doc_summary_tables_match_the_default_table`. Paths are relative to
+/// the CLI crate directory.
+const DOCS_REPEATING_THE_TABLE: &[&str] = &[
+    "/../AGENTS.md",
+    "/../big-code-analysis-book/src/recipes/thresholds.md",
+];
 
 #[test]
 fn every_default_name_is_a_known_metric() {
@@ -28,8 +39,13 @@ fn every_default_name_is_a_known_metric() {
 }
 
 /// The names must also survive `ThresholdSet::build`, which is what
-/// `bca check` actually calls — `known_metric_names` only proves the
-/// registry lists them, not that a limit of this magnitude is accepted.
+/// `bca check` actually calls, and which additionally validates the
+/// limit itself.
+///
+/// This does not subsume `every_default_name_is_a_known_metric`:
+/// `build` runs `metric_alias::normalize_for_check` first, so it would
+/// happily accept a default spelled `sloc`. Rejecting alias spellings
+/// in the scaffold is what the other test uniquely covers.
 #[test]
 fn default_table_builds_a_threshold_set() {
     let raw: BTreeMap<String, f64> = DEFAULT_THRESHOLDS
@@ -114,34 +130,72 @@ fn dotted_keys_are_quoted_and_bare_keys_are_not() {
     }
 }
 
-/// `AGENTS.md` repeats the default table so a coding agent reads the
-/// numbers without following a link. That is a second copy, and a
-/// second copy drifts. Pin it: the summary table there must list every
-/// default, with the same limit and the same scope.
+/// The docs repeat the default table so a reader (or a coding agent)
+/// gets the numbers without following a link. Pin every such copy: each
+/// must list every default, with the same limit and the same scope.
 ///
-/// The scope column is checked against the library catalog rather than
-/// against a hand-written list, so a metric whose scope is later
-/// corrected in `metric_catalog` fails here until the doc follows.
+/// The scope column is resolved through the gate's own
+/// `thresholds::metric_scope` rather than re-deriving the
+/// unknown-id fallback here, so a metric whose scope is later corrected
+/// in `metric_catalog` fails until the docs follow.
 #[test]
-fn agents_md_summary_table_matches_the_default_table() {
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../AGENTS.md"))
-        .expect("repo-root AGENTS.md must be readable from the CLI crate dir");
+fn doc_summary_tables_match_the_default_table() {
+    for relative in DOCS_REPEATING_THE_TABLE {
+        let path = format!("{}{relative}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{path} must be readable from the CLI crate dir: {e}"));
 
-    for entry in DEFAULT_THRESHOLDS {
-        let scope = match big_code_analysis::metric_catalog::scope(entry.name) {
-            Some(MetricScope::File) => "file",
-            Some(MetricScope::Container) => "container",
-            // `Function` is also the fallback the CLI gate applies to an
-            // id the catalog does not know, so an unknown id renders the
-            // narrowest scope here too rather than failing obscurely.
-            Some(MetricScope::Function) | None => "function",
-        };
-        let row = format!("| `{}` | {} | {scope} |", entry.name, entry.limit);
+        for entry in DEFAULT_THRESHOLDS {
+            let scope = match metric_scope(entry.name) {
+                MetricScope::File => "file",
+                MetricScope::Container => "container",
+                MetricScope::Function => "function",
+            };
+            // A prefix match, so a table may carry extra trailing
+            // columns (the book's adds an "Anchor" column).
+            let row = format!("| `{}` | {} | {scope} |", entry.name, entry.limit);
+            assert!(
+                text.contains(&row),
+                "{path}: threshold summary table is missing or has drifted from \
+                 the row {row:?}; update it to match \
+                 default_thresholds::DEFAULT_THRESHOLDS"
+            );
+        }
+    }
+}
+
+/// The rendered prose carries two hand-curated metric-name inventories:
+/// the "Available names" list and the "NOT gated" list. Both are copies
+/// of the registry, kept by hand for their family grouping, so both can
+/// rot when a metric is added or newly gated.
+///
+/// This caught a real omission: the NOT-gated list read as exhaustive
+/// while silently missing `loc.lloc`, `loc.cloc`, and `loc.blank`.
+#[test]
+fn rendered_prose_lists_every_known_metric() {
+    let rendered = render_thresholds_block();
+    let gated: Vec<&str> = DEFAULT_THRESHOLDS.iter().map(|e| e.name).collect();
+
+    for name in known_metric_names() {
         assert!(
-            text.contains(&row),
-            "AGENTS.md's threshold summary table is missing or has drifted from \
-             the row {row:?}; update the table under `## Metric thresholds` to \
-             match default_thresholds::DEFAULT_THRESHOLDS"
+            rendered.contains(name),
+            "the scaffold's \"Available names\" list omits the known metric \
+             {name:?}; add it in default_thresholds::THRESHOLDS_HEADER"
+        );
+        if gated.contains(&name) {
+            continue;
+        }
+        // An ungated metric must be named in the NOT-gated paragraph.
+        // Split on its heading so a hit in the available-names list
+        // above cannot satisfy this half of the assertion.
+        let (_, not_gated) = rendered
+            .split_once("# Metrics intentionally NOT gated:")
+            .expect("the rendered header names its NOT-gated section");
+        assert!(
+            not_gated.contains(name),
+            "{name:?} is a known metric that no default gates, but the \
+             scaffold's \"NOT gated\" list does not mention it; that list \
+             reads as exhaustive, so a gap there is a wrong claim"
         );
     }
 }
