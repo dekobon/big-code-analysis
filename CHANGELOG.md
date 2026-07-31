@@ -87,6 +87,19 @@ for historical reference.
 
 ### Changed
 
+- `make test` now runs the suite through `cargo-nextest` when it is
+  available, matching CI, and falls back to `cargo test` otherwise
+  (#1120). nextest schedules every binary's tests into one global pool
+  rather than finishing each test binary before starting the next. Set
+  `NEXTEST=` to force the fallback, or point it at a specific binary.
+  nextest's default profile disables fail-fast so a local run still
+  reports the whole failure set, as `cargo test` did.
+- Corpus snapshot tests now assert an exact per-corpus file count, and
+  separately that each resolved file reached its snapshot assertion
+  (#1123). A traversal or glob change that silently analyzed fewer files
+  previously still passed while verifying less than it claimed. A
+  deliberate corpus bump must update the expected count alongside the
+  snapshots.
 - **(breaking)** `FuncSpace`, `Ops`, `AstNode`, `wire::FuncSpace`, and
   `wire::Ops` now implement `Drop` (#1056), so fields can no longer be
   moved out of one by value: `let m = space.metrics;` becomes
@@ -140,6 +153,27 @@ for historical reference.
 
 ### Performance
 
+- `#[cfg(...)]` predicate classification is now linear in the attribute
+  body rather than `O(len²)` on deeply nested predicates such as
+  `all(all(all(…test…)))` (#1105). Every operand previously rescanned the
+  whole remaining tail probing for a top-level comma; commas are now
+  bucketed by paren depth in one forward pass and each region queries its
+  own bucket. This path is reached from every Rust attribute under
+  `--exclude-tests` — which this repository's own `bca.toml` enables — so
+  a machine-generated or adversarial source file was a denial-of-service
+  vector. Classification behaviour is unchanged, verified against the
+  previous implementation over millions of generated predicates. The
+  depth-50 000 regression test drops from ~73 s to ~0.04 s.
+- Dependencies now build at `opt-level = 1` under the dev and test
+  profiles (#1121). The tree-sitter runtime and every grammar are C/C++
+  libraries compiled by `cc-rs`, which forwards Cargo's `OPT_LEVEL`, so
+  they were previously parsing at roughly half speed in test builds.
+  Workspace members are unaffected and stay fully debuggable; the cost is
+  a one-time dependency rebuild and a slower cold build. Deliberately 1
+  rather than 2, which measured slower on the unit suite.
+- Corpus snapshot tests size their worker pool from
+  `available_parallelism()` instead of a hardcoded 4 jobs, which had left
+  three consumer threads analyzing DeepSpeech's 1042 files (#1123).
 - The ancestor chain now reaches the per-language metric bodies, retiring
   the last per-node `Node::parent` calls in the walk (#1096).
   `Getter::get_op_type` (and its `_with_code` variant), `Abc::compute`,
