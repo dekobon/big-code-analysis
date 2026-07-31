@@ -22,6 +22,10 @@ simpler -- not the number smaller.
   names; it is nexits, never exit -- an unknown metric voids the whole
   marker). A clear function with an honest suppression beats a
   "compliant" tangle.
+- Keep the fix where the violation is. The flag is scoped to the
+  function you just edited. Fix it there, mention anything larger you
+  noticed, and do not widen the change into a module rewrite to bring
+  the number down.
 
 This repo also gates at the task boundary: run `make self-scan` (and
 `make pre-commit`) before declaring work done. The per-edit hook is an

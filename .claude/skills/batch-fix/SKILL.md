@@ -250,6 +250,11 @@ respecting crate conflicts, dependencies, and quick-win priority.
    early waves, giving rapid feedback and reducing blast radius.
 6. User-specified order is preserved as a tiebreaker within each crate group
    (after dependency and quick-win sorting).
+7. **Wave size cap**: a wave holds at most six issues. In worktree mode each
+   agent clones the workspace, and this workspace has twelve crate manifests,
+   so an uncapped wave can start a dozen concurrent clones and exhaust the
+   disk. Issues past the sixth roll into the next wave. The cap is harmless in
+   branch mode, where agents already run one at a time.
 
 ### Algorithm
 
@@ -266,10 +271,14 @@ for crate in classified:
 waves = []
 scheduled = set()  # issue numbers already assigned to a wave
 remaining = copy of classified (dict of crate -> [issue list])
+MAX_WAVE = 6  # see scheduling rule 7: bounds concurrent worktree clones
+
 while remaining is not empty:
     wave = []
     crates_in_wave = set()
     for crate in list(remaining.keys()) sorted by most issues first:
+        if len(wave) >= MAX_WAVE:
+            break
         if crate not in crates_in_wave:
             # Find the first issue whose dependencies are all scheduled
             candidate = None
@@ -784,7 +793,9 @@ Follow the `/fix-issue` workflow:
    public API, run `find_referencing_symbols` (or workspace-wide `rg`) to
    enumerate every call site. If the implementation reveals issues the plan
    missed, revise the plan the same way before proceeding.
-7. Self-review the implementation:
+7. Check the implementation against the project-specific traps this
+   checklist exists to catch — it is a domain checklist, not a generic
+   second look:
    - Correctness: root cause addressed, not just symptom?
    - Performance: appropriate algorithms and data structures? No O(n²) on
      hot paths (whole-repo analysis, large source files, deep ASTs)?
@@ -796,7 +807,9 @@ Follow the `/fix-issue` workflow:
    - Conventions: no `unwrap`/`expect`/`panic` outside tests, no `unsafe`,
      newtypes for domain invariants, narrow visibility, borrowing over
      cloning, no `to_string_lossy()` on identifier paths.
-8. Fix any issues found in self-review. If fixes were non-trivial, re-review.
+8. Fix anything the checklist turned up. Do not re-run the checklist over
+   your own fixes — Phase 3 reviews this diff from outside the fix
+   context, which is where a second look actually pays.
 9. **Write tests.** Sufficient testing is mandatory before proceeding. At
    minimum:
    - **Unit tests**: for all new or changed public functions. Each edge
@@ -945,8 +958,9 @@ For each finding, classify severity and effort:
 - **performance** or **code-smell** (medium+ effort) -> fix if safe
 - **trivial code-smell** or **test-gap** -> fix if trivial, note otherwise
 
-Fix all actionable findings. If fixes were non-trivial, re-review the new
-diff. Do NOT proceed with known bugs or security issues.
+Fix all actionable findings, then proceed to Phase 4 — re-running this
+review over your own fixes costs a pass and finds nothing. Do NOT proceed
+with known bugs or security issues.
 
 ### Phase 4: Validate
 

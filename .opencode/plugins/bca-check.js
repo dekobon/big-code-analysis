@@ -28,7 +28,9 @@ not the number smaller. Do not extract a meaningless helper or split a
 cohesive function to dodge the count — a spurious helper often raises
 file-level nom/nargs and helps nothing. If the complexity is essential
 and the function is clearest left whole, add a suppression marker with
-a one-line reason instead of contorting the code.
+a one-line reason instead of contorting the code. Keep the fix in the
+function that was flagged rather than widening it into a module
+rewrite.
 `.trim()
 
 // Resolve the analyzer with the same precedence as the shell hook:

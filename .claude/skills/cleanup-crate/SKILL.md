@@ -213,7 +213,10 @@ approval-required). Re-run without --dry-run to apply."
 #### Worktree mode
 
 **CRITICAL**: Every agent MUST be launched with `isolation: "worktree"`.
-Launch all removal area agents in parallel.
+Launch removal area agents in parallel, at most six at a time — each one
+clones the workspace, and a crate with a dozen removal areas will fill
+the disk with scratch clones if they all start at once. Queue the rest
+and launch each as a slot frees.
 
 #### Branch mode
 

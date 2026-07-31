@@ -109,8 +109,11 @@ with a fresh-context critique, scaled to the size of the change:
 - **Fallback** (no subagent available): run this skill again in
   `review` mode, in a fresh turn, against the saved file.
 
-Apply the findings through the Step 5 fix discipline, then re-run the
-reviewer once to confirm it comes back clean.
+Apply the findings through the Step 5 fix discipline. Do not re-run the
+reviewer to confirm your fixes landed — a second pass over prose you
+just corrected finds nothing. Re-review only when the findings forced a
+structural rewrite, because the rewritten sections are new prose nobody
+has read yet.
 
 ### Step 7: Verify lint
 
