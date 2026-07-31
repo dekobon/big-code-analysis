@@ -79,10 +79,14 @@ find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name 
 # ~78s and is now the critical path. The other 4,730 finish in ~17s
 # together, so fixing #1105 is what converts this into a ~4x win.
 #
-# Detected by variable rather than inline `command -v` so the fallback
-# is exercisable without uninstalling anything: `make test NEXTEST=`.
+# Held in a variable rather than probed inline with `command -v`, and used
+# as the command itself, so it overrides the same way `FD` above does:
+# `make test NEXTEST=` exercises the fallback without uninstalling
+# anything, and `make test NEXTEST=/path/to/cargo-nextest` picks a
+# specific build. A cargo subcommand binary takes its own name as the
+# first argument, hence `$(NEXTEST) nextest run`.
 NEXTEST        := $(shell command -v cargo-nextest 2>/dev/null)
-TEST_CMD       = $(if $(NEXTEST),cargo nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
+TEST_CMD       = $(if $(NEXTEST),$(NEXTEST) nextest run --workspace --all-features,cargo test --workspace --all-features --lib --bins --tests)
 
 .PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions check-manpage-assets enums-check enums-codegen-drift enums-codegen-drift-test self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom vcs lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check doc-check-docsrs book book-serve book-pot book-po-update book-ja book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local dev-env-build dev-env-run dev-env-shell dev-env-rm py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test py-stubtest smoke smoke-cli smoke-lib bench bench-scaling bench-walk _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-check-versions-test _pc-check-grammar-crate-test _pc-check-manpage-assets _pc-enums-check _pc-enums-codegen-drift _pc-enums-codegen-drift-test _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _pc-py-stubtest _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-check-versions-test _ci-check-grammar-crate-test _ci-check-manpage-assets _ci-enums-check _ci-enums-codegen-drift _ci-enums-codegen-drift-test _ci-enums-codegen-drift-test _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test _ci-py-stubtest
 
@@ -215,7 +219,7 @@ check:
 # ---------------------------------------------------------------------------
 test:
 	@if [ -z "$(NEXTEST)" ]; then \
-	  echo "cargo-nextest not found; falling back to 'cargo test' (same tests, slower)."; \
+	  echo "cargo-nextest not found or disabled; using 'cargo test' (same tests, slower)."; \
 	  echo "Install with: cargo install --locked cargo-nextest"; \
 	fi
 	$(TEST_CMD)
@@ -1198,9 +1202,12 @@ _ci-clippy:
 
 # Mirrors the `test` job in .github/workflows/ci.yml (nextest for the
 # lib/bin/integration tests, `cargo test --doc` for doctests). The
-# workflow additionally passes `--profile ci --locked`; that profile only
-# turns off fail-fast and emits JUnit XML for the PR annotation step, so
-# the executed test set is identical and local runs keep fail-fast.
+# workflow additionally passes `--profile ci --locked`. Neither changes
+# the executed test set: the `ci` profile differs from `default` only in
+# emitting JUnit XML for the PR annotation step (both disable fail-fast,
+# see .config/nextest.toml), and `--locked` is a lockfile assertion that
+# every `_ci-*` target omits — `make ci` will not catch a `Cargo.lock`
+# that CI's `--locked` rejects.
 _ci-test:
 	$(MAKE) test
 	$(MAKE) test-doc
