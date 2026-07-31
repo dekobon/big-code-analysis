@@ -43,49 +43,86 @@ rustfmt reformats the whole body.
 
 ## Where it currently bites
 
-Ten sites, all under `src/metrics/`:
+Thirty-six sites, and **not** confined to `src/metrics/` — the
+per-language `Getter` modules are the largest cluster:
 
-- `cognitive/`: `c.rs`, `cpp.rs`, `java.rs`, `mozcpp.rs`, `objc.rs`,
-  `perl.rs`, `rust.rs`, plus the `js_cognitive!` macro body in
-  `cognitive.rs`.
-- `loc/`: `perl.rs` and `python.rs`.
+- `src/getter/`: `bash.rs`, `c.rs`, `cpp.rs`, `csharp.rs`, `elixir.rs`,
+  `go.rs`, `groovy.rs`, `irules.rs`, `java.rs`, `kotlin.rs`, `lua.rs`,
+  `mozcpp.rs`, `objc.rs`, `perl.rs`, `php.rs`, `python.rs`, `ruby.rs`,
+  `tcl.rs` — 18 of the 25 modules there. Plus the JS-family macro body
+  in `src/getter.rs`.
+- `src/metrics/cognitive/`: `c.rs`, `cpp.rs`, `java.rs`, `mozcpp.rs`,
+  `objc.rs`, `perl.rs`, `rust.rs`, plus the `js_cognitive!` macro body
+  in `cognitive.rs`.
+- `src/metrics/cyclomatic/`: `irules.rs`, `perl.rs`, `php.rs`,
+  `ruby.rs`.
+- `src/metrics/abc/`: `elixir.rs`, `perl.rs`, `php.rs`.
+- `src/metrics/loc/`: `perl.rs` and `python.rs`.
 
-`loc/tcl.rs` and `loc/irules.rs` were on that second list until #1135
-hoisted their in-pattern comment above the arm; the `loc/` entries were
-missing entirely until then, which is the point of the next paragraph.
+`loc/tcl.rs` and `loc/irules.rs` were on that last list until #1135
+hoisted their in-pattern comment above the arm.
 
 That list is a snapshot — regenerate it rather than trusting it, since
 it moves whenever an arm gains or loses a comment, and since a
-directory nobody has swept yet reads as clean. The script below takes
-the directory as an argument; run it over each `src/metrics/*/` family
-rather than assuming `cognitive/` is the only one affected.
+directory nobody has swept yet reads as clean. The `src/metrics/`-only
+framing survived two revisions of this file for exactly that reason,
+while `src/getter/` — where the bail is close to universal — went
+unmentioned. Run the script over every directory of per-language
+modules, not just the one you happen to be editing.
+
+The script over-indents **every** arm header in the file, not just the
+first. Probing one arm is not enough: the bail is match-scoped, so a
+file whose first `match` formats cleanly still reports `ok` while a
+later one bails (`src/getter/c.rs`), and a module whose arms are all
+expression-bodied (`… => HalsteadType::Operator,` in
+`src/getter/go.rs`) has no `=> {` to probe at all. Both shapes read as
+clean.
 
 ```bash
 # Prints modules rustfmt refuses to format. Run from the repo root, e.g.
+#   ./thisscript src/getter
 #   ./thisscript src/metrics/cognitive
-#   ./thisscript src/metrics/loc
 dir=${1:?usage: $0 <dir>}; tmp=$(mktemp -d); cp "$dir"/*.rs "$tmp/"
 for f in "$tmp"/*.rs; do
-  b=$(basename "$f")
-  # Over-indent the first block-bodied arm, then see if rustfmt puts it back.
-  line=$(rg -n '^\s+[A-Za-z_:]+.*=> \{' "$f" | head -1 | cut -d: -f1)
-  [ -z "$line" ] && { echo "SKIP  $b (no block-bodied arm)"; continue; }
-  python3 -c "
-import pathlib
-p = pathlib.Path('$f'); L = p.read_text().split('\n')
-L[$line - 1] = ' ' * 30 + L[$line - 1].strip()
-p.write_text('\n'.join(L))"
-  # Do not discard stderr: a file with `mod` decls errors out, which is
-  # not the same thing as a bail.
-  err=$(rustfmt --edition 2024 "$f" 2>&1)
-  [ -n "$err" ] && { echo "ERROR $b: $err"; continue; }
-  if sed -n "${line}p" "$f" | rg -q '^ {26,}'; then echo "BAILS $b"; else echo "ok    $b"; fi
+  python3 - "$f" <<'PY'
+import pathlib, re, subprocess, sys
+
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text().split("\n")
+arms = [i for i, l in enumerate(lines)
+        if re.match(r"^\s{4,}(_|[A-Za-z_|].*?)\s*(if .*)?=>", l)]
+if not arms:
+    print(f"SKIP  {path.name} (no match arms)")
+    raise SystemExit
+# Over-indent every arm header, then see which ones rustfmt puts back.
+want = {i: lines[i].strip() for i in arms}
+for i in arms:
+    lines[i] = " " * 30 + want[i]
+path.write_text("\n".join(lines))
+run = subprocess.run(["rustfmt", "--edition", "2024", str(path)],
+                     capture_output=True, text=True)
+# Do not discard stderr: a file with `mod` decls errors out, which is
+# not the same thing as a bail.
+if run.returncode or run.stderr.strip():
+    print(f"ERROR {path.name}: {run.stderr.strip().splitlines()[0]}")
+    raise SystemExit
+after = path.read_text().split("\n")
+pad = " " * 30
+kept = {l[30:] for l in after if l.startswith(pad)}
+stuck = set(want.values()) & kept
+print(f"BAILS {path.name}: {len(stuck)} arm(s)" if stuck
+      else f"ok    {path.name}")
+PY
 done; rm -rf "$tmp"
 ```
 
-Checking the perturbed line *by number* matters: grepping for the
-restored indentation finds some other already-correct line and reports
-a false "formatted".
+`ERROR` is not `BAILS`. A file carrying `mod` declarations cannot
+resolve them outside its own tree, so rustfmt refuses the whole file;
+for those (`src/getter.rs`, `src/metrics/cognitive.rs`) perturb one
+line in place, run `cargo fmt --all`, and check that line by number.
+Doing that to `src/getter.rs`'s macro body is the sharpest single
+demonstration of this whole rule: `cargo fmt --all` exits `0` and
+leaves the line over-indented.
 
 ## Why it matters
 
@@ -98,9 +135,9 @@ reported clean, and every one was found by reading the diff instead.
 
 ## How to apply
 
-- After any bulk, scripted, or regex edit under `src/metrics/`, read the
-  resulting diff rather than trusting the fmt gate. Check indentation
-  and line length by eye.
+- After any bulk, scripted, or regex edit under `src/getter/` or
+  `src/metrics/`, read the resulting diff rather than trusting the fmt
+  gate. Check indentation and line length by eye.
 - Line length is worth a direct check, since it is mechanical:
 
   ```bash
