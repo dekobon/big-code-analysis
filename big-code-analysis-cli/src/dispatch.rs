@@ -187,6 +187,14 @@ fn dispatch_dump(
     // Per-file banner so a multi-file dump is attributable: the parallel
     // walk interleaves trees by worker scheduling, and without a header
     // which tree belongs to which file is unrecoverable (#690).
+    //
+    // The stdout lock is held across both writes so no other worker's
+    // banner can land between this one and its tree. `dump_node_with_color`
+    // now renders into memory before printing, which widens that window
+    // from a few instructions to a whole tree walk; `Stdout::lock` is
+    // reentrant, so the nested lock the print takes is fine.
+    let stdout = std::io::stdout();
+    let _banner_guard = stdout.lock();
     println!("== {} ==", path.display());
     dump_node_with_color(
         ast.source(),
@@ -364,7 +372,11 @@ fn dispatch_find(
     };
     if !found.is_empty() {
         // Per-file banner, consistent with `dump` (#690), so interleaved
-        // multi-file `find` output stays attributable.
+        // multi-file `find` output stays attributable. The stdout lock is
+        // held across the banner, every match, and the trailing blank line
+        // for the reason given in `dispatch_dump`.
+        let stdout = std::io::stdout();
+        let _banner_guard = stdout.lock();
         println!("== {} ==", path.display());
         for node in &found {
             dump_node_with_color(

@@ -13,7 +13,7 @@ use std::path::Path;
 use big_code_analysis::vcs::{build_trend, parse_window};
 use big_code_analysis::wire;
 
-use crate::formats::{CBOR_STDOUT_ERROR, TrendFormat, ensure_parent_dir, write_text};
+use crate::formats::{CBOR_STDOUT_ERROR, TrendFormat, write_buffered_file, write_text};
 use crate::{TrendArgs, VcsArgs, die, warn};
 
 /// Entry point for `bca vcs trend`. `root` is the repository-discovery
@@ -59,11 +59,9 @@ fn emit(report: &wire::VcsTrend, trend: &TrendArgs) -> std::io::Result<()> {
                 std::io::ErrorKind::InvalidInput,
                 CBOR_STDOUT_ERROR,
             )),
-            Some(path) => {
-                ensure_parent_dir(path)?;
-                ciborium::into_writer(report, std::fs::File::create(path)?)
-                    .map_err(std::io::Error::other)
-            }
+            Some(path) => write_buffered_file(path, |w| {
+                ciborium::into_writer(report, w).map_err(std::io::Error::other)
+            }),
         },
     }
 }

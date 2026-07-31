@@ -551,7 +551,14 @@ pub(crate) fn emit_check_results(
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
     // exit-code contract is honored.
-    let mut stderr = std::io::stderr().lock();
+    //
+    // `stderr` is unbuffered — one `write(2)` per violation line — so the
+    // lock is wrapped in a `BufWriter`. The explicit flush below is not
+    // optional: `run_check` calls `process::exit` on a failing gate,
+    // which runs no destructors, so a buffer left to `Drop` would
+    // discard the entire violation report on exactly the runs that have
+    // one.
+    let mut stderr = BufWriter::new(std::io::stderr().lock());
     for (v, tag) in &pairs {
         let _ = writeln!(stderr, "{}", render_violation_line(v, tag.as_ref()));
     }
@@ -578,6 +585,11 @@ pub(crate) fn emit_check_results(
     if let Some(block) = remediation {
         let _ = write!(stderr, "{block}");
     }
+    // Flush before anything else writes: the step-summary diagnostic
+    // below goes to `stderr` through `eprintln!` and the aggregated
+    // document to stdout, and both must land *after* the violation
+    // report a reader is scanning for.
+    let _ = stderr.flush();
     drop(stderr);
 
     // Append the markdown digest to `$GITHUB_STEP_SUMMARY` (or the

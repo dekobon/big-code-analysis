@@ -12,9 +12,10 @@
 
 use std::path::Path;
 
-use termcolor::{Color, StandardStream, WriteColor};
+use termcolor::{Color, WriteColor};
 
 use crate::output::ColorMode;
+use crate::output::color::print_to_stdout;
 use crate::traits::{ParserTrait, Search};
 
 use crate::checker::Checker;
@@ -196,9 +197,7 @@ pub fn dump_function_spans_with_color(
     if spans.is_empty() {
         return Ok(());
     }
-    let stdout = StandardStream::stdout(color_mode.to_color_choice());
-    let mut stdout = stdout.lock();
-    dump_spans(spans, path, &mut stdout)
+    print_to_stdout(color_mode, |stdout| dump_spans(spans, path, stdout))
 }
 
 #[cfg(test)]

@@ -22,7 +22,6 @@
 //! valid output that consumers can ingest unchanged.
 
 use std::collections::BTreeMap;
-use std::fs::{File, create_dir_all};
 use std::io::Write;
 use std::path::Path;
 
@@ -35,6 +34,7 @@ use big_code_analysis::{
 
 use crate::baseline::Coverage;
 use crate::format_util::MetricScalar;
+use crate::formats::write_buffered;
 use crate::thresholds::Violation;
 
 /// Aggregated CI/IDE output formats accepted by `bca check
@@ -92,19 +92,13 @@ impl AggregatedFormat {
         output_path: Option<&Path>,
     ) -> std::io::Result<()> {
         match self {
-            Self::Checkstyle => {
-                write_to_path_or_stdout(output_path, |w| write_checkstyle(offenders, w))
-            }
-            Self::Sarif => write_to_path_or_stdout(output_path, |w| write_sarif(offenders, w)),
+            Self::Checkstyle => write_buffered(output_path, |w| write_checkstyle(offenders, w)),
+            Self::Sarif => write_buffered(output_path, |w| write_sarif(offenders, w)),
             Self::ClangWarning => {
-                write_to_path_or_stdout(output_path, |w| write_clang_warning(offenders, w))
+                write_buffered(output_path, |w| write_clang_warning(offenders, w))
             }
-            Self::CodeClimate => {
-                write_to_path_or_stdout(output_path, |w| write_code_climate(offenders, w))
-            }
-            Self::MsvcWarning => {
-                write_to_path_or_stdout(output_path, |w| write_msvc_warning(offenders, w))
-            }
+            Self::CodeClimate => write_buffered(output_path, |w| write_code_climate(offenders, w)),
+            Self::MsvcWarning => write_buffered(output_path, |w| write_msvc_warning(offenders, w)),
         }
     }
 }
@@ -132,7 +126,7 @@ pub(crate) fn dump_sarif_with_suppressed(
             baseline.push(violation_to_offender(v));
         }
     }
-    write_to_path_or_stdout(output_path, |w| {
+    write_buffered(output_path, |w| {
         write_sarif_with_suppressed(active, &in_source, &baseline, w)
     })
 }
@@ -595,29 +589,6 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         value,
         limit,
         severity: big_code_analysis::Severity::default(),
-    }
-}
-
-/// Run `write` against either `path` (creating any missing parent
-/// directories) or stdout. Shared scaffolding for the aggregated
-/// writers; the writer signature is generic over `W: Write`, and
-/// `&mut dyn Write` satisfies that bound.
-fn write_to_path_or_stdout<F>(output_path: Option<&Path>, write: F) -> std::io::Result<()>
-where
-    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
-{
-    if let Some(path) = output_path {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-        let mut file = File::create(path)?;
-        write(&mut file)
-    } else {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        write(&mut handle)
     }
 }
 

@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use std::fs::{File, create_dir_all};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Component, Path, PathBuf};
 
 use clap::ValueEnum;
@@ -181,6 +181,85 @@ impl MetricsFormat {
     }
 }
 
+/// Bytes buffered in front of every output destination.
+///
+/// The incremental serializers (`serde_json::to_writer`,
+/// `serde_yaml::to_writer`, `ciborium::into_writer`) issue one write per
+/// structural token, and both a raw `File` and a `StdoutLock` pass each
+/// one straight to the kernel: a 12 MB aggregate document measured
+/// 4.76 million `write(2)` calls, ~2.6 bytes apiece. 64 KiB is large
+/// enough that every ordinary per-file document lands in a single write
+/// and a large one amortizes to one write per 64 KiB.
+const OUTPUT_BUFFER_BYTES: usize = 64 * 1_024;
+
+/// Run `write` against `sink` through a [`BufWriter`], flushing before
+/// returning.
+///
+/// The explicit flush is the load-bearing part, not the buffering. A
+/// `BufWriter` flushed only by `Drop` discards the error it hit while
+/// doing so, which would turn a full disk or a revoked mount into a
+/// silently truncated file and a zero exit status. Flushing here folds
+/// that failure back into the returned `Result`.
+///
+/// Generic over `W` rather than taking a `File` so tests can substitute
+/// a sink that counts writes or fails on demand — see
+/// `write_flushed_coalesces_small_writes_into_one` and
+/// `write_flushed_surfaces_a_write_error_the_buffer_deferred`.
+fn write_flushed<W, F>(sink: W, write: F) -> std::io::Result<()>
+where
+    W: Write,
+    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
+{
+    let mut buffered = BufWriter::with_capacity(OUTPUT_BUFFER_BYTES, sink);
+    write(&mut buffered)?;
+    buffered.flush()
+}
+
+/// Open `path` for writing, materializing missing parent directories
+/// only when the open actually failed for want of them.
+///
+/// The eager `create_dir_all` this replaces ran before *every*
+/// `File::create`, so a `--output-dir` run paid a `mkdir` attempt per
+/// output file for a directory set created once and then hit
+/// repeatedly. `create_dir_all` remains race-tolerant, so two `bca`
+/// processes writing into the same output directory still both succeed.
+fn create_file(path: &Path) -> std::io::Result<File> {
+    match File::create(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            ensure_parent_dir(path)?;
+            File::create(path)
+        }
+        result => result,
+    }
+}
+
+/// Run `write` against a buffered handle on the file `path`, creating
+/// any missing parent directories.
+pub(crate) fn write_buffered_file<F>(path: &Path, write: F) -> std::io::Result<()>
+where
+    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
+{
+    write_flushed(create_file(path)?, write)
+}
+
+/// Run `write` against a buffered handle on `output` — the file at that
+/// path, or stdout when `None`.
+///
+/// Stdout is buffered too: `Stdout` is a `LineWriter`, which coalesces
+/// compact JSON by accident but still emits one write per line of a
+/// pretty-printed document or per row of a CSV.
+pub(crate) fn write_buffered<F>(output: Option<&Path>, write: F) -> std::io::Result<()>
+where
+    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
+{
+    match output {
+        Some(path) => write_buffered_file(path, write),
+        // The lock is held for the whole document so a parallel walk
+        // cannot interleave two files' output, exactly as before.
+        None => write_flushed(std::io::stdout().lock(), write),
+    }
+}
+
 /// Run `write` against either a per-file path under `output_dir`
 /// (with `extension` appended and any missing parent directories
 /// created) or stdout. Shared scaffolding for the per-file `dump_*`
@@ -194,18 +273,8 @@ fn write_per_file_or_stdout<F>(
 where
     F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
 {
-    if let Some(output_dir) = output_dir {
-        let format_path = handle_path(input_path, output_dir, extension);
-        if let Some(parent) = format_path.parent() {
-            create_dir_all(parent)?;
-        }
-        let mut file = File::create(format_path)?;
-        write(&mut file)
-    } else {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        write(&mut handle)
-    }
+    let format_path = output_dir.map(|dir| handle_path(input_path, dir, extension));
+    write_buffered(format_path.as_deref(), write)
 }
 
 /// Emit a CSV document for the metric tree rooted at `space`. If
@@ -234,18 +303,12 @@ pub(crate) fn dump_aggregate<T: Serialize>(
     output: &Path,
     pretty: bool,
 ) -> std::io::Result<()> {
-    if let Some(parent) = output.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        create_dir_all(parent)?;
-    }
-    let mut file = File::create(output)?;
-    match format {
+    write_buffered_file(output, |w| match format {
         GenericFormat::Json => {
             if pretty {
-                serde_json::to_writer_pretty(&mut file, &items).map_err(ser_err)
+                serde_json::to_writer_pretty(w, &items).map_err(ser_err)
             } else {
-                serde_json::to_writer(&mut file, &items).map_err(ser_err)
+                serde_json::to_writer(w, &items).map_err(ser_err)
             }
         }
         GenericFormat::Toml => {
@@ -261,11 +324,11 @@ pub(crate) fn dump_aggregate<T: Serialize>(
             } else {
                 toml::to_string(&wrapped).map_err(ser_err)?
             };
-            file.write_all(text.as_bytes())
+            w.write_all(text.as_bytes())
         }
-        GenericFormat::Yaml => serde_yaml::to_writer(&mut file, &items).map_err(ser_err),
-        GenericFormat::Cbor => ciborium::into_writer(&items, &mut file).map_err(ser_err),
-    }
+        GenericFormat::Yaml => serde_yaml::to_writer(w, &items).map_err(ser_err),
+        GenericFormat::Cbor => ciborium::into_writer(&items, w).map_err(ser_err),
+    })
 }
 
 /// Write every space's CSV rows into ONE aggregate `--output <FILE>`
@@ -277,16 +340,12 @@ pub(crate) fn dump_csv_aggregate(
     spaces: &[(FuncSpace, PathBuf)],
     output: &Path,
 ) -> std::io::Result<()> {
-    if let Some(parent) = output.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        create_dir_all(parent)?;
-    }
-    let file = File::create(output)?;
-    write_csv_aggregate(
-        spaces.iter().map(|(space, path)| (space, path.as_path())),
-        file,
-    )
+    write_buffered_file(output, |w| {
+        write_csv_aggregate(
+            spaces.iter().map(|(space, path)| (space, path.as_path())),
+            w,
+        )
+    })
 }
 
 #[inline]
@@ -426,12 +485,13 @@ fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
 trait WriteFile {
     const EXTENSION: &'static str;
 
-    fn open_file(path: &Path, output_path: &Path) -> std::io::Result<File> {
-        let format_path = handle_path(path, output_path, Self::EXTENSION);
-        if let Some(parent) = format_path.parent() {
-            create_dir_all(parent)?;
-        }
-        File::create(format_path)
+    /// Run `write` against a buffered handle on this format's per-file
+    /// destination under `output_path`.
+    fn with_file<F>(path: &Path, output_path: &Path, write: F) -> std::io::Result<()>
+    where
+        F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
+    {
+        write_buffered_file(&handle_path(path, output_path, Self::EXTENSION), write)
     }
 
     fn with_writer<T: Serialize>(
@@ -472,7 +532,9 @@ impl WriteFile for Json {
         path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
-        serde_json::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
+        Self::with_file(path, output_path, |w| {
+            serde_json::to_writer(w, &content).map_err(ser_err)
+        })
     }
 }
 
@@ -484,8 +546,9 @@ impl WritePrettyFile for Json {
         pretty: bool,
     ) -> std::io::Result<()> {
         if pretty {
-            serde_json::to_writer_pretty(Self::open_file(path, output_path)?, &content)
-                .map_err(ser_err)
+            Self::with_file(path, output_path, |w| {
+                serde_json::to_writer_pretty(w, &content).map_err(ser_err)
+            })
         } else {
             Self::with_writer(content, path, output_path)
         }
@@ -514,7 +577,9 @@ impl WriteFile for Toml {
         path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
-        Self::open_file(path, output_path)?.write_all(Self::format(content)?.as_bytes())
+        Self::with_file(path, output_path, |w| {
+            w.write_all(Self::format(content)?.as_bytes())
+        })
     }
 }
 
@@ -526,7 +591,9 @@ impl WritePrettyFile for Toml {
         pretty: bool,
     ) -> std::io::Result<()> {
         if pretty {
-            Self::open_file(path, output_path)?.write_all(Self::format_pretty(&content)?.as_bytes())
+            Self::with_file(path, output_path, |w| {
+                w.write_all(Self::format_pretty(&content)?.as_bytes())
+            })
         } else {
             Self::with_writer(content, path, output_path)
         }
@@ -549,7 +616,9 @@ impl WriteFile for Yaml {
         path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
-        serde_yaml::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
+        Self::with_file(path, output_path, |w| {
+            serde_yaml::to_writer(w, &content).map_err(ser_err)
+        })
     }
 }
 
@@ -563,7 +632,9 @@ impl WriteFile for Cbor {
         path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
-        ciborium::into_writer(&content, Self::open_file(path, output_path)?).map_err(ser_err)
+        Self::with_file(path, output_path, |w| {
+            ciborium::into_writer(&content, w).map_err(ser_err)
+        })
     }
 }
 
@@ -606,6 +677,158 @@ pub(crate) fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Re
 )]
 mod tests {
     use super::*;
+
+    /// Records every `write` the buffering layer actually forwards.
+    ///
+    /// A count is the only thing that can distinguish a buffered
+    /// destination from an unbuffered one: the bytes that reach the sink
+    /// are identical either way, which is why `--output-dir` shipped at
+    /// one `write(2)` per serialized token for as long as it did.
+    #[derive(Default)]
+    struct CountingSink {
+        writes: usize,
+        bytes: Vec<u8>,
+    }
+
+    impl Write for CountingSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Fails every `write`, the way a full filesystem does. `BufWriter`
+    /// defers the first write until the buffer fills, so a small document
+    /// only meets this failure at flush time.
+    struct FullDiskSink;
+
+    impl Write for FullDiskSink {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "no space left on device",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The optimization itself, not its output. `serde_json::to_writer`
+    /// and friends emit one write per structural token — 4.76 million of
+    /// them for a 12 MB aggregate document before this seam existed.
+    /// Reverting `write_flushed` to hand the sink straight to `write`
+    /// changes no byte, so only this count fails.
+    #[test]
+    fn write_flushed_coalesces_small_writes_into_one() {
+        // Three bytes apiece keeps the total (12 KiB) well under
+        // OUTPUT_BUFFER_BYTES, so a correct implementation needs exactly
+        // one write and an unbuffered one needs TOKENS.
+        const TOKENS: usize = 4_000;
+
+        let mut sink = CountingSink::default();
+        write_flushed(&mut sink, |w| {
+            for _ in 0..TOKENS {
+                w.write_all(b"tok")?;
+            }
+            Ok(())
+        })
+        .expect("the counting sink never fails");
+
+        assert_eq!(sink.bytes.len(), TOKENS * 3, "every byte must still land");
+        assert_eq!(
+            sink.writes, 1,
+            "{TOKENS} token writes must coalesce into one; \
+             an unbuffered destination would show {TOKENS}"
+        );
+    }
+
+    /// A document larger than the buffer still reaches the sink whole,
+    /// in one write per buffer-full rather than one per token.
+    #[test]
+    fn write_flushed_splits_only_on_buffer_boundaries() {
+        const CHUNKS: usize = 4_096;
+        const CHUNK_LEN: usize = 64;
+        const TOTAL: usize = CHUNKS * CHUNK_LEN;
+
+        let mut sink = CountingSink::default();
+        write_flushed(&mut sink, |w| {
+            for _ in 0..CHUNKS {
+                w.write_all(&[b'x'; CHUNK_LEN])?;
+            }
+            Ok(())
+        })
+        .expect("the counting sink never fails");
+
+        assert_eq!(sink.bytes.len(), TOTAL);
+        assert_eq!(
+            sink.writes,
+            TOTAL / OUTPUT_BUFFER_BYTES,
+            "a {TOTAL}-byte document must cost one write per full buffer"
+        );
+    }
+
+    /// The correctness half of the change, and the more important one: a
+    /// `BufWriter` left to `Drop` swallows the error it hits while
+    /// flushing, so a full disk would produce a truncated file and a zero
+    /// exit status. Deleting the explicit `flush()` in `write_flushed`
+    /// makes this test return `Ok(())`.
+    #[test]
+    fn write_flushed_surfaces_a_write_error_the_buffer_deferred() {
+        let err = write_flushed(FullDiskSink, |w| w.write_all(b"{\"metrics\":[]}"))
+            .expect_err("a failing destination must surface as Err, not be swallowed by Drop");
+        assert_eq!(err.kind(), std::io::ErrorKind::StorageFull);
+    }
+
+    /// `create_file` no longer runs `create_dir_all` ahead of every
+    /// `File::create`; it retries after materializing the parents only
+    /// when the open failed for want of them. Deleting that `NotFound`
+    /// arm fails this test.
+    #[test]
+    fn create_file_materializes_missing_parents_on_retry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let nested = dir.path().join("a").join("b").join("out.json");
+
+        let mut file = create_file(&nested).expect("create must recover from a missing parent");
+        file.write_all(b"{}").expect("write");
+        drop(file);
+
+        assert_eq!(
+            std::fs::read_to_string(&nested).expect("file written"),
+            "{}"
+        );
+    }
+
+    /// The common case — the directory already exists — must not depend
+    /// on the retry arm at all.
+    #[test]
+    fn create_file_opens_directly_when_the_parent_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("out.json");
+
+        create_file(&target).expect("create in an existing directory");
+
+        assert!(target.exists(), "the file must be created in place");
+    }
+
+    /// A destination whose parent path component is a *file* is a user
+    /// error, not a missing directory: it must surface as an error rather
+    /// than be papered over by the retry.
+    #[test]
+    fn create_file_reports_a_non_directory_parent_as_an_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let blocker = dir.path().join("not-a-dir");
+        std::fs::write(&blocker, b"i am a file").expect("write blocker");
+
+        create_file(&blocker.join("out.json"))
+            .expect_err("a file standing in for a directory must not be silently created");
+    }
 
     // Regression test for issue #709: `write_text` with `--output
     // sub/dir/report.json` to a not-yet-existing directory must create the

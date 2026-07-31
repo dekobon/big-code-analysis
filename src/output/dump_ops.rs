@@ -1,6 +1,7 @@
-use termcolor::{Color, StandardStream, WriteColor};
+use termcolor::{Color, WriteColor};
 
 use crate::ops::Ops;
+use crate::output::color::print_to_stdout;
 use crate::output::{ColorMode, branch_glyphs};
 
 use crate::tools::{color, intense_color};
@@ -49,12 +50,10 @@ pub fn dump_ops(ops: &Ops) -> std::io::Result<()> {
 /// Propagates any [`std::io::Error`] produced by the color-aware
 /// writer that backs `stdout` (broken pipe, write failure, …).
 pub fn dump_ops_with_color(ops: &Ops, color_mode: ColorMode) -> std::io::Result<()> {
-    let stdout = StandardStream::stdout(color_mode.to_color_choice());
-    let mut stdout = stdout.lock();
-    dump_space(ops, &mut stdout)?;
-    color(&mut stdout, Color::White)?;
-
-    Ok(())
+    print_to_stdout(color_mode, |stdout| {
+        dump_space(ops, stdout)?;
+        color(stdout, Color::White)
+    })
 }
 
 /// One pending space in the walk: the space, the length its indentation

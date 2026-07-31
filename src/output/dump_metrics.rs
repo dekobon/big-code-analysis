@@ -22,10 +22,11 @@
 //! to JSON `null`) render as `NaN`, matching the prior dump and the
 //! human-readable `numfmt` arm.
 
-use termcolor::{Color, StandardStream, WriteColor};
+use termcolor::{Color, WriteColor};
 
 use serde_json::Value;
 
+use crate::output::color::print_to_stdout;
 use crate::output::numfmt::F64_SAFE_INT_BOUND;
 use crate::output::{ColorMode, branch_glyphs};
 use crate::spaces::{CodeMetrics, FuncSpace};
@@ -78,12 +79,10 @@ pub fn dump_root(space: &FuncSpace) -> std::io::Result<()> {
 /// Propagates any [`std::io::Error`] produced by the color-aware
 /// writer that backs `stdout` (broken pipe, write failure, …).
 pub fn dump_root_with_color(space: &FuncSpace, color_mode: ColorMode) -> std::io::Result<()> {
-    let stdout = StandardStream::stdout(color_mode.to_color_choice());
-    let mut stdout = stdout.lock();
-    dump_space(space, &mut stdout)?;
-    color(&mut stdout, Color::White)?;
-
-    Ok(())
+    print_to_stdout(color_mode, |stdout| {
+        dump_space(space, stdout)?;
+        color(stdout, Color::White)
+    })
 }
 
 /// One pending space in the walk: the space, the length its indentation
