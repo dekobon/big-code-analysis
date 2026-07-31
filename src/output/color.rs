@@ -95,13 +95,23 @@ pub(crate) trait ColorSink {
     }
 }
 
-impl ColorSink for BufferWriter {
+/// The process's stdout as a [`ColorSink`].
+///
+/// A newtype rather than an impl on [`BufferWriter`] itself, because
+/// [`ColorSink::exclusive`] below hands back the *stdout* lock and that
+/// is only the right guard for a writer pointed at stdout.
+/// `BufferWriter::stderr` has the identical type, so an impl on the bare
+/// type would silently give a stderr writer stdout's lock — excluding
+/// the wrong writers and leaving two stderr renders free to interleave.
+struct StdoutSink(BufferWriter);
+
+impl ColorSink for StdoutSink {
     fn new_buffer(&self) -> Buffer {
-        self.buffer()
+        self.0.buffer()
     }
 
     fn emit(&self, buffer: &Buffer) -> std::io::Result<()> {
-        self.print(buffer)
+        self.0.print(buffer)
     }
 
     fn exclusive(&self) -> Option<StdoutLock<'static>> {
@@ -210,7 +220,10 @@ pub(crate) fn print_to_stdout<F>(color_mode: ColorMode, render: F) -> std::io::R
 where
     F: FnOnce(&mut dyn WriteColor) -> std::io::Result<()>,
 {
-    render_chunked(&BufferWriter::stdout(color_mode.to_color_choice()), render)
+    render_chunked(
+        &StdoutSink(BufferWriter::stdout(color_mode.to_color_choice())),
+        render,
+    )
 }
 
 /// [`print_to_stdout`] with the destination injected — see
