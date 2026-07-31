@@ -87,11 +87,18 @@ fn build_parser() -> Parser {
     Parser::new()
 }
 
-#[cfg(test)]
+// Every test here parses Rust, so the module is gated on that grammar's
+// feature the same way `tests/parser_reuse.rs` is: without it
+// `RustCode::lang().get_ts_language()` returns `None` and the whole
+// module fails at `expect` rather than being skipped. CI's
+// `no-default-features` matrix leg only runs `cargo check`, so this was
+// red only for a human running `cargo test --no-default-features`.
+#[cfg(all(test, feature = "rust"))]
 mod tests {
     use super::*;
     use crate::langs::RustCode;
     use crate::traits::LanguageInfo;
+    use crate::{Ast, LANG, Source};
 
     fn rust_language() -> Language {
         RustCode::lang()
@@ -136,24 +143,71 @@ mod tests {
 
     /// Each thread carries its own parser: one thread's cache must not
     /// satisfy another's first parse.
+    ///
+    /// The threads run one at a time, and that is the point rather than an
+    /// artefact of how the loop is written. *Consecutive* threads are what
+    /// make a process-global cache observable: perturbing `SCRATCH_PARSER`
+    /// into a `static Mutex<Option<Parser>>` fails this assertion
+    /// deterministically with `[1, 0, 0]`, because the second thread finds
+    /// the parser the first one handed back. Spawning all three before
+    /// joining any of them weakens exactly that — under the same
+    /// perturbation the counts become whatever the interleaving produced
+    /// (`[1, 2, 1]`, `[2, 1, 0]`, … over eight measured runs), and a run
+    /// where all three threads reach their first parse before any hands a
+    /// parser back would report `[1, 1, 1]` and pass. The loop is spelled
+    /// out so that property is not resting on iterator laziness.
     #[test]
     fn each_thread_builds_its_own_parser() {
-        let counts: Vec<usize> = (0..3)
-            .map(|_| {
-                std::thread::spawn(|| {
-                    let language = rust_language();
-                    parse_on_scratch_parser(&language, b"fn f() {}");
-                    parse_on_scratch_parser(&language, b"fn g() {}");
-                    parsers_built_on_this_thread()
-                })
-            })
-            .map(|handle| handle.join().expect("parsing thread must not panic"))
-            .collect();
+        let mut counts = Vec::new();
+        for _ in 0..3 {
+            let handle = std::thread::spawn(|| {
+                let language = rust_language();
+                parse_on_scratch_parser(&language, b"fn f() {}");
+                parse_on_scratch_parser(&language, b"fn g() {}");
+                parsers_built_on_this_thread()
+            });
+            counts.push(handle.join().expect("parsing thread must not panic"));
+        }
 
         assert_eq!(
             counts,
             vec![1, 1, 1],
             "each thread builds exactly one parser for its own files"
         );
+    }
+
+    /// The same guard one level up, at the seam production actually uses.
+    ///
+    /// The two tests above call `parse_on_scratch_parser` directly, so
+    /// they say nothing about whether anything *reaches* it: reverting
+    /// `Tree::new` to the pre-#1118 `Parser::new()`-per-file body leaves
+    /// all 3,143 lib tests and all 5 `tests/parser_reuse.rs` integration
+    /// tests passing (measured). Driving the public `Ast::parse` seam and
+    /// counting constructions is what fails there.
+    #[test]
+    fn repeated_parses_through_the_public_seam_share_one_parser() {
+        const FILES: usize = 6;
+
+        std::thread::spawn(|| {
+            for i in 0..FILES {
+                // Distinct sources, so no caching layer above the parser
+                // can turn the later parses into lookups.
+                let code = format!("fn f{i}() {{ let x = {i}; }}");
+                let ast = Ast::parse(Source::new(LANG::Rust, code.as_bytes()))
+                    .expect("rust is enabled for this module");
+                let sexp = ast.as_tree_sitter().root_node().to_sexp();
+                assert!(
+                    sexp.contains("function_item") && !sexp.contains("ERROR"),
+                    "file {i} must parse to a real tree, got {sexp}"
+                );
+            }
+            assert_eq!(
+                parsers_built_on_this_thread(),
+                1,
+                "{FILES} files parsed through `Ast::parse` must share one parser"
+            );
+        })
+        .join()
+        .expect("parsing thread must not panic");
     }
 }
