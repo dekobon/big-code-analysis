@@ -132,6 +132,13 @@ and `cargo run -p big-code-analysis-web --`.
 
 ## Tool choice
 
+- **Shell**: assistant tooling runs **zsh**, which does not field-split
+  an unquoted parameter expansion the way bash does — `cmd $FLAGS`
+  passes one argument, not several. The failure is silent and yields a
+  plausible result rather than an error, so it has already produced
+  fabricated measurement tables here. Build argument lists as arrays and
+  expand them `"${ARR[@]}"`. See
+  [`.claude/rules/shell.md`](.claude/rules/shell.md).
 - **Code search**: `rg` (ripgrep). Never `grep` via Bash.
 - **File search**: `fd` (or `fdfind` on Debian/Ubuntu). Never `find` via
   Bash.
