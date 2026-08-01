@@ -69,6 +69,39 @@ fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
+// Phase-2B (issues #403 / #1102): a ternary's condition and its two
+// branch operands are each a Fitzpatrick Rule 9 unary condition, exactly
+// as `java_walk_ternary` already counts them. Without this PHP scored
+// `$a ? !$b : !$c` as 1 (the `conditional_expression` node alone)
+// against Java's 4, and `php_inspect_container`'s `ConditionalExpression`
+// boolean-context seed was unreachable.
+//
+// Slots are addressed by grammar FIELD, not by child index. PHP names
+// the consequence `body` (not `consequence`) and marks it OPTIONAL to
+// admit the short ternary `$a ?: $b`, which shifts the alternative from
+// child(4) to child(3).
+//
+// The condition needs its own terminal check because
+// `php_inspect_container` only counts *after* unwrapping a `(...)` /
+// `!...` layer, so a bare `$a ? … : …` would otherwise score zero.
+// Branch operands get no such check: an unnegated branch is type-free
+// and contributes nothing, which is what keeps `($a > 0) ? $b : -$b`
+// at 2 (the ternary node and the `>`).
+fn php_walk_ternary(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        if matches!(condition.kind_id().into(), php_bool_terminal_kinds!()) {
+            *conditions += 1.;
+        } else {
+            php_inspect_container(&condition, node, conditions);
+        }
+    }
+    for field in ["body", "alternative"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            php_inspect_container(&branch, node, conditions);
+        }
+    }
+}
+
 // Returns the value slot of a PHP `argument` wrapper node.
 // Positional argument `m(!$a)` has a single named child — the value.
 // Named argument `m(name: !$a)` has children `name`, `:`, value — the
@@ -176,8 +209,8 @@ impl Abc for PhpCode {
                 stats.branches += 1.;
             }
             // Conditions: comparison and identity operators (anonymous tokens
-            // inside `binary_expression`), `instanceof`, ternary `?`, and
-            // control-flow arms.
+            // inside `binary_expression`), `instanceof`, and control-flow
+            // arms. The ternary has its own arm below (#1102).
             EQEQ
             | EQEQEQ
             | BANGEQ
@@ -189,7 +222,6 @@ impl Abc for PhpCode {
             | LTEQGT
             | LTGT
             | Instanceof
-            | ConditionalExpression
             | ElseClause
             | ElseClause2
             | ElseIfClause
@@ -233,6 +265,15 @@ impl Abc for PhpCode {
             // `f(!$a, !$b)` — argument list walker.
             Arguments => {
                 php_count_unary_conditions(node, &mut stats.conditions);
+            }
+            // `$a ? !$b : !$c`. Unlike the C family, this dispatcher
+            // has no `?`-token arm — the grammar emits the token, but
+            // the `conditional_expression` node is what carries the
+            // condition tally's +1 — so this arm keeps that increment
+            // and adds the three operand slots (issue #1102).
+            ConditionalExpression => {
+                stats.conditions += 1.;
+                php_walk_ternary(node, &mut stats.conditions);
             }
             _ => {}
         }

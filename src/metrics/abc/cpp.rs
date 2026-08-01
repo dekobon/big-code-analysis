@@ -78,6 +78,40 @@ pub(super) fn cpp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
+// Phase-2B (issues #403 / #1102): a ternary's condition and its two
+// branch operands are each a Fitzpatrick Rule 9 unary condition, exactly
+// as `java_walk_ternary` already counts them. Without this the C family
+// scored `a ? !b : !c` as 1 (the `?` token alone) against Java's 4, and
+// `cpp_inspect_container`'s `conditional_expression` boolean-context
+// seed was unreachable.
+//
+// Slots are addressed by grammar FIELD, not by child index: the C-family
+// `conditional_expression` marks `consequence` optional to admit the GNU
+// elision `a ?: b`, which shifts the alternative from child(4) to
+// child(3). String-kind-based like its neighbours so the Mozilla fork's
+// differing kind_ids (#732) stay covered by this one implementation.
+//
+// The condition needs its own terminal check because
+// `cpp_inspect_container` only counts *after* unwrapping a `(...)` /
+// `!...` layer, so a bare `a ? … : …` would otherwise score zero.
+pub(super) fn cpp_walk_ternary(node: &Node, conditions: &mut f64) {
+    if let Some(condition) = node.child_by_field_name("condition") {
+        if matches!(condition.kind(), cpp_bool_terminal_kinds!()) {
+            *conditions += 1.;
+        } else {
+            cpp_inspect_container(&condition, node, conditions);
+        }
+    }
+    // Branch operands carry no terminal check: an unnegated branch is
+    // type-free and contributes nothing, which is what keeps
+    // `(a > 0) ? b : -b` at 2 (the `?` and the `>`).
+    for field in ["consequence", "alternative"] {
+        if let Some(branch) = node.child_by_field_name(field) {
+            cpp_inspect_container(&branch, node, conditions);
+        }
+    }
+}
+
 pub(super) fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     let list_kind = list_node.kind();
     let mut cursor = list_node.cursor();
@@ -107,6 +141,14 @@ impl Abc for CppCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic)
+        // Exhaustive one-arm-per-grammar-kind dispatch table: the
+        // cyclomatic count here is the number of node kinds the C++
+        // grammar can hand us, not branching a reader must hold in
+        // their head. Every arm is independent and self-describing, and
+        // the table only ever grows as the grammar does (#1102 added
+        // the ternary arm). Splitting it would scatter one lookup
+        // across helpers with no semantic boundary to split on.
         use Cpp::*;
 
         match node.kind_id().into() {
@@ -221,6 +263,12 @@ impl Abc for CppCode {
             // ArgumentList2 depending on production rule path.
             ArgumentList | ArgumentList2 => {
                 cpp_count_unary_conditions(node, &mut stats.conditions);
+            }
+            // `a ? !b : !c` — the ternary's own `?` token is already
+            // counted by the condition arm above; this walks the three
+            // operand slots (issue #1102).
+            ConditionalExpression => {
+                cpp_walk_ternary(node, &mut stats.conditions);
             }
             _ => {}
         }

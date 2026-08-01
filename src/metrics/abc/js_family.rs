@@ -29,7 +29,7 @@ use crate::*;
 // — every expression kind whose evaluated value is implicitly boolean
 // in an `if` / `while` / ternary slot.
 macro_rules! impl_js_family_unary_walker {
-    ($Lang:ident, $inspect:ident, $count:ident, $terminals:path) => {
+    ($Lang:ident, $inspect:ident, $count:ident, $walk_ternary:ident, $terminals:path) => {
         fn $inspect(container_node: &Node, parent: &Node, conditions: &mut f64) {
             use $Lang::*;
 
@@ -69,6 +69,36 @@ macro_rules! impl_js_family_unary_walker {
             }
         }
 
+        // Phase-2B (issues #403 / #1102): a ternary's condition and its
+        // two branch operands are each a Fitzpatrick Rule 9 unary
+        // condition, exactly as `java_walk_ternary` already counts them.
+        // Without this the JS family scored `a ? !b : !c` as 1 (the `?`
+        // token alone) against Java's 4, and `$inspect`'s
+        // `TernaryExpression` boolean-context seed was unreachable.
+        //
+        // Slots are addressed by grammar FIELD rather than by child
+        // index, so a grammar re-order cannot silently retarget them.
+        // The condition needs its own terminal check because `$inspect`
+        // only counts *after* unwrapping a `(...)` / `!...` layer, so a
+        // bare `a ? … : …` would otherwise score zero. Branch operands
+        // get no such check: an unnegated branch is type-free and
+        // contributes nothing, which is what keeps `(a > 0) ? b : -b`
+        // at 2 (the `?` and the `>`).
+        fn $walk_ternary(node: &Node, conditions: &mut f64) {
+            if let Some(condition) = node.child_by_field_name("condition") {
+                if matches!(condition.kind_id().into(), $terminals!()) {
+                    *conditions += 1.;
+                } else {
+                    $inspect(&condition, node, conditions);
+                }
+            }
+            for field in ["consequence", "alternative"] {
+                if let Some(branch) = node.child_by_field_name(field) {
+                    $inspect(&branch, node, conditions);
+                }
+            }
+        }
+
         fn $count(list_node: &Node, conditions: &mut f64) {
             use $Lang::*;
 
@@ -99,6 +129,7 @@ impl_js_family_unary_walker!(
     Typescript,
     typescript_inspect_container,
     typescript_count_unary_conditions,
+    typescript_walk_ternary,
     typescript_bool_terminal_kinds
 );
 
@@ -106,6 +137,7 @@ impl_js_family_unary_walker!(
     Tsx,
     tsx_inspect_container,
     tsx_count_unary_conditions,
+    tsx_walk_ternary,
     tsx_bool_terminal_kinds
 );
 
@@ -113,6 +145,7 @@ impl_js_family_unary_walker!(
     Javascript,
     javascript_inspect_container,
     javascript_count_unary_conditions,
+    javascript_walk_ternary,
     javascript_bool_terminal_kinds
 );
 
@@ -120,6 +153,7 @@ impl_js_family_unary_walker!(
     Mozjs,
     mozjs_inspect_container,
     mozjs_count_unary_conditions,
+    mozjs_walk_ternary,
     mozjs_bool_terminal_kinds
 );
 
@@ -141,7 +175,7 @@ impl_js_family_unary_walker!(
 // keep the `Var` slot. Augmented assignments (`+=`) and update
 // expressions (`++`, `--`) always count.
 macro_rules! ts_abc_compute {
-    ($lang:ident, $count_unary:path, $inspect_container:path) => {
+    ($lang:ident, $count_unary:path, $inspect_container:path, $walk_ternary:path) => {
         fn compute<'a>(
             node: &Node<'a>,
             _code: &'a [u8],
@@ -245,6 +279,12 @@ macro_rules! ts_abc_compute {
                 Arguments => {
                     $count_unary(node, &mut stats.conditions);
                 }
+                // `a ? !b : !c` — the ternary's own `?` token is
+                // already counted by the condition arm above; this
+                // walks the three operand slots (issue #1102).
+                TernaryExpression => {
+                    $walk_ternary(node, &mut stats.conditions);
+                }
                 _ => {}
             }
         }
@@ -255,12 +295,18 @@ impl Abc for TypescriptCode {
     ts_abc_compute!(
         Typescript,
         typescript_count_unary_conditions,
-        typescript_inspect_container
+        typescript_inspect_container,
+        typescript_walk_ternary
     );
 }
 
 impl Abc for TsxCode {
-    ts_abc_compute!(Tsx, tsx_count_unary_conditions, tsx_inspect_container);
+    ts_abc_compute!(
+        Tsx,
+        tsx_count_unary_conditions,
+        tsx_inspect_container,
+        tsx_walk_ternary
+    );
 }
 
 // JavaScript / Mozjs share TypeScript's expression / statement
@@ -280,7 +326,7 @@ impl Abc for TsxCode {
 //      bindings can be reassigned and the initial value is the first
 //      assignment of the binding's lifetime.
 macro_rules! js_abc_compute {
-    ($lang:ident, $count_unary:path, $inspect_container:path) => {
+    ($lang:ident, $count_unary:path, $inspect_container:path, $walk_ternary:path) => {
         fn compute<'a>(
             node: &Node<'a>,
             _code: &'a [u8],
@@ -351,6 +397,12 @@ macro_rules! js_abc_compute {
                 Arguments => {
                     $count_unary(node, &mut stats.conditions);
                 }
+                // `a ? !b : !c` — the ternary's own `?` token is
+                // already counted by the condition arm above; this
+                // walks the three operand slots (issue #1102).
+                TernaryExpression => {
+                    $walk_ternary(node, &mut stats.conditions);
+                }
                 _ => {}
             }
         }
@@ -361,10 +413,16 @@ impl Abc for JavascriptCode {
     js_abc_compute!(
         Javascript,
         javascript_count_unary_conditions,
-        javascript_inspect_container
+        javascript_inspect_container,
+        javascript_walk_ternary
     );
 }
 
 impl Abc for MozjsCode {
-    js_abc_compute!(Mozjs, mozjs_count_unary_conditions, mozjs_inspect_container);
+    js_abc_compute!(
+        Mozjs,
+        mozjs_count_unary_conditions,
+        mozjs_inspect_container,
+        mozjs_walk_ternary
+    );
 }

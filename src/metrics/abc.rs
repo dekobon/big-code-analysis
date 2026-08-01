@@ -443,7 +443,7 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_func_space, check_metrics};
+    use crate::test_support::{check_func_space, check_metrics, metrics_verbatim};
     use crate::traits::ParserTrait;
 
     use super::*;
@@ -3380,6 +3380,58 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.conditions_sum(), 2);
                 insta::assert_json_snapshot!(metric.abc);
             },
+        );
+    }
+
+    // Issue #1102, PHP half. See
+    // `cpp_ternary_operand_slots_count_as_unary_conditions` for the
+    // rule. PHP's ABC dispatcher has no `?`-token arm — the grammar
+    // does emit the token, but the `conditional_expression` node is
+    // what carries the tally's +1 — so the arm keeps that increment and
+    // adds the operand slots.
+    #[test]
+    fn php_ternary_operand_slots_count_as_unary_conditions() {
+        // ternary (1) + condition `$a` (1) + `!$b` (1) + `!$c` (1) = 4.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { $x = $a ? !$b : !$c; }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 4),
+        );
+        // No-double-count pin: ternary (1) + `>` (1) = 2, unchanged by
+        // the fix.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { $x = ($a > 0) ? $b : -$b; }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
+        );
+        // Nested (PHP 8 requires the inner ternary parenthesised): two
+        // ternary nodes plus the two bare-variable conditions = 4.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { $x = $a ? ($b ? $c : $d) : $e; }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 4),
+        );
+        // A negated condition is the only input reaching the walker's
+        // `else` fallback — see the C++ sibling for why. ternary (1) +
+        // `!$a` (1) = 2.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { $x = !$a ? $b : $c; }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
+        );
+    }
+
+    // PHP's short ternary `$a ?: $b` elides the consequence, which the
+    // grammar names `body` (not `consequence`) and marks optional. The
+    // alternative lands at child(3), so addressing the slot by field
+    // name rather than a fixed child(4) is what keeps `!$b` counted.
+    #[test]
+    fn php_elided_ternary_body_still_walks_the_alternative() {
+        // ternary (1) + condition `$a` (1) + `!$b` (1) = 3.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f() { $x = $a ?: !$b; }\n",
+            "foo.php",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 3),
         );
     }
 
@@ -6474,6 +6526,100 @@ function f(int $a, int $b): int {
         );
     }
 
+    // Issue #1102. A ternary's condition and both branch operands are
+    // Fitzpatrick Rule 9 unary conditions, exactly as `java_walk_ternary`
+    // has always counted them. Before the fix the C family scored
+    // `a ? !b : !c` as 1 — the `?` token alone — against Java's 4.
+    #[test]
+    fn cpp_ternary_operand_slots_count_as_unary_conditions() {
+        // `?` (1) + condition `a` (1) + `!b` (1) + `!c` (1) = 4.
+        check_metrics::<CppParser>("void f() { x = a ? !b : !c; }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 4);
+        });
+        // No-double-count pin: `?` (1) + `>` (1) = 2, unchanged by the
+        // fix. The parenthesised condition unwraps to a
+        // `binary_expression`, which is not a boolean terminal, and
+        // neither branch is negated — the `!` is the type-free proxy for
+        // "this operand is boolean", so an unnegated branch contributes
+        // nothing.
+        check_metrics::<CppParser>("void f() { x = (a > 0) ? b : -b; }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+        // Nested: outer `?` (1) + outer condition `a` (1) + inner `?`
+        // (1) + inner condition `b` (1) = 4. The outer consequence is
+        // the inner ternary — neither a boolean terminal nor a
+        // paren / `!` wrapper — so it adds nothing on its own and the
+        // inner one is reached by the walk, not by descent.
+        check_metrics::<CppParser>("void f() { x = a ? b ? c : d : e; }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 4);
+        });
+        // A negated *condition* is the only input that reaches the
+        // walker's `else` fallback: `!a` is neither a boolean terminal
+        // (so the terminal arm skips it) nor an operand slot (so
+        // `cpp_inspect_container` is never called on it from anywhere
+        // else). Every other condition fixture in this file wraps a
+        // comparison, which the fallback resolves to 0 — delete the
+        // fallback and only this case moves. `?` (1) + `!a` (1) = 2.
+        check_metrics::<CppParser>("void f() { x = !a ? b : c; }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+    }
+
+    // The GNU short-ternary `a ?: b` elides the consequence, so the
+    // C-family grammar marks that field optional and the alternative
+    // lands at child(3) rather than child(4). Addressing the operand
+    // slots by grammar field name — never by index — is what keeps `!b`
+    // counted here; a fixed `child(4)` reads `None` and scores 2.
+    #[test]
+    fn cpp_elided_ternary_consequence_still_walks_the_alternative() {
+        // `?` (1) + condition `a` (1) + `!b` (1) = 3.
+        check_metrics::<CppParser>("void f() { x = a ?: !b; }", "foo.cpp", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 3);
+        });
+    }
+
+    // `cpp_walk_ternary` is shared by the C, ObjC, and Mozcpp ABC impls
+    // exactly as `cpp_inspect_container` is, so each needs its own
+    // dispatcher arm. Mozcpp owns no file extension and so gets no
+    // integration-snapshot coverage at all — this parity assertion is
+    // its only guard.
+    //
+    // The expected value is *derived from the C++ run*, not hardcoded,
+    // so the four languages cannot silently drift apart if the C++
+    // expectation ever legitimately moves.
+    #[test]
+    fn c_family_ternary_operand_slots_agree_with_cpp() {
+        const SRC: &str = "void f() { x = a ? !b : !c; }\n";
+        // `metrics_verbatim` rather than `check_metrics`: the latter
+        // takes a bare `fn` and so cannot close over the reference
+        // value.
+        let conditions = |lang: LANG, src: &str| {
+            metrics_verbatim(lang, src.as_bytes(), MetricsOptions::default())
+                .abc
+                .conditions_sum()
+        };
+
+        let cpp = conditions(LANG::Cpp, SRC);
+        // Non-degenerate: a zeroed reference would make every
+        // comparison below vacuous.
+        assert_eq!(cpp, 4, "C++ reference value for `a ? !b : !c`");
+
+        assert_eq!(conditions(LANG::C, SRC), cpp, "C must match C++");
+        assert_eq!(conditions(LANG::Mozcpp, SRC), cpp, "Mozcpp must match C++");
+        assert_eq!(
+            conditions(
+                LANG::Objc,
+                "@implementation Foo\n\
+                 - (void)bar {\n\
+                     x = a ? !b : !c;\n\
+                 }\n\
+                 @end\n",
+            ),
+            cpp,
+            "ObjC must match C++"
+        );
+    }
+
     #[test]
     fn cpp_switch_cases_count_default_excluded() {
         // `case 1`, `case 2` → 2 conditions. `default` is intentionally
@@ -6886,17 +7032,71 @@ function f(int $a, int $b): int {
         //   - `a > 0` → 1
         //   - `else` opens an else_clause → 1
         //   - `?` ternary → 1
+        //   - the ternary's bare-identifier condition `a` → 1 (#1102)
         //   - `case 1` → 1
         //   - `default` → 0 (fallthrough, #469)
         //   - `try` + `catch` → 2
-        // Total C = 6.
+        // Total C = 7.
         check_metrics::<JavascriptParser>(
             "function f(a) { if (a > 0) {} else {} let x = a ? 1 : 2; switch (x) { case 1: break; default: break; } try { } catch (e) { } }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 6);
+                assert_eq!(metric.abc.conditions_sum(), 7);
                 insta::assert_json_snapshot!(metric.abc);
             },
+        );
+    }
+
+    // Issue #1102, JS-family half. See
+    // `cpp_ternary_operand_slots_count_as_unary_conditions` for the
+    // rule; the two families were behind Java by the same three units.
+    #[test]
+    fn javascript_ternary_operand_slots_count_as_unary_conditions() {
+        // `?` (1) + condition `a` (1) + `!b` (1) + `!c` (1) = 4.
+        check_metrics::<JavascriptParser>(
+            "function f() { x = a ? !b : !c; }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 4),
+        );
+        // No-double-count pin: `?` (1) + `>` (1) = 2, unchanged by the
+        // fix — the parenthesised condition unwraps to a
+        // `binary_expression` (not a boolean terminal) and neither
+        // branch is negated.
+        check_metrics::<JavascriptParser>(
+            "function f() { x = (a > 0) ? b : -b; }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
+        );
+        // Nested: two `?` tokens plus the two bare-identifier
+        // conditions = 4.
+        check_metrics::<JavascriptParser>(
+            "function f() { x = a ? b ? c : d : e; }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 4),
+        );
+        // A negated condition is the only input reaching the walker's
+        // `else` fallback — see the C++ sibling for why. `?` (1) +
+        // `!a` (1) = 2.
+        check_metrics::<JavascriptParser>("function f() { x = !a ? b : c; }", "foo.js", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+    }
+
+    // TypeScript expands the same `ts_abc_compute!` arm from a separate
+    // macro body than JavaScript's `js_abc_compute!`, so wiring one and
+    // not the other is a live failure mode; TSX and Mozjs are clones of
+    // these two.
+    #[test]
+    fn typescript_ternary_operand_slots_count_as_unary_conditions() {
+        check_metrics::<TypescriptParser>(
+            "function f() { x = a ? !b : !c; }",
+            "foo.ts",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 4),
+        );
+        check_metrics::<TypescriptParser>(
+            "function f() { x = (a > 0) ? b : -b; }",
+            "foo.ts",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
         );
     }
 
@@ -7524,11 +7724,12 @@ function f(int $a, int $b): int {
         // `binary_expression` parent that triggers the walker; the
         // other two keyword forms parse under a distinct grammar
         // node and contribute zero. Net: 4 walker-firing lines × 2
-        // scalar-variable operands + 1 ternary `?` = 9. The exact
-        // mix of "which two keyword forms are silent" is grammar-
-        // version-dependent; a future grammar bump that normalises
-        // the keyword forms' parent kind will shift this count to
-        // 13. See follow-up note above the test name.
+        // scalar-variable operands + 1 ternary node + 1 for the
+        // ternary's bare `$a` condition operand (#1102) = 10. The
+        // exact mix of "which two keyword forms are silent" is
+        // grammar-version-dependent; a future grammar bump that
+        // normalises the keyword forms' parent kind will shift this
+        // count to 14. See follow-up note above the test name.
         check_metrics::<PerlParser>(
             "sub f {\n\
                  my $r;\n\
@@ -7546,13 +7747,50 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 7);
                 assert_eq!(metric.abc.branches_sum(), 0);
                 // 4 walker-triggered lines × 2 operands + 1 ternary
-                // `?` = 9. The two remaining low-precedence keyword
-                // forms (one of `and`/`or`/`xor`) fall under a
+                // node + 1 for its bare `$a` condition operand = 10.
+                // The two remaining low-precedence keyword forms (one
+                // of `and`/`or`/`xor`) fall under a
                 // non-binary_expression parent in this grammar
                 // version and contribute zero via the walker.
-                assert_eq!(metric.abc.conditions_sum(), 9);
+                assert_eq!(metric.abc.conditions_sum(), 10);
                 insta::assert_json_snapshot!(metric.abc);
             },
+        );
+    }
+
+    // Issue #1102, Perl half. See
+    // `cpp_ternary_operand_slots_count_as_unary_conditions` for the
+    // rule. Like PHP, Perl's ABC dispatcher has no `?`-token arm — the
+    // grammar does emit the token, but the `ternary_expression` node is
+    // what carries the tally's +1. tree-sitter-perl names the branch
+    // fields `true` / `false` rather than the C-family `consequence` /
+    // `alternative`, so a copied C-family gate would match nothing.
+    #[test]
+    fn perl_ternary_operand_slots_count_as_unary_conditions() {
+        // ternary (1) + condition `$a` (1) + `!$b` (1) + `!$c` (1) = 4.
+        check_metrics::<PerlParser>("sub f { my $x = $a ? !$b : !$c; }", "foo.pl", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 4);
+        });
+        // No-double-count pin: ternary (1) + `>` (1) = 2, unchanged by
+        // the fix.
+        check_metrics::<PerlParser>(
+            "sub f { my $x = ($a > 0) ? $b : -$b; }",
+            "foo.pl",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2),
+        );
+        // A negated *condition* takes the walker's `else` fallback —
+        // `!$a` is neither a boolean terminal nor a paren wrapper, so
+        // only `perl_inspect_container` can classify it. Delete the
+        // fallback and this reads 1. ternary (1) + `!$a` (1) = 2.
+        check_metrics::<PerlParser>("sub f { my $x = !$a ? $b : $c; }", "foo.pl", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2);
+        });
+        // Nested: two ternary nodes plus the two bare-variable
+        // conditions = 4.
+        check_metrics::<PerlParser>(
+            "sub f { my $x = $a ? ($b ? $c : $d) : $e; }",
+            "foo.pl",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 4),
         );
     }
 

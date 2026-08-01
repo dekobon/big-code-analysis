@@ -84,10 +84,11 @@ fn cpp_and_mozcpp_agree_on_plain_cpp() {
             .map_or_else(|| panic!("metric_sums omitted {key}: {cpp:?}"), |(_, v)| *v)
     };
     // conditions: `<=>` +1, the `< 0` on its result +1, the `if (a < b)`
-    // +1, `try` +1, `catch` +1, the `less ? a : b` ternary +1 = 6.
+    // +1, `try` +1, `catch` +1, the `less ? a : b` ternary +1, and that
+    // ternary's bare-identifier condition operand +1 (#1102) = 7.
     assert_eq!(
         get("abc.conditions"),
-        6,
+        7,
         "fixture exercises <=>/try/catch conditions: {cpp:?}"
     );
     assert!(

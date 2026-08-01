@@ -9,7 +9,9 @@
     clippy::cast_sign_loss
 )]
 
-use super::cpp::{cpp_count_unary_conditions, cpp_inspect_child, cpp_inspect_container};
+use super::cpp::{
+    cpp_count_unary_conditions, cpp_inspect_child, cpp_inspect_container, cpp_walk_ternary,
+};
 use super::{Abc, Stats};
 use crate::*;
 
@@ -34,6 +36,10 @@ impl Abc for ObjcCode {
         ancestors: Ancestors<'a, '_>,
         stats: &mut Stats,
     ) {
+        // bca: suppress(cyclomatic)
+        // Exhaustive one-arm-per-grammar-kind dispatch table; see the
+        // rationale on `CppCode::compute`, of which this is the
+        // Objective-C sibling.
         use Objc::*;
 
         match node.kind_id().into() {
@@ -91,6 +97,12 @@ impl Abc for ObjcCode {
             }
             ArgumentList | ArgumentList2 => {
                 cpp_count_unary_conditions(node, &mut stats.conditions);
+            }
+            // `a ? !b : !c` — the ternary's own `?` token is already
+            // counted by the condition arm above; this walks the three
+            // operand slots (issue #1102).
+            ConditionalExpression => {
+                cpp_walk_ternary(node, &mut stats.conditions);
             }
             _ => {}
         }
