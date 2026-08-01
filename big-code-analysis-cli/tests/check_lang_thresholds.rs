@@ -21,15 +21,17 @@ fn cli(dir: &Path) -> Command {
     common::cli_in(dir)
 }
 
-/// The offender lines from a `bca check` stderr stream, isolated from
-/// the summary and remediation blocks.
+/// The offender rows from a `bca check` stdout stream (#1167 put them
+/// there; the summary and remediation blocks stay on stderr).
 ///
-/// Filtering matters here: the remediation footer echoes the resolved
-/// `--paths` list, so a bare `stderr.contains("branchy.c")` reads as an
-/// offender even when C was gated clean — the precise false pass these
-/// tests exist to rule out.
-fn offenders(stderr: &str) -> Vec<&str> {
-    stderr
+/// The ` (limit ` filter is kept rather than trusting the stream split:
+/// it is the shape assertion these tests actually depend on, and it
+/// still rules out the false pass they exist for — the remediation
+/// footer echoes the resolved `--paths` list, so a bare
+/// `contains("branchy.c")` reads as an offender even when C was gated
+/// clean.
+fn offenders(stdout: &str) -> Vec<&str> {
+    stdout
         .lines()
         .filter(|line| line.contains(" (limit "))
         .collect()
@@ -137,8 +139,8 @@ fn override_applies_to_its_language_only() {
     );
 
     let assert = cli(dir.path()).arg("check").assert().code(2);
-    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
-    let offenders = offenders(&stderr);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let offenders = offenders(&stdout);
     assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
     assert!(
         offenders[0].contains("branchy.rs") && offenders[0].ends_with("cyclomatic = 7 (limit 5)"),
@@ -161,8 +163,8 @@ fn unoverridden_metric_inherits_the_global_limit() {
     );
 
     let assert = cli(dir.path()).arg("check").assert().code(2);
-    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
-    let offenders = offenders(&stderr);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let offenders = offenders(&stdout);
     assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
     assert!(
         offenders[0].ends_with("classify: cognitive = 6 (limit 4)"),
@@ -188,8 +190,8 @@ fn corrective_overrides_at_both_ends_of_the_spread() {
     );
 
     let assert = cli(dir.path()).arg("check").assert().code(2);
-    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
-    let offenders = offenders(&stderr);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let offenders = offenders(&stdout);
     assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
     assert!(
         offenders[0].ends_with("Sample::Classify: cognitive = 6 (limit 4)"),
@@ -222,8 +224,8 @@ fn a_metric_only_a_language_table_gates_is_still_computed() {
     );
 
     let assert = cli(dir.path()).arg("check").assert().code(2);
-    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
-    let offenders = offenders(&stderr);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let offenders = offenders(&stdout);
     assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
     assert!(
         offenders[0].ends_with("Sample: nom = 4 (limit 3)"),
@@ -293,13 +295,14 @@ fn language_without_an_override_uses_the_global_table() {
     fs::write(dir.path().join("unknown.zzz"), "nothing parses this\n").expect("write fixture");
 
     let assert = cli(dir.path()).arg("check").assert().code(2);
-    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
-    let offenders = offenders(&stderr);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let offenders = offenders(&stdout);
     assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
     assert!(
         offenders[0].ends_with("Sample::Classify: cyclomatic = 7 (limit 5)"),
         "C# falls through to the global limit: {offenders:?}"
     );
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
     assert!(
         stderr.contains("skipping explicitly-named file with unrecognized language"),
         "an unrecognised file language never reaches the gate at all: {stderr}"
@@ -323,7 +326,7 @@ fn cli_threshold_outranks_a_language_override() {
         .args(["check", "--threshold", "cyclomatic=6"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains(
+        .stdout(predicate::str::contains(
             "classify: cyclomatic = 7 (limit 6)",
         ));
 }
@@ -417,7 +420,7 @@ fn soft_tier_derives_from_the_language_hard_limit() {
         .args(["check", "--tier=soft=0.5", "--exit-codes=tiered"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains(
+        .stdout(predicate::str::contains(
             "classify: cognitive = 6 (limit 5)",
         ));
 }
@@ -439,7 +442,7 @@ fn soft_tier_still_escalates_past_the_language_hard_limit() {
         .args(["check", "--tier=soft=0.5", "--exit-codes=tiered"])
         .assert()
         .code(5)
-        .stderr(predicate::str::contains("wide: cognitive = 12 (limit 5)"));
+        .stdout(predicate::str::contains("wide: cognitive = 12 (limit 5)"));
 }
 
 /// At the soft tier each table is resolved against its *own* hard
@@ -661,9 +664,10 @@ fn a_language_only_manifest_warns_that_nothing_else_is_gated() {
         stderr.contains("no global [thresholds] table: only c is gated"),
         "the run must say the rest of the tree is ungated: {stderr}"
     );
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
     assert!(
-        offenders(&stderr).is_empty(),
-        "nothing breaches a limit of 100: {stderr}"
+        offenders(&stdout).is_empty(),
+        "nothing breaches a limit of 100: {stdout}"
     );
 }
 
@@ -688,8 +692,8 @@ fn a_language_alias_override_replaces_the_global_dotted_limit() {
     );
 
     let assert = cli(dir.path()).arg("check").assert().code(2);
-    let stderr = String::from_utf8(assert.get_output().stderr.clone()).expect("utf8 stderr");
-    let offenders = offenders(&stderr);
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8 stdout");
+    let offenders = offenders(&stdout);
     assert_eq!(offenders.len(), 1, "exactly one offender: {offenders:?}");
     assert!(
         offenders[0].contains("branchy.rs") && offenders[0].ends_with("loc.ploc = 9 (limit 6)"),
@@ -743,7 +747,7 @@ fn the_printed_config_round_trips_to_the_same_gate_result() {
     let paths = ["--paths", "branchy.c", "--paths", "branchy.rs"];
 
     let direct = cli(dir.path()).arg("check").args(paths).assert().code(2);
-    let direct = String::from_utf8(direct.get_output().stderr.clone()).expect("utf8 stderr");
+    let direct = String::from_utf8(direct.get_output().stdout.clone()).expect("utf8 stdout");
 
     let printed = cli(dir.path())
         .args(["check", "--print-effective-config", "toml"])
@@ -762,7 +766,7 @@ fn the_printed_config_round_trips_to_the_same_gate_result() {
         // empty offender lists would otherwise compare equal.
         .code(2);
     let round_tripped =
-        String::from_utf8(round_tripped.get_output().stderr.clone()).expect("utf8 stderr");
+        String::from_utf8(round_tripped.get_output().stdout.clone()).expect("utf8 stdout");
 
     let direct = offenders(&direct);
     assert_eq!(direct.len(), 1, "one offender before the round trip");

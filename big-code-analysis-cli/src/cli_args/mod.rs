@@ -436,6 +436,14 @@ pub(crate) enum Command {
     /// distinguish "metric regression" from "tool crashed".
     /// `--strict-exit-codes` opts into tiered codes (2-5) that split the
     /// violation case by severity.
+    ///
+    /// Streams: the offender rows go to stdout, so `bca check | wc -l`
+    /// and `bca check 2>/dev/null` see them. The summary footer,
+    /// remediation block, GitHub Actions annotations, and every
+    /// `bca:` / `warning:` / `error:` diagnostic go to stderr. The one
+    /// exception is `--report-format` without `--output`: the
+    /// aggregated document takes stdout there and the human rows fall
+    /// back to stderr, so a SARIF payload stays parseable.
     // Boxed because `CheckArgs` is by far the largest variant payload
     // (its many gate-tuning flags dwarf the other subcommands' args);
     // boxing keeps `Command` small and silences `large_enum_variant`.

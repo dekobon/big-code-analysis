@@ -92,13 +92,15 @@ fn check_reports_the_same_violations_serially_and_in_parallel() {
         "--no-summary",
     ];
 
-    let (_, serial) = run_at_jobs(&dir, "1", &args);
-    let (_, parallel) = run_at_jobs(&dir, "16", &args);
+    let (serial, _) = run_at_jobs(&dir, "1", &args);
+    let (parallel, _) = run_at_jobs(&dir, "16", &args);
 
     // 120 files, one offending function each: a dropped send shows up
-    // as a short count before the line comparison even runs. Count only
-    // offender lines — stderr also carries the trailing remediation
-    // block, which `--no-summary` does not suppress.
+    // as a short count before the line comparison even runs. The filter
+    // stays even though #1167 gave stdout to the offender rows alone —
+    // it is the shape assertion, and a stray non-offender line on the
+    // product stream should fail the count rather than be smuggled into
+    // the comparison.
     let offenders = |text: &str| {
         text.lines()
             .filter(|l| l.contains(": cyclomatic = "))

@@ -51,7 +51,7 @@
 問題のある関数をモデルのコンテキストへ報告します。
 必要なのは `PATH` 上の `bca`（[クイックスタート](#クイックスタート)参照）と数行の設定だけです。
 
-- **Claude Code** — `PostToolUse` フックが編集されたファイルに対して `bca check` を実行し、違反を stderr 経由でフィードバックします。
+- **Claude Code** — `PostToolUse` フックが編集されたファイルに対して `bca check` を実行し、違反をモデルにフィードバックします。
   本リポジトリ自身がリファレンス実装のフック [`.claude/hooks/bca-check.sh`](.claude/hooks/bca-check.sh) をドッグフーディングしています。
 - **opencode** — `tool.execute.after` プラグインが同じ役割を果たします。
   リファレンスコピーは [`.opencode/plugins/bca-check.js`](.opencode/plugins/bca-check.js) にあります。

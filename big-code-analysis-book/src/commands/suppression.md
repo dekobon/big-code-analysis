@@ -214,8 +214,8 @@ bca check --report-format sarif --no-fail --report-suppressed \
 Offenders silenced by an in-source marker or covered by the baseline are
 emitted into the SARIF document with a SARIF `suppressions` entry —
 `kind: "inSource"` for markers, `kind: "external"` for the baseline. The
-suppression never fails the gate (exit code and the human stderr stream are
-unaffected); the `suppressions` entry lets downstream tooling tell
+suppression never fails the gate (exit code and the human offender rows
+are unaffected); the `suppressions` entry lets downstream tooling tell
 suppressed debt apart from active offenders.
 
 > **GitHub Code Scanning caveat.** GitHub does **not** honor the SARIF

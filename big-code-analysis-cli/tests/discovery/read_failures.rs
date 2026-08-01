@@ -1146,4 +1146,171 @@ mod unix {
             "a closed consumer pipe must be silent; stderr: {stderr}"
         );
     }
+
+    /// A Rust corpus whose `bca check --threshold cyclomatic=1` offender
+    /// report is comfortably larger than [`PIPE_BUFFER_BYTES`]. Each
+    /// function branches once, so every one of them is an offender and
+    /// contributes one row.
+    fn many_offenders(dir: &TempDir) -> String {
+        use std::fmt::Write as _;
+
+        let mut body = String::new();
+        for i in 0..600 {
+            writeln!(
+                body,
+                "pub fn offender_number_{i}(n: i32) -> i32 {{ if n > {i} {{ 1 }} else {{ 0 }} }}"
+            )
+            .expect("writing to a String is infallible");
+        }
+        for name in ["one.rs", "two.rs", "three.rs", "four.rs"] {
+            write_fixture(dir, name, &body);
+        }
+        dir.path().to_str().expect("utf8 dir").to_owned()
+    }
+
+    /// Run `bca check` over `source` with the child's stdout pointed at
+    /// `stdout`. Split from [`run_with_stdout`] because `check`'s
+    /// arguments are not the shared `--no-config --paths` shape: it needs
+    /// a threshold, and its clean-run control cannot assert exit 0.
+    fn run_check_with_stdout(dir: &TempDir, source: &str, stdout: Stdio) -> Output {
+        common::std_bca_command_in(dir.path())
+            .args([
+                "check",
+                "--no-config",
+                "--paths",
+                source,
+                "--threshold",
+                "cyclomatic=1",
+                "--no-summary",
+                "--no-remediation",
+            ])
+            .stdout(stdout)
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn bca")
+            .wait_with_output()
+            .expect("wait for bca")
+    }
+
+    /// #1167 moved `check`'s offender rows onto stdout, which puts them
+    /// on the failure path #1132 hardened. An unwritable stdout must
+    /// therefore behave like every other subcommand's: `EXIT_TOOL_ERROR`
+    /// with the CLI's own `error:` diagnostic, never a panic and never
+    /// the gate's own exit 2 — a gate verdict whose evidence never
+    /// reached the consumer is exactly the silent-success shape the
+    /// stream change exists to remove.
+    #[test]
+    fn check_exits_one_when_stdout_cannot_be_written() {
+        let dir = TempDir::new().expect("tempdir");
+        let source = write_fixture(
+            &dir,
+            "branchy.rs",
+            "pub fn f(n: i32) -> i32 { if n > 0 { 1 } else { 0 } }\n",
+        );
+        let Some(full) = dev_full() else {
+            eprintln!("skipping: no write-failing /dev/full on this platform");
+            return;
+        };
+
+        let failed = run_check_with_stdout(&dir, &source, full.into());
+        let stderr = String::from_utf8_lossy(&failed.stderr).into_owned();
+        assert_eq!(
+            failed.status.code(),
+            Some(1),
+            "`bca check` must exit 1 on an unwritable stdout; stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains("error: writing check offenders"),
+            "the diagnostic must name the emission that failed; stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains("No space left on device"),
+            "the diagnostic must name the I/O failure; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked at"),
+            "`bca check` must not panic on an unwritable stdout; stderr: {stderr}"
+        );
+
+        // Control: the same invocation against a writable stdout reaches
+        // the gate and reports the violation (exit 2), so the exit-1
+        // above came from the write and not from a rejected flag set or
+        // an unusable fixture.
+        let ok = run_check_with_stdout(&dir, &source, Stdio::null());
+        assert_eq!(
+            ok.status.code(),
+            Some(2),
+            "the fixture must reach the gate with a writable stdout; stderr: {}",
+            String::from_utf8_lossy(&ok.stderr)
+        );
+    }
+
+    /// The other half of #1167's stdout policy: `bca check | head -1` is
+    /// routine. `BrokenPipe` must stay exempt from the `die` above, and
+    /// the run must still report the *gate* verdict (exit 2) rather than
+    /// a tool error — otherwise CI piping the offender list through
+    /// `head` cannot tell a threshold breach from a broken build.
+    ///
+    /// The corpus size is load-bearing exactly as it is for `vcs` and
+    /// `dump` above: a report that fits in the pipe buffer is accepted
+    /// whole before the reader can close, the child never meets `EPIPE`,
+    /// and the test passes against any implementation at all.
+    #[test]
+    fn check_reports_the_gate_verdict_when_its_consumer_closes_the_pipe() {
+        use std::io::{BufRead, BufReader};
+
+        let dir = TempDir::new().expect("tempdir");
+        let source = many_offenders(&dir);
+
+        let control = run_check_with_stdout(&dir, &source, Stdio::piped());
+        assert!(
+            control.stdout.len() > PIPE_BUFFER_BYTES,
+            "the offender report must outgrow the pipe buffer for the close \
+             to be observable at all; got {} bytes",
+            control.stdout.len(),
+        );
+
+        let mut child = common::std_bca_command_in(dir.path())
+            .args([
+                "check",
+                "--no-config",
+                "--paths",
+                &source,
+                "--threshold",
+                "cyclomatic=1",
+                "--no-summary",
+                "--no-remediation",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn bca");
+
+        // Read one line, then close the read end — the `head -1` shape.
+        let stdout = child.stdout.take().expect("piped stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut first = String::new();
+        reader.read_line(&mut first).expect("read first line");
+        assert!(
+            first.contains(": cyclomatic = "),
+            "the first line should be an offender row, got {first:?}"
+        );
+        drop(reader);
+
+        let output = child.wait_with_output().expect("wait for bca");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "a closed consumer pipe must not change the gate verdict; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked at"),
+            "a closed consumer pipe must not panic; stderr: {stderr}"
+        );
+        assert!(
+            stderr.is_empty(),
+            "a closed consumer pipe must be silent; stderr: {stderr}"
+        );
+    }
 }

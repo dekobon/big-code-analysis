@@ -45,7 +45,7 @@ Path to a TOML config with a `[thresholds]` table. Example:
 CLI `--threshold` flags override values read from this file."
     )]
     pub(crate) config: Option<PathBuf>,
-    /// Print offenders to stderr but exit 0 even when thresholds are
+    /// Report offenders as usual but exit 0 even when thresholds are
     /// exceeded. Useful while adopting baselines without flipping CI red.
     /// Default: exit 2 when any threshold is exceeded.
     #[clap(long = "no-fail")]
@@ -59,7 +59,7 @@ CLI `--threshold` flags override values read from this file."
     /// Surface suppressed debt in the offender document instead of
     /// dropping it. Offenders silenced by an in-source `bca: suppress`
     /// marker or covered by the baseline are still kept out of the gate
-    /// (exit code and human stream are unaffected), but are emitted into
+    /// (exit code and offender rows are unaffected), but are emitted into
     /// the `--format sarif` document carrying a SARIF
     /// `suppressions` entry — GitHub Code Scanning renders them as
     /// suppressed (closed) alerts so the debt stays visible. Only the
@@ -73,8 +73,11 @@ CLI `--threshold` flags override values read from this file."
     /// lines, MSVC warning lines). Named `--report-format` to separate
     /// "which CI report dialect" from the data-serialization `--format`
     /// the structured subcommands use. When omitted *and*
-    /// `--output` is also omitted, only the human-readable stderr stream
-    /// is emitted; the exit-code contract is unaffected. When omitted but
+    /// `--output` is also omitted, only the human-readable offender rows
+    /// are emitted; the exit-code contract is unaffected. Note that
+    /// passing this flag without `--output` gives the document stdout,
+    /// so the human rows fall back to stderr for that combination —
+    /// add `--output <file>` to keep both. When omitted but
     /// `--output` is given, the dialect is inferred from the output
     /// extension (`.sarif` → sarif, `.xml` → checkstyle); an extension
     /// with no unique dialect is a usage error. The old `--format` / `-O`
@@ -132,8 +135,9 @@ CLI `--threshold` flags override values read from this file."
     pub(crate) write_baseline: Option<Option<PathBuf>>,
     /// Skip the trailing per-file rollup footer. The footer groups
     /// violations by file and cites the single worst-ratio metric per
-    /// file. Pass this when downstream tooling grep-pipes the stderr
-    /// stream and would be confused by the trailing summary block.
+    /// file. It is written to stderr, so a plain `bca check | ...`
+    /// pipeline never sees it; pass this when a tool reads the *merged*
+    /// streams and would be confused by the trailing summary block.
     /// Default: footer enabled.
     #[clap(long = "no-summary")]
     pub(crate) no_summary: bool,
@@ -155,10 +159,10 @@ CLI `--threshold` flags override values read from this file."
     pub(crate) changed_only: bool,
     /// Emit GitHub Actions `::error file=…,line=…,title=…::msg`
     /// workflow commands per violation so the GHA UI renders them as
-    /// inline annotations on the file-diff view. Additive to the
-    /// human-readable stderr stream — annotations ride on top, they
-    /// don't replace it. Tri-state `<auto|always|never>` mirroring
-    /// `--color`: `auto` (default) emits annotations when
+    /// inline annotations on the file-diff view. Written to stderr,
+    /// additive to the human-readable offender rows — annotations ride
+    /// on top, they don't replace them. Tri-state `<auto|always|never>`
+    /// mirroring `--color`: `auto` (default) emits annotations when
     /// `$GITHUB_ACTIONS == "true"`; `always` forces them on; `never`
     /// suppresses them even inside a GHA step (so a workflow that runs
     /// `bca check` twice can annotate from only one run). A bare
@@ -257,7 +261,7 @@ CLI `--threshold` flags override values read from this file."
     pub(crate) headroom: Option<f64>,
     /// Exit-code style: `default` keeps the stable
     /// 0/1/2 contract; `tiered` splits exit `2` by severity so CI can
-    /// branch without parsing the `[new]` / `[regr +N%]` stderr tags:
+    /// branch without parsing the `[new]` / `[regr +N%]` row tags:
     ///
     /// - `0` — clean.
     /// - `1` — tool error (bad config, unknown metric, unreadable path).

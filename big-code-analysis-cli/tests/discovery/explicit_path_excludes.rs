@@ -80,7 +80,7 @@ fn explicit_path_overrides_manifest_exclude_and_warns_naming_the_glob() {
         .args(["check", "skipme/a.rs", "--no-summary", "--no-remediation"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("skipme_offender"))
+        .stdout(predicate::str::contains("skipme_offender"))
         .stderr(predicate::str::contains(
             "bca: warning: skipme/a.rs matches an exclude pattern (./skipme/**) \
              but was named explicitly; analyzing anyway",
@@ -102,8 +102,8 @@ fn same_manifest_exclude_still_drops_the_file_on_a_directory_walk() {
         .args(["check", "--no-summary", "--no-remediation"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("kept_offender"))
-        .stderr(predicate::str::contains("skipme_offender").not())
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("skipme_offender").not())
         // No override happened, so no warning — the diagnostic must not
         // fire for files the walk selected.
         .stderr(predicate::str::contains("named explicitly").not());
@@ -170,7 +170,7 @@ fn explicit_path_overrides_exclude_from_file_and_warns() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("skipme_offender"))
+        .stdout(predicate::str::contains("skipme_offender"))
         .stderr(predicate::str::contains(
             "matches an exclude pattern (./skipme/**)",
         ));
@@ -237,7 +237,7 @@ fn override_warning_survives_a_mixed_case_extension() {
         .code(2)
         // Reported as an offender, so the file really was analyzed and
         // the unannounced override was a live one.
-        .stderr(predicate::str::contains("upper_offender"))
+        .stdout(predicate::str::contains("upper_offender"))
         .stderr(predicate::str::contains(
             "bca: warning: skipme/B.RS matches an exclude pattern (./skipme/**) \
              but was named explicitly; analyzing anyway",
@@ -258,7 +258,7 @@ fn explicit_path_does_not_override_check_exclude() {
         .args(["check", "skipme/a.rs", "--no-summary", "--no-remediation"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("skipme_offender").not())
+        .stdout(predicate::str::contains("skipme_offender").not())
         // The skip line proves the offender existed and was dropped;
         // without it a clean exit could mean the fixture stopped
         // offending.
@@ -288,7 +288,7 @@ fn absolute_explicit_path_does_not_override_check_exclude() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("skipme_offender").not())
+        .stdout(predicate::str::contains("skipme_offender").not())
         .stderr(predicate::str::contains(
             "skipped 1 violations via [check.exclude]",
         ));
@@ -314,7 +314,7 @@ fn explicit_path_does_not_override_include() {
         ])
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("skipme_offender").not())
+        .stdout(predicate::str::contains("skipme_offender").not())
         .stderr(predicate::str::contains("no input files matched"));
 }
 
@@ -337,5 +337,5 @@ fn explicit_path_is_analyzed_when_include_admits_it() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("skipme_offender"));
+        .stdout(predicate::str::contains("skipme_offender"));
 }

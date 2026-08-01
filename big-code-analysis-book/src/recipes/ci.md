@@ -297,7 +297,7 @@ A new offender not in the baseline still fails. An improved function
 passes silently and stays in the baseline until the next
 `--write-baseline` refresh.
 
-Each surviving violation in the stderr stream is prefixed with a tag
+Each surviving violation row is prefixed with a tag
 so a developer can tell at a glance whether they are looking at a
 brand-new offender or a known one that has worsened:
 
@@ -307,13 +307,17 @@ brand-new offender or a known one that has worsened:
   was zero, `[regr +>9999%]` when the regression exceeds 100× the
   baseline, `[regr NaN]` when the current value is NaN.
 
-After the per-violation lines the stderr stream emits a per-file
-rollup footer with the format `<path>: <count> violations (worst:
-<metric> = <value> vs limit <limit> at L<start>)`, sorted by
-violation count descending. This is intended to be the first thing a
-reader looks at: which file has the most problems, and which metric
-is the loudest in that file. Pass `--no-summary` to suppress the
-footer for downstream tooling that grep-pipes the stderr stream.
+The violation rows go to stdout; everything below goes to stderr.
+See [Which stream](../commands/check.md#which-stream) for the full
+split.
+
+After the per-violation rows, stderr carries a per-file rollup footer
+with the format `<path>: <count> violations (worst: <metric> =
+<value> vs limit <limit> at L<start>)`, sorted by violation count
+descending. This is intended to be the first thing a reader looks at:
+which file has the most problems, and which metric is the loudest in
+that file. Pass `--no-summary` to suppress the footer for tooling that
+reads the merged streams.
 
 ### Actionable failure output {#actionable-failure-output}
 
@@ -468,8 +472,8 @@ The artifact URL is derived from `$GITHUB_REPOSITORY` and
 runs — where there is no upload to point at — instead suggest
 running `bca report` to see the detailed view locally.
 
-Suppress the block with `--no-remediation` for downstream tooling
-that grep-pipes stderr.
+Suppress the block with `--no-remediation` for tooling that reads
+the merged streams; a plain `bca check | ...` pipeline never sees it.
 
 Refresh after focused refactors:
 
@@ -511,8 +515,8 @@ recommended invocation is:
 
 What this gives you on a failing PR:
 
-1. **Per-violation stderr lines** — same shape as the legacy gate,
-   so existing grep tooling keeps working.
+1. **Per-violation rows on stdout** — same shape as the legacy
+   gate, so existing grep tooling keeps working.
 2. **Per-file rollup footer** with `Files in this range:`
    (touched in the PR) listed before `Other offenders:` — the
    developer sees their own contributions first.

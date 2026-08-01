@@ -13,7 +13,7 @@ is **batch, after-edit, structured** — exactly what
 So this recipe ships no new binary surface. `bca check` already gives
 an agent everything it needs:
 
-- A machine-parseable offender list (per-violation lines on stderr, or
+- A machine-parseable offender list (per-violation rows on stdout, or
   `--report-format sarif | code-climate | clang-warning | msvc-warning
   | checkstyle` for a structured document).
 - A tiered exit code — `2` when offenders are present, `0` clean, `1`
@@ -164,7 +164,9 @@ file_path="$(jq -r '.tool_input.file_path // empty')"
 
 # Thresholds, baseline, and excludes come from the repo-root bca.toml.
 # --no-summary / --no-remediation keep the feedback to the offender
-# lines themselves; the guidance below tells the agent what to do.
+# rows themselves; the guidance below tells the agent what to do. The
+# rows are on stdout and any diagnostic on stderr, so `2>&1` captures
+# whichever the run produced.
 status=0
 report="$(bca check "$file_path" --no-summary --no-remediation 2>&1)" || status=$?
 
@@ -282,8 +284,10 @@ export const BcaCheck = async ({ $ }) => {
       // / `exit_codes = "tiered"`) still report.
       if (res.exitCode < 2) return
 
-      // Surface the offenders to the agent by throwing.
-      const offenders = res.stderr.toString().trim() || res.stdout.toString().trim()
+      // Surface the offenders to the agent by throwing. The rows are on
+      // stdout; stderr is the fallback for a run whose only output is a
+      // diagnostic.
+      const offenders = res.stdout.toString().trim() || res.stderr.toString().trim()
       throw new Error(`bca flagged complexity in ${filePath}:\n\n${offenders}\n\n${GUIDANCE}`)
     },
   }
