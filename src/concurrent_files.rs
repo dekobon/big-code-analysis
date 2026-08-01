@@ -426,13 +426,13 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
         // here still has to fall through to the join below, or the
         // consumers block forever on a channel that never gets its
         // poison pills.
-        let dispatch = explore(files_data, &cfg, &sender, self.verify_paths);
+        let mut result = explore(files_data, &cfg, &sender, self.verify_paths);
 
         // Poison the receiver, now that dispatch is finished. Sent even
         // when dispatch failed: the consumers must be told to stop
         // before the joins below, and the dispatch error is returned
-        // afterwards.
-        let mut result = dispatch;
+        // afterwards. Each step keeps the *first* error rather than the
+        // last, so the failure a caller sees is the one that started it.
         for _ in 0..self.num_jobs {
             if let Err(e) = sender.send(None)
                 && result.is_ok()
