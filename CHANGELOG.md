@@ -26,6 +26,22 @@ for historical reference.
 
 ### Added
 
+- Per-language threshold overrides in `bca.toml` (#1141). A
+  `[thresholds.lang.<slug>]` table layers over the global `[thresholds]`
+  per metric, keyed by the same language slugs `--language` accepts, so
+  a polyglot repository can apply the per-language recommendations
+  #1140 published instead of picking one number and baselining the
+  difference. An unknown slug is a hard error with a did-you-mean hint;
+  a file whose language is not detected falls through to the global
+  table. The soft tier is derived from each language's *resolved* hard
+  limit rather than the global one — otherwise a loosened language's
+  soft threshold would sit below its hard threshold and exit code 5
+  would become silently reachable for every function between them — and
+  a soft limit looser than its hard limit is now rejected outright.
+  `--print-effective-config` renders one fully resolved table per
+  overridden language. Additive manifest surface; not a `STABILITY.md`
+  event.
+
 - `big_code_analysis::vcs::BlameSession`, a per-thread handle obtained
   from the new `PerFunctionBlame::session` (#1117). It carries the
   thread-local repository handle, its object cache, the parsed
@@ -267,6 +283,44 @@ for historical reference.
 
 ### Performance
 
+- `finalize` no longer re-derives a parent space's Halstead `Stats` and
+  MI after every child merges into it (#1106). The per-child pass was
+  three map traversals over the parent's accumulated vocabulary for a
+  result the parent's own finalize overwrites — `O(children x
+  vocabulary)`, quadratic in a file's function count. Only the WMC third
+  is load-bearing there (`wmc::Stats::merge` dispatches on the parent's
+  recorded `space_kind`), so only it survives in the pop arm. Metric
+  values are unchanged. On the widest corpus file (1,808 top-level
+  spaces) this is ~10% of the walk; `Limits::default` caps files at
+  64 KiB, so the corpus average does not move.
+
+- The per-metric unit-test modules compute only the metric family they
+  assert plus its declared dependencies, instead of all thirteen
+  (#1127). Single-threaded per-run minima of the all-features lib test
+  binary: CPU 4.64 s to 4.20 s, and the 2,317-test `metrics::` tranche
+  alone 1.16 s to 0.95 s. Values are unchanged, pinned by a new
+  `metric_selection_parity` test asserting a restricted walk reproduces
+  the full walk's per-space values for every metric in the selection's
+  resolved closure.
+
+- The workspace's 68 integration test files are now 12 directory test
+  targets, and `[profile.dev]` sets `debug = "line-tables-only"`
+  (#1124). Test binaries drop from 13.03 GB to 1.74 GB, `target/debug`
+  from 18.8 GB to 4.9 GB, and a relink after a one-line `src/lib.rs`
+  edit from ~90 to ~28 CPU-seconds. No test bodies changed; the
+  before/after `cargo nextest list` sets were compared to prove nothing
+  was dropped.
+
+- The VCS per-function perf fixture builds 50 commits rather than 200,
+  with its wall-clock budget re-derived from 30 s to 8 s at the same
+  57x headroom (#1125). Cuts 300 `git` spawns and roughly halves the
+  `vcs_per_function` binary. Its work-product assertion was tightened
+  from "some function has history" to exact per-function commit counts,
+  so a shrunk fixture cannot pass while covering less.
+
+- CLI integration fixtures are served from one shared, content-addressed
+  directory instead of being rewritten per test (#1126).
+
 - `bca check` computes only the metric families its resolved thresholds
   read, instead of the whole suite (#1113). Over
   `tests/repositories/DeepSpeech` (12.7k files), median user CPU of five
@@ -500,6 +554,22 @@ for historical reference.
   interleaved paired benchmark; output is bit-identical.
 
 ### Fixed
+
+- Corrected the inverted doc comment on `python_apply_boolean_operator`,
+  which described its ancestor walk as counting control constructs and
+  stopping at lambdas when `count_specific_ancestors`'s
+  `(ancestors, check, stop)` order makes it do the reverse (#1090). Adds
+  a test discriminating the previously-untested `ExpressionList` stop
+  arm through both routes that reach one under a lambda — a parenthesised
+  `yield` and an f-string interpolation. No metric values change.
+
+- `make bench-scaling` now measures two axes (#1133). `Probe` carries an
+  `Axis` (`Depth` or `Width`), and the new `nom/wide-attributed-fn`
+  probe sweeps one parent's child count so a walk that is linear in
+  nesting depth but quadratic in a parent's child count fails the gate —
+  the class #1100's rejected fix belonged to, which every existing probe
+  passed. Falsified against that fix: exponent 0.97 clean, 1.99 with it
+  reinstated, while all depth probes stayed green.
 
 - `bca vcs`, `bca vcs commit`, and `bca vcs trend` exit `0` again when
   their consumer closes the pipe (`bca vcs … | head`). The
