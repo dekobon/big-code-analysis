@@ -188,6 +188,13 @@ impl<
                 // JS-family `is_func` consults one, and it answers the same
                 // either way — a climb costs `O(depth)` rather than `O(1)`
                 // per matched function expression (#1088).
+                //
+                // FIXME(#1162): byte-less `is_func` also cannot see
+                // Elixir's macro-shaped `def` / `defmacro` (#275), so
+                // `bca find --type function` matches nothing there.
+                // Unlike `src/function.rs`, this closure has no `code`
+                // in scope, so the fix needs the predicate type to
+                // widen — see the issue.
                 "function" => res.push(Box::new(|node: &Node| {
                     T::is_func(node, Ancestors::unknown())
                 })),

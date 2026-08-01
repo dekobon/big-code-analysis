@@ -158,20 +158,25 @@ crate::observation::counter!(space_kind_lookups);
 ///
 /// Classification happens after the decision that a space opens, the
 /// same way [`crate::spaces::compute`]'s `open_func_space` does it
-/// (#522). That is a claim about *when*, not about *which*: the two
-/// seams disagree on which nodes open a space — `ops_inner` opens on
-/// `is_func || is_func_space` where `open_func_space` uses
-/// `promotes_to_func_space_with_code`, so `bca ops` reports no nested
-/// spaces for an Elixir input where `bca metrics` reports two. That
-/// divergence is tracked in #1130 and is not what this function is
-/// about.
+/// (#522), and through the same source-aware classifier, so a space
+/// both seams open carries the same [`SpaceKind`] in either walk.
+/// The `_with_code` variant is what lets Elixir's macro-shaped
+/// `defmodule` / `def` declarations — plain `Call` nodes distinguished
+/// only by their target identifier text — come back as `Class` /
+/// `Function` rather than `Unknown` (#275, #1130).
 ///
 /// The lookup is a per-language `match` on the node's kind for most
 /// grammars, but C#'s reaches a child scan for a bodied indexer or
-/// property, so it is not free on every node either.
-fn classify_space_kind<T: ParserTrait>(node: &Node) -> SpaceKind {
+/// property and Elixir's reads the `Call` target text and scans the
+/// ancestor chain for an enclosing `quote` block, so it is not free on
+/// every node either.
+fn classify_space_kind<'a, T: ParserTrait>(
+    node: &Node<'a>,
+    code: &[u8],
+    ancestors: Ancestors<'a, '_>,
+) -> SpaceKind {
     space_kind_lookups::record();
-    T::Getter::get_space_kind(node)
+    T::Getter::get_space_kind_with_code(node, code, ancestors)
 }
 
 /// Render a space's vocabulary: byte-lexicographically ordered, one
@@ -337,10 +342,17 @@ pub(crate) fn ops_inner<T: ParserTrait>(
 
         let ancestors = Ancestors::checked(&chain, &node);
 
-        let func_space = T::Checker::is_func(&node, ancestors) || T::Checker::is_func_space(&node);
+        // Same predicate `spaces::compute::metrics_inner` opens on, so
+        // the two walks agree on which nodes become spaces. The
+        // byte-less `is_func || is_func_space` this replaced could not
+        // see Elixir's macro-shaped declarations, which are `Call`
+        // nodes identified by their target text, so `bca ops` opened no
+        // space for a `defmodule` / `def` / `defp` / `defmacro` — only
+        // for `Source` and an explicit `fn … -> … end` (#1130).
+        let func_space = T::Checker::promotes_to_func_space_with_code(&node, code, ancestors);
 
         let new_level = if func_space {
-            let kind = classify_space_kind::<T>(&node);
+            let kind = classify_space_kind::<T>(&node, code, ancestors);
             let state = State {
                 ops: Ops::new::<T::Getter>(&node, code, ancestors, kind),
                 halstead_maps: HalsteadMaps::new(),
@@ -1332,5 +1344,112 @@ mod tests {
                 "{lang:?} must classify once per space, not once per node ({nodes} nodes)"
             );
         }
+    }
+
+    /// One flattened space: `(depth, kind, name, start_line, end_line)`.
+    #[cfg(feature = "elixir")]
+    type FlatSpace = (usize, crate::SpaceKind, String, usize, usize);
+
+    /// Flattens an `Ops` tree in preorder, so a test can pin the whole
+    /// tree in one `assert_eq!` and see the surrounding spaces when one
+    /// is wrong.
+    ///
+    /// `end_line` is carried as well as `start_line` because a change to
+    /// the promote predicate can move a space's *extent* without moving
+    /// its head — a `def` that swallows its sibling would keep the same
+    /// start line.
+    #[cfg(feature = "elixir")]
+    fn flatten(ops: &Ops, depth: usize, out: &mut Vec<FlatSpace>) {
+        out.push((
+            depth,
+            ops.kind,
+            ops.name.clone().unwrap_or_else(|| "<none>".to_owned()),
+            ops.start_line,
+            ops.end_line,
+        ));
+        for child in &ops.spaces {
+            flatten(child, depth + 1, out);
+        }
+    }
+
+    #[cfg(feature = "elixir")]
+    fn elixir_ops_tree(source: &str) -> Vec<FlatSpace> {
+        let ops = crate::test_support::parse_named(LANG::Elixir, "foo.ex", source)
+            .ops()
+            .expect("ops walk must yield a top-level Ops");
+        let mut flat = Vec::new();
+        flatten(&ops, 0, &mut flat);
+        flat
+    }
+
+    /// Issue #1130: Elixir's `defmodule` / `def` are `Call` nodes whose
+    /// target identifier text spells the keyword, so only the
+    /// source-aware promote predicate can recognise them. Before the
+    /// fix `ops()` returned the bare file-level `Unit` for this input
+    /// while `metrics()` returned the full module/function tree.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_ops_opens_module_and_function_spaces_1130() {
+        use crate::SpaceKind::{Class, Function, Unit};
+
+        assert_eq!(
+            elixir_ops_tree("defmodule Foo do\n  def bar(x) do\n    x + 1\n  end\nend\n"),
+            vec![
+                (0, Unit, "foo.ex".to_owned(), 1, 5),
+                (1, Class, "Foo".to_owned(), 1, 5),
+                (2, Function, "bar".to_owned(), 2, 4),
+            ],
+        );
+    }
+
+    /// An `AnonymousFunction` is the one Elixir space the byte-less
+    /// predicate could already see, so this pins that the source-aware
+    /// predicate did not lose it — and that it nests under the `def`
+    /// space rather than being reparented to the file root.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_ops_opens_anonymous_function_space() {
+        use crate::SpaceKind::{Class, Function, Unit};
+
+        assert_eq!(
+            elixir_ops_tree(
+                "defmodule Foo do\n  def bar(list) do\n    \
+                 Enum.map(list, fn x -> x * 2 end)\n  end\nend\n"
+            ),
+            vec![
+                (0, Unit, "foo.ex".to_owned(), 1, 5),
+                (1, Class, "Foo".to_owned(), 1, 5),
+                (2, Function, "bar".to_owned(), 2, 4),
+                (3, Function, "<anonymous>".to_owned(), 3, 3),
+            ],
+        );
+    }
+
+    /// Issue #310: a `def` inside `quote do … end` is a code *template*
+    /// emitted later by macro expansion, not a declaration of the
+    /// enclosing module, so it opens no space. This is the case only the
+    /// source-aware predicate can get right — the byte-less one never
+    /// saw any `def` at all, so it was accidentally "correct" here while
+    /// being wrong everywhere else.
+    #[cfg(feature = "elixir")]
+    #[test]
+    fn elixir_ops_skips_def_inside_quote_block_310() {
+        use crate::SpaceKind::{Class, Function, Unit};
+
+        // The quoted `def` heads line 4. Its name resolves to the
+        // `<anonymous>` placeholder (the head is `unquote(name)`, not a
+        // literal identifier), so the absence of a fourth entry — not a
+        // name match — is what pins it out of the tree.
+        assert_eq!(
+            elixir_ops_tree(
+                "defmodule Foo do\n  defmacro gen(name) do\n    quote do\n      \
+                 def unquote(name)(x) do\n        x + 1\n      end\n    end\n  end\nend\n",
+            ),
+            vec![
+                (0, Unit, "foo.ex".to_owned(), 1, 9),
+                (1, Class, "Foo".to_owned(), 1, 9),
+                (2, Function, "gen".to_owned(), 2, 8),
+            ],
+        );
     }
 }

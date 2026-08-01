@@ -57,6 +57,14 @@ pub(crate) fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
     let code = parser.code();
     let mut spans = Vec::new();
     root.act_on_node(&mut |n, ancestors| {
+        // FIXME(#1162): byte-less `is_func` cannot see Elixir's
+        // macro-shaped `def` / `defp` / `defmacro`, which are `Call`
+        // nodes identified by their target text (#275), so
+        // `bca functions` reports nothing for an Elixir file whose
+        // `bca metrics` tree is full of Function spaces. `code` and
+        // `ancestors` are both in hand here, so the fix is
+        // `is_func_with_code` — deliberately not applied with #1130,
+        // which scoped itself to the `ops` walk.
         if T::Checker::is_func(n, ancestors) {
             let start_line = n.start_row() + 1;
             let end_line = n.end_row() + 1;
