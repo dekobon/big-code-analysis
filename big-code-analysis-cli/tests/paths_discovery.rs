@@ -628,8 +628,6 @@ fn paths_from_tolerates_non_utf8_line() {
 #[cfg(unix)]
 #[test]
 fn unreadable_subdir_warns_continues_then_fails_the_run() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("src");
     std::fs::create_dir_all(&src).unwrap();
@@ -637,10 +635,18 @@ fn unreadable_subdir_warns_continues_then_fails_the_run() {
 
     // A subdirectory the walk cannot descend into (mode 000). `ignore`
     // surfaces the EACCES as a per-entry error.
+    //
+    // The probe is `read_dir`, not `fs::read`: root ignores mode bits
+    // for a directory listing, but `fs::read` returns `EISDIR` whatever
+    // the mode, so probing with it reports a denial that is not there
+    // and the test fails instead of skipping under a privileged runner.
     let locked = src.join("locked");
     std::fs::create_dir(&locked).unwrap();
     std::fs::write(locked.join("hidden.py"), "def g(): return 2\n").unwrap();
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if !common::deny_dir_listing(&locked) {
+        eprintln!("skipping: this process can list a mode-000 directory");
+        return;
+    }
 
     cli(dir.path())
         .args(["metrics", "--no-config", "--paths", src.to_str().unwrap()])
@@ -657,7 +663,7 @@ fn unreadable_subdir_warns_continues_then_fails_the_run() {
         .stdout(predicate::str::contains("hidden.py").not());
 
     // Restore permissions so the TempDir can be cleaned up on drop.
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    common::restore_dir_access(&locked);
 }
 
 // --- #1114: the directory walk runs in parallel -----------------------

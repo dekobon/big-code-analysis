@@ -841,22 +841,60 @@ mod unix {
             .is_ok_and(|status| status.success())
     }
 
+    /// `git` that refuses to be skipped past.
+    ///
+    /// Only the initial `git init` may legitimately fail — a machine
+    /// without git. Once a repository exists, every later command
+    /// operates on a directory this test owns, so a failure is a defect
+    /// in the fixture, not an environment we should tolerate. Returning
+    /// `None` there turned an unrelated host misconfiguration into four
+    /// silently-passing tests.
+    fn git_or_panic(dir: &TempDir, args: &[&str]) {
+        assert!(git(dir, args), "git {args:?} failed in the vcs fixture");
+    }
+
+    /// `git init` plus the host-config neutralisation every fixture in
+    /// this workspace needs, returning `None` only when git is absent.
+    ///
+    /// `commit.gpgsign` alone is not enough. A global `core.hooksPath`
+    /// with a failing `pre-commit` makes every `git commit` here fail,
+    /// and because the old helper reported that as "no usable git", the
+    /// entire `bca vcs` stdout contract — both the ENOSPC cases and the
+    /// `BrokenPipe` case — evaporated into skips on such a machine.
+    /// `blame_fixture` in `src/vcs_command.rs` already neutralises this
+    /// class (#941); these fixtures now do the same.
+    fn git_init_neutralized() -> Option<TempDir> {
+        let dir = TempDir::new().expect("tempdir");
+        if !git(&dir, &["init", "-q", "-b", "main"]) {
+            return None;
+        }
+        let hooks = dir.path().join("empty-hooks");
+        fs::create_dir_all(&hooks).expect("create empty hooks dir");
+        git_or_panic(&dir, &["config", "commit.gpgsign", "false"]);
+        git_or_panic(
+            &dir,
+            &[
+                "config",
+                "core.hooksPath",
+                hooks.to_str().expect("utf8 hooks path"),
+            ],
+        );
+        git_or_panic(&dir, &["config", "gc.auto", "0"]);
+        git_or_panic(&dir, &["config", "core.autocrlf", "false"]);
+        Some(dir)
+    }
+
     /// A throwaway repo with two commits touching one file, which is
     /// the least history `bca vcs` / `vcs commit` / `vcs trend` all
     /// produce a ranked document from.
     fn git_repo_with_history() -> Option<TempDir> {
-        let dir = TempDir::new().expect("tempdir");
-        if !git(&dir, &["init", "-q", "-b", "main"])
-            || !git(&dir, &["config", "commit.gpgsign", "false"])
-        {
-            return None;
-        }
+        let dir = git_init_neutralized()?;
         write_fixture(&dir, "work.c", TRIVIAL_C);
-        if !git(&dir, &["add", "."]) || !git(&dir, &["commit", "-qm", "add work"]) {
-            return None;
-        }
+        git_or_panic(&dir, &["add", "."]);
+        git_or_panic(&dir, &["commit", "-qm", "add work"]);
         write_fixture(&dir, "work.c", COMMENTED_C);
-        git(&dir, &["commit", "-aqm", "fix work"]).then_some(dir)
+        git_or_panic(&dir, &["commit", "-aqm", "fix work"]);
+        Some(dir)
     }
 
     /// #1132's sweep missed `bca vcs`, whose emission runs through
@@ -967,19 +1005,13 @@ mod unix {
     /// A repository with enough tracked files that `bca vcs --top 0`
     /// emits more than [`PIPE_BUFFER_BYTES`] of compact JSON.
     fn git_repo_with_many_files() -> Option<TempDir> {
-        let dir = TempDir::new().expect("tempdir");
-        if !git(&dir, &["init", "-q", "-b", "main"])
-            || !git(&dir, &["config", "commit.gpgsign", "false"])
-        {
-            return None;
-        }
+        let dir = git_init_neutralized()?;
         for i in 0..400 {
             write_fixture(&dir, &format!("f{i:04}.c"), TRIVIAL_C);
         }
-        if !git(&dir, &["add", "."]) {
-            return None;
-        }
-        git(&dir, &["commit", "-qm", "add sources"]).then_some(dir)
+        git_or_panic(&dir, &["add", "."]);
+        git_or_panic(&dir, &["commit", "-qm", "add sources"]);
+        Some(dir)
     }
 
     /// The pipe-close half of the #1132 contract, for the `vcs` family.
