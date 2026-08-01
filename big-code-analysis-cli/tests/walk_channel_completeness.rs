@@ -184,9 +184,15 @@ fn report_body_is_identical_serially_and_in_parallel() {
     let (serial, _) = run_at_jobs(&dir, "1", &args);
     let (parallel, _) = run_at_jobs(&dir, "16", &args);
 
+    // An absolute count, not just non-emptiness. Serial-vs-parallel
+    // equality alone cannot see a *deterministic* drop — it removes the
+    // same record from both sides — so the summary header, which is
+    // derived from every streamed `FunctionSummary`, is what pins that
+    // all 120 arrived.
     assert!(
-        serial.contains("classify_0"),
-        "fixture drifted; report names no fixture function:\n{serial}"
+        serial.contains("| Functions/methods | 120 |")
+            || serial.contains("| Functions/methods |   120 |"),
+        "report should summarise 120 functions, one per fixture file:\n{serial}"
     );
     assert_eq!(
         sorted_lines(&serial),
@@ -219,9 +225,11 @@ fn exemptions_audit_is_identical_serially_and_in_parallel() {
     let (serial, _) = run_at_jobs(&dir, "1", &args);
     let (parallel, _) = run_at_jobs(&dir, "16", &args);
 
+    // The header count is the absolute guard, for the same reason as the
+    // report test above: 40 of the 120 fixture files carry a marker.
     assert!(
-        serial.contains("f0.rs"),
-        "fixture drifted; audit lists no marked file:\n{serial}"
+        serial.contains("# In-source markers (40)"),
+        "audit should list all 40 marked files:\n{serial}"
     );
     assert_eq!(
         sorted_lines(&serial),
