@@ -521,10 +521,13 @@ implement_metric_trait!(
 )]
 mod tests {
     use crate::test_support::{
-        assert_child_space_kind, check_func_space, check_metrics, child_space,
+        assert_child_space_kind, check_func_space_only_shim, check_metrics_only_shim, child_space,
     };
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Npm);
+    check_func_space_only_shim!(check_func_space, Npm);
 
     #[test]
     fn java_constructors() {

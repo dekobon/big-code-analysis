@@ -1581,6 +1581,223 @@ end
     }
 }
 
+// --- #1127: a restricted selection must not move any value -------
+//
+// The per-metric unit modules assert one family through
+// `test_support::check_metrics_only`, which computes that family plus
+// the dependencies `Metric::dependencies` declares — not all thirteen.
+// Thousands of assertions therefore rest on one property the `with_only`
+// tests above never state: for every selected metric, a restricted walk
+// produces *exactly* the value the full walk does. Prove it here rather
+// than inferring it from a green suite, which cannot distinguish "the
+// value is unchanged" from "the value is wrong in both runs".
+//
+// It doubles as the guard on the gating itself. Measured, not assumed:
+// narrowing one compute gate — `if selected.contains(Metric::Npa)` to
+// `… && selected.contains(Metric::Npm)`, the shape a mistakenly-coupled
+// metric would take — failed **only** this test out of the 3,245 in the
+// lib target. Dropping a declared `Metric::dependencies` edge is
+// already covered elsewhere (`with_dependencies_pulls_in_*`,
+// `cognitive_only_pulls_nom_and_average_is_finite`); an *undeclared*
+// coupling between the walker's per-metric gates was not.
+mod metric_selection_parity {
+    use crate::{
+        CodeMetrics, FuncSpace, LANG, Metric, MetricSet, MetricsOptions, Source, SpaceKind, analyze,
+    };
+    use serde_json::Value;
+
+    // Deliberately non-default for all thirteen metrics at once: public
+    // struct fields (npa), public inherent methods (npm, wmc, nom), a
+    // multi-clause `if` (cognitive, cyclomatic, abc, halstead, tokens),
+    // an early `return` (nexits), parameters (nargs), and a comment
+    // (loc). It is the fixture the non-vacuity assertion below leans on.
+    #[cfg(feature = "rust")]
+    const RUST: &str = "\
+pub struct Counter {
+    pub total: u32,
+    step: u32,
+}
+
+impl Counter {
+    // Applies one step.
+    pub fn bump(&mut self, by: u32) -> u32 {
+        if by > 0 && self.step > 0 {
+            self.total += by * self.step;
+            return self.total;
+        }
+        self.total
+    }
+
+    fn reset(&mut self) {
+        self.total = 0;
+    }
+}
+
+fn choose(a: u32, b: u32) -> u32 {
+    let double = |x: u32| x * 2;
+    if a > b { double(a) } else { double(b) }
+}
+";
+
+    #[cfg(feature = "java")]
+    const JAVA: &str = "\
+public class Shape {
+    public int width;
+    private int height;
+
+    public int area(int scale) {
+        if (scale > 0 && width > 0) {
+            return width * height * scale;
+        }
+        return 0;
+    }
+}
+";
+
+    #[cfg(feature = "python")]
+    const PYTHON: &str = "\
+class Bag:
+    def __init__(self, size):
+        self.size = size
+
+    def take(self, n):
+        if n > self.size:
+            return 0
+        while n > 0:
+            n -= 1
+        return n
+";
+
+    // The Java and Python entries widen the grammar coverage of the
+    // parity claim; only the Rust one is load-bearing for non-vacuity.
+    fn fixtures() -> Vec<(LANG, &'static str, &'static str)> {
+        vec![
+            #[cfg(feature = "rust")]
+            (LANG::Rust, "counter.rs", RUST),
+            #[cfg(feature = "java")]
+            (LANG::Java, "Shape.java", JAVA),
+            #[cfg(feature = "python")]
+            (LANG::Python, "bag.py", PYTHON),
+        ]
+    }
+
+    fn analyse(lang: LANG, filename: &str, source: &str, options: MetricsOptions) -> FuncSpace {
+        analyze(
+            Source::new(lang, source.as_bytes()).with_name(Some(filename.to_owned())),
+            options,
+        )
+        .expect("analyze must yield a top-level space")
+    }
+
+    fn analyse_only(lang: LANG, filename: &str, source: &str, metrics: &[Metric]) -> FuncSpace {
+        analyse(
+            lang,
+            filename,
+            source,
+            MetricsOptions::default().with_only(metrics),
+        )
+    }
+
+    // Serialization is the comparison vehicle because the per-metric
+    // `Stats` types implement `Serialize` but not `PartialEq`; it also
+    // compares every public field of each family rather than the
+    // handful an accessor exposes.
+    fn metric_json(metrics: &CodeMetrics, metric: Metric) -> Value {
+        // `Metric` is `#[non_exhaustive]`, which is inert in-crate, so
+        // this match is exhaustive without a wildcard on purpose: a new
+        // variant must be given an arm here or the parity claim would
+        // silently stop covering it.
+        let value = match metric {
+            Metric::Cognitive => serde_json::to_value(&metrics.cognitive),
+            Metric::Cyclomatic => serde_json::to_value(&metrics.cyclomatic),
+            Metric::Halstead => serde_json::to_value(&metrics.halstead),
+            Metric::Loc => serde_json::to_value(&metrics.loc),
+            Metric::Nom => serde_json::to_value(&metrics.nom),
+            Metric::Tokens => serde_json::to_value(&metrics.tokens),
+            Metric::Nargs => serde_json::to_value(&metrics.nargs),
+            Metric::Nexits => serde_json::to_value(&metrics.nexits),
+            Metric::Abc => serde_json::to_value(&metrics.abc),
+            Metric::Npm => serde_json::to_value(&metrics.npm),
+            Metric::Npa => serde_json::to_value(&metrics.npa),
+            Metric::Mi => serde_json::to_value(&metrics.mi),
+            Metric::Wmc => serde_json::to_value(&metrics.wmc),
+        };
+        value.expect("every metric Stats serializes cleanly")
+    }
+
+    // Keyed by (name, kind) so a shape divergence surfaces as a
+    // mismatched row rather than a silently misaligned comparison.
+    fn collect(space: &FuncSpace, metric: Metric) -> Vec<(Option<String>, SpaceKind, Value)> {
+        let mut out = Vec::new();
+        let mut stack = vec![space];
+        while let Some(current) = stack.pop() {
+            out.push((
+                current.name.clone(),
+                current.kind,
+                metric_json(&current.metrics, metric),
+            ));
+            stack.extend(current.spaces.iter());
+        }
+        out
+    }
+
+    #[test]
+    // Gated on the language whose fixture makes the non-vacuity
+    // assertion satisfiable for all thirteen metrics.
+    #[cfg(feature = "rust")]
+    fn restricted_selection_reproduces_the_full_run() {
+        let fixtures = fixtures();
+        crate::test_support::assert_fixtures_present(&fixtures);
+
+        // A metric is "exercised" once some fixture gives it a value
+        // distinguishable from the uncomputed one. `with_only(&[])`
+        // computes nothing, so its output *is* the `Stats` default —
+        // which makes it the reference for "this parity assertion is
+        // comparing something". Without it, a metric that happened to
+        // stay at its default in every fixture would compare equal for
+        // the one reason that proves nothing.
+        let mut exercised: Vec<Metric> = Vec::new();
+
+        for (lang, filename, source) in fixtures {
+            let full = analyse(lang, filename, source, MetricsOptions::default());
+            let uncomputed = analyse_only(lang, filename, source, &[]);
+
+            for &selected in Metric::ALL {
+                let pruned = analyse_only(lang, filename, source, &[selected]);
+                // Check every metric the selection *resolves* to, not
+                // just the one asked for. Roughly thirty migrated
+                // assertions read a dependency-pulled family rather than
+                // their module's own — `nargs.rs` asserts
+                // `metric.nom.functions_sum()` under `{Nargs, Nom}`, and
+                // `mi.rs` runs under `{Mi, Loc, Cyclomatic, Halstead}`.
+                // Comparing `Nom` only under `with_only(&[Nom])` would
+                // leave exactly those out.
+                let resolved = MetricSet::from_slice_with_deps(&[selected]);
+                for &metric in Metric::ALL.iter().filter(|&&m| resolved.contains(m)) {
+                    let full_rows = collect(&full, metric);
+                    assert_eq!(
+                        full_rows,
+                        collect(&pruned, metric),
+                        "{lang:?}: with_only(&[{selected}]) must reproduce the full run's \
+                         {metric} values in every space"
+                    );
+                    if full_rows != collect(&uncomputed, metric) {
+                        exercised.push(metric);
+                    }
+                }
+            }
+        }
+
+        for &metric in Metric::ALL {
+            assert!(
+                exercised.contains(&metric),
+                "no fixture gives {metric} a non-default value, so its parity \
+                 assertion compares two uncomputed defaults"
+            );
+        }
+    }
+}
+
 // Gated on `rust`: the happy-path tests parse a `.rs` fixture, so they
 // bind a live `Ast` — which is uninhabited when no grammar feature is
 // compiled in (`--no-default-features`), making the binding's tail

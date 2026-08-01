@@ -727,9 +727,14 @@ impl NArgs for GroovyCode {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    // Nargs pulls Nom for its per-function average divisor, which is also
+    // what this module's `metric.nom.functions_sum()` /
+    // `closures_sum()` assertions read.
+    check_metrics_only_shim!(check_metrics, Nargs);
 
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for

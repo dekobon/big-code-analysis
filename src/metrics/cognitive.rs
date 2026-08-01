@@ -663,9 +663,22 @@ implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_func_space, check_metrics, function_space};
+    use crate::test_support::{
+        check_func_space_only_shim, check_metrics_only_shim, function_space,
+    };
 
     use super::*;
+
+    // Cognitive's dependency closure adds Nom, the divisor behind
+    // `cognitive_average`.
+    check_metrics_only_shim!(check_metrics, Cognitive);
+    check_func_space_only_shim!(check_func_space, Cognitive);
+    // The Python-comprehension tests (#417/#421) assert the cyclomatic
+    // count alongside the cognitive one, to show where the two metrics
+    // agree and where nesting makes them diverge. They are the only
+    // cross-metric assertions here, so they get their own shim rather
+    // than widening the module-wide selection.
+    check_metrics_only_shim!(check_cognitive_and_cyclomatic, Cognitive, Cyclomatic);
 
     /// The walker must hand `is_else_if` the node's own parent at every
     /// AST depth.
@@ -1187,7 +1200,7 @@ mod tests {
         // equivalent explicit `for`/`if` scored 3.
         // expected: for_in_clause +1 (nesting 0), if_clause +2 (1 base +
         // 1 nesting under the for) = 3 — equal to the explicit form below.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs):
                 return [x for x in xs if x > 0]",
             "foo.py",
@@ -1197,7 +1210,7 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4);
             },
         );
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def g(xs):
                 out = []
                 for x in xs:
@@ -1219,7 +1232,7 @@ mod tests {
     fn python_comprehension_plain_no_filter() {
         // A comprehension with no `if` filter scores just the loop.
         // expected: for_in_clause +1 = 1.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs):
                 return [x for x in xs]",
             "foo.py",
@@ -1236,7 +1249,7 @@ mod tests {
         // Two `for` clauses are nested loops: the second nests under the
         // first, mirroring explicit nested `for` statements.
         // expected: for #1 +1 (nesting 0), for #2 +2 (1 base + 1 nesting) = 3.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs, ys):
                 return [a for a in xs for b in ys]",
             "foo.py",
@@ -1254,7 +1267,7 @@ mod tests {
         // Cognitive penalizes the nesting, so it exceeds cyclomatic here; the
         // two metrics legitimately diverge once filters multiply.
         // expected cognitive: for +1, if #1 +2, if #2 +2 = 5.
-        check_metrics::<PythonParser>(
+        check_cognitive_and_cyclomatic::<PythonParser>(
             "def f(xs):
                 return [x for x in xs if a if b]",
             "foo.py",
@@ -1277,7 +1290,7 @@ mod tests {
             "{x for x in xs if x > 0}",
             "(x for x in xs if x > 0)",
         ] {
-            check_metrics::<PythonParser>(
+            check_cognitive_and_cyclomatic::<PythonParser>(
                 &format!("def f(xs):\n                return {body}"),
                 "foo.py",
                 |metric| {
@@ -9520,11 +9533,11 @@ end",
         // `Fn` closure) so the final `<` assertion compares the *actual*
         // values rather than restating constants.
         let chain_cog = Cell::new(-1.0);
-        crate::test_support::check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
+        check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
             chain_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
         let nested_cog = Cell::new(-1.0);
-        crate::test_support::check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
+        check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
             nested_cog.set(fs.metrics.cognitive.cognitive_sum() as f64);
         });
 

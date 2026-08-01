@@ -441,10 +441,19 @@ implement_metric_trait!(
 )]
 mod tests {
     use crate::test_support::{
-        assert_child_space_kind, check_func_space, check_metrics, child_space,
+        assert_child_space_kind, check_func_space_only_shim, check_metrics_only_shim, child_space,
     };
 
     use super::*;
+
+    // Wmc's dependency closure adds Cyclomatic + Nom — the per-method
+    // complexities it weights and the method count it needs to find them.
+    check_metrics_only_shim!(check_metrics, Wmc);
+    check_func_space_only_shim!(check_func_space, Wmc);
+    // The C# indexer / property tests (#464, #472) cross-check that the
+    // WMC accessor folding agrees with npm's method count for the same
+    // member, so they need Npm too.
+    check_metrics_only_shim!(check_wmc_and_npm, Wmc, Npm);
 
     #[test]
     fn java_single_class() {
@@ -1548,7 +1557,7 @@ mod tests {
         // itself ALSO opened a method space, folding an extra entry on
         // top of get=1 + set=1 (`class_wmc_sum == 3`). The correct sum is
         // 2 — one unit of complexity per accessor — matching the npm path.
-        check_metrics::<CsharpParser>(
+        check_wmc_and_npm::<CsharpParser>(
             "class A {
                 private int[] _d;
                 public int this[int i] { get => _d[i]; set => _d[i] = value; }
@@ -1571,7 +1580,7 @@ mod tests {
         // has no `accessor_declaration` child, so the #464 gate keeps the
         // IndexerDeclaration node itself opening a single method space —
         // it must stay at 1, not regress to 0 (mirrors npm `.max(1)`).
-        check_metrics::<CsharpParser>(
+        check_wmc_and_npm::<CsharpParser>(
             "class A {
                 private int[] _d;
                 public int this[int i] => _d[i];
@@ -1593,7 +1602,7 @@ mod tests {
         // enclosing class. The `property_declaration` node must NOT open an
         // extra method space on top of get=1 + set=1 (the property analogue
         // of the #464 double-count). The correct sum is 2.
-        check_metrics::<CsharpParser>(
+        check_wmc_and_npm::<CsharpParser>(
             "class A {
                 private int _w;
                 public int W { get => _w; set => _w = value; }
@@ -1615,7 +1624,7 @@ mod tests {
         // `accessor_declaration` child, so the #472 gate lets the
         // PropertyDeclaration node itself open a single method space — it
         // must be 1, not 0 as before the fix (mirrors npm `.max(1)`).
-        check_metrics::<CsharpParser>(
+        check_wmc_and_npm::<CsharpParser>(
             "class A {
                 private int _w;
                 public int W => _w;

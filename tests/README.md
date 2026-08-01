@@ -211,7 +211,18 @@ C++/JS/Rust.
 ### A per-metric unit test
 
 Add to `src/metrics/<metric>.rs#[cfg(test)] mod tests`. Function name
-is `<parser_prefix>_<descriptive_case>`. Use `check_metrics::<XParser>`.
+is `<parser_prefix>_<descriptive_case>`. Use `check_metrics::<XParser>`
+— the module-local shim each `mod tests` declares with
+`check_metrics_only_shim!`, which computes that module's metric plus
+the dependencies `Metric::dependencies` resolves, not all thirteen
+families ([#1127](https://github.com/dekobon/big-code-analysis/issues/1127)).
+
+If the assertion also reads a *different* metric family, do not widen
+that shim: declare a second one next to it
+(`check_metrics_only_shim!(check_nom_and_npm, Nom, Npm);`) and call it
+from those tests alone. Asserting a deselected family is the failure
+mode to watch for — it reads as zero, so a comparison like
+`tokens_sum() > halstead_total` keeps passing while testing nothing.
 
 Every `insta::assert_json_snapshot!` call must be **anchored** — see
 `AGENTS.md` "snapshot-anchor policy". Either inline the expected block,
