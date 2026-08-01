@@ -241,6 +241,15 @@ for historical reference.
   short by exactly one. The library test suite falls from ~5.0 s to
   ~1.7 s, `cognitive_nesting_is_inherited_at_depth` from ~1.6 s to
   ~0.02 s. No shipped behaviour changes.
+- Traversals that enumerate every node's children reuse one
+  `TreeCursor` instead of building and freeing one per node, through
+  the new internal `Node::children_with` (#1112). `Node::preorder`, the
+  suppression-marker DFS, and Python's instance-attribute scan in
+  `metrics::npa::python` were the only per-node consumers; the last was
+  92 % of the Python metric walk's child scans. Over 400 Python corpus
+  files that is 414,620 cursor allocations down to 33,328 (−92 %) and
+  −2.4 % walk time. Other languages reach `children` on 3-6 % of nodes,
+  where the effect is under 1 %. Metric values are unchanged.
 - Every file destination and terminal dump writes through an
   explicitly-flushed 64 KiB buffer, replacing the raw `File` and
   `LineWriter` handles the incremental serializers wrote through one

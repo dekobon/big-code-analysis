@@ -582,7 +582,12 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
     // enclosing function name, borrowed from `code`, so child nodes
     // inherit it without re-deriving, plus the node's depth, which
     // indexes `chain`.
-    let mut stack: Vec<(Node<'_>, Option<&str>, usize)> = vec![(parser.root(), None, 0)];
+    let root = parser.root();
+    let mut stack: Vec<(Node<'_>, Option<&str>, usize)> = vec![(root, None, 0)];
+    // One cursor for the whole walk, not one per node: this visits every
+    // node in the file, and `Node::children` would build and free a
+    // `TreeCursor` at each (#1112, `Node::children_with`).
+    let mut cursor = root.cursor();
     while let Some((node, enclosing, depth)) = stack.pop() {
         chain.truncate(depth);
 
@@ -602,9 +607,10 @@ pub(crate) fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<Suppression
             enclosing
         };
         chain.push(node);
-        for child in node.children() {
-            stack.push((child, child_enclosing, depth + 1));
-        }
+        stack.extend(
+            node.children_with(&mut cursor)
+                .map(|child| (child, child_enclosing, depth + 1)),
+        );
     }
     markers.sort_by_key(|m| m.line);
     markers

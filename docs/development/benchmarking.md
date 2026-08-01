@@ -243,6 +243,42 @@ is the guard.
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
 
+### Child scans, and where the allocation actually was {#child-scans}
+
+`Node::children` builds a `tree_sitter::TreeCursor`, which heap-allocates
+its stack and frees it on drop — so a traversal that calls it per node
+pays a `malloc`/`free` pair per node. [#1112][child-cursor] expected that
+cost to be spread across the walk's predicates, on the strength of ~137
+call sites. Counting it says otherwise. Per-language, over the corpus
+slice, a full `metrics()` walk reaches `children` on:
+
+| Language | calls / node |
+|---|---|
+| C++ (`.cc`) | 0.031 |
+| Rust, JavaScript | 0.040 |
+| Java | 0.058 |
+| C# | 0.164 |
+| **Python** | **0.600** |
+
+The predicates are a rounding error; one scan was not. Python's
+instance-attribute walk in `metrics::npa::python` visits every node of
+every method body, and was 381 k of that language's 417 k child scans —
+92 %, and the only per-node `children` consumer in the crate outside
+`Preorder` and the suppression DFS. `Node::children_with` lets those
+three hoist one cursor out of their loop; the counter
+`child_scan_cursors` in `src/node.rs` is what keeps them there, since
+the change moves no metric value.
+
+Measured on 400 Python corpus files (694 k nodes), interleaved
+best-of-nine: **414 620 cursor allocations down to 33 328 (−92 %), walk
+time 159.0 ms to 155.2 ms (−2.4 %)**. Every other language is under 1 %,
+which is the useful part of the result — the remaining call sites are
+predicates holding a bare `&Node`, and threading a cursor to them would
+cross the `Checker` / `Getter` trait surface to save roughly 17 ns per
+call on 3-6 % of nodes. Not worth it; measure before widening this.
+
+[child-cursor]: https://github.com/dekobon/big-code-analysis/issues/1112
+
 ### The chain audit {#chain-audit}
 
 The chain those bounds depend on is only as good as the walker's
