@@ -420,6 +420,18 @@ for historical reference.
 
 ### Fixed
 
+- `bca vcs`, `bca vcs commit`, and `bca vcs trend` exit `1` when their
+  report cannot be written to stdout. All three emit compact JSON, and
+  `std::io::Stdout` is a `LineWriter` over a 1 KiB buffer: a document
+  containing no newline and shorter than that was accepted into the
+  buffer and only written by the exit-time cleanup flush, whose error is
+  discarded — so a full disk or a closed `>` target produced exit `0`
+  with no output at all. #1132 fixed the walk's stdout paths and missed
+  these three, because every other `vcs` format (`yaml`, `toml`,
+  `markdown`, `html`, `csv`, the default table) contains newlines and
+  was already surfacing the failure. `path_io::write_stdout_parts_or_die`
+  carried the same missing flush; no shipped subcommand can reach it
+  with a newline-free document, so that half was latent.
 - Every crate the root manifest `exclude`s — the five vendored
   `bca-tree-sitter-*` grammars and `enums` — now roots its own
   workspace (#1145). `exclude` denies membership without terminating

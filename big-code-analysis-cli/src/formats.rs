@@ -655,13 +655,21 @@ fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
 /// stdout when `output` is `None`. Shared by the `vcs commit` / `vcs trend`
 /// / `vcs` single-file emit paths so they cannot drift.
 pub(crate) fn write_text(content: &str, output: Option<&PathBuf>) -> std::io::Result<()> {
-    match output {
-        Some(path) => {
-            ensure_parent_dir(path)?;
-            std::fs::write(path, content)
-        }
-        None => std::io::stdout().lock().write_all(content.as_bytes()),
+    if let Some(path) = output {
+        ensure_parent_dir(path)?;
+        return std::fs::write(path, content);
     }
+    // The flush is what makes the failure observable. `Stdout` is a
+    // `LineWriter` over a 1 KiB buffer, so a payload with no newline
+    // anywhere in it and shorter than that is accepted here and only
+    // reaches the fd during the exit-time cleanup flush, whose error is
+    // discarded: `bca vcs -O json`, `vcs commit`, and `vcs trend` — the
+    // three that emit *compact* JSON — all exited 0 having emitted
+    // nothing (#1132's sweep missed them; every other format carries a
+    // newline, so the buffer spills on its own).
+    let mut out = std::io::stdout().lock();
+    out.write_all(content.as_bytes())?;
+    out.flush()
 }
 
 /// Serialize `value` as JSON and write it through [`write_text`].

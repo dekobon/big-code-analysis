@@ -1016,7 +1016,7 @@ pub const PROBES: &[Probe] = &[
 mod tests {
     use big_code_analysis::{Ast, Source};
 
-    use super::{Axis, PROBES, Probe};
+    use super::{Axis, PROBES, Probe, Workload};
 
     /// Deepest `tree_sitter` node depth reachable from the root.
     ///
@@ -1208,6 +1208,73 @@ mod tests {
                 probe.name,
             );
         }
+    }
+
+    /// Every probe whose *shape* the exclusion hook prunes walks with
+    /// `exclude_tests` on.
+    ///
+    /// [`probe_workload_is_exercised`] cannot see this. The two
+    /// attributed-function shapes carry `#[inline]`, which no
+    /// `exclude_tests` rule prunes, so `nom.total()` reads the size
+    /// parameter with the flag on or off: flipping
+    /// `exclude_tests: true` to `false` on `nom/wide-attributed-fn`
+    /// deletes the whole `Checker::should_skip_subtree` attribute scan
+    /// the probe exists to price, and fails nothing (measured, #1133).
+    ///
+    /// The discriminator is deliberately the shape and not the flag.
+    /// Selecting the probes *by* `exclude_tests: true` and asserting
+    /// something about them is vacuous against exactly that flip — the
+    /// flipped probe leaves the selected set and the loop passes
+    /// (measured, too). So each shape is classified by walking it both
+    /// ways under forced options: one whose reading moves is one the
+    /// hook prunes, and that probe must be running with the flag set.
+    ///
+    /// `#[inline]` is rewritten to `#[test]` first, which is what makes
+    /// the attributed shapes prunable at all. Reading the source back
+    /// through `probe.render` rather than restating it keeps the guard
+    /// coupled to the generator: one that stopped emitting attributes
+    /// stops being classified and trips the floor below.
+    ///
+    /// Size 16 rather than the probe's own ladder, as
+    /// [`shapes_widen_without_deepening`] uses: "the hook prunes this
+    /// shape" is structural and true at any size.
+    #[test]
+    fn shapes_the_exclusion_hook_prunes_are_probed_with_it_on() {
+        let mut pruned_shapes = Vec::new();
+        for probe in PROBES {
+            let Workload::Metrics { exclude_tests, .. } = probe.workload else {
+                continue;
+            };
+            let source = (probe.render)(16).replace("#[inline]", "#[test]");
+            let ast = Ast::parse(Source::new(probe.lang, source.as_bytes())).unwrap_or_else(|e| {
+                panic!("{}: test-attributed shape must parse: {e}", probe.name)
+            });
+            let walk = |options| {
+                probe
+                    .workload
+                    .walk(&ast, options)
+                    .unwrap_or_else(|e| panic!("{}: walker must succeed: {e}", probe.name))
+            };
+            let options = probe.workload.options();
+            if walk(options.with_exclude_tests(true)) == walk(options.with_exclude_tests(false)) {
+                continue;
+            }
+            pruned_shapes.push(probe.name);
+            assert!(
+                exclude_tests,
+                "{}: the exclusion hook prunes this shape, so the probe \
+                 exists to price that walk — but its workload sets \
+                 `exclude_tests: false`, which never reaches it",
+                probe.name,
+            );
+        }
+        assert!(
+            pruned_shapes.len() >= 2,
+            "only {pruned_shapes:?} are pruned by the exclusion hook; \
+             `Checker::should_skip_subtree` needs a probe on each axis, \
+             and a shape that stopped carrying attributes drops out of \
+             this check silently"
+        );
     }
 
     /// Probe names are unique — they key the report and the gate.

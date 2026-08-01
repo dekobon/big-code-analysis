@@ -87,12 +87,11 @@ fn python_apply_boolean_operator<'a>(
     {
         stats.structural +=
             node.count_specific_ancestors::<PythonCode>(ancestors, python_is_lambda, |node| {
-                // All four arms fire in practice, but only `ExpressionList`
-                // can change the count: a lambda body is a single
-                // expression, so no lambda ever sits *above* an
-                // `if`/`for`/`while` statement, and stopping at one is
-                // indistinguishable from running to the module root. The
-                // three statement kinds are kept as an explicit
+                // Only `ExpressionList` can change the count: a lambda
+                // body is a single expression, so no lambda ever sits
+                // *above* an `if`/`for`/`while` statement, and stopping
+                // at one is indistinguishable from running to the module
+                // root. The three statement kinds are kept as an explicit
                 // statement-boundary set rather than a claim about
                 // coverage. `ExpressionList` is the observable arm,
                 // reached via a parenthesised `yield` or an f-string

@@ -105,10 +105,11 @@ The mirror image is the same rule, and it holds for every emission
 path: a run whose output could not be written exits `1`. That covers a
 per-file document under an unwritable `--output-dir`, and a full disk
 on stdout — `dump`'s banners and trees, `find`'s matches,
-`strip-comments`' rewritten source, `count`'s tally, and `preproc`'s
-JSON alike. A per-file failure is named on stderr and counted in a
-summary line; output assembled after the walk reports the operating
-system's error directly.
+`strip-comments`' rewritten source, `count`'s tally, `preproc`'s JSON,
+and the single-document reports from `vcs`, `vcs commit`, and `vcs
+trend` alike, in every format. A per-file failure is named on stderr
+and counted in a summary line; output assembled after the walk reports
+the operating system's error directly.
 
 The one exemption is a closed downstream pipe: `bca dump | head` is
 routine rather than a failure, so `BrokenPipe` is swallowed and the run

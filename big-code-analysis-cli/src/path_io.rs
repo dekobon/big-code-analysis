@@ -4,22 +4,46 @@
 
 use super::*;
 
-/// Write every chunk of `parts` to stdout under one lock, tolerating
-/// `BrokenPipe` (the typical case when the consumer is `head`, `less`,
-/// etc.) and `die`ing on anything else.
+/// Write every chunk of `parts` to stdout under one lock, flush, and
+/// `die` on any failure other than `BrokenPipe` (the typical case when
+/// the consumer is `head`, `less`, etc.).
 ///
 /// The single place the stdout-failure policy is decided, so the
 /// newline-appending variant below cannot drift from it.
+///
+/// The flush carries the same `BrokenPipe` exemption as the writes, and
+/// is what makes the policy true rather than incidental: `Stdout` is a
+/// `LineWriter` over a 1 KiB buffer, so a payload containing no newline
+/// *anywhere* in it and shorter than that never reaches the fd here — it
+/// goes out in the exit-time cleanup flush, whose error is discarded and
+/// the run exits 0 having emitted nothing. That is the shape `bca vcs`
+/// shipped with (see [`crate::formats::write_text`]).
+///
+/// No caller of *this* helper can stage it today: every document `bca`
+/// prints through it is either line-oriented or pretty-printed JSON, so
+/// the buffer spills on an interior newline and the error surfaces from
+/// a `write_all`. The hole is therefore latent rather than live — which
+/// is exactly why it needs pinning here instead of end-to-end, and why
+/// [`write_parts_flushed`] is a seam.
 fn write_stdout_parts_or_die(parts: &[&[u8]]) {
     let mut out = std::io::stdout().lock();
-    for part in parts {
-        if let Err(e) = out.write_all(part) {
-            if e.kind() != ErrorKind::BrokenPipe {
-                die(e);
-            }
-            return;
-        }
+    if let Err(e) = write_parts_flushed(&mut out, parts)
+        && e.kind() != ErrorKind::BrokenPipe
+    {
+        die(e);
     }
+}
+
+/// Write every chunk of `parts` to `out` in order, then flush.
+///
+/// Split out so the flush can be exercised against a sink that accepts
+/// every write and fails only at flush time — the shape a `LineWriter`
+/// presents to a newline-free payload, and one no shipped subcommand can
+/// produce (see [`write_stdout_parts_or_die`]). Without the seam,
+/// deleting `out.flush()` fails no test in the workspace.
+pub(crate) fn write_parts_flushed(out: &mut impl Write, parts: &[&[u8]]) -> std::io::Result<()> {
+    parts.iter().try_for_each(|part| out.write_all(part))?;
+    out.flush()
 }
 
 /// Write `bytes` to stdout under the policy of
@@ -32,9 +56,13 @@ pub(crate) fn write_stdout_or_die(bytes: &[u8]) {
 ///
 /// The `println!` that post-walk emissions (`count`'s tally, `preproc`'s
 /// JSON) used instead *panics* on a write error, exiting 101 where the
-/// CLI documents `EXIT_TOOL_ERROR` (#1132). The newline is a separate
-/// chunk rather than appended to `text`, so a multi-megabyte document is
-/// not reallocated and copied just to grow by one byte.
+/// CLI documents `EXIT_TOOL_ERROR` (#1132). The newline is passed as a
+/// second chunk so both go out under the *one* lock
+/// [`write_stdout_parts_or_die`] holds — a parallel walk cannot then
+/// split a line from its terminator — and so the `BrokenPipe`-vs-`die`
+/// decision and the flush stay in a single place. (An equivalent
+/// `writeln!` would be no more costly; it would just re-decide the
+/// policy here.)
 pub(crate) fn writeln_stdout_or_die(text: &str) {
     write_stdout_parts_or_die(&[text.as_bytes(), b"\n"]);
 }

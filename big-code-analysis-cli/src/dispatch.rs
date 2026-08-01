@@ -355,16 +355,32 @@ fn dispatch_strip_comments(
             write_file(&path, &new_source)?;
         } else if let Some(output) = output {
             write_file(output, &new_source)?;
-        } else if let Ok(text) = std::str::from_utf8(&new_source) {
-            // Fallible for the same reason as the `dump` banner (#1132):
-            // `println!` would panic on a full disk rather than let the
-            // walk tally the failure and exit 1.
-            writeln!(std::io::stdout().lock(), "{text}")?;
         } else {
-            std::io::stdout().write_all(&new_source)?;
+            write_stripped_on_stdout(&new_source)?;
         }
     }
     Ok(())
+}
+
+/// Emit comment-stripped `source` on stdout: one lock, a trailing
+/// newline, then an explicit flush.
+///
+/// Fallible for the same reason as the `dump` banner (#1132): `println!`
+/// would panic on a full disk rather than let the walk tally the failure
+/// and exit 1. The non-UTF-8 branch used to be a bare
+/// `stdout().write_all` — no newline, no flush — so on a `LineWriter`
+/// stdout its bytes could sit in the buffer until the exit-time cleanup
+/// flush, whose error nobody reads. Both branches now share the shape
+/// the UTF-8 one had.
+fn write_stripped_on_stdout(source: &[u8]) -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    if let Ok(text) = std::str::from_utf8(source) {
+        writeln!(out, "{text}")?;
+    } else {
+        out.write_all(source)?;
+        out.write_all(b"\n")?;
+    }
+    out.flush()
 }
 
 fn dispatch_functions(

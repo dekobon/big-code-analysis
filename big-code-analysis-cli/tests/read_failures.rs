@@ -21,6 +21,19 @@
 //! cases also pin the `BrokenPipe` exemption from the other direction —
 //! `bca dump | head` must stay exit 0.
 //!
+//! The fourth part covers what that sweep missed: `bca vcs`, whose
+//! emission runs through `formats::write_text` rather than the walk's
+//! stdout helpers. `Stdout` is a `LineWriter` over a 1 KiB buffer, so a
+//! shorter payload containing no newline at all is accepted into the
+//! buffer and only written during the exit-time cleanup flush, whose
+//! error nobody reads — the run exits 0 having emitted nothing. `vcs`'s
+//! *compact* JSON is the only document `bca` prints with that shape;
+//! everything else is line-oriented or pretty-printed, so the buffer
+//! spills on an interior newline. The matching hole in
+//! `path_io::write_stdout_parts_or_die` cannot be reached from any
+//! subcommand and is pinned by a unit test on `write_parts_flushed`
+//! instead.
+//!
 //! Unix-only, because the scenarios are staged with a mode-000 file and
 //! `/dev/full`.
 //! `unreadable_fixture` probes the real capability rather than the uid,
@@ -604,6 +617,143 @@ mod unix {
     #[test]
     fn preproc_exits_one_when_stdout_cannot_be_written() {
         assert_stdout_write_failure_exits_one("preproc", &[], TRIVIAL_C);
+    }
+
+    /// Run `git <args>` in `dir` with fixed identities, reporting
+    /// whether it succeeded. `git` may be absent or refuse to build a
+    /// repo (a sandbox with no writable config, a hostile `GIT_*`
+    /// environment), which is a skip rather than a failure — the same
+    /// probe-the-capability convention [`dev_full`] and
+    /// `unreadable_fixture` follow.
+    fn git(dir: &TempDir, args: &[&str]) -> bool {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    /// A throwaway repo with two commits touching one file, which is
+    /// the least history `bca vcs` / `vcs commit` / `vcs trend` all
+    /// produce a ranked document from.
+    fn git_repo_with_history() -> Option<TempDir> {
+        let dir = TempDir::new().expect("tempdir");
+        if !git(&dir, &["init", "-q", "-b", "main"])
+            || !git(&dir, &["config", "commit.gpgsign", "false"])
+        {
+            return None;
+        }
+        write_fixture(&dir, "work.c", TRIVIAL_C);
+        if !git(&dir, &["add", "."]) || !git(&dir, &["commit", "-qm", "add work"]) {
+            return None;
+        }
+        write_fixture(&dir, "work.c", COMMENTED_C);
+        git(&dir, &["commit", "-aqm", "fix work"]).then_some(dir)
+    }
+
+    /// #1132's sweep missed `bca vcs`, whose emission runs through
+    /// `formats::write_text` rather than the walk's stdout helpers. That
+    /// wrote the document with no flush, so `vcs -O json`, `vcs commit`,
+    /// and `vcs trend` — the three shapes whose document is *compact*
+    /// JSON — exited **0** with their output dropped. Measured before
+    /// the fix: 782 / 852 / 836 bytes on this fixture, all silently
+    /// discarded, while `yaml` / `toml` / `markdown` / `html` / `csv` /
+    /// the default table already exited 1.
+    ///
+    /// What separates them is not the *trailing* newline but any newline
+    /// at all: `LineWriter` flushes through the last one it finds, so a
+    /// pretty-printed document surfaces the error from its interior
+    /// newline even though it ends in `}`. The control run therefore
+    /// asserts the payload is newline-free and inside the buffer, rather
+    /// than assuming it — either property lost, and the test would pass
+    /// against the unflushed code.
+    fn assert_vcs_stdout_write_failure_exits_one(extra: &[&str]) {
+        let Some(repo) = git_repo_with_history() else {
+            eprintln!("skipping: no usable git for the `bca vcs` fixture");
+            return;
+        };
+        let Some(full) = dev_full() else {
+            eprintln!("skipping: no write-failing /dev/full on this platform");
+            return;
+        };
+        let run = |stdout: Stdio| {
+            common::std_bca_command_in(repo.path())
+                .arg("vcs")
+                .arg("--no-config")
+                .args(extra)
+                .stdout(stdout)
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("spawn bca")
+                .wait_with_output()
+                .expect("wait for bca")
+        };
+
+        let failed = run(full.into());
+        let stderr = String::from_utf8_lossy(&failed.stderr).into_owned();
+        assert_eq!(
+            failed.status.code(),
+            Some(1),
+            "`bca vcs {extra:?}` must exit 1 on an unwritable stdout; stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains("error: ") && stderr.contains("No space left on device"),
+            "`bca vcs {extra:?}` must name the I/O failure in its own \
+             diagnostic; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked at"),
+            "`bca vcs {extra:?}` must not panic on an unwritable stdout; stderr: {stderr}"
+        );
+
+        let ok = run(Stdio::piped());
+        assert!(
+            ok.status.success(),
+            "`bca vcs {extra:?}` must succeed with a writable stdout; stderr: {}",
+            String::from_utf8_lossy(&ok.stderr)
+        );
+        assert!(
+            !ok.stdout.is_empty() && !ok.stdout.contains(&b'\n'),
+            "`bca vcs {extra:?}` must still emit a document with no newline \
+             in it for this test to reach the missing flush at all; got {} \
+             bytes, first newline at {:?}",
+            ok.stdout.len(),
+            ok.stdout.iter().position(|&b| b == b'\n'),
+        );
+        assert!(
+            ok.stdout.len() < STDOUT_LINE_BUFFER_BYTES,
+            "`bca vcs {extra:?}` emits {} bytes, at or over stdout's line \
+             buffer — a payload that large is written through on its own \
+             and no longer exercises the flush",
+            ok.stdout.len(),
+        );
+    }
+
+    /// Capacity `std::io::stdout`'s `LineWriter` is built with. A
+    /// newline-free payload shorter than this is swallowed whole by the
+    /// buffer, which is the precondition every assertion above depends
+    /// on; a longer one spills straight to the fd and fails on its own.
+    const STDOUT_LINE_BUFFER_BYTES: usize = 1_024;
+
+    #[test]
+    fn vcs_json_exits_one_when_stdout_cannot_be_written() {
+        assert_vcs_stdout_write_failure_exits_one(&["-O", "json"]);
+    }
+
+    #[test]
+    fn vcs_commit_exits_one_when_stdout_cannot_be_written() {
+        assert_vcs_stdout_write_failure_exits_one(&["commit"]);
+    }
+
+    #[test]
+    fn vcs_trend_exits_one_when_stdout_cannot_be_written() {
+        assert_vcs_stdout_write_failure_exits_one(&["trend"]);
     }
 
     /// The other half of the contract: `BrokenPipe` is not a tool error.
