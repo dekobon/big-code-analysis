@@ -107,15 +107,23 @@ pub(crate) fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
             let lines = node.end_row() - node.start_row();
             spans.push((node.start_byte(), node.end_byte(), lines));
         } else {
-            cursor.reset(&node);
-            if cursor.goto_first_child() {
+            // No reversal: `remove_from_code` replays the collected
+            // spans in reverse byte order, so visit order is immaterial
+            // here and imposing one would imply a guarantee nothing
+            // relies on.
+            let first_child = stack.len();
+            stack.extend(
+                node.children_with(&mut cursor)
+                    .map(|child| (child, depth + 1)),
+            );
+            if stack.len() > first_child {
+                // Only a node that actually pushed children joins the
+                // chain; a leaf never becomes an ancestor. Preserves the
+                // `if cursor.goto_first_child()` guard this replaced —
+                // dropping it would leave the chain one deep too far on
+                // every leaf and desync the truncate/push bookkeeping
+                // `make chain-audit` exists to check.
                 chain.push(node);
-                loop {
-                    stack.push((cursor.node(), depth + 1));
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                }
             }
         }
     }

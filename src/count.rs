@@ -41,15 +41,10 @@ pub(crate) fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, u
         if filters.any(&node) {
             good += 1;
         }
-        cursor.reset(&node);
-        if cursor.goto_first_child() {
-            loop {
-                stack.push(cursor.node());
-                if !cursor.goto_next_sibling() {
-                    break;
-                }
-            }
-        }
+        // No reversal: this walk only tallies, so visit order is
+        // immaterial and imposing one would imply a guarantee no caller
+        // relies on. Matches the previous push-in-source-order form.
+        stack.extend(node.children_with(&mut cursor));
     }
     (good, total)
 }

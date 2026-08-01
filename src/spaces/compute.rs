@@ -465,11 +465,10 @@ fn propagate_nesting_to_children(
 /// Pushes `node`'s direct children onto the traversal `stack`, each tagged
 /// with `tag`.
 ///
-/// The `children.drain(..).rev()` ordering is load-bearing: it makes the
-/// LIFO `stack` yield children in source order, which in turn governs
-/// line-shared suppression attribution (issue #289). The `children`
-/// scratch buffer is drained empty here so callers can reuse its
-/// allocation across iterations.
+/// The ordering is load-bearing: pushing in source order and reversing
+/// the freshly-pushed tail makes the LIFO `stack` yield children in
+/// source order, which in turn governs line-shared suppression
+/// attribution (issue #289).
 ///
 /// `Tag` is generic because the two walkers carry different context down
 /// the tree: `ops` needs only the nesting level, while `metrics_inner`
@@ -488,26 +487,16 @@ pub(crate) fn push_children<'a, 's, Tag: Copy>(
     cursor: &mut Cursor<'a>,
     node: &Node<'a>,
     tag: Tag,
-    children: &mut Vec<(Node<'a>, Tag)>,
     stack: &'s mut Vec<(Node<'a>, Tag)>,
 ) -> &'s [(Node<'a>, Tag)] {
-    debug_assert!(
-        children.is_empty(),
-        "scratch buffer must be left drained by the previous call"
-    );
+    // Children go on in source order and the freshly-pushed tail is
+    // reversed in place, so the LIFO `stack` yields the leftmost child
+    // first. Equivalent to the `children.drain(..).rev()` this replaced,
+    // without the caller-threaded scratch buffer, and each child is
+    // copied once rather than twice.
     let first = stack.len();
-    cursor.reset(node);
-    if cursor.goto_first_child() {
-        loop {
-            children.push((cursor.node(), tag));
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-        for child in children.drain(..).rev() {
-            stack.push(child);
-        }
-    }
+    stack.extend(node.children_with(cursor).map(|child| (child, tag)));
+    stack[first..].reverse();
     &stack[first..]
 }
 
@@ -534,7 +523,6 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
-    let mut children = Vec::new();
     // Ancestor chain of the node currently being visited, root first.
     // Maintained so per-node predicates can read an ancestor as a slice
     // index instead of through `Node::parent`, which `tree_sitter`
@@ -697,7 +685,6 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
                 depth: depth + 1,
                 in_comment: subtree_in_comment,
             },
-            &mut children,
             &mut stack,
         );
 

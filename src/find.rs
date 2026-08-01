@@ -39,7 +39,6 @@ pub(crate) fn find<'a, T: ParserTrait>(
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut good = Vec::new();
-    let mut children = Vec::new();
 
     stack.push(node);
 
@@ -47,18 +46,12 @@ pub(crate) fn find<'a, T: ParserTrait>(
         if filters.any(&node) {
             good.push(node);
         }
-        cursor.reset(&node);
-        if cursor.goto_first_child() {
-            loop {
-                children.push(cursor.node());
-                if !cursor.goto_next_sibling() {
-                    break;
-                }
-            }
-            for child in children.drain(..).rev() {
-                stack.push(child);
-            }
-        }
+        // Source order in, tail reversed in place, so the LIFO `stack`
+        // yields the leftmost child first — matches were already
+        // returned in source order and must stay that way.
+        let first_child = stack.len();
+        stack.extend(node.children_with(&mut cursor));
+        stack[first_child..].reverse();
     }
     Ok(good)
 }

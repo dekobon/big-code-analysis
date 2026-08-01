@@ -663,15 +663,11 @@ pub(crate) fn preprocess_with_parser(
 /// pop in reverse; directive order is recovered from byte offsets in
 /// [`apply_macro_events`], so visit order does not affect the result.
 fn push_children<'a>(cursor: &mut Cursor<'a>, node: &Node<'a>, stack: &mut Vec<Node<'a>>) {
-    cursor.reset(node);
-    if cursor.goto_first_child() {
-        loop {
-            stack.push(cursor.node());
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
+    // No reversal, unlike the metric walk's namesake: directives are
+    // collected with their byte offsets and replayed in source order
+    // afterwards (see `macro_events`), so visit order does not matter
+    // here and imposing one would imply a guarantee nothing relies on.
+    stack.extend(node.children_with(cursor));
 }
 
 /// Classify one node from the [`preprocess_with_parser`] walk: a

@@ -310,7 +310,6 @@ pub(crate) fn ops_inner<T: ParserTrait>(
     let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
-    let mut children = Vec::new();
     // Ancestor chain of the node currently being visited, root first,
     // maintained by the same truncate/push rule as
     // `spaces::compute::metrics_inner` (#1084).
@@ -362,7 +361,7 @@ pub(crate) fn ops_inner<T: ParserTrait>(
         // State-independent — it only moves the cursor over child nodes —
         // so unlike the local `finalize` / `push_synthetic_unit_root`
         // mirrors (which differ by `State` payload) it is reused directly
-        // rather than duplicated. The `children.drain(..).rev()` ordering
+        // rather than duplicated. The source-order-then-reverse ordering
         // it encapsulates is load-bearing for suppression attribution.
         // The returned child slice is only useful to `metrics_inner`,
         // which seeds their cognitive nesting; `ops` just walks them.
@@ -373,7 +372,6 @@ pub(crate) fn ops_inner<T: ParserTrait>(
                 level: new_level,
                 depth: depth + 1,
             },
-            &mut children,
             &mut stack,
         );
     }
