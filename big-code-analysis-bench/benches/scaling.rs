@@ -1,7 +1,7 @@
 //! Complexity-class gate for the metric walk (#1068).
 //!
-//! Measures every probe in `shapes::PROBES` at three doubling depths,
-//! fits `time ~ depth^k`, and fails when a probe's `k` exceeds the
+//! Measures every probe in `shapes::PROBES` at three doubling sizes,
+//! fits `time ~ size^k`, and fails when a probe's `k` exceeds the
 //! bound it declared. This is where the wall-clock assertions that used
 //! to live in `cognitive_deep_nesting_is_tractable` and
 //! `tokens_deep_nesting_is_tractable` went: the unit suite keeps the
@@ -71,7 +71,7 @@ fn main() -> ExitCode {
     let smoke_set;
     let probes: &[Probe] = if args.mode == Mode::Smoke {
         eprintln!(
-            "note: smoke run at shallow depths. Use `cargo bench -p \
+            "note: smoke run at small sizes. Use `cargo bench -p \
              big-code-analysis-bench --bench scaling` for the real gate."
         );
         smoke_set = scaling::smoke_probes(PROBES);
@@ -107,9 +107,9 @@ fn main() -> ExitCode {
         // its exponent: it was fitted over the cells that finished, so
         // that number is flattering and quoting it reads as a harness
         // bug rather than as the worst regression the gate can see.
-        if let Some((depth, elapsed)) = probe.over_budget {
+        if let Some((size, elapsed)) = probe.over_budget {
             eprintln!(
-                "  {name}: one walk at depth {depth} took {elapsed:?}, over the \
+                "  {name}: one walk at size {size} took {elapsed:?}, over the \
                  {budget:?} per-walk budget\n    {rationale}",
                 name = probe.name,
                 budget = scaling::MAX_CELL_WALK,

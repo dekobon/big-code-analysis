@@ -69,7 +69,7 @@ Output looks like this:
 
 ```text
 cognitive/nested-while  exponent 1.15 (bound 1.50)  ok
-    depth      bytes   median ms      min ms      max ms    ns/byte   iter    reading
+     size      bytes   median ms      min ms      max ms    ns/byte   iter    reading
      1000      14017       0.759       0.723       0.771      54.17      2     500500
      2000      28017       1.792       1.658       1.834      63.98      1    2001000
      4000      56017       3.723       3.425       3.838      66.46      1    8002000

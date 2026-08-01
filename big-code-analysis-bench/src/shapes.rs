@@ -396,9 +396,10 @@ pub struct Probe {
     pub workload: Workload,
     /// Generator for the probe's input.
     pub render: Render,
-    /// The three depths measured, each a doubling of the previous so
-    /// the fitted exponent reads directly as "cost per doubling".
-    pub depths: [usize; 3],
+    /// The three sizes measured — the values handed to [`Probe::render`]
+    /// — each a doubling of the previous so the fitted exponent reads
+    /// directly as "cost per doubling".
+    pub sizes: [usize; 3],
     /// Upper bound on the fitted log-log exponent. A linear walk sits
     /// near 1.0 and a quadratic one near 2.0; the bounds below leave
     /// enough headroom that measurement noise cannot cross them but
@@ -461,7 +462,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.tokens.tokens_sum(),
         },
         render: nested_parens,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1052: `tokens` inherits the in-comment flag down the \
                     traversal. Reverting to the per-leaf ancestor walk is \
@@ -484,7 +485,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.cognitive.cognitive_sum(),
         },
         render: nested_whiles,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062 on a statement shape, and the linear control for \
                     `cognitive/nested-if`: identical structure, no \
@@ -499,7 +500,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_whiles,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Metric control. `Cognitive` declares `Nom` as a \
                     dependency, so the cognitive-attributable cost is the \
@@ -514,7 +515,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.cognitive.cognitive_sum(),
         },
         render: nested_ifs,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: `Checker::is_else_if` reads the enclosing \
                     `else` clause off the walker's ancestor chain. \
@@ -531,7 +532,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.lloc(),
         },
         render: nested_whiles,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-declaration`: the same \
                     nesting with no `declaration` node, so `loc` never \
@@ -546,7 +547,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.lloc(),
         },
         render: nested_declarations,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: `loc`'s C-family arm calls \
                     `Node::count_specific_ancestors` for every \
@@ -566,7 +567,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.halstead.length(),
         },
         render: nested_parens,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `halstead/nested-not`: the same \
                     nesting through `get_op_type` arms that classify a \
@@ -581,7 +582,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.halstead.length(),
         },
         render: nested_nots,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: `Getter::get_op_type` asks every `!` token \
                     whether its parent is an inner-doc-comment marker. \
@@ -600,7 +601,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.abc.assignments_sum(),
         },
         render: nested_blocks,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `abc/nested-if`: the same nesting \
                     with no condition slot, so the C-family container \
@@ -615,7 +616,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.abc.conditions_sum(),
         },
         render: nested_ifs,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: every `if (…)` head routes its condition \
                     through the C-family container walker, which seeds \
@@ -635,7 +636,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.cyclomatic.cyclomatic_sum(),
         },
         render: nested_ands,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `cyclomatic/nested-ternary`: the \
                     same nesting through an arm that counts the token \
@@ -650,7 +651,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.cyclomatic.cyclomatic_sum(),
         },
         render: nested_ternaries,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: Python's `Cyclomatic` asks every `else` token \
                     whether it opens a loop or `try` else-clause, through \
@@ -667,7 +668,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.lloc(),
         },
         render: nested_quotes,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: Elixir's `loc` catch-all arm asks every named \
                     node whether its parent is a statement container, so \
@@ -685,7 +686,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_quotes,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: Elixir's `is_func` asks \
                     `elixir_is_inside_quote_block` for every `def`. The \
@@ -702,7 +703,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "One `FuncSpace` per level: the space-nesting \
                     bookkeeping and the recursive `FuncSpace` tree #1056 \
@@ -719,7 +720,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.cognitive.cognitive_sum(),
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062: `increment_function_depth` asks every function \
                     node whether a function encloses it. The answer now \
@@ -743,7 +744,7 @@ pub const PROBES: &[Probe] = &[
             reading: |ops| ops.operands.len() as u64,
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1110: the only probe that runs `ops_inner`, which \
                     was otherwise unmeasured. It covers the walk — the \
@@ -769,7 +770,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.lloc(),
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-fn-rows`: the same \
                     function nesting with every level on one physical row, \
@@ -786,7 +787,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.loc.ploc(),
         },
         render: nested_fns_by_row,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1109: `Ploc` / `Cloc` union each space's physical-row \
                     set into its parent, so a row inside `D` nested spaces \
@@ -806,7 +807,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_fns_by_row,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Metric control for `loc/nested-fn-rows`: the same \
                     row-spread nesting under a metric whose merge is a \
@@ -822,7 +823,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_declared_functions,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `nom/nested-arrow`: one function and \
                     one `FuncSpace` per level as there, but declared with \
@@ -838,7 +839,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_arrows,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1088: the JS-family `Checker::is_func` / `is_closure` \
                     decide whether an `arrow_function` is bound to a name by \
@@ -858,7 +859,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_attributed_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1100: under `exclude_tests` the walker asks every \
                     node whether it opens a test-only subtree, and Rust \
@@ -880,7 +881,7 @@ pub const PROBES: &[Probe] = &[
             reading: |m| m.nom.total(),
         },
         render: nested_cfg_predicate,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1105: `cfg(all(all(… test …)))` is classified by a \
                     string-level mini-parser, which re-scanned each \
@@ -1021,14 +1022,14 @@ mod tests {
         assert_eq!(count, names.len(), "duplicate probe name in PROBES");
     }
 
-    /// Depths double, which is what makes the fitted exponent readable
+    /// Sizes double, which is what makes the fitted exponent readable
     /// as "cost per doubling".
     #[test]
-    fn probe_depths_double() {
+    fn probe_sizes_double() {
         for probe in PROBES {
-            let [a, b, c] = probe.depths;
-            assert_eq!(b, a * 2, "{}: depths must double", probe.name);
-            assert_eq!(c, b * 2, "{}: depths must double", probe.name);
+            let [a, b, c] = probe.sizes;
+            assert_eq!(b, a * 2, "{}: sizes must double", probe.name);
+            assert_eq!(c, b * 2, "{}: sizes must double", probe.name);
         }
     }
 }

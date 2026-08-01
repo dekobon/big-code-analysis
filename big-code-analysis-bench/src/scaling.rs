@@ -95,8 +95,8 @@ const TARGET_SAMPLE: Duration = Duration::from_millis(1);
 /// simply finishing sooner.
 const MAX_ITERATIONS: u32 = 64;
 
-/// Wall clock one walk may take before the harness stops deepening a
-/// probe.
+/// Wall clock one walk may take before the harness stops enlarging a
+/// probe's input.
 ///
 /// The failure mode this exists for is the one the retired unit-test
 /// budgets were guarding against: a reintroduced quadratic walk does
@@ -105,8 +105,8 @@ const MAX_ITERATIONS: u32 = 64;
 /// 1000, 2000 and 4000 for nine rounds each would have run for hours
 /// and tripped a CI timeout instead of reporting a regression.
 ///
-/// Cells are built in increasing depth order, so a probe that blows
-/// past this at one depth is abandoned before the deeper ones are
+/// Cells are built in increasing size order, so a probe that blows
+/// past this at one size is abandoned before the larger ones are
 /// attempted, and reported as over budget — which counts as a failure,
 /// since a walk this slow is the regression. An abandoned probe
 /// contributes *no* cells to the measurement schedule, not merely no
@@ -122,15 +122,15 @@ const MAX_ITERATIONS: u32 = 64;
 /// is slow until it finishes one.
 pub const MAX_CELL_WALK: Duration = Duration::from_secs(20);
 
-/// One (probe, depth) cell, reduced across rounds.
+/// One (probe, size) cell, reduced across rounds.
 #[derive(Debug, Clone)]
 pub struct Cell {
-    /// Nesting depth of the generated input.
-    pub depth: usize,
+    /// Value of the probe's swept parameter for this cell.
+    pub size: usize,
     /// Size of the generated input. Reported so a reader can confirm
     /// the input grew linearly and check cost per byte directly.
     pub bytes: usize,
-    /// Headline metric value the walk produced at this depth.
+    /// Headline metric value the walk produced at this size.
     pub reading: u64,
     /// Walks performed inside one timed sample. Reported so a reader
     /// can tell an amortised measurement from a directly observed one.
@@ -149,9 +149,10 @@ pub struct Cell {
 pub struct ProbeReport {
     /// The probe's stable identifier.
     pub name: &'static str,
-    /// Cells in increasing depth order.
+    /// Cells in increasing size order.
     pub cells: Vec<Cell>,
-    /// Fitted slope of `ln(median time)` against `ln(depth)`.
+    /// Fitted slope of `ln(median time)` against `ln(size)`, where
+    /// "size" is the probe's swept parameter.
     pub exponent: f64,
     /// Bound the probe declared for that slope.
     pub max_exponent: f64,
@@ -159,7 +160,7 @@ pub struct ProbeReport {
     /// self-explanatory without opening the source.
     pub rationale: &'static str,
     /// Set when a single walk exceeded [`MAX_CELL_WALK`], carrying the
-    /// depth it happened at and how long it took. An abandoned probe
+    /// size it happened at and how long it took. An abandoned probe
     /// contributes no cells at all, so [`ProbeReport::cells`] is empty
     /// and [`ProbeReport::exponent`] is `0.0` — flattering, and not the
     /// verdict. This is.
@@ -206,10 +207,10 @@ impl fmt::Display for Report {
             // `exponent 0.00 (bound 1.50) OVER BOUND` — a passing
             // number next to a failing verdict, for the worst
             // regression this gate can see.
-            if let Some((depth, elapsed)) = probe.over_budget {
+            if let Some((size, elapsed)) = probe.over_budget {
                 writeln!(
                     f,
-                    "{name}  ABANDONED  one walk at depth {depth} took {elapsed:?}, \
+                    "{name}  ABANDONED  one walk at size {size} took {elapsed:?}, \
                      over the {MAX_CELL_WALK:?} budget",
                     name = probe.name,
                 )?;
@@ -227,14 +228,14 @@ impl fmt::Display for Report {
             writeln!(
                 f,
                 "  {:>7}  {:>9}  {:>10}  {:>10}  {:>10}  {:>9}  {:>5}  {:>12}",
-                "depth", "bytes", "median ms", "min ms", "max ms", "ns/byte", "iter", "reading",
+                "size", "bytes", "median ms", "min ms", "max ms", "ns/byte", "iter", "reading",
             )?;
             for cell in &probe.cells {
                 writeln!(
                     f,
-                    "  {depth:>7}  {bytes:>9}  {median:>10.3}  {min:>10.3}  \
+                    "  {size:>7}  {bytes:>9}  {median:>10.3}  {min:>10.3}  \
                      {max:>10.3}  {per_byte:>9.2}  {iterations:>5}  {reading:>12}",
-                    depth = cell.depth,
+                    size = cell.size,
                     bytes = cell.bytes,
                     median = millis(cell.median),
                     min = millis(cell.min),
@@ -260,7 +261,7 @@ fn millis(duration: Duration) -> f64 {
 /// timings.
 struct Pending {
     probe: usize,
-    depth: usize,
+    size: usize,
     bytes: usize,
     reading: u64,
     iterations: u32,
@@ -283,36 +284,36 @@ fn iterations_for(single_walk: Duration) -> u32 {
         .clamp(1, MAX_ITERATIONS)
 }
 
-/// Depths substituted into every probe for a smoke run.
+/// Sizes substituted into every probe for a smoke run.
 ///
 /// Two orders of magnitude under the real ones. A smoke run answers
 /// "does the harness still work", not "how does the walk scale", and
 /// it happens in contexts (`cargo test`, an unoptimised build) where
-/// the production depths would cost tens of seconds and produce a
+/// the production sizes would cost tens of seconds and produce a
 /// number nobody should read.
-pub const SMOKE_DEPTHS: [usize; 3] = [32, 64, 128];
+pub const SMOKE_SIZES: [usize; 3] = [32, 64, 128];
 
-/// Copies `probes` with [`SMOKE_DEPTHS`] substituted.
+/// Copies `probes` with [`SMOKE_SIZES`] substituted.
 #[must_use]
 pub fn smoke_probes(probes: &[Probe]) -> Vec<Probe> {
     probes
         .iter()
         .map(|probe| Probe {
-            depths: SMOKE_DEPTHS,
+            sizes: SMOKE_SIZES,
             ..*probe
         })
         .collect()
 }
 
-/// Measures every probe at every depth and fits a complexity exponent.
+/// Measures every probe at every size and fits a complexity exponent.
 ///
 /// `rounds` measurement rounds are performed after
 /// [`WARMUP_ROUNDS`] discarded ones. Every cell is visited once per
 /// round, with the visit order rotated each round so no cell sits at a
 /// fixed position in the schedule.
 ///
-/// A probe whose walk exceeds [`MAX_CELL_WALK`] at one depth is
-/// reported as over budget, and neither that cell nor the deeper ones
+/// A probe whose walk exceeds [`MAX_CELL_WALK`] at one size is
+/// reported as over budget, and neither that cell nor the larger ones
 /// are measured.
 ///
 /// # Errors
@@ -351,10 +352,10 @@ pub fn run_with_budget(
         // pathological. Accumulating locally makes that structural
         // rather than a cleanup someone has to remember.
         let mut cells = Vec::new();
-        // Ascending depth, so an intractably slow walk is caught at the
-        // cheapest depth and the deeper cells are never attempted.
-        for depth in probe.depths {
-            let source = (probe.render)(depth);
+        // Ascending size, so an intractably slow walk is caught at the
+        // cheapest size and the larger cells are never attempted.
+        for size in probe.sizes {
+            let source = (probe.render)(size);
             let ast = Ast::parse(Source::new(probe.lang, source.as_bytes()))?;
             let options = probe.workload.options();
             // One untimed walk serves three purposes: it proves the
@@ -365,12 +366,12 @@ pub fn run_with_budget(
             let reading = probe.workload.walk(&ast, options)?;
             let single_walk = started.elapsed();
             if single_walk > max_cell_walk {
-                over_budget[index] = Some((depth, single_walk));
+                over_budget[index] = Some((size, single_walk));
                 break;
             }
             cells.push(Pending {
                 probe: index,
-                depth,
+                size,
                 bytes: source.len(),
                 reading,
                 workload: probe.workload,
@@ -428,7 +429,7 @@ fn reduce<'a>(
         .map(|pending| {
             pending.timings.sort_unstable();
             Cell {
-                depth: pending.depth,
+                size: pending.size,
                 bytes: pending.bytes,
                 reading: pending.reading,
                 iterations: pending.iterations,
@@ -443,7 +444,7 @@ fn reduce<'a>(
         .iter()
         .map(|cell| {
             (
-                cell.depth as f64,
+                cell.size as f64,
                 (cell.median.as_nanos() as f64).max(MIN_MEASURABLE_NS),
             )
         })
@@ -472,11 +473,11 @@ pub fn median(sorted: &[Duration]) -> Duration {
     }
 }
 
-/// Fits `time ~ depth^k` by least squares on the log-log points and
+/// Fits `time ~ size^k` by least squares on the log-log points and
 /// returns `k`.
 ///
 /// Returns `0.0` for fewer than two points, or when every point shares
-/// one depth — there is no slope to recover and reporting a fabricated
+/// one size — there is no slope to recover and reporting a fabricated
 /// one would read as a pass.
 #[must_use]
 pub fn fit_exponent(points: &[(f64, f64)]) -> f64 {
@@ -503,7 +504,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        ProbeReport, Report, SMOKE_DEPTHS, fit_exponent, median, run, run_with_budget, smoke_probes,
+        ProbeReport, Report, SMOKE_SIZES, fit_exponent, median, run, run_with_budget, smoke_probes,
     };
     use crate::shapes::PROBES;
 
@@ -530,7 +531,7 @@ mod tests {
     }
 
     /// Degenerate inputs return 0 rather than a fabricated slope: too
-    /// few points, and points that share a single depth.
+    /// few points, and points that share a single size.
     ///
     /// Exact equality is the assertion: `fit_exponent` returns the
     /// literal `0.0` on these paths rather than computing a value that
@@ -605,7 +606,7 @@ mod tests {
     /// The budget exists because a reintroduced quadratic walk hangs
     /// rather than fails; retaining the offending cell would walk it
     /// once per round and multiply the very cost being escaped. A
-    /// zero budget abandons every probe at its shallowest depth, so
+    /// zero budget abandons every probe at its smallest size, so
     /// the invariant is checked without a genuinely slow walk: no
     /// cells at all, and the run finishes fast enough to sit in the
     /// unit suite.
@@ -617,14 +618,14 @@ mod tests {
         for probe in &report.probes {
             assert!(
                 probe.cells.is_empty(),
-                "{}: abandoned at depth {:?} but kept {} cell(s) to measure",
+                "{}: abandoned at size {:?} but kept {} cell(s) to measure",
                 probe.name,
-                probe.over_budget.map(|(depth, _)| depth),
+                probe.over_budget.map(|(size, _)| size),
                 probe.cells.len(),
             );
             assert!(
                 probe.over_budget.is_some(),
-                "{}: a zero budget must abandon the shallowest cell",
+                "{}: a zero budget must abandon the smallest cell",
                 probe.name,
             );
             assert!(!probe.passed(), "{}: an abandoned probe fails", probe.name);
@@ -654,10 +655,10 @@ mod tests {
     /// A one-round run over the real probe set produces a complete,
     /// well-formed report.
     ///
-    /// Runs at [`SMOKE_DEPTHS`]: the scheduling, reduction and
-    /// reporting logic under test is depth-independent, and the
-    /// production depths would add half a minute to every `cargo
-    /// test`. The real depths are exercised by `benches/scaling.rs`
+    /// Runs at [`SMOKE_SIZES`]: the scheduling, reduction and
+    /// reporting logic under test is size-independent, and the
+    /// production sizes would add half a minute to every `cargo
+    /// test`. The real sizes are exercised by `benches/scaling.rs`
     /// under the bench profile.
     ///
     /// Deliberately does **not** assert on the exponents: this runs
@@ -666,23 +667,19 @@ mod tests {
     /// timing assertion has already produced four false failures. The
     /// gate lives in `benches/scaling.rs`.
     #[test]
-    fn run_produces_a_cell_per_probe_depth() {
+    fn run_produces_a_cell_per_probe_size() {
         let probes = smoke_probes(PROBES);
         let report = run(&probes, 1).expect("every probe language is compiled in");
         assert_eq!(report.probes.len(), PROBES.len());
         for (result, probe) in report.probes.iter().zip(PROBES) {
             assert_eq!(result.name, probe.name);
-            assert_eq!(result.cells.len(), SMOKE_DEPTHS.len());
-            for (cell, depth) in result.cells.iter().zip(SMOKE_DEPTHS) {
-                assert_eq!(cell.depth, depth);
-                assert!(
-                    cell.bytes > 0,
-                    "{}: empty input at depth {depth}",
-                    probe.name
-                );
+            assert_eq!(result.cells.len(), SMOKE_SIZES.len());
+            for (cell, size) in result.cells.iter().zip(SMOKE_SIZES) {
+                assert_eq!(cell.size, size);
+                assert!(cell.bytes > 0, "{}: empty input at size {size}", probe.name);
                 assert!(
                     cell.reading > 0,
-                    "{}: zero metric reading at depth {depth}",
+                    "{}: zero metric reading at size {size}",
                     probe.name,
                 );
                 assert!(cell.min <= cell.median && cell.median <= cell.max);
