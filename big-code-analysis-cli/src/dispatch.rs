@@ -528,9 +528,14 @@ fn dispatch_check_file(
     // by users who opted in via `--baseline-fuzzy-match`.
     let source_for_hash = cfg.fuzzy_baseline.then(|| source.clone());
     if let Ok(space) = analyze_file(language, source, &path, pr, cfg.metrics_options())
-        && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
+        && let (Some(thresholds), Some(tx)) = (cfg.thresholds.as_ref(), cfg.check_tx.as_ref())
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
+        // Select this file's gate: the `[thresholds.lang.<slug>]` set
+        // when one exists, the global set otherwise (#1141). The
+        // fallback is inside `for_language`, so a language nobody
+        // overrode takes the same code path as one that was.
+        let set = thresholds.for_language(language);
         // Pass the path through as `&Path` so non-UTF-8 bytes are
         // preserved on each emitted `Violation`. Display / offender
         // serialization decide their own lossy strategy at the output
@@ -667,7 +672,7 @@ mod tests {
             markdown_tx: None,
             report_hotspot_tx: None,
             strip_prefix: String::new(),
-            threshold_set: None,
+            thresholds: None,
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,

@@ -125,9 +125,12 @@ is inline branching, and they favour long `switch`-style dispatch over polymorph
 `cognitive` limit flags 5% to 15% of their functions, against 3% in the median language. Raise
 `cognitive` and `halstead.effort` first; those two carry most of the excess.
 
+In a single-language repository this is the whole `[thresholds]` table; in a mixed one it belongs
+under the language it describes, or it drags every other language up with it.
+
 ```toml
-# Gating a C, Tcl, Bash, Lua, Perl, or Go codebase.
-[thresholds]
+# Gating C. The same shape suits Tcl, Bash, Lua, Perl, and Go.
+[thresholds.lang.c]
 cognitive = 30
 cyclomatic = 20
 abc = 50
@@ -143,13 +146,12 @@ Elixir `defmodule` holds dozens of functions by design, so roughly a third of El
 is usually a handful of methods, so the default never fires.
 
 ```toml
-# Elixir.
-[thresholds]
+# Elixir modules and Rust impls sit at opposite ends of the same metric.
+[thresholds.lang.elixir]
 nom = 150
 wmc = 300
 
-# Rust.
-[thresholds]
+[thresholds.lang.rust]
 nom = 20
 wmc = 40
 ```
@@ -180,28 +182,58 @@ because the grammar misparses its signature.
 `wmc`, `npm`, and `npa` are only produced for languages with a class-like container. They are absent
 from Bash, C, Go, Lua, Perl, and Tcl output.
 
-### Applying overrides today {#applying-overrides}
+A per-language override cannot fix any of these. Bash `nargs` is `0` for every function, so no
+limit — not even `0`, which fires only on a value *above* it — can make the gate say anything. The
+override mechanism tunes limits; it does not add a measurement the grammar cannot supply.
 
-A single `bca.toml` carries one `[thresholds]` table for the whole project. Per-language tables in
-the manifest are proposed in
-[issue #1141](https://github.com/dekobon/big-code-analysis/issues/1141) and are not implemented yet.
-Until they are, a polyglot repository has two options.
+### Applying overrides {#applying-overrides}
 
-Run `bca check` once per language, selecting files by glob and passing that language's limits on the
-command line:
+Write them into `bca.toml` as `[thresholds.lang.<slug>]` tables. Each one layers over the project's
+`[thresholds]` per metric, so a language inherits every limit it does not restate:
 
-```bash
-bca check --no-config -I '*.rs' \
-  --threshold cognitive=15 --threshold cyclomatic=15 --threshold nargs=5
-bca check --no-config -I '*.c' \
-  --threshold cognitive=30 --threshold cyclomatic=20 --threshold nargs=5
+```toml
+[thresholds]
+cognitive = 15
+cyclomatic = 15
+nargs = 5
+nom = 30
+wmc = 60
+
+# Procedural, dispatch-heavy: raise the two metrics carrying the excess.
+[thresholds.lang.c]
+cognitive = 30
+cyclomatic = 20
+"halstead.effort" = 120000
+"loc.ploc" = 1200
+
+# A defmodule is not a class; nom and wmc need module-sized limits.
+[thresholds.lang.elixir]
+nom = 150
+wmc = 300
+
+# Compact and heavily abstracted: tighten, or the gate never fires.
+[thresholds.lang.csharp]
+cognitive = 8
+cyclomatic = 8
 ```
 
-Note that `.h` is analyzed with the C++ grammar, not the C one, so a C project's headers land in
-whichever glob covers `*.h`. See [Supported Languages](../languages.md) for the extension map.
+The key is the canonical language slug, the same vocabulary `--language` accepts (`cpp`, `csharp`,
+`objc`, `tsx`, `mozcpp`, `mozjs`); an unknown one is a tool error rather than a silent no-op. A
+language with no table of its own is gated by `[thresholds]`. Under `--tier=soft` each language's
+soft band is derived from *its own* resolved limit, so a language that raises a limit gets a soft
+band scaled from the raised number rather than the project-wide one. The full reference — including
+how `--print-effective-config` renders the resolved tables — is in
+[`bca check`](../commands/check.md#per-language-limits).
 
-Or keep one table sized for the loosest language and let per-file baselines carry the rest. That is
-simpler to maintain and strictly weaker: the stricter languages stop being gated.
+Two things to watch when splitting a table this way. `.h` is analyzed with the C++ grammar, not the
+C one, so a C project's headers are gated by `[thresholds.lang.cpp]`; see
+[Supported Languages](../languages.md) for the extension map. And `--threshold` on the command line
+stays global — it overrides every per-language table too, which is what you want for a one-off run
+and a surprise if you expected it to compose.
+
+The alternative is still available and still worse: keep one table sized for the loosest language
+and let per-file baselines carry the rest. It is simpler to maintain and strictly weaker, because
+the stricter languages stop being gated at all.
 
 ## Per-use-case profiles {#profiles}
 

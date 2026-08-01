@@ -158,6 +158,68 @@ run gates correctly. A bare family head with no single threshold scalar
 (`halstead`, `mi`) is ambiguous and rejected with a "did you mean" hint
 listing the concrete sub-metrics — pick one (e.g. `halstead.volume`).
 
+### Per-language limits (`[thresholds.lang.<slug>]`) {#per-language-limits}
+
+Metric distributions vary by language more than by project — the
+measured 97.5th-percentile per-function `cognitive` value runs from 4 in
+C# to 50 in C. A `[thresholds.lang.<slug>]` table gives one language its
+own limits, layered over the project-wide table:
+
+```toml
+[thresholds]
+cognitive = 15
+cyclomatic = 15
+"loc.ploc" = 600
+
+[thresholds.lang.c]
+cognitive = 30
+"loc.ploc" = 1200
+
+[thresholds.lang.elixir]
+nom = 150
+wmc = 300
+```
+
+C is now gated at `cognitive = 30` and `loc.ploc = 1200` while keeping
+the project's `cyclomatic = 15`; every other language keeps all three.
+The override is **per metric**, not a replacement table — a language
+inherits every limit it does not restate. Which numbers to change, and
+the two cases where an override is a correction rather than tuning, are
+in [Choosing thresholds](../recipes/thresholds.md#per-language).
+
+The key is the canonical language slug, the same vocabulary `--language`
+accepts: `rust`, `python`, `cpp`, `csharp`, `objc`, `tsx`, `mozcpp`,
+`mozjs`, and so on — `bca check --language nonsense` prints the full
+list. Two rules point in opposite directions here:
+
+- An **unknown slug in the manifest** is a tool error (exit `1`) with a
+  did-you-mean hint. A typo'd `[thresholds.lang.rust-lang]` must not
+  silently leave a gate at the project limit while the author believes
+  it was loosened.
+- An **unrecognised file language** falls through to the global table,
+  as does any language with no override of its own. Nothing is silently
+  ungated. (A file whose extension maps to no grammar at all is skipped
+  by the walk before the gate ever sees it — with a warning if you named
+  it explicitly.)
+
+`--threshold` on the command line stays global and still applies last
+and absolutely: it overrides the project table *and* every per-language
+one, so a limit you type is the limit that runs.
+
+`--print-effective-config` prints one fully resolved table per
+overridden language — inherited limits included, not a diff — so the
+number that will actually fire is the number you read:
+
+```toml
+[thresholds]
+cognitive = 15.0
+cyclomatic = 15.0
+
+[thresholds.lang.c]
+cognitive = 30.0
+cyclomatic = 15.0
+```
+
 ## Two-tier thresholds (`--tier`)
 
 `--tier <hard|soft|soft=RATIO>` selects which threshold tier the gate
@@ -197,6 +259,24 @@ The soft tier resolves in a fixed order:
 3. Otherwise scale every limit by the soft `RATIO` (default `0.95` for
    a bare `soft`; `soft=1.0` disables scaling).
 4. Repeated `--threshold name=value` flags apply last, absolutely.
+
+Steps 1 to 3 run **once per language**, against that language's own
+resolved hard limits. There is no `[thresholds.lang.<slug>].soft` table
+and none is needed: with `[thresholds] cognitive = 15`,
+`[thresholds.lang.c] cognitive = 30`, and `--tier=soft=0.9`, C's soft
+band is `27` — nine tenths of *its* limit, and the ceiling a C offender
+is measured against for the exit-`5` escalation is `30`, not `15`.
+Derive either from the project's `15` and every C function between 15
+and 30 reports "also breaches the hard limit" while sitting inside the
+limit the project configured for it.
+
+The one combination that *can* invert the two tiers is an absolute
+`[thresholds.soft]` value above a language's tightened hard limit —
+`[thresholds.soft] cognitive = 12` alongside
+`[thresholds.lang.csharp] cognitive = 4`. That is a tool error (exit
+`1`) naming the offending table, for the same reason a `"<ratio>x"`
+factor above `1` is rejected at parse time: a soft tier that fires
+*after* the hard gate is never the intent.
 
 The soft `RATIO` (and the scale factor in a `"<ratio>x"` string) must
 be in `(0, 1]`. The `[check] headroom` manifest key supplies the ratio

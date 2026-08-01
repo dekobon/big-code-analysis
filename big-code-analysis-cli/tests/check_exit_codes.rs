@@ -296,6 +296,73 @@ fn strict_soft_encroachment_exits_two_not_five() {
         .code(2);
 }
 
+/// A `[thresholds.soft]` absolute limit with no `[thresholds]`
+/// counterpart gives the metric a soft band and no hard ceiling, so no
+/// value can escalate it to a hard breach however far it overshoots.
+///
+/// Pinned because the ceiling moved from a lookaside map onto the
+/// offender record in #1141: "the metric is absent from the hard table"
+/// became "the offender carries no ceiling", and fabricating one from
+/// the soft limit instead would silently turn every such offender into
+/// exit 5. That substitution failed no test before this one.
+#[test]
+fn strict_soft_only_metric_has_no_hard_ceiling_to_breach() {
+    let dir = TempDir::new().unwrap();
+    let src = write_branchy(&dir, 12);
+    let config = dir.path().join("thresholds.toml");
+    // `cognitive` is gated only at the soft tier; `cyclomatic` supplies
+    // the hard table so the run has a hard tier at all.
+    fs::write(
+        &config,
+        "[thresholds]\ncyclomatic = 100\n[thresholds.soft]\ncognitive = 2\n",
+    )
+    .unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--config",
+            config.to_str().unwrap(),
+            "--tier=soft",
+            "--exit-codes=tiered",
+        ])
+        .assert()
+        .code(2);
+}
+
+/// A limit written with the bare `diff --metric` alias (`sloc` for
+/// `loc.sloc`) still escalates to a hard breach under the soft tier.
+///
+/// Until #1141 the escalation compared the offender's *canonical* metric
+/// name against a map keyed by the spelling the user wrote, so
+/// `[thresholds] sloc = N` never matched and no value, however large,
+/// could reach exit 5. Carrying the ceiling on the offender resolves
+/// both sides from the same key and fixes it.
+#[test]
+fn strict_alias_spelled_limit_still_escalates_to_hard_breach() {
+    let dir = TempDir::new().unwrap();
+    let src = write_branchy(&dir, 3);
+    let config = dir.path().join("thresholds.toml");
+    // `sloc = 2` against a file well over it: the soft band is 1, the
+    // hard ceiling 2, and the file breaches both.
+    fs::write(&config, "[thresholds]\nsloc = 2\n").unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--config",
+            config.to_str().unwrap(),
+            "--tier=soft=0.5",
+            "--exit-codes=tiered",
+        ])
+        .assert()
+        .code(5);
+}
+
 // -- Workspace-wide convention (#561) -------------------------------------
 //
 // The 0/1 split is documented as a cross-subcommand contract (top-level

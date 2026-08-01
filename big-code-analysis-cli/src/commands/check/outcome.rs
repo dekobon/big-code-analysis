@@ -48,16 +48,26 @@ impl CheckOutcome {
 
 /// Categorise the kept violations for the exit-code contract (#385).
 ///
-/// `hard_limits` holds the resolved hard-tier limit per metric. It is
-/// consulted only at the soft tier, where a violation whose value also
-/// exceeds the hard limit escalates to [`CheckOutcome::HardBreach`]. At
-/// the hard tier every violation already exceeds the hard limit, so the
-/// escalation is suppressed (it would otherwise swallow the new/regr
-/// split) and only baseline coverage drives the result.
+/// Each violation carries `hard_limit`, the resolved hard-tier ceiling
+/// for its metric *under the table that gated its file* — which since
+/// #1141 may be a `[thresholds.lang.<slug>]` override rather than the
+/// project-wide one, and which is `None` for a metric with a soft limit
+/// but no hard one (nothing to breach). It is consulted only at the soft
+/// tier, where a violation whose value also exceeds that ceiling
+/// escalates to [`CheckOutcome::HardBreach`]. At the hard tier every
+/// violation already exceeds it, so the escalation is suppressed (it
+/// would otherwise swallow the new/regr split) and only baseline
+/// coverage drives the result.
+///
+/// Reading the ceiling off the violation rather than a global map is
+/// what keeps a loosened language from reporting exit 5 for every
+/// function between the project limit and its own: a C function at
+/// cognitive 24 under `[thresholds.lang.c] cognitive = 25` is a
+/// soft-band encroachment, not a hard breach, even though the project
+/// table says 15.
 pub(crate) fn classify_check_outcome(
     pairs: &[(Violation, Option<Coverage>)],
     tier: Tier,
-    hard_limits: &BTreeMap<String, f64>,
 ) -> CheckOutcome {
     if pairs.is_empty() {
         return CheckOutcome::Clean;
@@ -75,7 +85,7 @@ pub(crate) fn classify_check_outcome(
         // `Baseline::classify` treats a NaN as `Regressed` rather than a
         // magnitude. A NaN has no meaningful distance from the ceiling.
         if tier == Tier::Soft
-            && let Some(&hard) = hard_limits.get(v.metric)
+            && let Some(hard) = v.hard_limit
             && breaches_limit(v.value, hard, v.lower_is_worse)
         {
             has_hard_breach = true;

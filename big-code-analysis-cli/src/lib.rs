@@ -58,6 +58,8 @@ mod metric_diff;
 mod path_io;
 mod provenance;
 mod qualified_name;
+mod threshold_lang;
+mod threshold_soft;
 mod threshold_suggestion;
 mod thresholds;
 mod vcs_command;
@@ -94,9 +96,10 @@ use formats::{JitFormat, MetricsFormat, ReportFormat, TrendFormat, VcsFormat};
 use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
 use metric_diff::DiffSide;
+use threshold_lang::LanguageThresholds;
 use thresholds::{
-    ParsedThresholds, ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold,
-    parse_fail_above, split_thresholds_table,
+    ParsedThresholds, ThresholdConfig, Violation, parse_cli_threshold, parse_fail_above,
+    split_thresholds_table,
 };
 
 use big_code_analysis::LANG;
@@ -178,9 +181,11 @@ struct Config {
     report_hotspot_tx: Option<crossbeam::channel::Sender<(PathBuf, f64)>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
-    /// Pre-resolved thresholds for `Action::Check`. `None` for every
+    /// Pre-resolved thresholds for `Action::Check`: the global set plus
+    /// one fully resolved set per language carrying a
+    /// `[thresholds.lang.<slug>]` override (#1141). `None` for every
     /// other action.
-    threshold_set: Option<Arc<ThresholdSet>>,
+    thresholds: Option<Arc<LanguageThresholds>>,
     /// Sender for streaming [`Violation`] records when running `check`.
     check_tx: Option<crossbeam::channel::Sender<Violation>>,
     /// Sender for streaming per-file suppression-marker batches when
@@ -334,7 +339,7 @@ impl Config {
             markdown_tx: None,
             report_hotspot_tx: None,
             strip_prefix: String::new(),
-            threshold_set: None,
+            thresholds: None,
             check_tx: None,
             exemptions_tx: None,
             files_dispatched: None,

@@ -27,6 +27,7 @@ use serde::Deserialize;
 use crate::baseline::Coverage;
 use crate::format_util::MetricScalar;
 use crate::qualified_name::qualified_symbol;
+use crate::threshold_soft::{SOFT_SUBTABLE_KEY, SoftLimit, parse_soft_value};
 
 /// The space kind each metric's threshold gates (issue #969) — owned by
 /// the library catalog so the CLI gate and the Python `to_sarif` binding
@@ -291,106 +292,8 @@ pub(crate) struct ThresholdConfig {
     pub(crate) thresholds: BTreeMap<String, toml::Value>,
 }
 
-/// Reserved key inside `[thresholds]` that introduces the soft-tier
-/// sub-table (`[thresholds.soft]`). Every other key in the table is a
-/// hard-limit metric name. No metric is named `soft`, so the reservation
-/// never collides with a real threshold.
-pub(crate) const SOFT_SUBTABLE_KEY: &str = "soft";
-
-/// One soft-tier limit, before resolution against the hard tier.
-///
-/// `[thresholds.soft]` values are either a plain number (an absolute soft
-/// limit) or a `"<ratio>x"` string (scale the metric's hard limit by
-/// `ratio`). The scale form is resolved lazily because it needs the
-/// merged hard limit, which is only known after the manifest and
-/// `--config` layers combine — see [`SoftLimit::resolve`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum SoftLimit {
-    /// An explicit soft limit, used as-is.
-    Absolute(f64),
-    /// A factor in `(0, 1]` applied to the metric's hard limit.
-    Scale(f64),
-}
-
-impl SoftLimit {
-    /// Resolve to a concrete limit. `Absolute` ignores `hard`; `Scale`
-    /// multiplies the metric's hard limit, erroring when no hard limit
-    /// exists for the metric to scale (a scale factor relative to
-    /// nothing is meaningless).
-    pub(crate) fn resolve(self, name: &str, hard: Option<f64>) -> Result<f64, String> {
-        match self {
-            Self::Absolute(value) => Ok(value),
-            Self::Scale(factor) => {
-                let base = hard.ok_or_else(|| {
-                    format!(
-                        "[thresholds.soft] {name:?} uses scale-relative syntax but no \
-                         hard [thresholds] limit exists for {name:?} to scale; give it an \
-                         absolute soft limit or add a hard limit first"
-                    )
-                })?;
-                Ok(scale_threshold(base, factor))
-            }
-        }
-    }
-}
-
-/// Significant figures retained when scaling a threshold by a ratio
-/// (`--headroom` or a `[thresholds.soft]` `"<ratio>x"` factor). Trims
-/// float-multiplication artifacts (e.g. `7 * 0.95 == 6.6499999999999995`)
-/// to a readable `6.65` while preserving full precision for the largest
-/// thresholds seen in practice (`halstead.effort`, on the order of
-/// `50000`). At 6 figures the rounding error is far below any metric's
-/// granularity, so the offender set is identical to the un-rounded
-/// product. This matches the `{:.6g}` rounding the now-removed
-/// `bca-self-scan-headroom.py` helper used (#373), so soft-gate offender
-/// lines render byte-for-byte the same whether the band came from
-/// `--headroom` or a per-metric scale factor.
-const HEADROOM_SIG_FIGS: i32 = 6;
-
-/// Whether `ratio` is a valid soft-tier scaling factor: the half-open
-/// interval `(0, 1]`. `1.0` is the no-op identity (parity with the hard
-/// gate); a factor `> 1` would make the soft tier *looser* than the hard
-/// gate, which is never the early-warning intent; `0`, negatives, and
-/// `NaN` (which fails both comparisons) are usage errors. Shared by the
-/// `--headroom` scalar (CLI and `bca.toml`) and the `[thresholds.soft]`
-/// `"<ratio>x"` form so the accepted range is defined in exactly one
-/// place; callers compose their own context-specific error message.
-pub(crate) fn is_valid_scale_ratio(ratio: f64) -> bool {
-    0.0 < ratio && ratio <= 1.0
-}
-
-/// Scale a threshold `limit` by `ratio`, rounding to
-/// [`HEADROOM_SIG_FIGS`] significant figures. `ratio` is assumed already
-/// validated (see [`is_valid_scale_ratio`]) to lie in `(0, 1]`. Shared
-/// by the `--headroom` scalar path and the `[thresholds.soft]`
-/// scale-relative form so both round identically.
-pub(crate) fn scale_threshold(limit: f64, ratio: f64) -> f64 {
-    let scaled = limit * ratio;
-    // `log10(0)` is `-inf`; short-circuit the degenerate inputs so the
-    // magnitude maths below only sees finite, non-zero values.
-    if scaled == 0.0 || !scaled.is_finite() {
-        return scaled;
-    }
-    // `log10` of a finite, non-zero f64 lies in roughly [-323, 308], so
-    // its floor always fits an i32 — the truncating cast cannot lose
-    // information here.
-    #[allow(clippy::cast_possible_truncation)]
-    let magnitude = scaled.abs().log10().floor() as i32;
-    let decimals = (HEADROOM_SIG_FIGS - 1) - magnitude;
-    let factor = 10f64.powi(decimals);
-    // For an absurdly tiny limit the sig-fig `factor` overflows to
-    // infinity, and `scaled * factor / factor` would be NaN. No real
-    // metric threshold is subnormal, but guard it so the function is
-    // total: such a value is already far below any rounding granularity,
-    // so return it unrounded rather than poisoning the threshold set
-    // with NaN.
-    if !factor.is_finite() {
-        return scaled;
-    }
-    (scaled * factor).round() / factor
-}
-
-/// The hard and soft layers extracted from one `[thresholds]` table.
+/// The hard, soft, and per-language layers extracted from one
+/// `[thresholds]` table.
 #[derive(Debug, Default)]
 pub(crate) struct ParsedThresholds {
     /// Scalar `metric = limit` entries (the hard tier).
@@ -398,29 +301,45 @@ pub(crate) struct ParsedThresholds {
     /// `[thresholds.soft]` overrides, unresolved (scale factors still
     /// relative to the hard tier).
     pub(crate) soft: BTreeMap<String, SoftLimit>,
+    /// `[thresholds.lang.<slug>]` per-metric overrides, keyed by the
+    /// canonical language slug
+    /// ([`LANG::name`](big_code_analysis::LANG::name)). Each inner map
+    /// holds only the metrics that language overrides; the rest are
+    /// inherited from [`Self::hard`] at resolution time. See
+    /// [`crate::threshold_lang`].
+    pub(crate) lang: BTreeMap<&'static str, BTreeMap<String, f64>>,
 }
 
-/// Split a raw `[thresholds]` table into its hard scalar limits and the
-/// nested `[thresholds.soft]` overrides. Hard values must be numbers;
-/// the `soft` key must be a sub-table whose values are numbers or
-/// `"<ratio>x"` scale strings. Any other shape is a config error —
-/// callers `die` on `Err` so a malformed table never silently degrades
-/// into a missing limit.
+/// Split a raw `[thresholds]` table into its hard scalar limits, the
+/// nested `[thresholds.soft]` overrides, and the per-language
+/// `[thresholds.lang.<slug>]` tables. Hard values must be numbers; the
+/// `soft` key must be a sub-table whose values are numbers or
+/// `"<ratio>x"` scale strings; the `lang` key must be a sub-table of
+/// per-language sub-tables of numbers. Any other shape is a config
+/// error — callers `die` on `Err` so a malformed table never silently
+/// degrades into a missing limit.
 pub(crate) fn split_thresholds_table(
     raw: &BTreeMap<String, toml::Value>,
 ) -> Result<ParsedThresholds, String> {
     let mut out = ParsedThresholds::default();
     for (key, value) in raw {
-        if key == SOFT_SUBTABLE_KEY {
-            let table = value.as_table().ok_or_else(|| {
-                "[thresholds.soft] must be a table of `metric = <number|\"ratiox\">` entries"
-                    .to_string()
-            })?;
-            for (name, sub) in table {
-                out.soft.insert(name.clone(), parse_soft_value(name, sub)?);
+        match key.as_str() {
+            SOFT_SUBTABLE_KEY => {
+                let table = value.as_table().ok_or_else(|| {
+                    "[thresholds.soft] must be a table of `metric = <number|\"ratiox\">` entries"
+                        .to_string()
+                })?;
+                for (name, sub) in table {
+                    out.soft.insert(name.clone(), parse_soft_value(name, sub)?);
+                }
             }
-        } else {
-            out.hard.insert(key.clone(), threshold_scalar(key, value)?);
+            crate::threshold_lang::LANG_SUBTABLE_KEY => {
+                out.lang = crate::threshold_lang::parse_language_tables(value)?;
+            }
+            _ => {
+                out.hard
+                    .insert(key.clone(), threshold_scalar("[thresholds]", key, value)?);
+            }
         }
     }
     Ok(out)
@@ -428,58 +347,23 @@ pub(crate) fn split_thresholds_table(
 
 /// Parse a hard-tier scalar limit. Accepts TOML integers and floats;
 /// `i64 -> f64` is exact for the small limits metrics carry in practice.
+/// `table` names the enclosing table for the error message, so a
+/// per-language override reports `[thresholds.lang.c]` rather than
+/// blaming the global table.
 #[allow(clippy::cast_precision_loss)]
-fn threshold_scalar(name: &str, value: &toml::Value) -> Result<f64, String> {
+pub(crate) fn threshold_scalar(
+    table: &str,
+    name: &str,
+    value: &toml::Value,
+) -> Result<f64, String> {
     match value {
         toml::Value::Integer(i) => Ok(*i as f64),
         toml::Value::Float(f) => Ok(*f),
         other => Err(format!(
-            "[thresholds] {name:?}: expected a number, got {}",
+            "{table} {name:?}: expected a number, got {}",
             other.type_str()
         )),
     }
-}
-
-/// Parse one `[thresholds.soft]` value: a number (absolute) or a
-/// `"<ratio>x"` scale string.
-#[allow(clippy::cast_precision_loss)]
-fn parse_soft_value(name: &str, value: &toml::Value) -> Result<SoftLimit, String> {
-    match value {
-        toml::Value::Integer(i) => Ok(SoftLimit::Absolute(*i as f64)),
-        toml::Value::Float(f) => Ok(SoftLimit::Absolute(*f)),
-        toml::Value::String(s) => parse_scale_str(name, s),
-        other => Err(format!(
-            "[thresholds.soft] {name:?}: expected a number or a \"<ratio>x\" scale \
-             string (e.g. \"0.95x\"), got {}",
-            other.type_str()
-        )),
-    }
-}
-
-/// Parse a `"<ratio>x"` scale string (case-insensitive `x` suffix). The
-/// factor must lie in `(0, 1]`, matching `--headroom`: a soft tier looser
-/// than the hard tier is never the intent (the soft tier is an
-/// early-warning band that fires *before* the hard gate).
-fn parse_scale_str(name: &str, s: &str) -> Result<SoftLimit, String> {
-    let trimmed = s.trim();
-    let factor_str = trimmed
-        .strip_suffix('x')
-        .or_else(|| trimmed.strip_suffix('X'))
-        .ok_or_else(|| {
-            format!(
-                "[thresholds.soft] {name:?}: scale string {s:?} must end in `x` (e.g. \"0.95x\")"
-            )
-        })?;
-    let factor: f64 = factor_str
-        .trim()
-        .parse()
-        .map_err(|e| format!("[thresholds.soft] {name:?}: invalid scale factor in {s:?}: {e}"))?;
-    if !is_valid_scale_ratio(factor) {
-        return Err(format!(
-            "[thresholds.soft] {name:?}: scale factor must be in (0, 1]; got {factor}"
-        ));
-    }
-    Ok(SoftLimit::Scale(factor))
 }
 
 /// One offending `(function, metric)` pair.
@@ -511,8 +395,23 @@ pub(crate) struct Violation {
     pub(crate) metric: &'static str,
     /// Observed metric value.
     pub(crate) value: f64,
-    /// Configured limit.
+    /// Configured limit for the tier the gate ran at.
     pub(crate) limit: f64,
+    /// The hard-tier ceiling for this metric *under the table that
+    /// gated this file's language* — equal to [`Self::limit`] at the
+    /// hard tier, the un-scaled ceiling at the soft tier, and `None`
+    /// for a metric that has a `[thresholds.soft]` limit but no hard
+    /// one (there is no ceiling to breach).
+    ///
+    /// Stamped here rather than looked up afterwards because the
+    /// ceiling is per-language once `[thresholds.lang.<slug>]`
+    /// overrides exist (#1141), and by classification time the
+    /// offender is all that is left of the file that produced it.
+    /// Drives the [`CheckOutcome::HardBreach`] escalation in
+    /// `classify_check_outcome`.
+    ///
+    /// [`CheckOutcome::HardBreach`]: crate::CheckOutcome::HardBreach
+    pub(crate) hard_limit: Option<f64>,
     /// `true` when this metric is lower-is-worse (the `mi.*`
     /// Maintainability Index family): the value breached by falling
     /// *below* the limit, and [`Violation::ratio`] inverts to
@@ -703,6 +602,11 @@ fn format_regressed_tag(recorded: f64, value: f64) -> String {
 struct ResolvedThreshold {
     extractor: &'static MetricExtractor,
     limit: f64,
+    /// The hard-tier ceiling for this metric, carried alongside the
+    /// tier-resolved `limit` so each emitted [`Violation`] can be
+    /// stamped with the ceiling that applies to *its* language (#1141).
+    /// `None` when the metric has a soft limit but no hard one.
+    hard_limit: Option<f64>,
     /// `true` for the lower-is-worse `mi.*` family: a value *below* the
     /// limit is the violation, and the breach ratio inverts to
     /// `limit / value`.
@@ -745,10 +649,26 @@ pub(crate) struct ThresholdSet {
 }
 
 impl ThresholdSet {
-    /// Build from a `metric=limit` map (CLI flags merged on top of TOML).
-    /// Unknown metric names produce an error listing the valid set, rather
-    /// than being silently ignored.
+    /// Build a hard-tier set, where every limit doubles as its own
+    /// ceiling. Test-only shorthand for [`Self::build_tiered`]: the
+    /// resolver always knows both layers and passes them separately.
+    #[cfg(test)]
     pub(crate) fn build(raw: &BTreeMap<String, f64>) -> Result<Self, String> {
+        Self::build_tiered(raw, raw)
+    }
+
+    /// Build from the tier-resolved limits plus the un-scaled hard-tier
+    /// ceilings, so each emitted [`Violation`] carries both (#385).
+    /// Unknown metric names produce an error listing the valid set,
+    /// rather than being silently ignored.
+    ///
+    /// A metric absent from `hard` — a `[thresholds.soft]` absolute
+    /// limit with no hard counterpart — gets no ceiling, so breaching it
+    /// stays a soft-band encroachment rather than escalating to exit 5.
+    pub(crate) fn build_tiered(
+        raw: &BTreeMap<String, f64>,
+        hard: &BTreeMap<String, f64>,
+    ) -> Result<Self, String> {
         let mut entries = Vec::with_capacity(raw.len());
         for (name, limit) in raw {
             // Accept the bare `diff --metric` spelling as an alias for the
@@ -766,10 +686,42 @@ impl ThresholdSet {
                 )
             })?;
             validate_threshold_value(*limit, name)?;
+            let lower_is_worse = metric_is_lower_is_worse(extractor.name);
+            let hard_limit = hard.get(name).copied();
+            // A soft limit looser than its own hard ceiling inverts the
+            // tier: the early-warning gate stays quiet while the hard
+            // gate fires, and any offender that *does* trip the soft band
+            // exceeds the ceiling too and escalates straight to exit 5.
+            // `parse_scale_str` already rejects the equivalent
+            // `"<ratio>x"` form (a factor above 1); this closes the
+            // absolute form, which per-language hard overrides make easy
+            // to hit by accident (#1141).
+            //
+            // Higher-is-worse metrics only. The lower-is-worse `mi.*`
+            // family is a *floor*, so tightening it means raising it —
+            // but `resolve_tier`'s blanket ratio multiplies every limit,
+            // which lowers an `mi.*` floor and therefore already emits a
+            // soft tier looser than its hard one for any pre-existing
+            // `[thresholds] mi.original = N` plus `--tier=soft`. That is
+            // a separate defect in the scaling direction (#1166);
+            // rejecting it here would fail those runs rather than fix
+            // them. Drop the guard once #1166 lands.
+            if !lower_is_worse
+                && let Some(hard) = hard_limit
+                && breaches_limit(*limit, hard, lower_is_worse)
+            {
+                return Err(format!(
+                    "[thresholds.soft] {name:?}: soft limit {} is looser than the hard \
+                     limit {}; the soft tier must fire before the hard gate, not after it",
+                    MetricScalar(*limit),
+                    MetricScalar(hard),
+                ));
+            }
             entries.push(ResolvedThreshold {
                 extractor,
                 limit: *limit,
-                lower_is_worse: metric_is_lower_is_worse(extractor.name),
+                hard_limit,
+                lower_is_worse,
                 scope: metric_scope(extractor.name),
             });
         }
@@ -885,6 +837,7 @@ impl ThresholdSet {
                 let ResolvedThreshold {
                     extractor,
                     limit,
+                    hard_limit,
                     lower_is_worse,
                     scope,
                 } = entry;
@@ -932,6 +885,7 @@ impl ThresholdSet {
                     metric: extractor.name,
                     value,
                     limit: *limit,
+                    hard_limit: *hard_limit,
                     lower_is_worse: *lower_is_worse,
                     body_hash: None,
                     suppressed,

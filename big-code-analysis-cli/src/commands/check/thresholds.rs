@@ -1,5 +1,7 @@
 //! `bca check` threshold-layer resolution (manifest, --config, tier, --threshold).
 
+use std::collections::BTreeSet;
+
 use super::super::*;
 use super::*;
 
@@ -12,14 +14,15 @@ pub(crate) const DEFAULT_SOFT_HEADROOM: f64 = 0.95;
 
 /// Resolved threshold layers handed back to [`run_check`].
 ///
-/// `set` is the gate the walker compares against (the requested tier's
-/// limits). `hard_limits` is the hard-tier limit per metric — equal to
-/// `set` at the hard tier, but the *un-scaled* ceilings at the soft
-/// tier, so [`classify_check_outcome`] can tell a soft-band
-/// encroachment apart from a true hard breach (#385).
+/// `thresholds` is the gate the walker compares against: the global set
+/// plus one fully resolved set per `[thresholds.lang.<slug>]` language
+/// (#1141). Each resolved threshold carries both the requested tier's
+/// limit and that language's *un-scaled* hard ceiling, so
+/// [`classify_check_outcome`] can tell a soft-band encroachment apart
+/// from a true hard breach (#385) without re-deriving which table
+/// applied.
 pub(crate) struct ResolvedThresholds {
-    pub(crate) set: Arc<ThresholdSet>,
-    pub(crate) hard_limits: BTreeMap<String, f64>,
+    pub(crate) thresholds: Arc<LanguageThresholds>,
     /// Tier/headroom the gate resolved to (issue #486). Stamped into the
     /// baseline on `--write-baseline` and compared against a loaded
     /// baseline's recorded provenance to warn on a stricter-than-baseline
@@ -96,15 +99,15 @@ pub(crate) fn resolve_check_output_format(args: &mut CheckArgs) {
 }
 
 /// Validate `--output` / `--output-format` pairing, then resolve the
-/// effective threshold set per the documented resolution order
+/// effective threshold sets per the documented resolution order
 /// (#373/#374/#375/#380): the manifest `[thresholds]` base, the
-/// `--config` file merged on top (keys win on collision), the tier
-/// resolution (hard verbatim, or soft via `[thresholds.soft]` /
-/// `--headroom`), and finally the absolute `--threshold` CLI overrides.
-/// Dies if no thresholds were configured. Also returns the un-scaled
-/// hard-tier limits per metric (#385) so the caller can tell a soft-band
-/// encroachment apart from a true hard breach. The set is wrapped in
-/// `Arc` so it can be cloned into each walker worker's `Config`.
+/// `--config` file merged on top (keys win on collision), the
+/// per-language `[thresholds.lang.<slug>]` overrides layered per metric
+/// (#1141), the tier resolution (hard verbatim, or soft via
+/// `[thresholds.soft]` / `--headroom`), and finally the absolute
+/// `--threshold` CLI overrides. Dies if no thresholds were configured.
+/// The result is wrapped in `Arc` so it can be cloned into each walker
+/// worker's `Config`.
 pub(crate) fn validate_and_build_thresholds(
     args: &mut CheckArgs,
     base_thresholds: ParsedThresholds,
@@ -117,48 +120,173 @@ pub(crate) fn validate_and_build_thresholds(
     // Layer 1: the manifest `[thresholds]` table (empty when no
     // `bca.toml` was discovered). Layer 2: `--config` merges on top,
     // its keys winning on collision, preserving every existing recipe.
-    // Both the hard and soft layers merge the same way.
-    let ParsedThresholds { mut hard, mut soft } = base_thresholds;
+    // The hard, soft, and per-language layers all merge the same way —
+    // per-language nested one level deeper, so a `--config` override of
+    // one metric for one language leaves that language's other limits
+    // alone.
+    let ParsedThresholds {
+        mut hard,
+        mut soft,
+        mut lang,
+    } = base_thresholds;
     if let Some(config) = args.config.as_deref() {
         let cfg = load_threshold_config(config);
         hard.extend(cfg.hard);
         soft.extend(cfg.soft);
+        for (slug, overrides) in cfg.lang {
+            lang.entry(slug).or_default().extend(overrides);
+        }
     }
 
     // The soft ratio (the `RATIO` in `--tier=soft=RATIO`) was already
     // validated to `(0, 1]` by `TierSpec::from_str` at parse time, so a
     // typo is a clap usage error before we ever reach here.
 
-    // Capture whether a soft table is configured before `resolve_tier`
+    // Capture whether a soft table is configured before the resolver
     // borrows `soft`, so provenance resolution (#486) matches the same
     // branch the tier resolver takes.
     let soft_table_present = !soft.is_empty();
 
-    // Layer 3: tier resolution. Produces the per-metric limits the gate
-    // compares against. Clone `hard` so the un-scaled hard-tier limits
-    // survive for #385 hard-breach detection below.
-    let mut merged = resolve_tier(tier, hard.clone(), &soft);
-
-    // Layer 4: `--threshold` CLI flags override the resolved limit for
-    // the same metric name. They are absolute — applied *after* any
-    // scaling — because a user who typed an exact limit means it, not a
-    // fraction of it. The same value also defines the hard-tier ceiling
-    // for that metric (#385): an explicit `--threshold` is the user's
-    // declared limit, replacing whatever the hard table held.
-    for (name, limit) in &args.thresholds {
-        merged.insert(name.clone(), *limit);
-        hard.insert(name.clone(), *limit);
-    }
-    let set = ThresholdSet::build(&merged).unwrap_or_else(|e| die(e));
-    if set.is_empty() {
+    let layers = SharedLayers::new(&args.thresholds, tier, &soft, &lang, &hard);
+    let thresholds = layers.resolve_all(&hard, &lang);
+    if thresholds.is_empty() {
         die(
             "no thresholds configured; pass --threshold, --config, or a bca.toml [thresholds] table",
         );
     }
+    // Legal, but worth saying out loud: with no global `[thresholds]`,
+    // every language outside the listed set is walked and gated against
+    // nothing, and reports a clean exit 0 (#1141).
+    if let Some(gated) = thresholds.languages_gated_without_a_global_table() {
+        note(format!(
+            "no global [thresholds] table: only {} {} gated; every other language \
+             passes unconditionally",
+            gated.join(", "),
+            if gated.len() == 1 { "is" } else { "are" },
+        ));
+    }
     ResolvedThresholds {
-        set: Arc::new(set),
-        hard_limits: hard,
+        thresholds: Arc::new(thresholds),
         provenance: resolve_provenance(tier, soft_table_present),
+    }
+}
+
+/// The per-metric override tables, keyed by canonical language slug.
+type LanguageOverrides = BTreeMap<&'static str, BTreeMap<String, f64>>;
+
+/// The threshold layers every table in one run shares, separated from
+/// the per-table hard limits they are applied to.
+///
+/// Grouping them is not just parameter hygiene: it is what makes "the
+/// soft tier is derived per language" checkable at a glance. The soft
+/// overrides and the CLI layer are the *same* for every table; only
+/// `hard` differs, and that is precisely why each language's soft band
+/// comes out scaled from its own limit.
+struct SharedLayers<'a> {
+    /// Absolute `--threshold` overrides, applied last to every table.
+    cli: &'a [(String, f64)],
+    tier: TierSpec,
+    /// The global `[thresholds.soft]` overrides, resolved afresh against
+    /// whichever hard table is being built.
+    soft: &'a BTreeMap<String, SoftLimit>,
+    /// Metrics that *some* table gives a hard limit. A scale-relative
+    /// soft entry needs a base to scale, and since #1141 that base may
+    /// live only in a `[thresholds.lang.*]` table — so a table without
+    /// one skips the entry rather than failing the whole run.
+    hard_somewhere: BTreeSet<&'a str>,
+}
+
+impl<'a> SharedLayers<'a> {
+    fn new(
+        cli: &'a [(String, f64)],
+        tier: TierSpec,
+        soft: &'a BTreeMap<String, SoftLimit>,
+        lang: &'a LanguageOverrides,
+        hard: &'a BTreeMap<String, f64>,
+    ) -> Self {
+        let mut hard_somewhere: BTreeSet<&str> = hard.keys().map(String::as_str).collect();
+        for overrides in lang.values() {
+            hard_somewhere.extend(overrides.keys().map(String::as_str));
+        }
+        Self {
+            cli,
+            tier,
+            soft,
+            hard_somewhere,
+        }
+    }
+
+    /// Resolve the global table plus one fully resolved table per
+    /// language carrying an override (#1141).
+    fn resolve_all(
+        &self,
+        hard: &BTreeMap<String, f64>,
+        lang: &LanguageOverrides,
+    ) -> LanguageThresholds {
+        let per_language = lang
+            .iter()
+            .map(|(slug, overrides)| {
+                // Per-metric override with inheritance, not wholesale
+                // replacement: start from the global hard table so a
+                // language that raises `cognitive` still gates everything
+                // else at the project limit.
+                let mut lang_hard = hard.clone();
+                lang_hard.extend(overrides.iter().map(|(k, v)| (k.clone(), *v)));
+                let context = format!("[thresholds.lang.{slug}]");
+                (*slug, self.resolve_one(lang_hard, Some(&context)))
+            })
+            .collect();
+        LanguageThresholds::new(self.resolve_one(hard.clone(), None), per_language)
+    }
+
+    /// Resolve one hard table — the global one, or a language's —
+    /// through the tier and the `--threshold` CLI layer.
+    ///
+    /// The soft tier is **derived from `hard`**, which is already this
+    /// table's resolved hard limits — so a language that loosens a limit
+    /// gets a soft band scaled from *its* limit, never from the
+    /// project-wide one. That is what keeps the soft band from sitting
+    /// above the ceiling its offenders are escalated against: were it
+    /// derived globally, every function between the project limit and
+    /// the language's own would report a hard breach (exit 5) while
+    /// sitting inside the limit configured for it. There is deliberately
+    /// no `[thresholds.lang.<slug>.soft]` syntax; the derivation needs
+    /// none.
+    ///
+    /// `--threshold` is applied last and absolutely, to the resolved
+    /// limit *and* the hard ceiling, for every table: a limit the user
+    /// typed on the command line means exactly that number, and a
+    /// per-language table must not quietly outrank it.
+    ///
+    /// `context` names the offending table in a build error, and is
+    /// `None` for the global set so its long-standing message is
+    /// unprefixed.
+    fn resolve_one(&self, mut hard: BTreeMap<String, f64>, context: Option<&str>) -> ThresholdSet {
+        // Drop a scale-relative soft entry whose metric is gated by some
+        // *other* table: this one has no limit for it to scale, and
+        // nothing to gate either. Where no table supplies a base, the
+        // entry is left in so `resolve_tier` reports the original "no
+        // hard limit exists" error rather than silently dropping a
+        // threshold (#1141).
+        let soft: BTreeMap<String, SoftLimit> = self
+            .soft
+            .iter()
+            .filter(|(name, limit)| {
+                !matches!(limit, SoftLimit::Scale(_))
+                    || hard.contains_key(name.as_str())
+                    || !self.hard_somewhere.contains(name.as_str())
+            })
+            .map(|(name, limit)| (name.clone(), *limit))
+            .collect();
+        let mut merged = resolve_tier(self.tier, hard.clone(), &soft);
+        for (name, limit) in self.cli {
+            merged.insert(name.clone(), *limit);
+            hard.insert(name.clone(), *limit);
+        }
+        ThresholdSet::build_tiered(&merged, &hard).unwrap_or_else(|e| match context {
+            Some(table) => die(format_args!("{table}: {e}")),
+            None => die(e),
+        })
     }
 }
 
