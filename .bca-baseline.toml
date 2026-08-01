@@ -72,7 +72,7 @@ path = "big-code-analysis-cli/src/commands/analyze.rs"
 qualified = "run_command_metrics"
 start_line = 88
 metric = "halstead.effort"
-value = 70299.5881450017
+value = 69608.24451083591
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/analyze.rs"
@@ -91,14 +91,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "emit_check_results"
-start_line = 544
+start_line = 552
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "filter_by_baseline"
-start_line = 355
+start_line = 363
 metric = "nargs"
 value = 8.0
 
@@ -131,23 +131,16 @@ metric = "nargs"
 value = 8.0
 
 [[entry]]
-path = "big-code-analysis-cli/src/commands/diff_cmd.rs"
-qualified = "compute_since_diff"
-start_line = 113
-metric = "nexits"
-value = 5.0
-
-[[entry]]
 path = "big-code-analysis-cli/src/commands/init.rs"
 qualified = "run_command_init"
-start_line = 184
+start_line = 186
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/init.rs"
 qualified = "scaffold_baseline"
-start_line = 116
+start_line = 118
 metric = "nargs"
 value = 7.0
 
@@ -156,7 +149,7 @@ path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 start_line = 5
 metric = "halstead.effort"
-value = 65869.50535980989
+value = 63112.954051595756
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -188,13 +181,6 @@ value = 6.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
-qualified = "dispatch_exemptions"
-start_line = 580
-metric = "nexits"
-value = 5.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_metrics"
 start_line = 231
 metric = "nargs"
@@ -203,7 +189,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_ops"
-start_line = 292
+start_line = 290
 metric = "nargs"
 value = 8.0
 
@@ -266,7 +252,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 655
+start_line = 678
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -301,7 +287,7 @@ value = 8.0
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff::from_sets"
-start_line = 221
+start_line = 238
 metric = "nargs"
 value = 8.0
 
@@ -328,8 +314,15 @@ value = 66737.04848699087
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.ploc"
+value = 526.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
-start_line = 790
+start_line = 851
 metric = "halstead.effort"
 value = 56531.05676283881
 
@@ -575,20 +568,6 @@ value = 66515.67234293568
 path = "src/c_macro.rs"
 qualified = "step_normal"
 start_line = 119
-metric = "nexits"
-value = 6.0
-
-[[entry]]
-path = "src/concurrent_files.rs"
-qualified = "ConcurrentRunner<Config>::run"
-start_line = 360
-metric = "halstead.effort"
-value = 60410.49600898003
-
-[[entry]]
-path = "src/concurrent_files.rs"
-qualified = "ConcurrentRunner<Config>::run"
-start_line = 360
 metric = "nexits"
 value = 6.0
 
