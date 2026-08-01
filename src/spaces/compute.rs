@@ -261,7 +261,7 @@ fn compute_per_node<'a, T: ParserTrait>(
         T::Tokens::compute(node, &mut last.metrics.tokens, in_comment);
     }
     if selected.contains(Metric::Nargs) {
-        T::NArgs::compute(node, ancestors, &mut last.metrics.nargs);
+        T::NArgs::compute(node, code, ancestors, &mut last.metrics.nargs);
     }
     if selected.contains(Metric::Nexits) {
         T::Exit::compute(node, code, &mut last.metrics.nexits);
