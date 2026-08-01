@@ -27,6 +27,11 @@ exclude = [
   "tree-sitter-mozjs",
   "tree-sitter-preproc",
   "tree-sitter-tcl",
+  # Claude Code worktrees live here. Excluding the directory stops this
+  # workspace adopting a crate that belongs to a worktree's own checkout
+  # (#1145); each excluded crate also carries its own `[workspace]` table so
+  # the same protection holds for a worktree created outside the repository.
+  ".claude/worktrees",
 ]
 
 [workspace.package]

@@ -62,7 +62,8 @@ and `cargo run -p big-code-analysis-web --`.
   `check-snapshot-anchors.py`, `check-manpage-assets.py`,
   `check-grammar-marker-sync.py`, `check-enums-codegen-drift.sh`,
   `check-grammar-crate.py`, `check-grammars-crates.sh`,
-  `verify-name-only-churn.py`, and each gate's `*-test.py` self-tests.
+  `check-excluded-manifests.py`, `verify-name-only-churn.py`, and each
+  gate's `*-test.py` self-tests.
   Each resolves the repository root from its own location
   (`Path(__file__).resolve().parents[1]`) rather than the cwd, so it
   runs correctly from anywhere; callers invoke them as `utils/<name>`.

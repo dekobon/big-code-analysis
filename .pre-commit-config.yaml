@@ -118,6 +118,16 @@ repos:
         entry: python3 -m unittest -q utils/check-versions-test.py
         pass_filenames: false
 
+      # Self-tests for the workspace-exclusion gate. Runs on edits to
+      # the script or its test file (the unit tests import the module,
+      # so a logic change there must re-run them).
+      - id: check-excluded-manifests-test
+        name: check-excluded-manifests-test
+        language: system
+        files: '^utils/check-excluded-manifests(-test)?\.py$'
+        entry: python3 -m unittest -q utils/check-excluded-manifests-test.py
+        pass_filenames: false
+
       # Sync-test for check-grammar-crate.py's EXTENSIONS table against
       # src/langs.rs (#869). Re-runs when the script, its test, or the
       # source-of-truth language table changes.
@@ -191,6 +201,17 @@ repos:
         language: system
         files: '(Cargo\.toml|/Cargo\.toml|/bindings/rust/README\.md|^README\.md|^STABILITY\.md|big-code-analysis-book/src/library/(quick-start|cargo-features|stability)\.md|big-code-analysis-book/src/recipes/ci\.md|utils/check-versions\.py)$'
         entry: python3 utils/check-versions.py
+        pass_filenames: false
+
+      # Workspace-exclusion gate — every crate in the root
+      # `[workspace] exclude` array must root its own workspace, or
+      # cargo's upward search escapes a nested git worktree and
+      # resolves against the main checkout. See #1145.
+      - id: check-excluded-manifests
+        name: check-excluded-manifests
+        language: system
+        files: '(^Cargo\.toml|^(enums|tree-sitter-[a-z]+)/Cargo\.toml|^utils/check-excluded-manifests\.py)$'
+        entry: python3 utils/check-excluded-manifests.py
         pass_filenames: false
 
       # Man-page packaging gate — every man/bca*.1 page (the top-level
