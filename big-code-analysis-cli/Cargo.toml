@@ -27,11 +27,11 @@ big-code-analysis = { path = "..", version = "=2.1.0", default-features = false,
   "vcs",
 ] }
 ciborium = "^0.2"
-# The walk's result channels (#1119). `crossbeam::channel::Sender` is
-# `Sync`, so the worker pool shares one sender per channel directly;
-# `std::sync::mpsc::Sender` is `Send`-only and had to be wrapped in a
-# `Mutex` that every worker locked once per file. Same pin as the
-# library's `ConcurrentRunner`.
+# The walk's result channels (#1119): `Sync` senders the worker pool
+# shares without a `Mutex`. `std::sync::mpsc` would do as well — its
+# `Sender` has been `Sync` since Rust 1.72 — but the library's
+# `ConcurrentRunner` already routes its job queue through crossbeam, so
+# the workspace carries one channel implementation. Same pin.
 crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
 # `bca vcs` writes a flat CSV ranking (issue #328); the workspace pin is
 # shared with the library's CSV writer.

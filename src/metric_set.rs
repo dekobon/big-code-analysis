@@ -139,9 +139,16 @@ impl Metric {
 
     /// Every metric except [`Metric::Tokens`], in declaration order.
     ///
-    /// `tokens` is the one metric with no configurable threshold, so it
-    /// is the one metric that cannot be named in a suppression marker
-    /// (`bca: suppress(tokens)` is rejected). This is the single source
+    /// `tokens` is the one metric that cannot be named in a suppression
+    /// marker (`bca: suppress(tokens)` is rejected). It *is* a
+    /// configurable threshold — `bca check --threshold tokens=N` gates
+    /// on it — so the exclusion is about suppressibility alone. Reading
+    /// it as "no threshold either" is the trap #1113 had to work
+    /// around: deriving a metric selection from
+    /// [`crate::threshold_metric_for_name`], which returns `None` here,
+    /// silently leaves `tokens` uncomputed and disarms that gate.
+    ///
+    /// This is the single source
     /// of truth for the suppressible vocabulary: the suppression
     /// parser's "known metrics" hint and the threshold-name resolver
     /// both derive from it rather than hardcoding the list.

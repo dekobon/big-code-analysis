@@ -197,21 +197,22 @@ fn send_file<T: 'static + Send + Sync>(
         .map_err(|e| ConcurrentErrors::Sender(Box::new(e)))
 }
 
-/// Producer body: dispatch each resolved file in `files_data.paths`
-/// to the consumer pool.
+/// Dispatch each resolved file in `files_data.paths` to the consumer
+/// pool. Runs on the calling thread since #1114; before that it was the
+/// body of a dedicated producer thread.
 ///
 /// `paths` is a **terminal file list** — already resolved, anchored,
 /// and filtered by the caller (the `big-code-analysis-cli` walk seam
 /// resolves it via its gitignore-aware `expand_seed_paths`). This
 /// function therefore performs no directory traversal and no glob
-/// filtering of its own: it skips entries that are missing or are not
-/// regular files (warning to stderr) and sends the rest. For the
-/// `big-code-analysis-cli` caller this skip is a safety net only —
-/// `expand_seed_paths` already yields existing regular files — but it
-/// keeps this public entry point robust for a direct library caller
-/// that hands in an arbitrary path. Re-walking or re-filtering here
-/// would re-introduce the emitted-path-form dependence that #488/#489
-/// removed (see #495).
+/// filtering of its own. When `verify_paths` is set (the default) it
+/// additionally skips entries that are missing or are not regular files,
+/// warning to stderr; that skip is a safety net for a direct library
+/// caller handing in an arbitrary path, and a caller whose own traversal
+/// already classified every entry turns it off via
+/// [`ConcurrentRunner::without_path_verification`]. Re-walking or
+/// re-filtering here would re-introduce the emitted-path-form dependence
+/// that #488/#489 removed (see #495).
 fn explore<Config: 'static + Send + Sync>(
     files_data: FilesData,
     cfg: &Arc<Config>,
