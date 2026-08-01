@@ -22,6 +22,7 @@
 //! `byte_growth_is_affine` unit test below pins, rather than leaving it
 //! a convention someone has to remember.
 
+use std::fmt::Write as _;
 use std::hint::black_box;
 
 use big_code_analysis::{Ast, CodeMetrics, LANG, Metric, MetricsError, MetricsOptions, Ops};
@@ -293,6 +294,45 @@ pub fn wide_attributed_fns(width: usize) -> String {
     format!("{}\n", "#[inline] fn f() {} ".repeat(width))
 }
 
+/// Rust: `fn f000000() { let v000000 = 000000; } fn f000001() { … }`,
+/// all at file scope.
+///
+/// The width shape for the space-merge arm. Each function opens its own
+/// `FuncSpace`, so the size parameter is the number of *direct children*
+/// the file's `Unit` space accumulates — the `C` in the `O(C x U)` that
+/// #1106 was filed about, where `U` is the parent's merged Halstead
+/// vocabulary.
+///
+/// Every identifier and literal is unique to its function, which is what
+/// makes `U` grow with `C` rather than saturate: `HalsteadMaps::operands`
+/// is keyed by source text, so a file of N identical functions has a
+/// vocabulary of constant size and would keep the merge arm linear no
+/// matter how it is written.
+///
+/// Six-digit zero padding, not the bare index, so the bytes per function
+/// stay constant up to a million siblings. `byte_growth_is_affine` does
+/// **not** cover this: it samples 10 / 20 / 30, where the unpadded form
+/// is affine too. What the padding buys is affine growth across the 4-
+/// to 5-digit boundary, which this probe's own ladder crosses at 10 000
+/// — unpadded, 4 000 / 8 000 / 16 000 render 128 670 / 260 670 / 542 670
+/// bytes and inflate the fitted exponent by ~0.06 with nothing in
+/// `mod tests` able to see it.
+///
+/// Rust permits leading zeros in a decimal literal, so `000000` is an
+/// ordinary `integer_literal` and not an octal escape or a parse error.
+#[must_use]
+pub fn wide_distinct_fns(width: usize) -> String {
+    let mut source = String::new();
+    for i in 0..width {
+        // `fmt::Write for String` never returns `Err`, so this is the
+        // one shape whose generator has a `Result` to discard. The
+        // alternatives clippy leaves are `format!`-into-`push_str` and
+        // `map(format!).collect()`, and it rejects both.
+        let _ = writeln!(source, "fn f{i:06}() {{ let v{i:06} = {i:06}; }}");
+    }
+    source
+}
+
 /// Rust: `#[cfg(all(all(… test …)))] fn gone() {}` plus one retained
 /// function.
 ///
@@ -483,6 +523,27 @@ const LINEAR_DEPTHS: [usize; 3] = [1_000, 2_000, 4_000];
 /// cheapest cells in the set (~0.2 ms), so fixed per-analysis cost is
 /// a rounding error in the fit rather than a term flattening it.
 const LINEAR_WIDTHS: [usize; 3] = [500, 1_000, 2_000];
+
+/// Sibling counts for a width probe whose quadratic term is a *second*
+/// pass over data the linear walk already touched, rather than extra
+/// work per node.
+///
+/// Eight times [`LINEAR_WIDTHS`], and deliberately not harmonised down
+/// to it. #1106's redundant pass costs one map visit per (child,
+/// vocabulary-entry) pair while the walk it rides on costs a fixed
+/// amount per token, so the ratio between the two terms is set by the
+/// sibling count alone — enriching each function's vocabulary raises
+/// both terms together and does not move it. On [`LINEAR_WIDTHS`] the
+/// regression fits 1.37-1.39 against a 1.07-1.09 baseline: a real 2.1x
+/// slowdown at 2 000 siblings that the bound would have passed. Here
+/// the gate reads 1.09 clean and 2.17 regressed.
+///
+/// The taller ladder costs ~0.8 s of a `--gate` run over nine rounds
+/// and a 624 KB largest input. A reintroduced quadratic pays ~6 s
+/// there, and its slowest single walk — 0.5 s — is well inside
+/// `scaling::MAX_CELL_WALK`, so the gate reports the exponent rather
+/// than abandoning the probe as over budget.
+const SPACE_MERGE_WIDTHS: [usize; 3] = [4_000, 8_000, 16_000];
 
 /// Bound for a probe expected to be linear in its size parameter.
 ///
@@ -976,7 +1037,7 @@ pub const PROBES: &[Probe] = &[
         render: wide_attributed_fns,
         sizes: LINEAR_WIDTHS,
         max_exponent: LINEAR_BOUND,
-        rationale: "#1100 on the other axis, and the only probe on it. \
+        rationale: "#1100 on the other axis, and the first probe on it. \
                     The fix the issue originally proposed — read the \
                     attribute run forward from the parent, always — is \
                     `O(children)` per item, so on a flat file it is \
@@ -1009,6 +1070,32 @@ pub const PROBES: &[Probe] = &[
                     only probe that grows one *attribute* rather than \
                     the code around it, so `nom/nested-fn` is not a \
                     control for it; the bound alone is the guard.",
+    },
+    Probe {
+        name: "halstead/wide-distinct-fn",
+        lang: LANG::Rust,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: false,
+            selection: &[Metric::Halstead],
+            reading: |m| m.halstead.unique_operands(),
+        },
+        render: wide_distinct_fns,
+        sizes: SPACE_MERGE_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1106: popping a child space merged its Halstead maps \
+                    into the parent's and then re-derived the parent's \
+                    `Stats` from them — three map traversals, one of them \
+                    over the parent's whole accumulated operand \
+                    vocabulary, once per child, for a result the parent's \
+                    own finalize overwrites. That is \
+                    `O(children x vocabulary)`, quadratic in a file's \
+                    function count. Restoring the per-child pass takes \
+                    this probe from 1.09 to 2.17 — the gate's only \
+                    failure — and its 16 000-sibling cell from 45.6 ms to \
+                    507.4 ms. A depth probe cannot see it whatever it \
+                    nests: the cost is per popped child, and a nesting \
+                    shape has one child per space at every depth.",
     },
 ];
 

@@ -10,8 +10,16 @@ use std::hash::BuildHasherDefault;
 
 use super::*;
 
+/// Derives the two metrics that read from a space's *complete* state:
+/// Halstead's `Stats` from the accumulated occurrence maps, and MI from
+/// the resulting volume plus the space's final LOC and cyclomatic.
+///
+/// Both are single-assignment — each call overwrites the previous
+/// result rather than accumulating — so running this before a space has
+/// absorbed all of its children is wasted work, not a partial sum. Only
+/// [`finalize_state`] calls it, once per space (#1106).
 #[inline]
-fn compute_halstead_mi_and_wmc<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+fn compute_halstead_and_mi<T: ParserTrait>(state: &mut State, selected: MetricSet) {
     if selected.contains(Metric::Halstead) {
         state
             .halstead_maps
@@ -30,6 +38,19 @@ fn compute_halstead_mi_and_wmc<T: ParserTrait>(state: &mut State, selected: Metr
             &mut state.space.metrics.mi,
         );
     }
+}
+
+/// Records the space kind `wmc::Stats::merge` dispatches on, for the
+/// kinds WMC recognises, plus the cumulative cyclomatic those kinds
+/// contribute.
+///
+/// Unlike [`compute_halstead_and_mi`] this must also run on a *parent*
+/// before each child merges into it: `wmc::Stats::merge` routes the
+/// child's contribution on `self.space_kind`, which stays `Unknown`
+/// until this runs, and an `Unknown` parent silently drops every
+/// method's cyclomatic from its class WMC.
+#[inline]
+fn compute_wmc<T: ParserTrait>(state: &mut State, selected: MetricSet) {
     if selected.contains(Metric::Wmc) {
         T::Wmc::compute(
             state.space.kind,
@@ -112,16 +133,25 @@ fn compute_sum(state: &mut State, selected: MetricSet) {
     }
 }
 
-/// Runs the four per-space finalization passes (min/max, sum, Halstead +
-/// MI + WMC, averages) on a single [`State`]. Shared by both the
+/// Runs the per-space finalization passes (min/max, sum, Halstead, MI,
+/// WMC, averages) on a single [`State`]. Shared by both the
 /// single-element and pop arms of [`finalize`] so the call sequence stays
-/// identical in both. The pop arm performs an *additional* Halstead
-/// recompute on the parent after merging the child's maps — that extra
-/// pass is intentionally left in [`finalize`], not folded in here.
+/// identical in both, and reached exactly once per space — every state is
+/// finalized either when it is popped or, for the root, in the
+/// single-element arm.
+///
+/// [`finalize`]'s pop arm additionally calls [`compute_wmc`] on the
+/// *parent* before each child merges into it, because `wmc::Stats::merge`
+/// dispatches on the parent's recorded `space_kind`. It deliberately does
+/// **not** re-run [`compute_halstead_and_mi`] there: `halstead::Stats` and
+/// `mi::Stats` both have no-op `merge`s, so nothing reads a parent's
+/// intermediate Halstead/MI, and this call overwrites them from the final
+/// maps anyway (#1106).
 fn finalize_state<T: ParserTrait>(state: &mut State, selected: MetricSet) {
     compute_minmax(state, selected);
     compute_sum(state, selected);
-    compute_halstead_mi_and_wmc::<T>(state, selected);
+    compute_halstead_and_mi::<T>(state, selected);
+    compute_wmc::<T>(state, selected);
     compute_averages(state, selected);
 }
 
@@ -146,7 +176,7 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize, sel
             .last_mut()
             .expect("invariant: state_stack has remaining elements after pop");
         last_state.halstead_maps.merge(&state.halstead_maps);
-        compute_halstead_mi_and_wmc::<T>(last_state, selected);
+        compute_wmc::<T>(last_state, selected);
 
         // Merge function spaces
         last_state.space.metrics.merge(&state.space.metrics);
