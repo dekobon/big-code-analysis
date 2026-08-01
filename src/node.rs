@@ -465,8 +465,8 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
         Self(Some(chain))
     }
 
-    /// [`Ancestors::known`], but in debug builds first checks that
-    /// `chain` really is `node`'s ancestry.
+    /// [`Ancestors::known`], but first checks that `chain` really is
+    /// `node`'s ancestry.
     ///
     /// The parity test below proves the walker's truncate/push rule on a
     /// *replica* walker, so it cannot see `metrics_inner` itself
@@ -478,13 +478,46 @@ impl<'tree, 'chain> Ancestors<'tree, 'chain> {
     /// here; [`Ancestors::known`] stays unchecked for the callers that
     /// deliberately pair a chain with a foreign node.
     ///
-    /// Debug-only, because [`Node::parent`] is the `O(depth)` lookup
-    /// #1084 exists to remove and must never run in a release build.
+    /// # Two checks, because the exact one is not affordable by default
+    ///
+    /// The invariant is "`chain.last()` **is** `node.parent()`", and
+    /// asking that outright costs [`Node::parent`]'s `O(depth)` — the
+    /// very lookup #1084 exists to remove. Per node, on all five walks
+    /// that construct a checked chain, it made every debug-build walk
+    /// `O(nodes × depth)` while the shipped walk is `O(nodes)`: a tax on
+    /// every `cargo test`, worst on the deep-nesting regression tests
+    /// that exist to pin the shipped walk's linearity (#1122). It now
+    /// runs only under `--cfg chain_audit`, which `make chain-audit` and
+    /// the CI lane of the same name set — and there as a plain
+    /// `assert_eq!`, so the audit has teeth in a release profile too.
+    ///
+    /// What stays on in every debug build is an `O(1)` *consequence* of
+    /// that invariant: a parent's byte span contains its child's, and no
+    /// node is its own parent. Strictly weaker — a grandparent contains
+    /// the node as well — but it is shaped to the two ways a walker
+    /// desynchronises. A `push` moved ahead of the per-node computes
+    /// leaves `chain.last() == node`; a dropped `truncate` leaves the
+    /// previous subtree's path, whose last entry is disjoint from the
+    /// node that follows it. Both trip here, on the first node that
+    /// shows them, at four integer comparisons.
     pub(crate) fn checked(chain: &'chain [Node<'tree>], node: &Node<'tree>) -> Self {
-        debug_assert_eq!(
+        // Opt-in only: `Node::parent` restarts at the root, so this is
+        // the `O(nodes × depth)` walk described above.
+        #[cfg(chain_audit)]
+        assert_eq!(
             chain.last().map(Node::id),
             node.parent().map(|parent| parent.id()),
             "ancestor chain desynchronised on a {} node",
+            node.kind()
+        );
+        debug_assert!(
+            chain.last().is_none_or(|parent| {
+                parent.id() != node.id()
+                    && parent.start_byte() <= node.start_byte()
+                    && node.end_byte() <= parent.end_byte()
+            }),
+            "ancestor chain desynchronised on a {} node: chain.last() neither \
+             contains it nor differs from it",
             node.kind()
         );
         Self::known(chain)
@@ -1310,6 +1343,88 @@ mod tests {
             b"const f = a => { a => { g(() => 1); }; };\nconst o = { m: function () { return 1; } };\n",
             &["arrow_function"],
         );
+    }
+
+    /// The `O(1)` guard [`Ancestors::checked`] keeps on by default must
+    /// accept every chain a walker really builds — over several grammar
+    /// families, not just the one fixture a failure would surface in.
+    ///
+    /// The assertion that an equal-span pair was seen is what makes the
+    /// containment non-strict on purpose rather than by luck: a
+    /// single-child wrapper (`expression_statement` over its expression,
+    /// say) spans exactly what its child spans, so tightening either
+    /// bound to `<` would reject a correct chain on most real input.
+    #[test]
+    fn checked_accepts_the_chains_the_walkers_build() {
+        let mut equal_span_pairs = 0;
+        let mut check = |node: &Node<'_>, chain: &[Node<'_>]| {
+            let _ = Ancestors::checked(chain, node);
+            if let Some(parent) = chain.last()
+                && parent.start_byte() == node.start_byte()
+                && parent.end_byte() == node.end_byte()
+            {
+                equal_span_pairs += 1;
+            }
+        };
+        let visited = for_each_node_with_chain::<crate::langs::CCode>(
+            b"int main() { if (a) { int x; } else { f(a, b); } }",
+            &mut check,
+        ) + for_each_node_with_chain::<crate::langs::JavascriptCode>(
+            b"const o = { m: (a) => a + 1 };\nfoo.bar();\n",
+            &mut check,
+        ) + for_each_node_with_chain::<crate::langs::PythonCode>(
+            b"def f(a):\n    if a:\n        return [x for x in a]\n",
+            &mut check,
+        );
+
+        assert!(visited > 60, "fixtures are too small to prove much");
+        assert!(
+            equal_span_pairs > 0,
+            "no parent spans exactly what its child does, so this fixture set \
+             cannot tell non-strict containment from strict"
+        );
+    }
+
+    /// A `push` moved ahead of the per-node computes leaves the node
+    /// itself as `chain.last()`. Spans alone cannot see that — a node
+    /// contains itself — so the identity half of the guard is what
+    /// catches it.
+    ///
+    /// Debug-gated because `debug_assert!` compiles out under
+    /// `--release`, where `checked` degrades to `known` by design.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "ancestor chain desynchronised")]
+    fn checked_rejects_a_chain_ending_in_the_node_itself() {
+        let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; }");
+        let body = tree
+            .get_root()
+            .preorder()
+            .find(|n| n.kind() == "compound_statement")
+            .expect("fixture has a function body");
+        let _ = Ancestors::checked(std::slice::from_ref(&body), &body);
+    }
+
+    /// A dropped `truncate` leaves the previous subtree's path in place,
+    /// so the next node up gets a `chain.last()` from a sibling subtree —
+    /// disjoint from it in bytes. That is the containment half.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "ancestor chain desynchronised")]
+    fn checked_rejects_a_chain_from_a_disjoint_subtree() {
+        let tree = Tree::new::<crate::langs::CCode>(b"int main() { int a; int b; }");
+        let body = tree
+            .get_root()
+            .preorder()
+            .find(|n| n.kind() == "compound_statement")
+            .expect("fixture has a function body");
+        let declarations: Vec<Node<'_>> = body
+            .children()
+            .filter(|n| n.kind() == "declaration")
+            .collect();
+        assert_eq!(declarations.len(), 2, "fixture has two declarations");
+        // `int a;` neither contains nor equals `int b;`.
+        let _ = Ancestors::checked(&declarations[..1], &declarations[1]);
     }
 
     /// [`Node::has_sibling`] must answer the same whether its parent

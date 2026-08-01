@@ -243,6 +243,42 @@ is the guard.
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
 
+### The chain audit {#chain-audit}
+
+The chain those bounds depend on is only as good as the walker's
+truncate/push bookkeeping, and `Ancestors::parent` reads `chain.last()`
+without checking it — so a slip feeds every predicate a wrong ancestor
+silently rather than failing. `Ancestors::checked` is the guard, and
+until [#1122][chain-audit-issue] it asked the exact question:
+`chain.last() == node.parent()`. That is `Node::parent` again, per node,
+on all five walks that build a chain — which made every *debug* walk
+quadratic while the shipped one stayed linear, and put the cost in every
+`cargo test`. The deep-nesting regression tests paid it worst, which is
+to say the tests that exist to pin the walk's linearity were the slowest
+thing about not shipping it.
+
+The exact assertion now lives behind `--cfg chain_audit`:
+
+```bash
+make chain-audit
+```
+
+Removing it from the default build took the lib suite from ~5.0 s to
+~1.7 s, `cognitive_nesting_is_inherited_at_depth` from ~1.6 s to ~0.02 s,
+and `deeply_nested_spaces_convert_to_wire_without_stack_overflow` from
+~1.8 s to ~0.02 s.
+
+What a plain debug build keeps is an `O(1)` consequence of the same
+invariant — a parent's byte span contains its child's, and no node is
+its own parent — which catches a `push` moved ahead of the per-node
+computes and a dropped `truncate`, but not a chain that is short by
+exactly one (a grandparent contains the node too). That gap is the
+lane's whole justification: run `make chain-audit` around any change to
+a walk's chain bookkeeping, not just around a change to its cost. The
+`chain-audit` CI job runs it per PR over the library's tests.
+
+[chain-audit-issue]: https://github.com/dekobon/big-code-analysis/issues/1122
+
 [parent-walk]: https://github.com/dekobon/big-code-analysis/issues/1084
 [cognitive-parent]: https://github.com/dekobon/big-code-analysis/issues/1062
 [remaining-climbs]: https://github.com/dekobon/big-code-analysis/issues/1088

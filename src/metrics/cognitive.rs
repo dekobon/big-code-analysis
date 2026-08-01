@@ -9792,11 +9792,13 @@ end",
         let expected = |n: u64| n * (n + 1) / 2;
 
         assert_eq!(cognitive_of(&nested_fns(3)), expected(3), "1 + 2 + 3");
-        // Half the depth of `cognitive_nesting_is_inherited_at_depth`:
-        // each level here also opens a `FuncSpace`, and the debug-build
-        // `Ancestors::checked` assertion re-derives every parent with
-        // `Node::parent`, so the unoptimised walk is quadratic even
-        // though the release one is not.
+        // Half the depth of `cognitive_nesting_is_inherited_at_depth`
+        // because each level here also opens a `FuncSpace`. The debug
+        // build is no longer the reason: #1122 took the `Node::parent`
+        // re-derivation out of `Ancestors::checked`, so an unoptimised
+        // walk is linear like the release one and this case dropped from
+        // ~1.0 s to ~0.02 s. `make chain-audit` puts the quadratic
+        // assertion back deliberately.
         assert_eq!(cognitive_of(&nested_fns(1_000)), expected(1_000));
     }
 
