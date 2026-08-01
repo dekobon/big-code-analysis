@@ -61,7 +61,7 @@ pub use trend::{TREND_SCHEMA_VERSION, Trend, TrendDelta, TrendDeltas};
 /// Per-function change-history attribution (issue #329), surfaced when a
 /// front end opts into per-function VCS metrics. See [`PerFunctionBlame`].
 #[cfg(feature = "vcs-git")]
-pub use git::{LineSpan, PerFunctionBlame};
+pub use git::{BlameSession, LineSpan, PerFunctionBlame};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

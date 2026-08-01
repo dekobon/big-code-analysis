@@ -57,7 +57,8 @@ pub(crate) fn build_trend(
     // known O(points × commits) cost — the earlier "O(commits) lookup
     // rather than its own walk" optimisation no longer holds. A follow-up
     // could hoist this walk and share it with the per-point builds.
-    let OpenRepo { repo, .. } = repo::open(root)?;
+    let OpenRepo { mut repo, .. } = repo::open(root)?;
+    repo.object_cache_size_if_unset(super::OBJECT_CACHE_BYTES);
     // Take the owned id so the borrowing `Commit` is dropped before the
     // repo handle is.
     let tip = repo::resolve_commit(&repo, &base.reference)?.id;

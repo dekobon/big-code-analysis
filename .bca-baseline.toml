@@ -182,14 +182,14 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_metrics"
-start_line = 231
+start_line = 235
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
 qualified = "dispatch_ops"
-start_line = 290
+start_line = 294
 metric = "nargs"
 value = 8.0
 
@@ -252,7 +252,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 678
+start_line = 723
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -287,7 +287,7 @@ value = 8.0
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff::from_sets"
-start_line = 238
+start_line = 255
 metric = "nargs"
 value = 8.0
 
@@ -328,22 +328,29 @@ value = 56531.05676283881
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
+qualified = "<file>"
+start_line = 1
+metric = "loc.ploc"
+value = 529.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "build_options"
-start_line = 233
+start_line = 234
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "rank"
-start_line = 323
+start_line = 324
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
 qualified = "write_table"
-start_line = 466
+start_line = 467
 metric = "nexits"
 value = 5.0
 
@@ -378,28 +385,28 @@ value = 6.0
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "analyze_paths"
-start_line = 622
+start_line = 625
 metric = "nargs"
 value = 12.0
 
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "analyze_paths"
-start_line = 622
+start_line = 625
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "PyVcsOptions::py_new"
-start_line = 599
+start_line = 607
 metric = "nargs"
 value = 15.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "_native"
-start_line = 830
+start_line = 838
 metric = "nexits"
 value = 35.0
 
@@ -413,21 +420,21 @@ value = 8.0
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "extract_as_of"
-start_line = 532
+start_line = 540
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "register_vcs_submodule"
-start_line = 893
+start_line = 901
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "vcs_trend"
-start_line = 746
+start_line = 754
 metric = "nargs"
 value = 7.0
 
@@ -812,7 +819,7 @@ value = 10.0
 [[entry]]
 path = "src/metrics/npa/python.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 305
+start_line = 303
 metric = "nexits"
 value = 6.0
 
@@ -835,7 +842,7 @@ path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 93
 metric = "nom"
-value = 35.0
+value = 34.0
 
 [[entry]]
 path = "src/ops.rs"
@@ -993,15 +1000,29 @@ value = 10.0
 
 [[entry]]
 path = "src/vcs/git/blame.rs"
+qualified = "PerFunctionBlame"
+start_line = 255
+metric = "nom"
+value = 30.0
+
+[[entry]]
+path = "src/vcs/git/blame.rs"
+qualified = "PerFunctionBlame::blame_spans"
+start_line = 391
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/vcs/git/blame.rs"
 qualified = "PerFunctionBlame::open"
-start_line = 262
+start_line = 266
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "src/vcs/git/blame.rs"
 qualified = "PerFunctionBlame::resolve_commit"
-start_line = 438
+start_line = 518
 metric = "nexits"
 value = 6.0
 
@@ -1085,49 +1106,49 @@ value = 9.0
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "collect_touched"
-start_line = 205
+start_line = 208
 metric = "nexits"
 value = 10.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
-qualified = "collect_touched::<anon@L224>"
-start_line = 224
+qualified = "collect_touched::<anon@L227>"
+start_line = 227
 metric = "nexits"
 value = 7.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "compute_features"
-start_line = 161
+start_line = 164
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "compute_features"
-start_line = 161
+start_line = 164
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "experience_features"
-start_line = 475
+start_line = 478
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "experience_features"
-start_line = 475
+start_line = 478
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "src/vcs/git/jit.rs"
 qualified = "history_features"
-start_line = 388
+start_line = 391
 metric = "halstead.effort"
 value = 52560.02538757721
 
