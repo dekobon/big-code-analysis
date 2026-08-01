@@ -224,17 +224,49 @@ fn untracked_file_blame_errors() {
 }
 
 #[test]
-fn perf_10k_lines_200_commits_under_30s() {
-    // Acceptance criterion (issue #329): per-function VCS on a 10k-line,
-    // 200-commit file completes well under 30 s. We build a 2000-function
-    // file (5 lines each = 10_000 lines), make 200 commits each editing a
-    // spread-out line, then time the single whole-file blame + bucketing
-    // across all 2000 function spans. Only the blame call is timed — the
-    // fixture's 200 `git` invocations are setup, not the measured work.
+fn perf_10k_lines_50_commits_under_8s() {
+    // Issue #329's acceptance criterion was literally "per-function VCS on
+    // a 10 000-line, 200-commit file completes well under 30 s". #1125
+    // rescaled the fixture to 50 commits: the 10 000 lines / 2000 spans
+    // stay, because span count is the dimension per-function bucketing
+    // scales in, and the per-commit budget is preserved (30 s / 200 and
+    // 8 s / 50 are both ~0.15 s per commit). What the shrink does trade
+    // away is sensitivity to a *superlinear*-in-history regression: a
+    // quadratic one now has to be ~4x worse before it trips.
+    //
+    // We build a 2000-function file (5 lines each), make 50 commits each
+    // editing a spread-out line, then time the single whole-file blame +
+    // bucketing across all 2000 spans. Only the blame call is timed — the
+    // fixture's `git` invocations are setup, not the measured work.
+    //
+    // Fixture size and budget were re-derived together, and must stay that
+    // way: leaving 30 s over a quarter-size fixture would quadruple the
+    // regression the assertion tolerates while covering less. Measured on
+    // one 16-core host under concurrent load, debug build, median of 5
+    // runs (min in brackets):
+    //
+    //   2000 funcs / 200 commits (pre-#1125): blame 0.53 s [0.49], 407
+    //     `git` spawns. Budget 30 s ⇒ 57x headroom.
+    //   2000 funcs /  50 commits (current):   blame 0.14 s [0.13], 107
+    //     `git` spawns. Budget  8 s ⇒ 57x headroom.
+    //
+    // That headroom is what carries over, not the 30 s literal, and it is
+    // deliberately loose: at 57x this is a smoke alarm for a catastrophic
+    // regression, not a benchmark. A 10x slowdown passes. It is sized so a
+    // shared CI runner under load cannot flake it.
     use std::fmt::Write as _;
     const FUNCS: u32 = 2_000;
     const LINES_PER_FUNC: u32 = 5;
-    const COMMITS: usize = 200;
+    const COMMITS: usize = 50;
+    // Stride between successive edited functions, so the edited set is
+    // exactly the stride's multiples — which is what the work-product
+    // assertions below are derived from. That identity needs every commit
+    // to land on a distinct function, hence the bound.
+    const EDIT_STRIDE: usize = 7;
+    const _: () = assert!(
+        COMMITS * EDIT_STRIDE < FUNCS as usize,
+        "edited functions must stay distinct and in range"
+    );
 
     // Unique identifiers per line so the fixture resembles real source
     // rather than 10_000 near-identical lines. (Pathologically repetitive
@@ -260,9 +292,11 @@ fn perf_10k_lines_200_commits_under_30s() {
     for commit in 1..=COMMITS {
         // Each commit edits exactly one function's value line, spreading
         // localized edits across the file over history (as real commits do).
-        let target = (commit * 7) % values.len();
-        values[target] += 1;
+        values[commit * EDIT_STRIDE] += 1;
         repo.write("big.rs", &render(&values));
+        // Quarter-day spacing — the only sub-day commit spacing in
+        // `tests/`, so this is also the one fixture that puts several
+        // commits inside a single `age_days` bucket.
         let age = i64::try_from(COMMITS - commit).expect("commit age fits i64");
         let secs = FIXED_NOW - age * DAY / 4;
         repo.commit("Ada", "ada@example.com", secs, &format!("edit {commit}"));
@@ -314,15 +348,46 @@ fn perf_10k_lines_200_commits_under_30s() {
         FUNCS as usize,
         "one stats record per function span"
     );
-    // Guard against the perf test "passing" while blame silently produced
-    // all-zero stats: the edited functions must show in-window commits.
+    // A timing assertion that does not check the work product is worthless:
+    // a regression that returns early with empty or all-zero stats would
+    // pass the budget trivially. Both windows are known exactly by
+    // construction, so assert the exact history rather than "non-zero" —
+    // `>= 1` would also admit a regression that credited every function
+    // with the whole file's history.
+    let edited: Vec<usize> = (1..=COMMITS).map(|c| c * EDIT_STRIDE).collect();
+    // The seed commit is 300 days old, inside the default 12mo long
+    // window, so every function keeps it; an edited function additionally
+    // keeps the commit that rewrote its value line.
+    let expect_long = |index: usize| if edited.contains(&index) { 2 } else { 1 };
+    let wrong: Vec<(usize, u32)> = stats
+        .iter()
+        .enumerate()
+        .filter(|(index, s)| s.commits_long != expect_long(*index))
+        .map(|(index, s)| (index, s.commits_long))
+        .collect();
     assert!(
-        stats.iter().any(|s| s.commits_long > 0),
-        "blame attributed no commits to any function — bucketing is a no-op"
+        wrong.is_empty(),
+        "{} function(s) have an unexpected commits_long; first few \
+         (index, value): {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(5)]
+    );
+    // Every edit commit lands inside the default 90d recent window, so the
+    // recent bucket names exactly the edited functions. Pinning the set
+    // (not its size) catches attribution that lands on the wrong span.
+    let with_recent: Vec<usize> = stats
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.commits_recent > 0)
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        with_recent, edited,
+        "recent commits should land on exactly the edited functions"
     );
     assert!(
-        elapsed < std::time::Duration::from_secs(30),
-        "per-function blame took {elapsed:?}, over the 30s budget"
+        elapsed < std::time::Duration::from_secs(8),
+        "per-function blame took {elapsed:?}, over the 8s budget"
     );
 }
 
