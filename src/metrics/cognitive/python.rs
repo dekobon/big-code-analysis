@@ -67,8 +67,12 @@ fn python_comprehension_clause_nesting(
 /// cost: if walking ancestors (stopping at a `lambda` boundary) finds
 /// another `boolean_operator` first, this node is nested inside one
 /// already counted, so the `== 0` guard skips it. The outermost operator
-/// then adds one structural unit per enclosing control construct
-/// (`expression_list`, `if`/`for`/`while`) up to the nearest lambda.
+/// then adds one structural unit per enclosing `lambda`, walking upward
+/// only as far as the nearest `expression_list` / `if` / `for` / `while`.
+/// `count_specific_ancestors` takes `(ancestors, check, stop)` in that
+/// order, so it is the lambdas that get counted and the control
+/// constructs that end the walk — the reverse of what this comment
+/// claimed before #1090.
 fn python_apply_boolean_operator<'a>(
     node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
@@ -83,6 +87,18 @@ fn python_apply_boolean_operator<'a>(
     {
         stats.structural +=
             node.count_specific_ancestors::<PythonCode>(ancestors, python_is_lambda, |node| {
+                // All four arms fire in practice, but only `ExpressionList`
+                // can change the count: a lambda body is a single
+                // expression, so no lambda ever sits *above* an
+                // `if`/`for`/`while` statement, and stopping at one is
+                // indistinguishable from running to the module root. The
+                // three statement kinds are kept as an explicit
+                // statement-boundary set rather than a claim about
+                // coverage. `ExpressionList` is the observable arm,
+                // reached via a parenthesised `yield` or an f-string
+                // interpolation — see
+                // `python_boolean_in_expression_list_under_lambda`
+                // (#1090).
                 matches!(
                     node.kind_id().into(),
                     ExpressionList | IfStatement | ForStatement | WhileStatement
