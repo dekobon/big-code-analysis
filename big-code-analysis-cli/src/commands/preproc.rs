@@ -27,7 +27,7 @@ pub(crate) fn run_command_strip_comments(
         ));
     }
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
-    run_walk_resolved(resolved.files, num_jobs, cfg);
+    run_walk_resolved(resolved.files, num_jobs, cfg, resolved.walk_errors);
 }
 
 /// Recovers the accumulated [`PreprocResults`] from the shared worker

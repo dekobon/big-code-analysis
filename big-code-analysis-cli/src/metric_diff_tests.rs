@@ -389,6 +389,35 @@ fn unreadable_inputs_error_names_the_side() {
     );
 }
 
+/// #1131's sibling variant. The two must stay distinguishable in the
+/// rendered text: one counts files a worker could not open, the other
+/// entries the traversal could not list, and a user told "1 input file"
+/// about an unlistable directory would go looking for the wrong thing.
+/// The `Before` side is unreachable end to end for the reason above.
+#[test]
+fn unwalkable_inputs_error_names_the_side_and_counts_entries() {
+    let before = DiffError::UnwalkableInputs {
+        side: DiffSide::Before,
+        count: 1,
+    };
+    assert_eq!(
+        before.to_string(),
+        "diff --since before tree: 1 directory entry could not be read (see \
+         the warnings above); refusing to trust a partially walked input set"
+    );
+
+    let after = DiffError::UnwalkableInputs {
+        side: DiffSide::After,
+        count: 2,
+    };
+    assert!(
+        after
+            .to_string()
+            .starts_with("diff --since after tree: 2 directory entries could not be read"),
+        "rendered: {after}"
+    );
+}
+
 // --- #1116: the in-memory set must equal the file round-trip --------
 
 /// `set_from_spaces` must produce exactly what `load_dir_set` produced

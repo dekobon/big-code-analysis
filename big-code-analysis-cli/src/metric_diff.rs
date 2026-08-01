@@ -122,6 +122,13 @@ pub(crate) enum DiffError {
     /// comparison would otherwise report as added or removed rather
     /// than as the I/O failure it is (#1098).
     UnreadableInputs { side: DiffSide, count: usize },
+    /// A `--since` walk could not *list* every directory on one side, so
+    /// that side's set is short a whole subtree rather than a single
+    /// file (#1131). Distinct from [`Self::UnreadableInputs`] because
+    /// the count means something different — unreadable entries, not
+    /// files — and because the two are reported by different layers: the
+    /// traversal, and the worker that opened what the traversal found.
+    UnwalkableInputs { side: DiffSide, count: usize },
     /// A `--since` walk could not write every per-file document it later
     /// reloads, so that side's set is short the same way — and for the
     /// same reason it must not be reported as a code change.
@@ -165,6 +172,13 @@ impl std::fmt::Display for DiffError {
                     f,
                     "diff --since {side} tree: {}",
                     crate::read_failure_summary(*count)
+                )
+            }
+            Self::UnwalkableInputs { side, count } => {
+                write!(
+                    f,
+                    "diff --since {side} tree: {}",
+                    crate::walk_failure_summary(*count)
                 )
             }
         }

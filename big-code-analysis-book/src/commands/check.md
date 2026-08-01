@@ -24,13 +24,16 @@ fails the pipeline before the change lands.
 misconfiguration (`1`).
 
 A gate that could not read all of its input has no verdict to report,
-so two input problems exit `1` rather than `0`: nothing matched
-`--paths` / `--include` / `--exclude`, and any input file that failed
-to read. The second is the workspace-wide
-[unreadable-input rule](README.md#unreadable-input) — `check` is not
-special here, it is just where the rule matters most. Both checks run
-before the gate is evaluated and are not suppressed by `--no-fail`,
-which suppresses threshold failures, not broken input, so neither lets
+so three input problems exit `1` rather than `0`: nothing matched
+`--paths` / `--include` / `--exclude`, any input file that failed to
+read, and any directory the walk could not
+[list](README.md#unlistable-directories). The last two are the
+workspace-wide [unreadable-input rule](README.md#unreadable-input) —
+`check` is not special here, it is just where the rule matters most,
+since a gate reporting clean on a tree it could not read is
+indistinguishable from a gate that passed. All three run before the gate
+is evaluated and are not suppressed by `--no-fail`, which suppresses
+threshold failures, not broken input, so none of them lets
 `--write-baseline` record a partial run.
 
 ### Tiered exit codes (`--exit-codes=tiered`) {#tiered-exit-codes---exit-codestiered}

@@ -834,3 +834,49 @@ fn bad_recent_window_names_its_own_flag() {
                 .and(predicate::str::contains("\"12parsec\"")),
         );
 }
+
+/// #1131: `bca vcs` intersects the standard walk with the git index, so
+/// a directory it cannot list silently shortens the ranking exactly as
+/// it shortened a metrics document. `vcs` reads history rather than file
+/// contents, so this traversal tally is the only I/O failure it can
+/// observe — without it the run reported a complete ranking over a tree
+/// it had not finished walking.
+///
+/// The readable control run is what makes the claim: it shows the same
+/// invocation ranking `src/nested/inner.rs`, so the locked run's exit 1
+/// is the guard and not an unrelated rejection.
+#[cfg(unix)]
+#[test]
+fn vcs_exits_one_when_a_directory_cannot_be_listed() {
+    let repo = repo_two_commits();
+    let nested = repo.path().join("src/nested");
+    std::fs::create_dir(&nested).expect("mkdir nested");
+    std::fs::write(nested.join("inner.rs"), "fn c() {}\n").expect("write inner");
+    let now = now();
+    git_at(repo.path(), now - 3 * DAY, &["add", "."]);
+    git_at(repo.path(), now - 3 * DAY, &["commit", "-qm", "add nested"]);
+
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("src/nested/inner.rs"));
+
+    if !common::deny_all_access(&nested) {
+        eprintln!("skipping: this process can list a mode-000 directory");
+        return;
+    }
+
+    cli()
+        .current_dir(repo.path())
+        .args(["vcs", "--paths", ".", "--format", "json"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "1 directory entry could not be read",
+        ))
+        .stdout(predicate::str::is_empty());
+
+    common::restore_dir_access(&nested);
+}

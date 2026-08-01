@@ -242,3 +242,47 @@ pub fn unreadable_fixture(dir: &Path, name: &str, body: &str) -> Option<std::pat
     std::fs::write(&path, body).expect("write fixture");
     deny_all_access(&path).then_some(path)
 }
+
+/// Create `name` under `dir` holding one source file, then strip every
+/// permission bit so the directory cannot be *listed* — the #1131
+/// scenario, where a whole subtree drops out of the walk before any file
+/// is selected. Returns the directory path, or `None` when the denial
+/// does not bite.
+///
+/// The probe is `read_dir`, not the `read` that [`deny_all_access`]
+/// uses: reading a directory fails with `EISDIR` regardless of its mode,
+/// so `read`-probing would report the denial as effective for *every*
+/// directory, readable ones included, and the caller would stage a
+/// scenario that does not exist.
+///
+/// The caller must call [`restore_dir_access`] before the enclosing
+/// `TempDir` drops, or its recursive delete fails on the locked
+/// directory.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn unlistable_dir(
+    dir: &Path,
+    name: &str,
+    file: &str,
+    body: &str,
+) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = dir.join(name);
+    std::fs::create_dir_all(&path).expect("create fixture dir");
+    std::fs::write(path.join(file), body).expect("write fixture");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod 000");
+    std::fs::read_dir(&path).is_err().then_some(path)
+}
+
+/// Give a mode-stripped fixture directory its bits back so `TempDir`'s
+/// recursive delete can remove it. The counterpart to
+/// [`unlistable_dir`], and to the mode-555 output directories the
+/// write-failure tests stage.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn restore_dir_access(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod 755");
+}

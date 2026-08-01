@@ -141,9 +141,51 @@ impl WalkFilters<'_> {
 /// nonexistent-explicit-path error. A file discovered by walking a
 /// directory seed is *not* in this set, so a tree full of READMEs and
 /// configs stays silently skipped (gated behind `-w`).
+///
+/// `walk_errors` carries the #1131 tally: entries the directory walk
+/// itself could not read. It is reported separately from the worker
+/// pool's `read_failures` because the two describe different losses —
+/// a read failure names a file the walk *selected*, whereas an
+/// unlistable directory removes its whole subtree before anything can
+/// be selected, leaving nothing for a worker to fail on.
 pub(crate) struct ResolvedFiles {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) explicit_files: std::collections::HashSet<PathBuf>,
+    pub(crate) walk_errors: WalkErrors,
+}
+
+/// How many walk entries the traversal could not read (#1131).
+///
+/// A newtype rather than a bare `usize` so it cannot be confused with
+/// the several other counts threaded through the same call chain (the
+/// worker pool's read/write failure tallies, the job count, the
+/// resolved file count) — and so a call site that forwards it has to
+/// name what it is forwarding.
+///
+/// **Only `ignore::Error`s carrying an underlying `io::Error` are
+/// counted.** The reachable non-I/O case is a malformed ignore file in
+/// an *ancestor* of the walk root, which `Worker::add_parents` surfaces
+/// as an `Error::Glob`; it stays a warning, because it describes how the
+/// walk was configured rather than a subtree the walk dropped. Widening
+/// the tally to every variant would make a stray `.gitignore` typo fail
+/// a build — pinned by
+/// `malformed_parent_gitignore_warns_but_still_exits_zero` in
+/// `tests/read_failures.rs`.
+///
+/// `Error::Loop` is not a concern here: `follow_links` is off, so the
+/// walker never runs its symlink-loop check.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[must_use]
+pub(crate) struct WalkErrors(usize);
+
+impl WalkErrors {
+    fn add(&mut self, count: usize) {
+        self.0 += count;
+    }
+
+    pub(crate) fn count(self) -> usize {
+        self.0
+    }
 }
 
 /// What kind of on-disk object a `--paths` seed resolves to, used to
@@ -218,6 +260,7 @@ pub(crate) fn expand_seed_paths(
     // reachable from two seeds was analyzed and counted twice (#704).
     let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     let mut explicit_files: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut walk_errors = WalkErrors::default();
     for seed in paths.into_iter().map(walk_seed::reanchor_seed) {
         // Classify the seed *without* following a final symlink so the
         // seed-level existence/kind check is symmetric with the walk's
@@ -262,7 +305,7 @@ pub(crate) fn expand_seed_paths(
             }
             continue;
         }
-        for path in walk_directory_seed(&seed, no_ignore, threads, filters) {
+        for path in walk_directory_seed(&seed, no_ignore, threads, filters, &mut walk_errors) {
             // Overlapping seeds (`--paths src --paths src/lib.rs`, or
             // two seeds whose trees intersect) must contribute each file
             // exactly once (#704). The dedupe lives here, with the
@@ -285,6 +328,7 @@ pub(crate) fn expand_seed_paths(
     ResolvedFiles {
         files: out,
         explicit_files,
+        walk_errors,
     }
 }
 
@@ -302,12 +346,26 @@ pub(crate) fn expand_seed_paths(
 /// run (#704): a single EACCES directory deep in a large tree previously took
 /// down every file the walk had yet to reach. This mirrors the per-file
 /// tolerance the worker pool already applies to unparseable files.
+///
+/// Tolerating the entry is not the same as reporting success, though, so
+/// each I/O-backed error is also added to `errors` for the caller's
+/// exit-code guard (#1131) — an unlistable directory removes its whole
+/// subtree from the resolved set, which is invisible in the output.
 fn walk_directory_seed(
     seed: &Path,
     no_ignore: bool,
     threads: usize,
     filters: &WalkFilters<'_>,
+    errors: &mut WalkErrors,
 ) -> Vec<PathBuf> {
+    // Reporting the tally through a return value instead of `errors`
+    // costs `expand_seed_paths` more than it saves: measured, the
+    // tuple-plus-accumulate shape puts that function's halstead.effort
+    // at 50_003 against a hard limit of 50_000, trading a soft nargs
+    // tier for a hard breach. The five parameters are each
+    // independently meaningful, and no two bundle under a name worth
+    // having.
+    // bca: suppress(nargs)
     use ignore::{WalkBuilder, WalkState};
     let mut wb = WalkBuilder::new(seed);
     wb.hidden(true)
@@ -328,8 +386,13 @@ fn walk_directory_seed(
     // the per-entry hot path does not serialize the walker threads
     // against each other.
     let (tx, rx) = crossbeam::channel::unbounded();
+    // The error tally is a shared counter rather than a second channel
+    // item: a walk error yields no path, so widening `tx`'s item to an
+    // enum would make every hot-path send pay for the rare case.
+    let io_errors = AtomicUsize::new(0);
     wb.build_parallel().run(|| {
         let tx = tx.clone();
+        let io_errors = &io_errors;
         Box::new(move |entry| {
             match entry {
                 Ok(entry) => {
@@ -356,6 +419,13 @@ fn walk_directory_seed(
                         "bca: warning: skipping walk entry in {}: {e}",
                         seed.display()
                     );
+                    // Every variant warns; only an I/O-backed one is
+                    // tallied, because only that one means the walk lost
+                    // files it should have seen (#1131). See
+                    // [`WalkErrors`] for why the rest stay non-fatal.
+                    if e.io_error().is_some() {
+                        io_errors.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
             WalkState::Continue
@@ -364,6 +434,7 @@ fn walk_directory_seed(
     // Drop the builder's own sender so the drain below terminates; every
     // visitor clone is already gone, `run` having joined its threads.
     drop(tx);
+    errors.add(io_errors.into_inner());
 
     // A parallel walk yields entries in whatever order its threads
     // happen to finish, so without this sort the resolved file list —

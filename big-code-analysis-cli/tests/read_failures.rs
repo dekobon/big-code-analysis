@@ -21,7 +21,15 @@
 //! cases also pin the `BrokenPipe` exemption from the other direction —
 //! `bca dump | head` must stay exit 0.
 //!
-//! The fourth part covers what that sweep missed: `bca vcs`, whose
+//! The fourth part (#1131) moves the same rule one directory level up: a
+//! directory the walk could not *list* drops its whole subtree before
+//! any file is selected, so the per-file tally stayed zero and every
+//! subcommand — `bca check` included — reported success over a tree it
+//! had not read. Its negative case pins the deliberate exemption: only
+//! walk errors carrying an `io::Error` are fatal, so a malformed
+//! `.gitignore` keeps warning and keeps exiting 0.
+//!
+//! The fifth part covers what that sweep missed: `bca vcs`, whose
 //! emission runs through `formats::write_text` rather than the walk's
 //! stdout helpers. `Stdout` is a `LineWriter` over a 1 KiB buffer, so a
 //! shorter payload containing no newline at all is accepted into the
@@ -34,8 +42,8 @@
 //! subcommand and is pinned by a unit test on `write_parts_flushed`
 //! instead.
 //!
-//! Unix-only, because the scenarios are staged with a mode-000 file and
-//! `/dev/full`.
+//! Unix-only, because the scenarios are staged with a mode-000 file, a
+//! mode-000 directory, and `/dev/full`.
 //! `unreadable_fixture` probes the real capability rather than the uid,
 //! so a privileged test runner (root ignores mode bits) skips instead of
 //! failing. The suite lives in a `#[cfg(unix)]` module rather than
@@ -364,6 +372,202 @@ mod unix {
             .stderr(predicate::str::contains("could not be read").not());
     }
 
+    /// The traversal-side summary line (#1131). Mirrors [`SUMMARY`], but
+    /// counts unreadable *entries*: an unlistable directory costs the run
+    /// a whole subtree, not one file.
+    const WALK_SUMMARY: &str = "1 directory entry could not be read";
+
+    /// Stage the #1131 tree under a fresh tempdir: one readable source
+    /// file at the top, and a subdirectory holding another that the
+    /// process cannot list. Returns the tempdir plus the locked
+    /// directory, or `None` when the denial does not bite.
+    ///
+    /// The readable file matters. Without it the walk resolves zero
+    /// files, and `check` would exit 1 through its pre-existing
+    /// "no input files matched" guard — an exit code that looks
+    /// identical to the one under test.
+    fn tree_with_unlistable_subdir() -> Option<(TempDir, std::path::PathBuf)> {
+        let dir = TempDir::new().expect("tempdir");
+        write_fixture(&dir, "top.c", TRIVIAL_C);
+        let locked = common::unlistable_dir(dir.path(), "sub", "inner.c", TRIVIAL_C)?;
+        Some((dir, locked))
+    }
+
+    /// Drive `subcommand` over a tree containing a directory it cannot
+    /// list and assert the #1131 contract: exit 1, the per-entry warning,
+    /// and the summary line.
+    ///
+    /// Before the fix every one of these exited 0 with the subtree
+    /// silently missing from the result.
+    fn assert_unlistable_directory_exits_one(subcommand: &str, extra: &[&str]) {
+        let Some((dir, locked)) = tree_with_unlistable_subdir() else {
+            eprintln!("skipping: this process can list a mode-000 directory");
+            return;
+        };
+
+        cli(&dir)
+            .arg(subcommand)
+            .args(extra)
+            .args([
+                "--no-config",
+                "--paths",
+                dir.path().to_str().expect("utf8 dir"),
+            ])
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains("skipping walk entry"))
+            .stderr(predicate::str::contains("Permission denied"))
+            .stderr(predicate::str::contains(WALK_SUMMARY));
+
+        common::restore_dir_access(&locked);
+    }
+
+    #[test]
+    fn metrics_exits_one_when_a_directory_cannot_be_listed() {
+        assert_unlistable_directory_exits_one("metrics", &[]);
+    }
+
+    #[test]
+    fn count_exits_one_when_a_directory_cannot_be_listed() {
+        assert_unlistable_directory_exits_one(
+            "count",
+            &["--type", "function_definition", "--language", "c"],
+        );
+    }
+
+    /// `strip-comments` resolves its own file list before dispatching
+    /// (it rejects a multi-file `--output`), so it reaches the guard
+    /// through `run_walk_resolved` rather than `run_walk` — a separate
+    /// path that has to be handed the tally explicitly.
+    #[test]
+    fn strip_comments_exits_one_when_a_directory_cannot_be_listed() {
+        assert_unlistable_directory_exits_one("strip-comments", &[]);
+    }
+
+    /// The headline case. `bca check` is the CI gate, so reporting clean
+    /// on a tree it could not fully read is worse than a wrong diff —
+    /// it is indistinguishable from success.
+    ///
+    /// The threshold is deliberately one the readable file *breaches*
+    /// (`add` has one exit; the limit is 0), so the gate has a verdict to
+    /// report and would exit 2 if the walk guard did not pre-empt it.
+    /// Exit 1 therefore proves both halves of the contract: the run fails,
+    /// and it fails as a tool error rather than as a metric regression.
+    /// A threshold the tree passes would leave exit 1 consistent with
+    /// "clean gate plus tool error", which is the weaker claim.
+    #[test]
+    fn check_exits_one_rather_than_two_when_a_directory_cannot_be_listed() {
+        assert_unlistable_directory_exits_one("check", &["--threshold", "nexits=0"]);
+    }
+
+    /// The same threshold against the same tree, nothing locked: exit 2.
+    /// Without this control the test above cannot tell the tool-error
+    /// exit from a gate that simply never fired.
+    #[test]
+    fn check_exits_two_on_the_same_threshold_when_the_tree_is_readable() {
+        let dir = TempDir::new().expect("tempdir");
+        write_fixture(&dir, "top.c", TRIVIAL_C);
+
+        cli(&dir)
+            .args([
+                "check",
+                "--threshold",
+                "nexits=0",
+                "--no-config",
+                "--paths",
+                dir.path().to_str().expect("utf8 dir"),
+            ])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("could not be read").not());
+    }
+
+    /// The negative case, and the reason the tally is filtered on
+    /// `ignore::Error::io_error()` rather than counting every error the
+    /// walker reports.
+    ///
+    /// A malformed `.gitignore` in a *parent* of the walk root reaches
+    /// the same `Err` arm as an unlistable directory — the parallel
+    /// walker visits `add_parents` failures as errors — but it describes
+    /// how the walk was configured, not files it lost. It must keep
+    /// warning and keep exiting 0. Drop the `io_error()` filter and this
+    /// test is the one that fails.
+    ///
+    /// The parent placement is load-bearing: a malformed `.gitignore` in
+    /// the walk root or below is attached to the `DirEntry`
+    /// (`Worker::read_dir` sets `dent.err`) and never reaches a visitor
+    /// at all, so the same fixture one directory lower produces no
+    /// warning and pins nothing. Measured against `ignore` 0.4.31.
+    #[test]
+    fn malformed_parent_gitignore_warns_but_still_exits_zero() {
+        let dir = TempDir::new().expect("tempdir");
+        // `[z-a]` is a reversed character range: globset rejects it, so
+        // `ignore` reports the line as an `Error::Glob` carrying no
+        // `io::Error`.
+        fs::write(dir.path().join(".gitignore"), "[z-a]\n").expect("write gitignore");
+        let root = dir.path().join("root");
+        fs::create_dir(&root).expect("create walk root");
+        fs::write(root.join("top.c"), TRIVIAL_C).expect("write fixture");
+
+        common::cli_in(&root)
+            .args([
+                "metrics",
+                "--no-config",
+                "--paths",
+                root.to_str().expect("utf8 root"),
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("top.c"))
+            // The warning is half the contract: a benign walk error must
+            // stay *visible*, just not fatal.
+            .stderr(predicate::str::contains("invalid range"))
+            .stderr(predicate::str::contains("could not be read").not());
+    }
+
+    /// The escape hatch for a tree that legitimately contains a
+    /// directory you cannot list — and the asymmetry with the read-side
+    /// hatch that makes it worth pinning.
+    ///
+    /// An *ignore file* prunes the directory inside the walker, which
+    /// never descends and so never fails. `--exclude` does **not**: it is
+    /// a post-walk filter over the paths the walker yielded, so the
+    /// listing has already been attempted and already failed by the time
+    /// it applies. Both halves are asserted here, because documenting
+    /// only the working one would send a user to the flag that cannot
+    /// help.
+    #[test]
+    fn ignore_file_prunes_an_unlistable_directory_but_exclude_does_not() {
+        let Some((dir, locked)) = tree_with_unlistable_subdir() else {
+            eprintln!("skipping: this process can list a mode-000 directory");
+            return;
+        };
+        let root = dir.path().to_str().expect("utf8 dir").to_owned();
+
+        cli(&dir)
+            .args([
+                "metrics",
+                "--no-config",
+                "--paths",
+                &root,
+                "--exclude",
+                "**/sub/**",
+            ])
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains(WALK_SUMMARY));
+
+        fs::write(dir.path().join(".gitignore"), "sub/\n").expect("write gitignore");
+        cli(&dir)
+            .args(["metrics", "--no-config", "--paths", &root])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("top.c"))
+            .stderr(predicate::str::contains("could not be read").not());
+
+        common::restore_dir_access(&locked);
+    }
+
     /// The write-side summary line. Mirrors [`SUMMARY`].
     const WRITE_SUMMARY: &str = "1 output file could not be written";
 
@@ -446,9 +650,7 @@ mod unix {
     /// Give the mode-555 fixture its write bits back so `TempDir`'s
     /// recursive delete can remove it.
     fn restore_dir_permissions(path: &str) {
-        use std::os::unix::fs::PermissionsExt;
-
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("chmod 755");
+        common::restore_dir_access(std::path::Path::new(path));
     }
 
     #[test]
