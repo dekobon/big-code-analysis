@@ -549,18 +549,22 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
 pub(crate) fn walk_metric_set(
     root: &Path,
     globals: GlobalOpts,
-    json_out_dir: &Path,
     side: DiffSide,
 ) -> Result<metric_diff::MetricSet, metric_diff::DiffError> {
     let action = Action::Metrics {
         format: Some(MetricsFormat::Json),
         pretty: false,
     };
+    // Stream each file's space back over the aggregate channel and build
+    // the set in memory (#1116). This used to run with
+    // `output_dir: Some(temp)`, writing one JSON document per source
+    // file and then re-walking, re-reading and re-parsing the whole
+    // temp tree — while the `FuncSpace` trees were already in the
+    // workers' hands. The format stays `Json` because the set's values
+    // are `serde_json::Value`s built from the same `Serialize` impl.
+    let (tx, rx) = crossbeam::channel::unbounded();
     let cfg = Config {
-        // `bca diff --since` writes a per-file JSON tree it later reloads;
-        // that is the directory-tree mode, which now lives on `output_dir`
-        // (#669) rather than `output` (a single aggregate file).
-        output_dir: Some(json_out_dir.to_path_buf()),
+        aggregate_tx: Some(tx),
         ..Config::new(action, &globals, None)
     };
 
@@ -585,6 +589,11 @@ pub(crate) fn walk_metric_set(
             count: failures.read,
         });
     }
+    // Nothing is written per file any more, so this tally is expected to
+    // be zero. Kept because `write_failures` is generic walk machinery
+    // that a future dispatch change could start incrementing: the rule
+    // it enforces — never report a diff derived from an incomplete walk
+    // (#1098) — outlives the particular way the walk emits.
     if failures.write > 0 {
         return Err(metric_diff::DiffError::UnwritableOutputs {
             side,
@@ -592,10 +601,10 @@ pub(crate) fn walk_metric_set(
         });
     }
 
-    // The JSON writer emitted one document per source file under
-    // `json_out_dir`, keyed by the root-relative source path — the same
-    // shape `bca diff`'s directory inputs use, so reuse its loader.
-    metric_diff::load_dir_set(json_out_dir)
+    // `run_walk_tallying` took `cfg` by value and has joined every
+    // worker, so the sender is dropped and the receiver is drained to
+    // disconnect rather than blocking.
+    metric_diff::set_from_spaces(rx)
 }
 
 const SUBCOMMANDS: &[&str] = &[
