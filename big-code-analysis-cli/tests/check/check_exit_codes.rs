@@ -296,6 +296,84 @@ fn strict_soft_encroachment_exits_two_not_five() {
         .code(2);
 }
 
+/// The soft band of a lower-is-worse `mi.*` floor sits *above* the hard
+/// floor, so a function between the two is an encroachment (exit 2) and
+/// not a hard breach (exit 5) — the same tier split the higher-is-worse
+/// tests above pin, in the opposite direction (#1166).
+///
+/// Before the fix the ratio *lowered* the floor (60 * 0.5 = 30), which
+/// this fixture clears easily, so the soft tier reported nothing at all
+/// and the run exited 0. The hard-tier control run is what makes the
+/// exit 2 meaningful: it proves the fixture is inside the hard floor and
+/// the offender came from the soft band alone.
+#[test]
+fn strict_mi_between_the_two_floors_is_an_encroachment_not_a_hard_breach() {
+    let dir = TempDir::new().unwrap();
+    // `classify` scores mi.original ≈ 105, comfortably inside the band
+    // between the hard floor (60) and the soft one (60 / 0.5 = 120).
+    let src = write_branchy(&dir, 6);
+    let config = dir.path().join("thresholds.toml");
+    fs::write(&config, "[thresholds]\n\"mi.original\" = 60\n").unwrap();
+    let config = config.to_str().unwrap();
+
+    // Hard tier: the floor is 60 and nothing is under it.
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--config",
+            config,
+            "--exit-codes=tiered",
+        ])
+        .assert()
+        .success();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--config",
+            config,
+            "--tier=soft=0.5",
+            "--exit-codes=tiered",
+        ])
+        .assert()
+        .code(2)
+        .stderr(
+            predicate::str::is_match(r"classify: mi\.original = \d+\.\d+ \(limit 120\)").unwrap(),
+        );
+}
+
+/// The escalation to exit 5 still works in the lower-is-worse direction:
+/// a floor the function is genuinely under is a hard breach even though
+/// the soft floor it also trips sits above it.
+///
+/// Companion to the test above — together they pin that raising the
+/// floor moved the *soft band*, not the hard gate.
+#[test]
+fn strict_mi_under_the_hard_floor_exits_five() {
+    let dir = TempDir::new().unwrap();
+    // mi.original ≈ 105, under a hard floor of 110.
+    let src = write_branchy(&dir, 6);
+    let config = dir.path().join("thresholds.toml");
+    fs::write(&config, "[thresholds]\n\"mi.original\" = 110\n").unwrap();
+
+    cli(dir.path())
+        .args([
+            "check",
+            "--paths",
+            &src,
+            "--config",
+            config.to_str().unwrap(),
+            "--tier=soft=0.5",
+            "--exit-codes=tiered",
+        ])
+        .assert()
+        .code(5);
+}
+
 /// A `[thresholds.soft]` absolute limit with no `[thresholds]`
 /// counterpart gives the metric a soft band and no hard ceiling, so no
 /// value can escalate it to a hard breach however far it overshoots.

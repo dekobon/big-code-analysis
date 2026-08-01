@@ -711,7 +711,42 @@ fn effective_config_reflects_resolved_threshold_set() {
 #[test]
 #[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
 fn scale_threshold_trims_float_artifact_to_six_sig_figs() {
-    assert_eq!(scale_threshold(7.0, 0.95), 6.65);
+    assert_eq!(scale_threshold(7.0, 0.95, false), 6.65);
+}
+
+/// The direction of the scaling is the whole of #1166, so pin both
+/// arithmetics in one test: a higher-is-worse limit is a ceiling and
+/// must come *down*; a lower-is-worse `mi.*` limit is a floor and must
+/// go *up*. Asserted together so a future "simplify" cannot invert both
+/// and stay green — which is exactly what a single-direction test would
+/// have allowed.
+#[test]
+#[allow(clippy::float_cmp)] // The exact resolved limits are the contract.
+fn scale_threshold_raises_a_floor_and_lowers_a_ceiling() {
+    // Ceiling: 15 * 0.9. Exact in decimal, and the float product is
+    // exact too, so this is a bit-exact expectation.
+    assert_eq!(scale_threshold(15.0, 0.9, false), 13.5);
+    // Floor: 20 / 0.9 = 22.222…, above the hard floor it derives from.
+    // Rounded up at 6 significant figures (see `scale_threshold`).
+    assert_eq!(scale_threshold(20.0, 0.9, true), 22.2223);
+    // The bug this pins: the floor must never land at or below its own
+    // hard limit, which `20 * 0.9 == 18` did.
+    assert!(scale_threshold(20.0, 0.9, true) > 20.0);
+}
+
+/// The floor's last significant figure rounds **up**, never down: a
+/// floor rounded down is a band that fires marginally late. Pins the
+/// direction with a quotient whose 6-sig-fig nearest-rounding would go
+/// the other way (`21.05263…` → `21.0526` to nearest, `21.0527` up).
+#[test]
+#[allow(clippy::float_cmp)] // The rounding direction is the contract.
+fn scale_threshold_floor_rounds_up_not_to_nearest() {
+    let resolved = scale_threshold(20.0, 0.95, true);
+    assert_eq!(resolved, 21.0527);
+    assert!(
+        resolved >= 20.0 / 0.95,
+        "a floor must not resolve below the exact quotient; got {resolved}"
+    );
 }
 
 /// Exact products must pass through untouched: `50_000 * 0.95` is
@@ -721,7 +756,7 @@ fn scale_threshold_trims_float_artifact_to_six_sig_figs() {
 #[test]
 #[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
 fn scale_threshold_preserves_large_exact_products() {
-    assert_eq!(scale_threshold(50_000.0, 0.95), 47_500.0);
+    assert_eq!(scale_threshold(50_000.0, 0.95, false), 47_500.0);
 }
 
 /// `ratio == 1.0` is the documented no-op: every limit must survive
@@ -731,7 +766,12 @@ fn scale_threshold_preserves_large_exact_products() {
 #[allow(clippy::float_cmp)] // ratio == 1.0 must be a bit-exact identity.
 fn scale_threshold_ratio_one_is_identity() {
     for &limit in &[0.0, 7.0, 15.0, 300.0, 50_000.0] {
-        assert_eq!(scale_threshold(limit, 1.0), limit);
+        for lower_is_worse in [false, true] {
+            // Division by 1.0 is exact, and rounding up a value already
+            // on the sig-fig grid is a no-op, so the floor direction is
+            // a bit-exact identity too.
+            assert_eq!(scale_threshold(limit, 1.0, lower_is_worse), limit);
+        }
     }
 }
 
@@ -741,7 +781,10 @@ fn scale_threshold_ratio_one_is_identity() {
 #[test]
 #[allow(clippy::float_cmp)] // A zero limit must stay bit-exact zero.
 fn scale_threshold_zero_limit_stays_zero() {
-    assert_eq!(scale_threshold(0.0, 0.5), 0.0);
+    assert_eq!(scale_threshold(0.0, 0.5, false), 0.0);
+    // `0 / 0.5` is also zero, so the floor direction hits the same
+    // short-circuit rather than the `log10(0) == -inf` maths.
+    assert_eq!(scale_threshold(0.0, 0.5, true), 0.0);
 }
 
 /// A subnormal-range limit must not poison the result with `NaN`: the
@@ -751,8 +794,10 @@ fn scale_threshold_zero_limit_stays_zero() {
 /// later be rejected by `ThresholdSet::build` with a confusing error.
 #[test]
 fn scale_threshold_subnormal_limit_stays_finite() {
-    let scaled = scale_threshold(1e-320, 0.5);
-    assert!(scaled.is_finite(), "expected finite, got {scaled}");
+    for lower_is_worse in [false, true] {
+        let scaled = scale_threshold(1e-320, 0.5, lower_is_worse);
+        assert!(scaled.is_finite(), "expected finite, got {scaled}");
+    }
 }
 
 /// Minimal `CheckArgs` carrying only the `[check.exclude]` inputs under

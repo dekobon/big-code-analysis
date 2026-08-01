@@ -35,9 +35,12 @@ pub(crate) enum SoftLimit {
 
 impl SoftLimit {
     /// Resolve to a concrete limit. `Absolute` ignores `hard`; `Scale`
-    /// multiplies the metric's hard limit, erroring when no hard limit
-    /// exists for the metric to scale (a scale factor relative to
-    /// nothing is meaningless).
+    /// tightens the metric's hard limit by its factor, erroring when no
+    /// hard limit exists for the metric to scale (a scale factor
+    /// relative to nothing is meaningless).
+    ///
+    /// `name` must already be canonical (#1165), because the scaling
+    /// direction is looked up from it — see [`scale_threshold`].
     pub(crate) fn resolve(self, name: &str, hard: Option<f64>) -> Result<f64, String> {
         match self {
             Self::Absolute(value) => Ok(value),
@@ -49,7 +52,11 @@ impl SoftLimit {
                          absolute soft limit or add a hard limit first"
                     )
                 })?;
-                Ok(scale_threshold(base, factor))
+                Ok(scale_threshold(
+                    base,
+                    factor,
+                    crate::thresholds::metric_is_lower_is_worse(name),
+                ))
             }
         }
     }
@@ -80,15 +87,44 @@ pub(crate) fn is_valid_scale_ratio(ratio: f64) -> bool {
     0.0 < ratio && ratio <= 1.0
 }
 
-/// Scale a threshold `limit` by `ratio`, rounding to
+/// Tighten a threshold `limit` by `ratio`, rounding to
 /// [`HEADROOM_SIG_FIGS`] significant figures. `ratio` is assumed already
 /// validated (see [`is_valid_scale_ratio`]) to lie in `(0, 1]`. Shared
 /// by the `--headroom` scalar path and the `[thresholds.soft]`
 /// scale-relative form so both round identically.
-pub(crate) fn scale_threshold(limit: f64, ratio: f64) -> f64 {
-    let scaled = limit * ratio;
+///
+/// `ratio` scales the *band*, not the number: it always makes the soft
+/// tier stricter than the hard gate, and which arithmetic does that
+/// depends on the metric's direction (#1166). A higher-is-worse limit is
+/// a ceiling, so tightening it means lowering it — multiply. A
+/// lower-is-worse `mi.*` limit is a *floor*, so tightening it means
+/// **raising** it — divide. Multiplying a floor lowers it, which put the
+/// early-warning band *below* the hard gate and made `--tier=soft` a
+/// silent no-op for the whole `mi.*` family.
+///
+/// The rounding is likewise direction-aware, and asymmetric on purpose.
+/// A ceiling rounds to nearest: `limit * ratio` has an exact decimal
+/// value that the float product misses by an ulp (`7 * 0.95` is
+/// `6.6499999999999995`), so nearest-rounding *recovers* the true
+/// product, and the resulting output parity is a contract (#373). A
+/// floor's `limit / ratio` generally has no exact decimal at all
+/// (`20 / 0.9` repeats), so the last figure is a real choice — and it
+/// goes **up**, because a floor rounded down is a band that fires
+/// marginally late, the same defect in miniature. Rounding up also keeps
+/// the resolved floor at or above the exact quotient, so it can never
+/// land under the hard floor it is derived from and trip
+/// [`ThresholdSet::build_tiered`](crate::thresholds::ThresholdSet::build_tiered)'s
+/// soft-looser-than-hard guard.
+pub(crate) fn scale_threshold(limit: f64, ratio: f64, lower_is_worse: bool) -> f64 {
+    let scaled = if lower_is_worse {
+        limit / ratio
+    } else {
+        limit * ratio
+    };
     // `log10(0)` is `-inf`; short-circuit the degenerate inputs so the
-    // magnitude maths below only sees finite, non-zero values.
+    // magnitude maths below only sees finite, non-zero values. A zero
+    // `ratio` is rejected upstream, but were one to arrive the division
+    // yields an infinity that lands here rather than panicking.
     if scaled == 0.0 || !scaled.is_finite() {
         return scaled;
     }
@@ -108,7 +144,12 @@ pub(crate) fn scale_threshold(limit: f64, ratio: f64) -> f64 {
     if !factor.is_finite() {
         return scaled;
     }
-    (scaled * factor).round() / factor
+    let ticks = scaled * factor;
+    if lower_is_worse {
+        ticks.ceil() / factor
+    } else {
+        ticks.round() / factor
+    }
 }
 
 /// Parse one `[thresholds.soft]` value: a number (absolute) or a

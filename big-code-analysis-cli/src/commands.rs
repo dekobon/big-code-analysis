@@ -45,7 +45,8 @@ use crate::metric_diff::DiffSide;
 use crate::threshold_lang::LanguageThresholds;
 use crate::threshold_soft::{SoftLimit, scale_threshold};
 use crate::thresholds::{
-    ParsedThresholds, ThresholdSet, Violation, breaches_limit, render_violation_line,
+    ParsedThresholds, ThresholdSet, Violation, breaches_limit, metric_is_lower_is_worse,
+    render_violation_line,
 };
 use big_code_analysis::{FuncSpace, Ops};
 
