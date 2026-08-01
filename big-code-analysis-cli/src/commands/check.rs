@@ -41,8 +41,7 @@ pub(crate) fn run_check(
     let tier = args.resolved_tier();
     let tiered_exit_codes = args.resolved_exit_codes() == Some(crate::ExitCodes::Tiered);
     let ResolvedThresholds {
-        set,
-        hard_limits,
+        thresholds,
         provenance,
     } = validate_and_build_thresholds(&mut args, base_thresholds, tier);
     // `--print-effective-config` is a read-only debug aid: print the
@@ -53,7 +52,7 @@ pub(crate) fn run_check(
         print_effective_config(
             &globals,
             &args,
-            &set,
+            &thresholds,
             manifest,
             format,
             tier,
@@ -68,7 +67,7 @@ pub(crate) fn run_check(
     // `format_remediation_block` needs the resolved `--paths` /
     // `--exclude` set to compose a copy-paste-safe refresh command.
     let globals_for_remediation = globals.clone();
-    let walk = run_check_walk(globals, &args, preproc, set);
+    let walk = run_check_walk(globals, &args, preproc, thresholds);
     enforce_usable_input(&walk);
     let violations = walk.violations;
 
@@ -128,7 +127,7 @@ pub(crate) fn run_check(
     let any_violations = !active.is_empty();
     // Categorise the active violations for the exit-code contract (#385)
     // before `emit_check_results` consumes them.
-    let outcome = classify_check_outcome(&active, tier.tier(), &hard_limits);
+    let outcome = classify_check_outcome(&active, tier.tier());
     // Build the remediation block ONLY when we have something to
     // remediate. Empty active set (clean run) gets no trailing block —
     // there is no baseline to refresh and no artifact worth pointing
@@ -204,7 +203,7 @@ fn run_check_walk(
     globals: GlobalOpts,
     args: &CheckArgs,
     preproc: Option<Arc<PreprocResults>>,
-    set: Arc<ThresholdSet>,
+    thresholds: Arc<LanguageThresholds>,
 ) -> CheckWalk {
     let (tx, rx) = crossbeam::channel::unbounded();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
@@ -213,10 +212,12 @@ fn run_check_walk(
     // Halstead being the most expensive per node — and throw the rest
     // away. `validate_and_build_thresholds` rejects an empty set before
     // the walk, so this is never an empty selection, which `with_only`
-    // would read as "compute nothing".
-    let selected_metrics = Some(set.selected_metrics());
+    // would read as "compute nothing". The selection is the union across
+    // languages (#1141): a metric only a `[thresholds.lang.<slug>]` table
+    // gates would otherwise stay at its zero default.
+    let selected_metrics = Some(thresholds.selected_metrics());
     let cfg = Config {
-        threshold_set: Some(set),
+        thresholds: Some(thresholds),
         selected_metrics,
         check_tx: Some(tx),
         files_dispatched: Some(Arc::clone(&files_dispatched)),

@@ -18,6 +18,7 @@ fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
         metric: "cyclomatic",
         value,
         limit,
+        hard_limit: Some(limit),
         lower_is_worse: false,
         body_hash: None,
         suppressed: false,
@@ -560,7 +561,10 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
     thresholds.insert("halstead.volume".to_owned(), 1_000.0);
 
     let effective = EffectiveConfig {
-        thresholds: thresholds.clone(),
+        thresholds: EffectiveThresholds {
+            global: thresholds.clone(),
+            lang: BTreeMap::new(),
+        },
         check: EffectiveCheck {
             paths: vec!["src/".to_owned()],
             include: vec!["*.rs".to_owned()],
@@ -611,7 +615,10 @@ fn effective_config_json_serializes_threshold_overrides() {
     let mut thresholds = BTreeMap::new();
     thresholds.insert("cyclomatic".to_owned(), 22.0);
     let effective = EffectiveConfig {
-        thresholds,
+        thresholds: EffectiveThresholds {
+            global: thresholds,
+            lang: BTreeMap::new(),
+        },
         check: EffectiveCheck {
             paths: Vec::new(),
             include: Vec::new(),
@@ -675,10 +682,21 @@ fn effective_config_reflects_resolved_threshold_set() {
     };
     let args = check_args_for_remediation(None, None, false);
 
-    let effective =
-        EffectiveConfig::from_resolved(&globals, &args, &set, None, crate::TierSpec::Hard, false);
-    assert_eq!(effective.thresholds.get("cyclomatic"), Some(&11.0));
-    assert_eq!(effective.thresholds.get("cognitive"), Some(&13.0));
+    let resolved = LanguageThresholds::new(set, BTreeMap::new());
+    let effective = EffectiveConfig::from_resolved(
+        &globals,
+        &args,
+        &resolved,
+        None,
+        crate::TierSpec::Hard,
+        false,
+    );
+    assert_eq!(effective.thresholds.global.get("cyclomatic"), Some(&11.0));
+    assert_eq!(effective.thresholds.global.get("cognitive"), Some(&13.0));
+    assert!(
+        effective.thresholds.lang.is_empty(),
+        "no per-language overrides were configured"
+    );
     assert_eq!(effective.check.paths, vec!["src/".to_owned()]);
     assert_eq!(effective.check.include, vec!["*.rs".to_owned()]);
     assert!(effective.check.exclude_tests);
@@ -822,20 +840,17 @@ fn apply_check_exclude_unions_flag_and_file() {
 /// Build a `(Violation, Option<Coverage>)` pair for the classifier
 /// tests: `value` drives hard-breach detection; `coverage` selects the
 /// new/regressed bucket (`None` models "no `--baseline` supplied").
+///
+/// `violation` stamps `hard_limit` from the same `10.0`, which is the
+/// hard-tier shape (soft limit == hard ceiling). Soft-tier tests that
+/// need the two to differ set `hard_limit` themselves.
 fn pair(value: f64, coverage: Option<Coverage>) -> (Violation, Option<Coverage>) {
     (violation("a.rs", "f", value, 10.0), coverage)
 }
 
-/// Hard-tier limits used across the soft-tier escalation tests: a
-/// `cyclomatic` ceiling of 10. The `violation` helper stamps the metric
-/// as `cyclomatic`, so this key always matches.
-fn hard_limits() -> BTreeMap<String, f64> {
-    BTreeMap::from([("cyclomatic".to_owned(), 10.0)])
-}
-
 #[test]
 fn classify_empty_pairs_is_clean() {
-    let outcome = classify_check_outcome(&[], Tier::Hard, &hard_limits());
+    let outcome = classify_check_outcome(&[], Tier::Hard);
     assert_eq!(outcome, CheckOutcome::Clean);
 }
 
@@ -845,14 +860,14 @@ fn classify_no_baseline_is_new_only() {
     // counts as a new offender — there is nothing baselined to regress
     // against.
     let pairs = [pair(20.0, None), pair(30.0, None)];
-    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Hard);
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
 #[test]
 fn classify_new_variant_is_new_only() {
     let pairs = [pair(20.0, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Hard);
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
@@ -862,7 +877,7 @@ fn classify_regressed_only() {
         pair(20.0, Some(Coverage::Regressed { recorded: 15.0 })),
         pair(30.0, Some(Coverage::Regressed { recorded: 25.0 })),
     ];
-    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Hard);
     assert_eq!(outcome, CheckOutcome::RegressionOnly);
 }
 
@@ -872,7 +887,7 @@ fn classify_mixed_new_and_regression() {
         pair(20.0, Some(Coverage::New)),
         pair(30.0, Some(Coverage::Regressed { recorded: 25.0 })),
     ];
-    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Hard);
     assert_eq!(outcome, CheckOutcome::Mixed);
 }
 
@@ -881,7 +896,7 @@ fn classify_soft_tier_hard_breach_escalates_over_regression() {
     // Soft tier, value 12 over the hard ceiling 10: a true breach, more
     // urgent than the regression bucket it would otherwise land in.
     let pairs = [pair(12.0, Some(Coverage::Regressed { recorded: 11.0 }))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Soft);
     assert_eq!(outcome, CheckOutcome::HardBreach);
 }
 
@@ -890,7 +905,7 @@ fn classify_soft_tier_encroachment_is_not_hard_breach() {
     // Soft tier, value 8: over the soft band (the gate already kept it)
     // but under the hard ceiling 10 — encroachment, not a breach.
     let pairs = [pair(8.0, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Soft);
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
@@ -899,7 +914,7 @@ fn classify_hard_tier_never_escalates_to_breach() {
     // At the hard tier every violation is over the hard limit, so the
     // breach escalation is suppressed and the new/regr split survives.
     let pairs = [pair(20.0, Some(Coverage::Regressed { recorded: 15.0 }))];
-    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Hard);
     assert_eq!(outcome, CheckOutcome::RegressionOnly);
 }
 
@@ -909,32 +924,33 @@ fn classify_soft_tier_nan_value_is_not_breach() {
     // escalates to a hard breach; it falls to the new/regr split. Pins
     // the documented defensive branch in `classify_check_outcome`.
     let pairs = [pair(f64::NAN, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits());
+    let outcome = classify_check_outcome(&pairs, Tier::Soft);
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
 #[test]
-fn classify_soft_tier_unknown_metric_is_not_breach() {
-    // A metric absent from the hard-limit map cannot be a hard breach
-    // (no ceiling to exceed); it falls through to the new/regr split.
-    let pairs = [pair(999.0, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft, &BTreeMap::new());
+fn classify_soft_tier_metric_without_hard_ceiling_is_not_breach() {
+    // A `[thresholds.soft]` absolute limit with no `[thresholds]`
+    // counterpart leaves the metric with no hard ceiling to exceed, so
+    // however far the value overshoots it stays an encroachment.
+    let mut pairs = [pair(999.0, Some(Coverage::New))];
+    pairs[0].0.hard_limit = None;
+    let outcome = classify_check_outcome(&pairs, Tier::Soft);
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 
 /// Build a `(Violation, Option<Coverage>)` pair for a lower-is-worse
 /// `mi.original` metric (#837): a value *below* the floor is the breach.
+///
+/// The soft floor is 50 and the hard floor 10 — the realistic soft-tier
+/// shape for a lower-is-worse metric, where the early-warning floor sits
+/// *above* the ceiling that constitutes a real breach.
 fn pair_low(value: f64, coverage: Option<Coverage>) -> (Violation, Option<Coverage>) {
     let mut v = violation("a.rs", "f", value, 50.0);
     v.metric = "mi.original";
     v.lower_is_worse = true;
+    v.hard_limit = Some(10.0);
     (v, coverage)
-}
-
-/// Hard-tier limits for the lower-is-worse escalation tests: an
-/// `mi.original` *floor* of 10. A value below 10 is a hard breach.
-fn hard_limits_mi() -> BTreeMap<String, f64> {
-    BTreeMap::from([("mi.original".to_owned(), 10.0)])
 }
 
 #[test]
@@ -944,7 +960,7 @@ fn classify_soft_tier_lower_is_worse_hard_breach_escalates() {
     // false. Before #837 the hardcoded `value > hard` missed this and the
     // outcome fell to RegressionOnly, under-reporting the exit code.
     let pairs = [pair_low(5.0, Some(Coverage::Regressed { recorded: 8.0 }))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits_mi());
+    let outcome = classify_check_outcome(&pairs, Tier::Soft);
     assert_eq!(outcome, CheckOutcome::HardBreach);
 }
 
@@ -953,7 +969,7 @@ fn classify_soft_tier_lower_is_worse_above_floor_is_not_breach() {
     // mi.original value 15 is above the hard floor 10, so it is not a hard
     // breach; it falls to the new/regr split.
     let pairs = [pair_low(15.0, Some(Coverage::New))];
-    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits_mi());
+    let outcome = classify_check_outcome(&pairs, Tier::Soft);
     assert_eq!(outcome, CheckOutcome::NewOnly);
 }
 

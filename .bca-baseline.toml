@@ -63,7 +63,7 @@ value = 47834.17129195417
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 100
+start_line = 101
 metric = "halstead.effort"
 value = 136001.1105471366
 
@@ -91,14 +91,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "emit_check_results"
-start_line = 552
+start_line = 553
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "filter_by_baseline"
-start_line = 363
+start_line = 364
 metric = "nargs"
 value = 8.0
 
@@ -107,19 +107,19 @@ path = "big-code-analysis-cli/src/commands/check.rs"
 qualified = "run_check"
 start_line = 13
 metric = "halstead.effort"
-value = 70257.02522730803
+value = 70554.29290465376
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
 qualified = "EffectiveConfig::from_resolved"
-start_line = 136
+start_line = 192
 metric = "nargs"
 value = 14.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands/check/effective_config.rs"
 qualified = "print_effective_config"
-start_line = 22
+start_line = 23
 metric = "nargs"
 value = 9.0
 
@@ -252,7 +252,7 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 825
+start_line = 830
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -314,17 +314,10 @@ value = 66737.04848699087
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.ploc"
-value = 526.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/thresholds.rs"
 qualified = "ThresholdSet::evaluate_with_policy"
-start_line = 851
+start_line = 802
 metric = "halstead.effort"
-value = 56531.05676283881
+value = 57580.96697647807
 
 [[entry]]
 path = "big-code-analysis-cli/src/vcs_command.rs"
@@ -826,9 +819,9 @@ value = 34.0
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 305
+start_line = 310
 metric = "halstead.effort"
-value = 74314.37901478147
+value = 70750.09027709182
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -924,21 +917,21 @@ value = 8.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 218
+start_line = 248
 metric = "halstead.effort"
 value = 63007.70094399036
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 218
+start_line = 248
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 514
+start_line = 544
 metric = "halstead.effort"
 value = 125902.05368685763
 

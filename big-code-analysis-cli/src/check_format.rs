@@ -567,6 +567,11 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         metric,
         value,
         limit,
+        // The hard-tier ceiling exists to drive the soft-tier
+        // hard-breach escalation in `classify_check_outcome`, which runs
+        // before this conversion; the serialized offender record reports
+        // the limit that was actually gated against.
+        hard_limit: _,
         // Metric direction is re-derived from the catalog by the
         // offender formatters (`OffenderRecord::default_message`,
         // Code Climate severity), so it is not carried on the record.
@@ -605,6 +610,7 @@ mod tests {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            hard_limit: Some(1.0),
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
@@ -651,6 +657,7 @@ mod tests {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            hard_limit: Some(1.0),
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
@@ -671,6 +678,7 @@ mod tests {
             metric,
             value: 17.0,
             limit: 5.0,
+            hard_limit: Some(5.0),
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
@@ -813,6 +821,7 @@ mod tests {
             metric: "cyclomatic",
             value: 17.0,
             limit: 5.0,
+            hard_limit: Some(5.0),
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,
@@ -882,6 +891,7 @@ mod tests {
             metric: "cyclomatic",
             value: 17.0,
             limit: 5.0,
+            hard_limit: Some(5.0),
             lower_is_worse: false,
             body_hash: None,
             suppressed: false,

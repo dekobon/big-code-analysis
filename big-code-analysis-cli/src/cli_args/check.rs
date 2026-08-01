@@ -370,7 +370,7 @@ impl CheckArgs {
         // Range-validate the alias ratio here (exit 1, tool error) — clap
         // does not parse `--headroom` through `TierSpec`, so the `(0, 1]`
         // check the canonical form gets at parse time must be replicated.
-        if !crate::thresholds::is_valid_scale_ratio(ratio) {
+        if !crate::threshold_soft::is_valid_scale_ratio(ratio) {
             die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
         }
         match self.tier {
