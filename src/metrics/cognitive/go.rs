@@ -45,9 +45,8 @@ impl Cognitive for GoCode {
                 compute_booleans(node, stats, G::AMPAMP, G::PIPEPIPE);
             }
             G::FunctionDeclaration | G::MethodDeclaration => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[G::FunctionDeclaration, G::MethodDeclaration],

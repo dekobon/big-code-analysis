@@ -54,14 +54,7 @@ impl Cognitive for RustCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionItem => {
-                nesting.conditional = 0;
-                // Increase depth function nesting if needed
-                increment_function_depth(
-                    &mut nesting.function_depth,
-                    node,
-                    ancestors,
-                    &[FunctionItem],
-                );
+                enter_function_boundary(&mut nesting, node, ancestors, &[FunctionItem]);
             }
             ClosureExpression => {
                 nesting.lambda += 1;

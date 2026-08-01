@@ -306,6 +306,33 @@ fn increment_function_depth<'a, T: PartialEq + From<u16>>(
     }
 }
 
+/// Applies the function-boundary rule at `node`, which every language
+/// with a syntactic function-definition kind shares (#696).
+///
+/// It moves two of [`Nesting`]'s three channels. Structural nesting
+/// restarts at zero, so control flow written inside this function is
+/// charged against its own depth rather than the enclosing function's;
+/// and the function-depth surcharge rises when this definition is
+/// itself lexically nested in one of `stops`. Byte-equivalent
+/// constructs therefore score the same across languages, which is the
+/// property the book's per-language deviations list states.
+///
+/// The two statements were spelled out longhand in eighteen modules
+/// before #1103. Two callers still spell them out, for opposite
+/// reasons: `elixir.rs` takes only the reset and deliberately skips the
+/// depth bump, while the `js_cognitive!` macro takes the pair *plus* a
+/// `nesting.lambda` reset no other language performs. Each says why at
+/// its own site.
+fn enter_function_boundary<'a, T: PartialEq + From<u16>>(
+    nesting: &mut Nesting,
+    node: &Node<'a>,
+    ancestors: Ancestors<'a, '_>,
+    stops: &[T],
+) {
+    nesting.conditional = 0;
+    increment_function_depth(&mut nesting.function_depth, node, ancestors, stops);
+}
+
 /// Charges `node`'s construct at the current nesting level and opens a
 /// new structural level for its children.
 ///
@@ -400,10 +427,16 @@ macro_rules! js_cognitive {
                     });
                 }
                 FunctionDeclaration => {
-                    // Reset lambda nesting at function for JS
+                    // The JS family takes the shared function-boundary
+                    // rule plus one extra channel: `nesting.lambda` is
+                    // reset too, which no other language does. A `function`
+                    // declaration written inside an arrow function starts a
+                    // fresh lexical scope, so it should not inherit that
+                    // arrow's lambda surcharge. That third statement is why
+                    // this arm spells the pair out rather than calling
+                    // `enter_function_boundary` (#1103).
                     nesting.conditional = 0;
                     nesting.lambda = 0;
-                    // Increase depth function nesting if needed
                     increment_function_depth(
                         &mut nesting.function_depth,
                         node,

@@ -60,9 +60,8 @@ impl Cognitive for MozcppCode {
             | FunctionDefinition2
             | FunctionDefinition3
             | FunctionDefinition4 => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[

@@ -129,6 +129,10 @@ for historical reference.
   not, charging an inherited-conditional surcharge no sibling language
   charges; a `def` two conditionals deep now scores 2 where it scored 4.
 
+- Documented Python's per-enclosing-`lambda` surcharge on boolean
+  operators in the book's *Cognitive Complexity → Per-language
+  deviations* list (#1150). No behaviour change.
+
 - `bca ops` opens the same function spaces as `bca metrics`, through the
   same source-aware promote-and-classify predicate (#1130). The two
   walks each carried their own copy of the decision and the `ops` copy
@@ -251,10 +255,13 @@ for historical reference.
   which now hold the `Nesting` struct end to end instead of
   destructuring it into three same-typed locals and rebuilding it, with
   the `conditional + function_depth + lambda` sum folded into a new
-  `Nesting::total()` (#1086); and `node_text`'s safety
-  documentation no longer describes a UTF-8 char-boundary panic that
-  cannot occur for a `&[u8]` parameter, with the same-parse
-  precondition now stated on the `Getter` trait (#1059). `bca.toml`'s
+  `Nesting::total()` (#1086); the two statements that make up the
+  function-boundary rule moved behind a shared `enter_function_boundary`
+  helper, replacing eighteen longhand copies and leaving Elixir and the
+  `js_cognitive!` macro visibly opted out at their call sites (#1103);
+  and `node_text`'s safety documentation no longer describes a UTF-8
+  char-boundary panic that cannot occur for a `&[u8]` parameter, with
+  the same-parse precondition now stated on the `Getter` trait (#1059). `bca.toml`'s
   `exclude_tests` comment, which claimed the option does not lower
   `loc.sloc`, was corrected — #722 made it do exactly that (#1066).
 

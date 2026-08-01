@@ -64,9 +64,8 @@ impl Cognitive for IrulesCode {
             // All four function-space kinds reset nesting and bump the
             // function depth (see the `IrulesCode` Checker impl).
             Procedure | WhenEvent | OnHandler | TrapHandler => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[Procedure, WhenEvent, OnHandler, TrapHandler],

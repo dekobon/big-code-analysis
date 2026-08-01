@@ -58,13 +58,7 @@ impl Cognitive for TclCode {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             Procedure => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
-                    node,
-                    ancestors,
-                    &[Procedure],
-                );
+                enter_function_boundary(&mut nesting, node, ancestors, &[Procedure]);
             }
             _ => {}
         }

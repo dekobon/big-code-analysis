@@ -73,6 +73,12 @@ fn python_comprehension_clause_nesting(
 /// order, so it is the lambdas that get counted and the control
 /// constructs that end the walk — the reverse of what this comment
 /// claimed before #1090.
+///
+/// The per-lambda surcharge is a deliberate Python-only deviation from
+/// Campbell, reviewed and kept in #1150; the user-facing statement of
+/// it, with the measured ladder, is the Python bullet under *Cognitive
+/// Complexity → Per-language deviations* in
+/// `big-code-analysis-book/src/metrics.md`.
 fn python_apply_boolean_operator<'a>(
     node: &Node<'a>,
     ancestors: Ancestors<'a, '_>,
@@ -224,13 +230,7 @@ impl Cognitive for PythonCode {
             // that shape is legal (`let f = || { fn g() {} };`) and only
             // the JS macro currently carries the extra line.
             FunctionDefinition => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
-                    node,
-                    ancestors,
-                    &[FunctionDefinition],
-                );
+                enter_function_boundary(&mut nesting, node, ancestors, &[FunctionDefinition]);
             }
             _ => {}
         }

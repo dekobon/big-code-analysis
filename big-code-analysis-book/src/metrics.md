@@ -336,6 +336,38 @@ Sonar ecosystem.
   sense. It adds a surcharge *on top of* the enclosing nesting
   instead of replacing it, so a decision inside a lambda written
   inside an `if` is charged for both.
+- **Python** charges a boolean operator an extra `+1` for each
+  enclosing `lambda`, on top of the `+1` the boolean sequence itself
+  earns. No other language does this. Only the outermost operator
+  inside a given lambda body pays the surcharge, and the walk that
+  counts those lambdas stops at the nearest enclosing
+  `expression_list`. (It also stops at `if`, `for` and `while`, but a
+  lambda body is a single expression, so no lambda ever sits above one
+  of those statements and those three arms never change a count.) The
+  sequence increments themselves still follow the operator-switch rule
+  above, so a mixed chain inside one lambda pays two of them plus a
+  single surcharge. Measured:
+
+  | Python source | `cognitive.sum` |
+  | --- | --- |
+  | `g = a and b` | 1 |
+  | `g = lambda y: y and a` | 2 |
+  | `g = lambda y: y and a and b` | 2 |
+  | `g = lambda y: y and a or b` | 3 |
+  | `g = lambda x: (lambda y: y and a)` | 3 |
+  | `k = lambda q: (yield a and b, c)` | 1 |
+  | `def f(a): g = lambda x: x` | 0 |
+
+  The last two rows are the boundaries. The parenthesised `yield` puts
+  an `expression_list` between the operator and the `lambda`, ending
+  the walk before it reaches one, so only the fundamental `+1` is left;
+  and a lambda containing no boolean operator costs nothing by itself.
+
+  Campbell gives a boolean sequence a fundamental increment and no
+  nesting increment, so this is an addition to the specification rather
+  than an implementation of it. Issue #1150 reviewed the rule and kept
+  it deliberately. Python's boolean-operator cost is not comparable
+  with another language's score for the same code.
 
 ## Cyclomatic Complexity (CC) {#cyclomatic-complexity-cc}
 
