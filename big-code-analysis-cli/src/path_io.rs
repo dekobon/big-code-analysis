@@ -4,14 +4,39 @@
 
 use super::*;
 
-/// Write `bytes` to stdout, tolerating `BrokenPipe` (the typical case when
-/// the consumer is `head`, `less`, etc.) and `die`ing on anything else.
-pub(crate) fn write_stdout_or_die(bytes: &[u8]) {
-    if let Err(e) = std::io::stdout().lock().write_all(bytes)
-        && e.kind() != ErrorKind::BrokenPipe
-    {
-        die(e);
+/// Write every chunk of `parts` to stdout under one lock, tolerating
+/// `BrokenPipe` (the typical case when the consumer is `head`, `less`,
+/// etc.) and `die`ing on anything else.
+///
+/// The single place the stdout-failure policy is decided, so the
+/// newline-appending variant below cannot drift from it.
+fn write_stdout_parts_or_die(parts: &[&[u8]]) {
+    let mut out = std::io::stdout().lock();
+    for part in parts {
+        if let Err(e) = out.write_all(part) {
+            if e.kind() != ErrorKind::BrokenPipe {
+                die(e);
+            }
+            return;
+        }
     }
+}
+
+/// Write `bytes` to stdout under the policy of
+/// [`write_stdout_parts_or_die`].
+pub(crate) fn write_stdout_or_die(bytes: &[u8]) {
+    write_stdout_parts_or_die(&[bytes]);
+}
+
+/// Write `text` and a trailing newline to stdout, under one lock.
+///
+/// The `println!` that post-walk emissions (`count`'s tally, `preproc`'s
+/// JSON) used instead *panics* on a write error, exiting 101 where the
+/// CLI documents `EXIT_TOOL_ERROR` (#1132). The newline is a separate
+/// chunk rather than appended to `text`, so a multi-megabyte document is
+/// not reallocated and copied just to grow by one byte.
+pub(crate) fn writeln_stdout_or_die(text: &str) {
+    write_stdout_parts_or_die(&[text.as_bytes(), b"\n"]);
 }
 
 /// Reject an `--output` path that names an existing directory or whose

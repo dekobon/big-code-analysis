@@ -215,9 +215,14 @@ fn dispatch_dump(
     // now renders into memory before printing, which widens that window
     // from a few instructions to a whole tree walk; `Stdout::lock` is
     // reentrant, so the nested lock the print takes is fine.
+    //
+    // The banner is written through the guard rather than `println!`,
+    // which panics on a write error instead of returning one (#1132):
+    // going through `?` routes a full disk into the walk's
+    // `write_failures` tally and leaves `| head` a swallowed `BrokenPipe`.
     let stdout = std::io::stdout();
-    let _banner_guard = stdout.lock();
-    println!("== {} ==", path.display());
+    let mut out = stdout.lock();
+    writeln!(out, "== {} ==", path.display())?;
     dump_node_with_color(
         ast.source(),
         &ast.root_node(),
@@ -352,7 +357,10 @@ fn dispatch_strip_comments(
         } else if let Some(output) = output {
             write_file(output, &new_source)?;
         } else if let Ok(text) = std::str::from_utf8(&new_source) {
-            println!("{text}");
+            // Fallible for the same reason as the `dump` banner (#1132):
+            // `println!` would panic on a full disk rather than let the
+            // walk tally the failure and exit 1.
+            writeln!(std::io::stdout().lock(), "{text}")?;
         } else {
             std::io::stdout().write_all(&new_source)?;
         }
@@ -394,8 +402,8 @@ fn dispatch_find(
         // held across the banner, every match, and the trailing blank line
         // for the reason given in `dispatch_dump`.
         let stdout = std::io::stdout();
-        let _banner_guard = stdout.lock();
-        println!("== {} ==", path.display());
+        let mut out = stdout.lock();
+        writeln!(out, "== {} ==", path.display())?;
         for node in &found {
             dump_node_with_color(
                 ast.source(),
@@ -406,7 +414,7 @@ fn dispatch_find(
                 cfg.color,
             )?;
         }
-        println!();
+        writeln!(out)?;
     }
     Ok(())
 }

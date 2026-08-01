@@ -69,13 +69,42 @@ pub mod validators;
 /// (only `BCA_MAX_ORPHANED_TASKS`), so it has nothing to scrub.
 #[allow(dead_code)]
 pub fn scrub_ci_env(cmd: &mut Command) -> &mut Command {
-    cmd.env_remove("GITHUB_STEP_SUMMARY")
-        .env_remove("GITHUB_ACTIONS")
-        .env_remove("GITHUB_BASE_REF")
-        .env_remove("BCA_DIFF_BASE")
-        .env_remove("GITHUB_EVENT_BEFORE")
-        .env_remove("GITHUB_REPOSITORY")
-        .env_remove("GITHUB_RUN_ID")
+    for var in SCRUBBED_CI_ENV {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
+/// The variables [`scrub_ci_env`] removes. Named once so the plain
+/// `std::process::Command` builder below cannot drift from it.
+const SCRUBBED_CI_ENV: [&str; 7] = [
+    "GITHUB_STEP_SUMMARY",
+    "GITHUB_ACTIONS",
+    "GITHUB_BASE_REF",
+    "BCA_DIFF_BASE",
+    "GITHUB_EVENT_BEFORE",
+    "GITHUB_REPOSITORY",
+    "GITHUB_RUN_ID",
+];
+
+/// The same hermetic, env-scrubbed `bca` as [`cli_in`], but as a plain
+/// [`std::process::Command`] so the caller can redirect the child's
+/// stdout somewhere of its choosing.
+///
+/// `assert_cmd::Command::assert` runs the child through
+/// `std::process::Command::output`, which unconditionally replaces
+/// stdout and stderr with pipes — any redirection configured beforehand
+/// is silently discarded. Tests that must point stdout at a real file
+/// descriptor (`/dev/full`, a pipe they close early) therefore cannot go
+/// through `assert_cmd` at all.
+#[allow(dead_code)]
+pub fn std_bca_command_in(dir: &Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("bca"));
+    cmd.current_dir(dir);
+    for var in SCRUBBED_CI_ENV {
+        cmd.env_remove(var);
+    }
+    cmd
 }
 
 /// Build a `bca` `Command` with CI-side env vars scrubbed. The
