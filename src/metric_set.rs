@@ -159,7 +159,12 @@ impl Metric {
     /// Every [`Metric`] variant, in declaration order. Drives
     /// [`Metric::suppressible`] and any consumer that needs to iterate
     /// the full set without re-deriving it from `NAMES`.
-    const ALL: &'static [Self] = &[
+    ///
+    /// `pub(crate)` so in-crate tests that must cover *every* metric —
+    /// notably `metric_selection_parity` in `src/spaces_tests.rs` —
+    /// enumerate this list rather than a hand-copied one that a new
+    /// variant would silently escape.
+    pub(crate) const ALL: &'static [Self] = &[
         Self::Cognitive,
         Self::Cyclomatic,
         Self::Halstead,

@@ -227,7 +227,7 @@ they sit upstream of nearly every test in the workspace:
 
 | Path | Normalisation |
 | --- | --- |
-| `check_metrics` → `test_support::check_func_space` | `trim_end().trim_matches('\n')`, then `push(b'\n')` |
+| a module's `check_metrics` shim → `test_support::check_func_space_with` | `trim_end().trim_matches('\n')`, then `push(b'\n')` |
 | integration suites → `read_file_with_eol` → `normalize_line_endings` | unconditional `data.push(b'\n')` |
 
 Both guarantee a trailing newline, so **"a node ending at EOF" is

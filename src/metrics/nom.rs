@@ -289,9 +289,15 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Nom);
+    // The C# indexer / property tests (#464, #472) assert that `nom`'s
+    // function count agrees with `npm`'s method count for the same
+    // member, so they need both families computed.
+    check_metrics_only_shim!(check_nom_and_npm, Nom, Npm);
 
     /// Regression for #227: a `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
@@ -1093,7 +1099,7 @@ mod tests {
         // function space, triple-counting the indexer as 3 functions. The
         // correct count is 2 — the accessor count — matching the npm path
         // (`csharp_count_member`) which reports `class_methods == 2`.
-        check_metrics::<CsharpParser>(
+        check_nom_and_npm::<CsharpParser>(
             "class A {
                 private int[] _d;
                 public int this[int i] { get => _d[i]; set => _d[i] = value; }
@@ -1133,7 +1139,7 @@ mod tests {
         // is_func_space outright would drop this to 0; the #464 fix gates
         // the entry on the absence of accessors so this form still counts
         // as 1, matching the npm `.max(1)` fallback.
-        check_metrics::<CsharpParser>(
+        check_nom_and_npm::<CsharpParser>(
             "class A {
                 private int[] _d;
                 public int this[int i] => _d[i];
@@ -1171,7 +1177,7 @@ mod tests {
         // must NOT open its own space on top of them, else it double-counts
         // (the property analogue of #464). The correct count is 2 — the
         // accessor count — matching the npm path which reports 2.
-        check_metrics::<CsharpParser>(
+        check_nom_and_npm::<CsharpParser>(
             "class A {
                 private int _w;
                 public int W { get => _w; set => _w = value; }
@@ -1191,7 +1197,7 @@ mod tests {
         // An auto-property (`int Y { get; set; }`) still has two
         // `accessor_declaration` children, so it defers to them exactly like
         // a bodied property — the #472 gate must not change this count.
-        check_metrics::<CsharpParser>(
+        check_nom_and_npm::<CsharpParser>(
             "class A {
                 public int Y { get; set; }
             }",
@@ -1213,7 +1219,7 @@ mod tests {
         // before #472 (0 functions). The fix gates the entry on the
         // absence of accessors so it counts as 1, matching the npm
         // `.max(1)` fallback.
-        check_metrics::<CsharpParser>(
+        check_nom_and_npm::<CsharpParser>(
             "class A {
                 private int _w;
                 public int W => _w;

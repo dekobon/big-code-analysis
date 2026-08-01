@@ -190,9 +190,15 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    // Mi's dependency closure adds Loc + Cyclomatic + Halstead — the
+    // three inputs its formula consumes. No assertion here reads them
+    // directly; without them MI would be computed from zero-valued
+    // defaults.
+    check_metrics_only_shim!(check_metrics, Mi);
 
     #[test]
     fn mi_empty_file() {

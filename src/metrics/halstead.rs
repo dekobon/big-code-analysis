@@ -466,9 +466,11 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use crate::test_support::check_metrics;
+    use crate::test_support::check_metrics_only_shim;
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Halstead);
 
     // Pins the lesson-4 invariant `n2 == len(dedupe(ops.operands))` by
     // running `operands_and_operators` (the text-keyed `--ops` store)

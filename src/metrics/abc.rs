@@ -443,10 +443,18 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_func_space, check_metrics, metrics_verbatim};
+    use crate::test_support::{
+        check_func_space_only_shim, check_metrics_only_shim, metrics_verbatim,
+    };
     use crate::traits::ParserTrait;
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Abc);
+    // Every `check_func_space` caller in this module is an ABC-versus-
+    // cyclomatic parity test (`abc.conditions() == cyclomatic() - 1` on
+    // the same space), so the func-space shim carries Cyclomatic too.
+    check_func_space_only_shim!(check_func_space, Abc, Cyclomatic);
 
     // Walk the AST and return true iff any node has `kind_id == target`.
     // Used as a drift marker for hidden-rule kind ids: a passing

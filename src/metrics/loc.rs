@@ -782,9 +782,11 @@ mod typescript;
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_metrics, metrics_verbatim, space_verbatim};
+    use crate::test_support::{check_metrics_only_shim, metrics_verbatim, space_verbatim};
 
     use super::*;
+
+    check_metrics_only_shim!(check_metrics, Loc);
 
     /// A `Stats::default()` that never sees an observation must not leak
     /// the `usize::MAX` sentinel for any of the LOC `_min` accumulators
