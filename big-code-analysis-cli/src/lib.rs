@@ -406,7 +406,18 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 /// that want the standard exit-1 contract go through the `run_walk*`
 /// wrappers; `bca diff --since` uses this directly so it can unwind its
 /// temp trees before reporting.
-fn run_walk_resolved_tallying(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) -> WalkFailures {
+///
+/// `walk_errors` comes in from the caller's own seed expansion (#1131):
+/// the file list is already resolved by the time it arrives here, so
+/// this seam cannot observe a traversal failure and must be told of one.
+/// Threading it through rather than defaulting it here is what forces a
+/// caller that resolved its own list to account for the tally.
+fn run_walk_resolved_tallying(
+    paths: Vec<PathBuf>,
+    num_jobs: usize,
+    cfg: Config,
+    walk_errors: WalkErrors,
+) -> WalkFailures {
     let read_failures = Arc::clone(&cfg.read_failures);
     let write_failures = Arc::clone(&cfg.write_failures);
     ConcurrentRunner::new(num_jobs, act_on_file)
@@ -419,26 +430,91 @@ fn run_walk_resolved_tallying(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config)
         .run(cfg, FilesData { paths })
         .unwrap_or_else(|e| die(format_args!("{e:?}")));
     WalkFailures {
+        walk: walk_errors,
         read: read_failures.load(Ordering::Relaxed),
         write: write_failures.load(Ordering::Relaxed),
     }
 }
 
-/// How many files a walk failed on, split by which end gave way. Both
-/// are fatal; counted apart so the summary names the actionable cause.
+/// How many inputs a walk failed on, split by which end gave way. All
+/// three are fatal; counted apart so the summary names the actionable
+/// cause.
+///
+/// `walk` is the traversal-side loss (#1131) and is upstream of the
+/// other two: an entry the walker could not read never reaches a
+/// worker, so it can neither fail to be read nor fail to be written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WalkFailures {
+    walk: WalkErrors,
     read: usize,
     write: usize,
 }
 
+/// Which end of a walk gave way, and how many inputs it cost.
+///
+/// Exists so the priority order between the three is written once.
+/// Both consumers — the exit-code guard and `bca diff --since` — must
+/// report the *same* end for the same walk, or the two paths describe
+/// one failure differently; they used to re-spell the ladder each, and
+/// #1131 would have made that a three-way duplication.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalkFailure {
+    Walk(usize),
+    Read(usize),
+    Write(usize),
+}
+
+impl WalkFailures {
+    /// The most upstream failure, or `None` when the walk was complete.
+    ///
+    /// Traversal first: an entry the walker could not read never became
+    /// a file to read or a document to write, so naming it names the
+    /// cause. Reads before writes for the same reason — a file that
+    /// could not be read has no output to write either.
+    fn first(self) -> Option<WalkFailure> {
+        if self.walk.count() > 0 {
+            Some(WalkFailure::Walk(self.walk.count()))
+        } else if self.read > 0 {
+            Some(WalkFailure::Read(self.read))
+        } else if self.write > 0 {
+            Some(WalkFailure::Write(self.write))
+        } else {
+            None
+        }
+    }
+}
+
+impl WalkFailure {
+    /// The one-line stderr summary for this failure.
+    fn summary(self) -> String {
+        match self {
+            Self::Walk(count) => walk_failure_summary(count),
+            Self::Read(count) => read_failure_summary(count),
+            Self::Write(count) => write_failure_summary(count),
+        }
+    }
+
+    /// The same failure as a `bca diff --since` error, tagged with the
+    /// tree it came from. `DiffError` renders each variant through the
+    /// matching summary above, so the two surfaces cannot drift.
+    fn into_diff_error(self, side: DiffSide) -> metric_diff::DiffError {
+        match self {
+            Self::Walk(count) => metric_diff::DiffError::UnwalkableInputs { side, count },
+            Self::Read(count) => metric_diff::DiffError::UnreadableInputs { side, count },
+            Self::Write(count) => metric_diff::DiffError::UnwritableOutputs { side, count },
+        }
+    }
+}
+
 /// Resolve the seeds and process the file set concurrently, returning
-/// the read-failure tally. The seed-expanding counterpart to
-/// [`run_walk_resolved_tallying`].
+/// the failure tallies. The seed-expanding counterpart to
+/// [`run_walk_resolved_tallying`], and the only one of the two that can
+/// observe a traversal error — `run_walk_resolved_tallying` is handed a
+/// file list somebody else expanded.
 fn run_walk_tallying(globals: GlobalOpts, mut cfg: Config) -> WalkFailures {
     let (resolved, num_jobs) = resolve_walk_files(globals);
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
-    run_walk_resolved_tallying(resolved.files, num_jobs, cfg)
+    run_walk_resolved_tallying(resolved.files, num_jobs, cfg, resolved.walk_errors)
 }
 
 /// Summarize a walk that could not read every input file. Shared by the
@@ -452,6 +528,19 @@ pub(crate) fn read_failure_summary(count: usize) -> String {
     )
 }
 
+/// Summarize a walk whose *traversal* could not read every entry —
+/// typically a directory the process cannot list (#1131). Shaped like
+/// [`read_failure_summary`], but a separate wording because the loss is
+/// a different one: a whole subtree never entered the resolved file set,
+/// so the count is of unreadable entries, not of files.
+pub(crate) fn walk_failure_summary(count: usize) -> String {
+    let noun = if count == 1 { "entry" } else { "entries" };
+    format!(
+        "{count} directory {noun} could not be read (see the warnings above); \
+         refusing to trust a partially walked input set"
+    )
+}
+
 /// The write-side counterpart to [`read_failure_summary`].
 pub(crate) fn write_failure_summary(count: usize) -> String {
     let noun = if count == 1 { "file" } else { "files" };
@@ -461,8 +550,8 @@ pub(crate) fn write_failure_summary(count: usize) -> String {
     )
 }
 
-/// Exit 1 when the walk could not read every input file, or could not
-/// write every output document.
+/// Exit 1 when the walk could not read every entry it traversed, could
+/// not read every input file, or could not write every output document.
 ///
 /// A command that analysed less than its input has no complete result to
 /// report, and the omission is invisible in the output: a missing file
@@ -470,6 +559,13 @@ pub(crate) fn write_failure_summary(count: usize) -> String {
 /// `diff` side. `EXIT_TOOL_ERROR` is documented to cover unreadable
 /// input, so every walking subcommand fails the same way `check` does
 /// (#1060, #1098) rather than only when the run produced nothing.
+///
+/// The traversal side is the same argument one directory level up
+/// (#1131). A directory the process cannot list drops its whole subtree
+/// before any file is selected, so the per-file tally stays zero and the
+/// run reported success — `bca check` most damagingly, since a gate
+/// reporting clean on a tree it could not read is indistinguishable from
+/// a gate that passed.
 ///
 /// The write side is the same argument backwards: an unwritable
 /// `--output-dir` printed one error per file and still exited 0, which
@@ -484,13 +580,8 @@ pub(crate) fn write_failure_summary(count: usize) -> String {
 /// its baseline through `run_check`, so naming a subcommand here would
 /// misattribute the failure to a command the user never ran.
 fn enforce_complete_walk(failures: WalkFailures) {
-    // Reads first: when a file could not be read there is no output to
-    // write either, so naming the read is naming the cause.
-    if failures.read > 0 {
-        die(read_failure_summary(failures.read));
-    }
-    if failures.write > 0 {
-        die(write_failure_summary(failures.write));
+    if let Some(failure) = failures.first() {
+        die(failure.summary());
     }
 }
 
@@ -511,8 +602,19 @@ fn run_walk(globals: GlobalOpts, cfg: Config) {
 /// re-running the seed expansion.
 ///
 /// Exits 1 on an unreadable input or unwritable output, as [`run_walk`].
-fn run_walk_resolved(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config) {
-    enforce_complete_walk(run_walk_resolved_tallying(paths, num_jobs, cfg));
+///
+/// `walk_errors` is the caller's own [`resolve_walk_files`] tally: this
+/// entry point does not expand seeds, so it cannot observe a traversal
+/// failure and must be handed one (#1131). Taking it as a parameter
+/// rather than defaulting it is what stops a future caller from
+/// resolving its own file list and silently dropping the count.
+fn run_walk_resolved(paths: Vec<PathBuf>, num_jobs: usize, cfg: Config, walk_errors: WalkErrors) {
+    enforce_complete_walk(run_walk_resolved_tallying(
+        paths,
+        num_jobs,
+        cfg,
+        walk_errors,
+    ));
 }
 
 /// Like [`run_walk`], but returns the resolved terminal file list.
@@ -526,7 +628,12 @@ fn run_walk_collecting(globals: GlobalOpts, mut cfg: Config) -> Vec<PathBuf> {
     let (resolved, num_jobs) = resolve_walk_files(globals);
     cfg.explicit_seeds = Arc::new(resolved.explicit_files);
     let paths = resolved.files;
-    enforce_complete_walk(run_walk_resolved_tallying(paths.clone(), num_jobs, cfg));
+    enforce_complete_walk(run_walk_resolved_tallying(
+        paths.clone(),
+        num_jobs,
+        cfg,
+        resolved.walk_errors,
+    ));
     paths
 }
 
@@ -612,22 +719,17 @@ pub(crate) fn walk_metric_set(
     // always reaped, even on the error paths.
     let collected = collector.join();
 
-    if failures.read > 0 {
-        return Err(metric_diff::DiffError::UnreadableInputs {
-            side,
-            count: failures.read,
-        });
-    }
-    // Nothing is written per file any more, so this tally is expected to
-    // be zero. Kept because `write_failures` is generic walk machinery
-    // that a future dispatch change could start incrementing: the rule
-    // it enforces — never report a diff derived from an incomplete walk
-    // (#1098) — outlives the particular way the walk emits.
-    if failures.write > 0 {
-        return Err(metric_diff::DiffError::UnwritableOutputs {
-            side,
-            count: failures.write,
-        });
+    // Any incomplete walk is an error here rather than a gap: a file
+    // missing from one side's set is indistinguishable from one the
+    // commit added or removed, so tolerating the loss yields a *wrong*
+    // comparison (#1098) — and an unlistable directory loses a whole
+    // subtree at once (#1131).
+    //
+    // The write arm is expected to be unreachable now that nothing is
+    // written per file, and is kept because `write_failures` is generic
+    // walk machinery a future dispatch change could start incrementing.
+    if let Some(failure) = failures.first() {
+        return Err(failure.into_diff_error(side));
     }
 
     collected.map_err(|_| metric_diff::DiffError::CollectorPanicked { side })?

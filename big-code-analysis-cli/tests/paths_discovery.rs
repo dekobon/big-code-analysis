@@ -615,9 +615,19 @@ fn paths_from_tolerates_non_utf8_line() {
 /// #704: a per-entry walk error (here, an unreadable subdirectory) must
 /// skip-with-warning and keep processing the rest of the tree, not abort
 /// the whole run. Unix-only: it relies on POSIX directory permissions.
+///
+/// #1131 kept that tolerance and changed only what happens *after* the
+/// walk: the run now exits 1, because a subtree missing from the result
+/// is invisible in it. The continuation property this test exists for is
+/// therefore observed on streamed stdout rather than through the
+/// `--output` aggregate — a post-walk document the guard suppresses
+/// precisely so a partial one cannot look complete. The two claims are
+/// deliberately kept in one test: "warns", "continues", and "then fails"
+/// are one contract, and splitting them invites a future change to
+/// satisfy one while dropping another.
 #[cfg(unix)]
 #[test]
-fn unreadable_subdir_warns_but_continues() {
+fn unreadable_subdir_warns_continues_then_fails_the_run() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = TempDir::new().unwrap();
@@ -632,32 +642,22 @@ fn unreadable_subdir_warns_but_continues() {
     std::fs::write(locked.join("hidden.py"), "def g(): return 2\n").unwrap();
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-    let out = dir.path().join("agg.json");
-    let result = cli(dir.path())
-        .args([
-            "metrics",
-            "--no-config",
-            "--paths",
-            src.to_str().unwrap(),
-            "-O",
-            "json",
-            "--output",
-            out.to_str().unwrap(),
-        ])
+    cli(dir.path())
+        .args(["metrics", "--no-config", "--paths", src.to_str().unwrap()])
         .assert()
-        .success()
-        .stderr(predicate::str::contains("skipping walk entry"));
+        .code(1)
+        .stderr(predicate::str::contains("skipping walk entry"))
+        .stderr(predicate::str::contains(
+            "1 directory entry could not be read",
+        ))
+        // The readable sibling was still analyzed despite the locked
+        // subdir — the #704 property. `hidden.py` is the file the walk
+        // lost, and its absence is what the exit code above reports.
+        .stdout(predicate::str::contains("ok.py"))
+        .stdout(predicate::str::contains("hidden.py").not());
 
     // Restore permissions so the TempDir can be cleaned up on drop.
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    // The readable sibling was still analyzed despite the locked subdir.
-    let _ = result;
-    assert_eq!(
-        aggregate_len(&out),
-        1,
-        "ok.py must still be analyzed after the unreadable subdir is skipped",
-    );
 }
 
 // --- #1114: the directory walk runs in parallel -----------------------

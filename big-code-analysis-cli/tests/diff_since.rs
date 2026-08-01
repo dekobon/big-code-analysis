@@ -560,6 +560,71 @@ fn since_errors_when_the_after_side_has_an_unreadable_file() {
         .stdout(predicate::str::is_empty());
 }
 
+/// #1131: the same wrong-diff outcome one directory level up. A
+/// directory the after-side walk cannot *list* drops its whole subtree
+/// before any file is selected, so the per-file read tally stays zero
+/// and the run reported a clean diff with every file under it marked
+/// removed.
+///
+/// The control run is what makes the claim, not the exit code: it shows
+/// the same tree pairing both files with an empty `removed_files`, so
+/// the locked run's failure is the traversal and not a fixture that
+/// never paired in the first place.
+///
+/// Staged on the after side for the reason given on
+/// [`since_errors_when_the_after_side_has_an_unreadable_file`] — git
+/// records no directory mode bits, so the before-side extraction is
+/// always listable.
+#[cfg(unix)]
+#[test]
+fn since_errors_when_the_after_side_has_an_unlistable_directory() {
+    let repo = repo_with_flat_commit();
+    let nested = repo.path().join("src/nested");
+    fs::create_dir(&nested).expect("mkdir nested");
+    fs::write(nested.join("inner.rs"), FLAT_SOURCE).expect("write inner");
+    git(repo.path(), &["add", "."]);
+    git(repo.path(), &["commit", "-q", "-m", "nested"]);
+
+    // Control: both sides see `src/nested/inner.rs`, so nothing is
+    // removed. This is the comparison the locked run must not silently
+    // replace.
+    let assert = cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "src", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    let removed = doc["removed_files"]
+        .as_array()
+        .expect("removed_files array");
+    assert!(
+        removed.is_empty(),
+        "the readable control must pair every file: {removed:?}"
+    );
+
+    if !common::deny_all_access(&nested) {
+        eprintln!("skipping: this process can list a mode-000 directory");
+        return;
+    }
+
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "src", "--format", "json"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("Permission denied"))
+        .stderr(predicate::str::contains(
+            "diff --since after tree: 1 directory entry could not be read",
+        ))
+        // No document at all, so `inner.rs` cannot be consumed as a
+        // removed file. Before the fix this stream carried a full JSON
+        // diff listing it in `removed_files`.
+        .stdout(predicate::str::is_empty());
+
+    common::restore_dir_access(&nested);
+}
+
 /// Pull `(old, new)` for the `cyclomatic.sum` field out of the
 /// `--format json` diff document, searching the `cyclomatic` bucket's
 /// changed entries.

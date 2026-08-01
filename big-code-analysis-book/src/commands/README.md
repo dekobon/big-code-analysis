@@ -92,12 +92,44 @@ If a tree legitimately contains files you cannot open, prune them with
 `--exclude` (or `--include` a narrower set). A file removed by those
 filters is never opened, so it is never a read failure.
 
-The rule covers files the walk selected and then failed to open. Paths
-the walk never selects are outside it: a *directory* it cannot list, and
-a broken symlink found by walking (neither is a regular file). Both warn
-— `bca: warning: skipping walk entry in …` — and the run continues. An
-explicitly named path that does not exist is a separate, pre-existing
-error (also exit `1`).
+### Unlistable directories {#unlistable-directories}
+
+A directory the walk cannot *list* is the same failure one level up, and
+carries the same exit `1`. Its whole subtree drops out of the analysed
+set before any file is selected, so every count downstream — the metrics
+document, the `count` tally, a `diff --since` side, `vcs rank`'s
+ranking — is short by an amount nothing in the output reveals. `bca
+check` is the worst case: a gate that reports clean on a tree it could
+not read is indistinguishable from a gate that passed.
+
+Each unlistable entry warns on stderr as `bca: warning: skipping walk
+entry in …`, the walk continues so one bad directory does not take down
+the rest of the tree, and the run ends with a summary line and exit `1`.
+
+To exempt a directory you knowingly cannot list, name it in an ignore
+file (`.gitignore`, `.ignore`) or narrow `--paths` so the walk never
+reaches it. **`--exclude` does not work here**, though it is the right
+answer for an unreadable *file*: `--exclude` filters the paths the walk
+yielded, and a directory that could not be listed yielded none — the
+failure happened before the filter could apply.
+
+Two neighbouring cases stay non-fatal by design:
+
+- **A malformed ignore file, or a pattern in one that will not compile.**
+  The walker reports these through the same channel and they warn
+  identically, but they describe how the walk was *configured* rather
+  than files it lost. Only errors carrying an underlying I/O error are
+  counted, so a stray `.gitignore` typo cannot fail a build.
+- **A broken symlink discovered by walking.** It is dropped for not
+  being a regular file and never surfaces as an error at all — the walk
+  does not follow links, so it deliberately does not resolve symlinks
+  and has nothing to report. Treating one as fatal would make a stale
+  symlink in a vendored tree a hard CI failure.
+
+An explicitly *named* path is the exception to that last point, and a
+pre-existing one: `--paths` resolves a symlink seed once, and a seed
+that does not exist — dangling link or typo — is its own error, also
+exit `1`.
 
 ### Unwritable output {#unwritable-output}
 

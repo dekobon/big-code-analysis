@@ -330,6 +330,14 @@ fn rank(
     // behave exactly as elsewhere; intersect the result with the tracked
     // set (untracked / binary files are simply absent from the index).
     let (resolved, _jobs) = crate::resolve_walk_files(globals.clone());
+    // A directory the walk could not list silently shortens the ranking,
+    // and a ranking is only as useful as its completeness — the same
+    // argument the analysing subcommands make in `enforce_complete_walk`
+    // (#1131). `vcs` reads history, never file contents, so this is the
+    // only I/O tally it has.
+    if resolved.walk_errors.count() > 0 {
+        die(crate::walk_failure_summary(resolved.walk_errors.count()));
+    }
     let selected = resolved.files;
 
     let mut covered: HashSet<PathBuf> = HashSet::new();
