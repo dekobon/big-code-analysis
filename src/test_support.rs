@@ -136,6 +136,34 @@ pub(crate) fn child_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a Func
         .unwrap_or_else(|| panic!("expected a child FuncSpace named {name:?}"))
 }
 
+/// Returns the [`SpaceKind::Function`] space named `name` anywhere in
+/// `func_space`'s subtree, panicking unless exactly one matches.
+///
+/// [`child_space`] looks only at direct children and ignores `kind`, so it
+/// cannot reach a function nested inside a class inside a function — the
+/// shape a cross-language nested-function comparison needs. Requiring a
+/// unique match keeps a fixture that later grows a second same-named
+/// function from silently asserting on whichever one the walk reached
+/// first.
+#[track_caller]
+pub(crate) fn function_space<'a>(func_space: &'a FuncSpace, name: &str) -> &'a FuncSpace {
+    let mut found: Vec<&FuncSpace> = Vec::new();
+    let mut stack = vec![func_space];
+    while let Some(space) = stack.pop() {
+        if space.kind == SpaceKind::Function && space.name.as_deref() == Some(name) {
+            found.push(space);
+        }
+        stack.extend(space.spaces.iter());
+    }
+    match found.as_slice() {
+        [space] => space,
+        other => panic!(
+            "expected exactly one function FuncSpace named {name:?}, found {}",
+            other.len()
+        ),
+    }
+}
+
 /// Visits `code`'s tree in pre-order, maintaining the ancestor chain
 /// exactly as `spaces::compute::metrics_inner` does, and hands each
 /// node to `check` together with that chain.

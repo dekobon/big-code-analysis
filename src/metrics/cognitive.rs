@@ -630,7 +630,7 @@ implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::test_support::{check_func_space, check_metrics};
+    use crate::test_support::{check_func_space, check_metrics, function_space};
 
     use super::*;
 
@@ -3701,6 +3701,77 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    /// #1149: a `def` nested inside a conditional is scored against its
+    /// own depth, not the enclosing function's.
+    ///
+    /// Python was the only language with a syntactic function-definition
+    /// node that never reset `nesting.conditional` at the boundary, so
+    /// `inner` charged base(1) + inherited-conditional(1) +
+    /// function-depth(1) = 3 where every sibling charges base(1) +
+    /// function-depth(1) = 2. `python_nested_functions_lambdas` missed it
+    /// because its nested `def` sits at function top level, where
+    /// `conditional` is already 0.
+    ///
+    /// The Java companion is the byte-equivalent construct — Java has no
+    /// local function, so a method reaches the inside of an `if` only
+    /// through a class body declared there — and pins the book's
+    /// "byte-equivalent constructs therefore score identically across
+    /// languages" claim with a test rather than prose.
+    ///
+    /// Both fixtures nest the definition **two** conditionals deep, not
+    /// one. At one level the Java assertion cannot discriminate: reset +
+    /// depth-surcharge and no-reset + no-surcharge both yield 2, so
+    /// deleting both lines from `cognitive/java.rs` leaves it green. At
+    /// two levels the correct answer stays 2 while an unreset
+    /// implementation gives 4 (Python, which also bumps depth) or 3
+    /// (depth dropped as well).
+    #[test]
+    fn python_nested_def_inside_conditional_scores_like_java() {
+        fn cognitive_of(space: &FuncSpace, name: &str) -> u64 {
+            function_space(space, name).metrics.cognitive.cognitive()
+        }
+
+        check_func_space::<PythonParser, _>(
+            "def outer(a, b, c):
+                 if a:  # +1
+                     if b:  # +2 (+1 nesting)
+                         def inner(c):
+                             if c:  # +1 base, +1 function depth, +0 inherited
+                                 return 1
+                         return inner",
+            "nested.py",
+            |space| {
+                assert_eq!(cognitive_of(&space, "outer"), 3, "python outer");
+                assert_eq!(cognitive_of(&space, "inner"), 2, "python inner");
+            },
+        );
+
+        check_func_space::<JavaParser, _>(
+            "class N {
+                 int outer(boolean a, boolean b, boolean c) {
+                     if (a) {  // +1
+                         if (b) {  // +2 (+1 nesting)
+                             class I {
+                                 int inner(boolean c) {
+                                     if (c) {  // +1 base, +1 function depth
+                                         return 1;
+                                     }
+                                     return 0;
+                                 }
+                             }
+                         }
+                     }
+                     return 0;
+                 }
+             }",
+            "N.java",
+            |space| {
+                assert_eq!(cognitive_of(&space, "outer"), 3, "java outer");
+                assert_eq!(cognitive_of(&space, "inner"), 2, "java inner");
             },
         );
     }
