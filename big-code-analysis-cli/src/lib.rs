@@ -289,11 +289,16 @@ struct Config {
     /// library `*_with_color` dump entry points, so piped output is
     /// escape-free by default. Inert for structured / file output.
     color: big_code_analysis::ColorMode,
-    /// Subset of metrics to compute, from `bca metrics --metrics`
-    /// (issue #691). `None` (the default) computes every metric;
-    /// `Some(set)` restricts via [`MetricsOptions::with_only`], which
-    /// auto-resolves each metric's dependencies. Set only by
-    /// `run_command_metrics`; every other flow leaves it `None`.
+    /// Subset of metrics to compute. `None` (the default) computes
+    /// every metric; `Some(set)` restricts via
+    /// [`MetricsOptions::with_only`], which auto-resolves each metric's
+    /// dependencies.
+    ///
+    /// Two flows set it. `run_command_metrics` passes the user's
+    /// `bca metrics --metrics` selection (issue #691). `run_check_walk`
+    /// derives it from the resolved `ThresholdSet` (issue #1113), since
+    /// a gate reads only the families it thresholds. Every other flow
+    /// leaves it `None`.
     selected_metrics: Option<Vec<big_code_analysis::Metric>>,
 }
 

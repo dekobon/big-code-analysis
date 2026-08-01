@@ -20,7 +20,7 @@ use std::rc::Rc;
 
 use big_code_analysis::metric_catalog::MetricScope;
 use big_code_analysis::{
-    CodeMetrics, FuncSpace, SpaceKind, SuppressionPolicy, threshold_metric_for_name,
+    CodeMetrics, FuncSpace, Metric, SpaceKind, SuppressionPolicy, threshold_metric_for_name,
 };
 use serde::Deserialize;
 
@@ -49,6 +49,19 @@ struct MetricExtractor {
     /// loc.*, nargs, ...) round-trip exactly through `f64` for the ranges
     /// that occur in practice.
     extract: fn(&CodeMetrics) -> f64,
+    /// The library metric family `extract` reads from, so a check walk
+    /// can compute only the families its thresholds actually gate
+    /// (#1113).
+    ///
+    /// Declared per entry rather than derived from `name`, because the
+    /// two vocabularies disagree: [`threshold_metric_for_name`] maps
+    /// `tokens` to `None` (a suppression marker may never silence it),
+    /// yet `tokens` *is* a configurable threshold. Narrowing the walk by
+    /// that mapping would leave `m.tokens` at its zero default and
+    /// silently disarm the gate. Naming the family here makes this
+    /// registry the single source of truth and forces every future
+    /// extractor to declare one.
+    metric: Metric,
 }
 
 /// Source of truth for accepted threshold names. Order matters only for
@@ -81,98 +94,122 @@ const EXTRACTORS: &[MetricExtractor] = &[
     MetricExtractor {
         name: "cognitive",
         extract: |m| m.cognitive.cognitive() as f64,
+        metric: Metric::Cognitive,
     },
     MetricExtractor {
         name: "cyclomatic",
         extract: |m| m.cyclomatic.cyclomatic() as f64,
+        metric: Metric::Cyclomatic,
     },
     MetricExtractor {
         name: "cyclomatic.modified",
         extract: |m| m.cyclomatic.cyclomatic_modified() as f64,
+        metric: Metric::Cyclomatic,
     },
     MetricExtractor {
         name: "halstead.volume",
         extract: |m| m.halstead.volume(),
+        metric: Metric::Halstead,
     },
     MetricExtractor {
         name: "halstead.difficulty",
         extract: |m| m.halstead.difficulty(),
+        metric: Metric::Halstead,
     },
     MetricExtractor {
         name: "halstead.effort",
         extract: |m| m.halstead.effort(),
+        metric: Metric::Halstead,
     },
     MetricExtractor {
         name: "halstead.time",
         extract: |m| m.halstead.time(),
+        metric: Metric::Halstead,
     },
     MetricExtractor {
         name: "halstead.bugs",
         extract: |m| m.halstead.bugs(),
+        metric: Metric::Halstead,
     },
     MetricExtractor {
         name: "loc.sloc",
         extract: |m| m.loc.sloc() as f64,
+        metric: Metric::Loc,
     },
     MetricExtractor {
         name: "loc.ploc",
         extract: |m| m.loc.ploc() as f64,
+        metric: Metric::Loc,
     },
     MetricExtractor {
         name: "loc.lloc",
         extract: |m| m.loc.lloc() as f64,
+        metric: Metric::Loc,
     },
     MetricExtractor {
         name: "loc.cloc",
         extract: |m| m.loc.cloc() as f64,
+        metric: Metric::Loc,
     },
     MetricExtractor {
         name: "loc.blank",
         extract: |m| m.loc.blank() as f64,
+        metric: Metric::Loc,
     },
     MetricExtractor {
         name: "nom",
         extract: |m| m.nom.total() as f64,
+        metric: Metric::Nom,
     },
     MetricExtractor {
         name: "tokens",
         extract: |m| m.tokens.tokens_sum() as f64,
+        metric: Metric::Tokens,
     },
     MetricExtractor {
         name: "nexits",
         extract: |m| m.nexits.nexits_sum() as f64,
+        metric: Metric::Nexits,
     },
     MetricExtractor {
         name: "nargs",
         extract: |m| m.nargs.total() as f64,
+        metric: Metric::Nargs,
     },
     MetricExtractor {
         name: "mi.original",
         extract: |m| m.mi.original(),
+        metric: Metric::Mi,
     },
     MetricExtractor {
         name: "mi.sei",
         extract: |m| m.mi.sei(),
+        metric: Metric::Mi,
     },
     MetricExtractor {
         name: "mi.visual_studio",
         extract: |m| m.mi.visual_studio(),
+        metric: Metric::Mi,
     },
     MetricExtractor {
         name: "abc",
         extract: |m| m.abc.magnitude(),
+        metric: Metric::Abc,
     },
     MetricExtractor {
         name: "wmc",
         extract: |m| m.wmc.total_wmc() as f64,
+        metric: Metric::Wmc,
     },
     MetricExtractor {
         name: "npm",
         extract: |m| m.npm.total_npm() as f64,
+        metric: Metric::Npm,
     },
     MetricExtractor {
         name: "npa",
         extract: |m| m.npa.total_npa() as f64,
+        metric: Metric::Npa,
     },
 ];
 
@@ -743,6 +780,30 @@ impl ThresholdSet {
     /// thresholds is a usage error, not a clean pass.
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// The metric families this set actually reads, for
+    /// [`MetricsOptions::with_only`](big_code_analysis::MetricsOptions::with_only)
+    /// (#1113).
+    ///
+    /// A `bca check` gating one or two metrics previously paid for the
+    /// whole suite — Halstead above all — and discarded the rest. Every
+    /// consumer downstream of the walk reads [`Violation`] records, never
+    /// a [`CodeMetrics`], so narrowing the computation is invisible to
+    /// the gate, the baseline, and every report format.
+    ///
+    /// Deduplicated (five `halstead.*` thresholds name one family) but
+    /// otherwise in registry order, so the value is deterministic.
+    /// `with_only` resolves each family's dependencies, so an `mi.*`
+    /// threshold still pulls in Loc, Cyclomatic, and Halstead.
+    pub(crate) fn selected_metrics(&self) -> Vec<Metric> {
+        let mut selected: Vec<Metric> = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            if !selected.contains(&entry.extractor.metric) {
+                selected.push(entry.extractor.metric);
+            }
+        }
+        selected
     }
 
     /// Iterate the resolved `(name, limit)` pairs. Used by
