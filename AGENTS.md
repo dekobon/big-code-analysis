@@ -111,6 +111,15 @@ and `cargo run -p big-code-analysis-web --`.
   if reintroduced.
 - Default to writing no comments. Only add one when the *why* is
   non-obvious.
+- Issue and PR references belong in `//` maintainer comments, never in a
+  `///` doc comment on a clap type. clap renders `///` into
+  `bca <cmd> --help` and `cargo xtask` renders the same text into
+  `man/`, so an internal note ships to users twice and drifts the
+  committed man pages. `help_text_carries_no_issue_references` pins
+  this — a failure is a real leak, not a test to relax. Any edit to a
+  clap help/about/value doc, even a pure wording fix, must be followed
+  by `cargo xtask` with the regenerated `man/` pages in the *same*
+  commit.
 - **MANDATORY** before any public API change: enumerate every call site
   (`find_referencing_symbols` if an LSP tool is available, otherwise a
   workspace-wide search). Cross-crate breakage is silent until CI.
@@ -458,6 +467,20 @@ smaller.
   function you just edited. Fix it there, mention anything larger you
   noticed, and do not widen the change into a module rewrite to bring
   the number down.
+- **Attribute the score before sizing the fix, then size against every
+  gated metric.** Re-derive the genuine decision count by hand and
+  compare it to the measurement: part of the headline may be a metric
+  artifact that adds a CFG edge without adding anything a reader must
+  reason about. Rust's `?` is the canonical one — it feeds cyclomatic
+  *and* nexits, and only ~12 of `dump_tree_helper`'s "cyclomatic 32"
+  was real branching (#401). Large string literals do the same to
+  halstead, inline tests to file-level `sloc`. Where the gap is an
+  artifact, say so and justify the refactor on what actually improves.
+  Then size each new helper against **all** the metrics it could trip —
+  cyclomatic, nexits, nargs, abc, halstead.effort — because one
+  construct moves several gauges: #401's proposed split passed
+  cyclomatic and would have breached nexits. Read the live `bca.toml`
+  for the limits; an issue's quoted threshold table is routinely wrong.
 
 The per-edit hook is an early-warning convenience; the task-boundary
 gate (`make self-scan` / `make pre-commit`) is the real check before
