@@ -31,6 +31,19 @@ forms:
 | `bca: suppress-file`                | File              | Suppress every metric           |
 | `bca: suppress-file(metric, ...)`   | File              | Suppress only the listed metrics |
 
+Any of the four may carry a **rationale** — free text on the same line,
+after the marker itself:
+
+```rust
+// bca: suppress(nargs) — threaded context, not a god-function
+```
+
+After a metric list no separator is required and none is privileged:
+`— why`, `- why`, `: why`, `// why`, and bare prose all read the same.
+After a *bare* verb, with no metric list, the rationale must open with
+one of `-`, `:`, `//`, `#`, or an em/en dash — see
+[Rationale text](#rationale-text) for why.
+
 A function-scope marker attaches to the innermost `FuncSpace`
 (see the [`FuncSpace` rustdoc](https://docs.rs/big-code-analysis/*/big_code_analysis/spaces/struct.FuncSpace.html))
 whose source range contains the comment.
@@ -133,7 +146,8 @@ These match the threshold names and the JSON field names emitted on
 - `nexits` is the canonical spelling — `bca: suppress(nexits)` silences
   a `nexits` threshold violation. The legacy `exit` alias was retired
   in #555 and is no longer accepted; spelling it `exit` is an unknown
-  identifier, which warns *and voids the entire marker* (see below).
+  identifier, which warns and is skipped — the recognized names beside
+  it still suppress (see below).
 - `tokens` is a threshold-checkable metric (and a `CodeMetrics` JSON
   field) but is deliberately absent from the suppression list: a
   marker cannot turn it off. Treat `tokens` as a hard resource cap,
@@ -150,11 +164,35 @@ of the form
 warning: path/to/file.rs:42: unknown metric 'no_such_metric' in bca suppression marker; known metrics: abc, cognitive, ...
 ```
 
-The marker is dropped — a typo never silently widens scope to other
-metrics. Unknown verbs (anything other than `suppress` / `suppress-file`)
-and malformed bodies (unbalanced parentheses, trailing garbage)
-produce the same shape of warning and are similarly dropped. None of
-these are fatal: a typo in one file does not derail a workspace walk.
+Only the offending identifier is dropped: `bca: suppress(cognitive,
+exit)` still silences `cognitive`. Skipping can only ever shrink what a
+marker covers, so a typo never widens scope to a metric the author did
+not name — while voiding the whole marker, which is what earlier
+releases did, produced the opposite hazard: a suppression its author
+believed was active and the gate did not.
+
+Unknown verbs (anything other than `suppress` / `suppress-file`) and
+bodies that parse to no directive at all (an unbalanced parenthesis, a
+bare verb followed by words that open no rationale) produce the same
+shape of warning, and those *do* void the marker — there is nothing left
+of it to honour. None of these are fatal: a typo in one file does not
+derail a workspace walk, and a doc comment that merely mentions the
+syntax does not fail your gate.
+
+### Rationale text {#rationale-text}
+
+Text after the marker is yours; `bca` parses past it and does not
+interpret it. The asymmetry between the two forms is deliberate:
+
+- **After a metric list** — `bca: suppress(nargs) threaded context` —
+  anything goes. The list has already stated the intent unambiguously,
+  so whatever follows is prose.
+- **After a bare verb** — `bca: suppress — irreducible dispatch` — a
+  separator (`-`, `:`, `//`, `#`, an em/en dash) is required. Without a
+  list there is nothing to distinguish a rationale from a sentence
+  *about* the feature, and reading `// bca: suppress markers are
+  honoured here` as a marker would silence every metric in the enclosing
+  function on the strength of a comment. That shape warns instead.
 
 ## Where markers may appear
 
@@ -348,13 +386,13 @@ there is no removal date.
 These shapes are reserved for future use and are **not** parsed
 today:
 
-- `bca: suppress(metric, reason = "...")` — audit-trail prose alongside
-  the metric list, mirroring Rust's `reason = "…"` attribute argument.
 - `bca: suppress-next` — silence the immediately following declaration
-  rather than the enclosing function.
+  rather than the enclosing function. Rejected today as an unknown verb;
+  it will be promoted to first-class behavior in a future release
+  without breaking existing markers.
 
-Authors should avoid using either form today: a `reason = "..."`
-argument is currently parsed as an unknown metric identifier and
-discarded with a stderr warning, and `bca: suppress-next` is rejected
-as an unknown verb. Both will be promoted to first-class behavior
-in a future release without breaking existing markers.
+The `reason = "..."` argument this section used to reserve is no longer
+planned. Write the rationale after the marker instead — see
+[Rationale text](#rationale-text) — which is the spelling authors
+already reach for. Inside the parentheses, `reason = "..."` is still an
+unknown metric identifier and is skipped with a stderr warning.

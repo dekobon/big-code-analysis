@@ -474,12 +474,16 @@ smaller.
 - **When the complexity is essential, suppress with a reason.** Some
   functions are irreducibly complex *and clearest left whole* — a
   dispatch `match`, a hand-rolled parser table, an exhaustive state
-  machine. For these, add an in-source marker with a one-line rationale
-  rather than contorting the code:
-  `// bca: suppress(<metrics>)` inside the function (per-file:
-  `// bca: suppress-file(<metrics>)`). Use canonical metric names — it
-  is `nexits`, **never** `exit`; an unknown identifier warns *and voids
-  the entire marker*. `tokens` is not suppressible. See
+  machine. For these, add an in-source marker rather than contorting
+  the code, with the rationale on the same line:
+  `// bca: suppress(<metrics>) — <why>` inside the function (per-file:
+  `// bca: suppress-file(<metrics>) — <why>`). Anything after the metric
+  list is free text; no separator is required. After a *bare* verb
+  (`// bca: suppress`, no list) the rationale must open with `-`, `:`,
+  `//`, `#`, or a dash, so prose about the marker is not read as one.
+  Use canonical metric names — it is `nexits`, **never** `exit`; an
+  unknown identifier warns and is skipped, while the recognised names in
+  the same marker still suppress. `tokens` is not suppressible. See
   [Suppression markers](big-code-analysis-book/src/commands/suppression.md)
   and the full recipe at
   [`recipes/agent-feedback.md`](big-code-analysis-book/src/recipes/agent-feedback.md).

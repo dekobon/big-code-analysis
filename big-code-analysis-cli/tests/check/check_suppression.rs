@@ -191,10 +191,9 @@ fn legacy_allow_marker_does_not_suppress() {
         ));
 }
 
-/// Regression fixture for #896. The marker lists one valid metric
-/// (`cyclomatic`) and one unknown one (`bogusmetric`). The contract is
-/// that an unknown identifier voids the *entire* marker — so the
-/// otherwise-valid `cyclomatic` entry must NOT suppress either.
+/// Fixture for the mixed known/unknown metric list. The marker names
+/// one recognized metric (`cyclomatic`) beside one that does not exist
+/// (`bogusmetric`).
 const UNKNOWN_METRIC_RUST: &str = r#"
 pub fn classify(n: i32) -> &'static str {
     // bca: suppress(cyclomatic, bogusmetric)
@@ -208,28 +207,63 @@ pub fn classify(n: i32) -> &'static str {
 }
 "#;
 
+/// Fixture whose marker names *only* an unrecognized metric, so nothing
+/// in it can suppress. Separates "skip the bad name" from "void the
+/// marker": under both contracts the mixed fixture above differs, but
+/// this one must behave identically — the violation still fires.
+const ONLY_UNKNOWN_METRIC_RUST: &str = r#"
+pub fn classify(n: i32) -> &'static str {
+    // bca: suppress(bogusmetric)
+    if n < 0 {
+        "neg"
+    } else if n == 0 {
+        "zero"
+    } else {
+        "pos"
+    }
+}
+"#;
+
 #[test]
-fn unknown_metric_voids_entire_marker() {
-    // Void-on-unknown regression (#896): a `bca: suppress(...)` marker
-    // whose list contains an unknown metric must warn to stderr AND
-    // void the *whole* marker — the valid `cyclomatic` sibling does not
-    // get to suppress on its own. This is the unknown-*metric* twin of
-    // `legacy_allow_marker_does_not_suppress` (which covers an unknown
-    // *verb*); the two take distinct `SuppressionError` variants and
-    // render distinct stderr strings, so each needs its own end-to-end
-    // pin through the binary.
+fn unknown_metric_is_skipped_and_the_rest_of_the_list_suppresses() {
+    // Issue #1168 replaced the void-on-unknown contract (#896) with
+    // skip-and-report: an unrecognized name costs its own name and
+    // nothing else. `exit`-for-`nexits` is a typo `AGENTS.md` documents
+    // people making, and voiding the marker wholesale turned it into a
+    // suppression the author believed was active while the gate
+    // disagreed — the exact failure #1168 is about.
     //
-    // Three things must all be true; we pin each one independently so a
-    // regression in any single half surfaces clearly:
-    //   1. exit code 2 — the violation is reported, not silenced (the
-    //      most dangerous regression would treat the unknown metric as
-    //      suppress-all and swallow the violation);
-    //   2. stdout names the offender and metric — the violation line
-    //      exists and is intelligible;
-    //   3. stderr carries the unknown-metric diagnostic — the user gets
-    //      a typo pointer, not a silent drop.
+    // Skipping cannot widen scope: the honored set only ever shrinks.
+    // Three things must all be true, pinned independently:
+    //   1. exit code 0 — `cyclomatic` is genuinely suppressed;
+    //   2. stdout carries no offender row for it (#1167 put offender
+    //      rows on stdout, diagnostics on stderr);
+    //   3. stderr still carries the unknown-metric diagnostic, so the
+    //      typo is not silent.
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", UNKNOWN_METRIC_RUST);
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("classify").not())
+        .stderr(predicate::str::contains(
+            "unknown metric 'bogusmetric' in bca suppression marker",
+        ));
+}
+
+#[test]
+fn a_marker_naming_only_unknown_metrics_suppresses_nothing() {
+    // The other half of the #1168 contract: skipping every name in the
+    // list leaves an empty one, which silences nothing. A regression
+    // that treated an unusable list as a bare `suppress` (all metrics)
+    // would swallow the violation — the most dangerous direction, and
+    // the one the void-on-unknown rule was written to prevent. This
+    // still fires the violation, so that protection survives the
+    // relaxation.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", ONLY_UNKNOWN_METRIC_RUST);
 
     cli(dir.path())
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
@@ -239,6 +273,69 @@ fn unknown_metric_voids_entire_marker() {
         .stdout(predicate::str::contains("cyclomatic"))
         .stderr(predicate::str::contains(
             "unknown metric 'bogusmetric' in bca suppression marker",
+        ));
+}
+
+/// The issue #1168 reproducer: two identical over-parameterised
+/// functions, one marker bare and one carrying the rationale
+/// `AGENTS.md` asks contributors to write.
+const RATIONALE_RUST: &str = r"
+pub fn many_bare(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8, g: u8, h: u8) -> u8 {
+    // bca: suppress(nargs)
+    a + b + c + d + e + f + g + h
+}
+
+pub fn many_prose(a: u8, b: u8, c: u8, d: u8, e: u8, f: u8, g: u8, h: u8) -> u8 {
+    // bca: suppress(nargs) — threaded context, not a god-function
+    a + b + c + d + e + f + g + h
+}
+";
+
+#[test]
+fn a_trailing_rationale_suppresses_exactly_like_a_bare_marker() {
+    // The #1168 reproducer end-to-end. Before the fix the second
+    // function's marker was rejected as malformed, so `many_prose` was
+    // reported while `many_bare` was not — a suppression its author had
+    // every reason to believe was active.
+    //
+    // Both halves are asserted: the run is clean (neither function is
+    // reported) *and* no `warning:` reaches stderr, since a marker that
+    // works must not also complain about itself.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "wide.rs", RATIONALE_RUST);
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("many_prose").not())
+        .stdout(predicate::str::contains("many_bare").not())
+        .stderr(predicate::str::contains("warning:").not());
+}
+
+#[test]
+fn a_marker_that_opens_no_rationale_still_warns_without_failing_the_run() {
+    // The genuine-malformation path #1168 deliberately kept. A bare
+    // verb followed by words opens no rationale, so it is not a marker
+    // — but it must warn rather than fail, or a doc comment or test
+    // fixture that merely mentions the syntax would break the gate.
+    //
+    // The exit code is 0 because the fixture has no violation at the
+    // threshold under test: the marker is inert *and* the malformation
+    // is not itself fatal.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(
+        &dir,
+        "prose.rs",
+        "pub fn tiny(a: u8) -> u8 {\n    // bca: suppress markers are honoured here\n    a\n}\n",
+    );
+
+    cli(dir.path())
+        .args(["check", "--paths", &path, "--threshold", "nargs=5"])
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains(
+            "malformed bca suppression marker body",
         ));
 }
 

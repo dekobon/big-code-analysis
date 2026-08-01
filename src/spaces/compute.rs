@@ -379,10 +379,13 @@ fn open_func_space<'a, T: ParserTrait>(
 /// first-by-source-order won regardless of which body actually contained
 /// the comment (issue #289).
 ///
-/// A malformed marker is logged and dropped (no scope attached) rather
-/// than aborting the walk: a typo in one file must not derail a
-/// workspace-wide pass, and dropping is the conservative choice — a typo
-/// should not accidentally silence anything.
+/// Every complaint the parse produced is logged, and whatever directive
+/// it still yielded is applied: an unusable metric name costs its own
+/// name and nothing else, while a body that parses to no directive at all
+/// is logged and dropped (issue #1168). The walk never aborts — a typo in
+/// one file must not derail a workspace-wide pass — and dropping stays
+/// the conservative choice, since a marker can only ever lose coverage
+/// this way, never gain it.
 fn apply_comment_suppression(
     state_stack: &mut Vec<State>,
     node: &Node,
@@ -391,15 +394,19 @@ fn apply_comment_suppression(
     is_comment: bool,
 ) {
     if is_comment && let Some(text) = node.utf8_text(code) {
-        match parse_suppression_marker(text) {
-            Ok(Some(s)) => apply_suppression(state_stack, &s),
-            Ok(None) => {}
-            Err(e) => {
-                // The `+ 1` converts tree-sitter's 0-based rows to the
-                // 1-based line numbers `FuncSpace::start_line` and the
-                // rest of this module report.
-                eprintln!("warning: {}:{}: {e}", diagnostic_path, node.start_row() + 1);
-            }
+        let scan = parse_suppression_marker(text);
+        for diagnostic in &scan.diagnostics {
+            // The `+ 1` converts tree-sitter's 0-based rows to the
+            // 1-based line numbers `FuncSpace::start_line` and the
+            // rest of this module report.
+            eprintln!(
+                "warning: {}:{}: {diagnostic}",
+                diagnostic_path,
+                node.start_row() + 1
+            );
+        }
+        if let Some(suppression) = &scan.suppression {
+            apply_suppression(state_stack, suppression);
         }
     }
 }

@@ -256,12 +256,12 @@ fn populated_scope_serializes_with_metrics_list() {
 
 #[test]
 fn unknown_metric_in_marker_has_no_effect() {
-    // Per the issue's "unknown identifiers must error so typos do not
-    // silently widen scope" requirement. At the library boundary this
-    // surfaces as a stderr warning (no propagated error type), so the
-    // observable behaviour from an integration test is "the marker is
-    // discarded": the enclosing function's scope stays empty. The
-    // actual `SuppressionError::UnknownMetric(_)` variant is exercised
+    // Typos must not silently widen scope. At the library boundary an
+    // unrecognized name surfaces as a stderr warning (no propagated
+    // error type), so the observable behaviour from an integration test
+    // is that it contributes nothing: this marker names only unknown
+    // metrics, so the enclosing function's scope stays empty. The
+    // `SuppressionError::UnknownMetric(_)` variant itself is exercised
     // by the unit test `native_unknown_metric_errors` in
     // `src/suppression.rs`.
     let src = r#"
@@ -275,6 +275,50 @@ def fine():
         fine.suppressed.is_empty(),
         "malformed marker should not produce suppressions; got {:?}",
         fine.suppressed,
+    );
+}
+
+#[test]
+fn unknown_metric_beside_a_known_one_keeps_the_known_one() {
+    // Since #1168 an unrecognized name costs its own name only. The
+    // sibling test above cannot see the difference — its list has
+    // nothing left once the bad name is dropped — so this is the case
+    // that separates "skip the name" from "void the marker" at the
+    // library boundary, where `analyze` is the only surface a consumer
+    // has.
+    let src = r#"
+def fine(x):
+    # bca: suppress(cyclomatic, no_such_metric)
+    if x:
+        return 1
+    return 0
+"#;
+    let space = analyze_lang(src, "fixture.py");
+    let fine = find_function(&space, "fine").expect("function fine should exist");
+    assert!(
+        fine.suppressed.covers(Metric::Cyclomatic),
+        "the recognized half of the list must still suppress; got {:?}",
+        fine.suppressed,
+    );
+}
+
+#[test]
+fn suppress_file_marker_accepts_a_trailing_rationale() {
+    // `suppress-file` takes a rationale on the same terms as the
+    // function-scoped verb (#1168). Asserted through `analyze` rather
+    // than the parser so the whole path — comment node, walk, file-level
+    // scope — is covered for the file-scoped half too.
+    let src = r#"
+# bca: suppress-file(loc, halstead) — generated protocol tables
+
+def fine():
+    return 1
+"#;
+    let space = analyze_lang(src, "fixture.py");
+    assert!(
+        space.suppressed.covers(Metric::Loc) && space.suppressed.covers(Metric::Halstead),
+        "file-scoped marker with a rationale must attach both metrics; got {:?}",
+        space.suppressed,
     );
 }
 
