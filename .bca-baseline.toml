@@ -148,6 +148,13 @@ value = 7.0
 path = "big-code-analysis-cli/src/commands/report.rs"
 qualified = "run_command_report"
 start_line = 5
+metric = "abc"
+value = 39.06404996924922
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands/report.rs"
+qualified = "run_command_report"
+start_line = 5
 metric = "halstead.effort"
 value = 63112.954051595756
 
@@ -262,6 +269,13 @@ qualified = "<file>"
 start_line = 1
 metric = "loc.ploc"
 value = 601.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/markdown_report.rs"
+qualified = "extract_summaries_inner"
+start_line = 128
+metric = "abc"
+value = 39.153543900903784
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -665,14 +679,14 @@ value = 16.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 501
+start_line = 534
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 501
+start_line = 534
 metric = "nexits"
 value = 6.0
 
@@ -696,13 +710,6 @@ qualified = "PhpCode::compute"
 start_line = 17
 metric = "nargs"
 value = 7.0
-
-[[entry]]
-path = "src/metrics/cognitive/ruby.rs"
-qualified = "RubyCode::compute"
-start_line = 29
-metric = "halstead.effort"
-value = 47981.403382270764
 
 [[entry]]
 path = "src/metrics/loc/c.rs"
@@ -826,9 +833,9 @@ value = 34.0
 [[entry]]
 path = "src/ops.rs"
 qualified = "ops_inner"
-start_line = 305
+start_line = 310
 metric = "halstead.effort"
-value = 74314.37901478147
+value = 70750.09027709182
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -924,21 +931,21 @@ value = 8.0
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 218
+start_line = 248
 metric = "halstead.effort"
 value = 63007.70094399036
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "compute_per_node"
-start_line = 218
+start_line = 248
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/spaces/compute.rs"
 qualified = "metrics_inner"
-start_line = 514
+start_line = 544
 metric = "halstead.effort"
 value = 125902.05368685763
 
