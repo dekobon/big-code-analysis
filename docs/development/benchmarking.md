@@ -68,14 +68,15 @@ a quadratic one sits near 2.0.
 A probe declares which **axis** its size parameter grows along, because
 a walk can be linear in one and quadratic in the other:
 
-- `Axis::Depth` — the size is the shape's nesting depth. Every probe
-  but one is on this axis, and they exist because `tree_sitter` stores
-  no parent pointer, so any predicate that resolves an ancestor by
+- `Axis::Depth` — the size is the shape's nesting depth. Most probes
+  are on this axis, and they exist because `tree_sitter` stores no
+  parent pointer, so any predicate that resolves an ancestor by
   climbing is `O(depth)` per node.
 - `Axis::Width` — the size is the number of siblings under one parent,
-  at a depth that does not move. `nom/wide-attributed-fn` is the only
-  one, and it exists because #1100's fix trades the two axes against
-  each other (see below).
+  at a depth that does not move. `nom/wide-attributed-fn` exists
+  because #1100's fix trades the two axes against each other, and
+  `halstead/wide-distinct-fn` because per-child work at a space-merge
+  boundary is priced by the parent's child count (both below).
 
 The axis also selects the shape invariant a probe must satisfy in
 `shapes.rs`: a depth shape has to gain AST levels in proportion to its
@@ -149,6 +150,7 @@ Read it as follows.
 | `nom/nested-attributed-fn` | Rust | depth | the `exclude_tests` outer-attribute scan (#1100) | linear |
 | `nom/wide-attributed-fn` | Rust | width | the same scan on the width axis (#1100) | linear |
 | `nom/nested-cfg-predicate` | Rust | depth | the `cfg(...)` predicate classifier (#1105) | linear |
+| `halstead/wide-distinct-fn` | Rust | width | per-child work at the space-merge boundary (#1106) | linear |
 
 Four of these were quadratic when the harness landed, and they shared
 one cause: `tree_sitter` stores no parent pointer, so `Node::parent`
@@ -210,8 +212,9 @@ than deferred: the two synthetic-`Unit`-root pushes hand it a node that
 outside any walk, and the `Npm` arms that test a node's children cannot
 extend a borrowed slice by one element without allocating.
 
-The last two probes are the first that walk under a non-default
-`MetricsOptions`. Both hot paths are reachable only with
+`nom/nested-attributed-fn` and `nom/wide-attributed-fn` are the first
+probes that walk under a non-default `MetricsOptions`. Both hot paths
+are reachable only with
 `exclude_tests` set, which `Workload::Metrics` now carries as its own
 field — it sits on that variant rather than on `Probe` because
 `Ast::ops` takes no options at all, so an `Ops` probe setting it would
@@ -268,6 +271,35 @@ region's whole interior to find its split points. It fits 1.00 against
 the indexed scan that replaced it. `nom/nested-fn` is not a control for
 it — the file keeps its two items at every depth — so the bound alone
 is the guard.
+
+`halstead/wide-distinct-fn` is the second width probe, and it comes
+from a different family than every row above it. Nothing here climbs an
+ancestor chain: [#1106][space-merge] found the parent's Halstead `Stats`
+being re-derived from its occurrence maps *once per popped child space*,
+which is three map traversals — one of them over the parent's whole
+accumulated operand vocabulary — for work the parent's own finalize
+repeats and overwrites. That is `O(children × vocabulary)` where
+`O(vocabulary)` suffices: quadratic in a file's function count, and
+invisible to every depth probe, because the cost is charged per popped
+child and a nesting shape has one child per space however deep it
+goes. The shape is `n` sibling `fn f000000() { let v000000 = 000000; }` items,
+each with an identifier set unique to itself, because
+`HalsteadMaps::operands` is keyed by source text and a file of `n`
+*identical* functions has a constant vocabulary that keeps the arm
+linear no matter how it is written.
+
+Its ladder is 4 000 / 8 000 / 16 000, eight times the other width
+probe's, and that is load-bearing rather than incidental. The redundant
+pass is a second visit to data the walk already touched, so its cost
+sits against the walk's own per-token cost in a ratio fixed by the
+sibling count alone — giving each function a richer vocabulary raises
+both terms together. At 500 / 1 000 / 2 000 the regression fits
+1.37-1.39 against a 1.07-1.09 baseline: a real 2.1x slowdown that the
+1.5 bound passes. At 4 000 / 8 000 / 16 000 the gate reads **1.09**
+clean and **2.17** with the per-child pass restored behind a local
+patch — the only failing probe in that run, at 507.4 ms against
+45.6 ms on the 16 000-sibling cell. Do not harmonise the two width
+ladders; the shorter one cannot see this class.
 
 Treat the linear bounds above as covering the walk's ancestor *chain*
 threading, not every `O(depth)` lookup in the crate.
@@ -351,6 +383,7 @@ a walk's chain bookkeeping, not just around a change to its cost. The
 [halstead-climbs]: https://github.com/dekobon/big-code-analysis/issues/1096
 [attribute-scan]: https://github.com/dekobon/big-code-analysis/issues/1100
 [cfg-predicate]: https://github.com/dekobon/big-code-analysis/issues/1105
+[space-merge]: https://github.com/dekobon/big-code-analysis/issues/1106
 
 The ten control probes are what make the other readings mean
 something.
@@ -370,8 +403,8 @@ something.
   probe it sits next to, with the one node that triggers the walk
   removed. Before [#1084][parent-walk] each fitted near 1.0 where its
   counterpart fitted near 2.0, which is what attributed the quadratic
-  cost to that call rather than to nesting in general. Now that all
-  twenty-four fit near 1.0, the pair is what would localise a relapse: a
+  cost to that call rather than to nesting in general. Now that every
+  probe fits near 1.0, the pair is what would localise a relapse: a
   probe drifting up while its control holds means the ancestor lookup,
   not the shape.
 

@@ -51,10 +51,10 @@ impl fmt::Display for Stats {
 impl Stats {
     // Intentionally a no-op. MI is a derived metric: the parent space
     // recomputes it from its merged Loc / Cyclomatic / Halstead inputs
-    // (`compute_halstead_mi_and_wmc` in `spaces.rs`), so there is nothing
-    // to roll up from a child's finalized `Stats`. Combining the fields
-    // here would double-apply inputs already captured by the parent's
-    // recompute. (Same rationale as `halstead::Stats::merge`.)
+    // (`compute_halstead_and_mi` in `spaces/compute.rs`), so there is
+    // nothing to roll up from a child's finalized `Stats`. Combining
+    // the fields here would double-apply inputs already captured by the
+    // parent's recompute. (Same rationale as `halstead::Stats::merge`.)
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
     #[inline]

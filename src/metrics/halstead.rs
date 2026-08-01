@@ -146,9 +146,9 @@ impl Stats {
     // double-counting operators/operands they share. Cross-space
     // aggregation is instead done by unioning the occurrence maps
     // (`HalsteadMaps::merge`) and re-running `finalize` on the parent
-    // (see `spaces.rs`). Summing the finalized fields here — mirroring
-    // the sibling metrics' `merge` — would silently inflate every parent
-    // space's n1/n2/N1/N2.
+    // (see `spaces/compute.rs`). Summing the finalized fields here —
+    // mirroring the sibling metrics' `merge` — would silently inflate
+    // every parent space's n1/n2/N1/N2.
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
     /// Returns `η1`, the number of distinct operators
