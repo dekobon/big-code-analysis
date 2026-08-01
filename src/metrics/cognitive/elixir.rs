@@ -98,7 +98,11 @@ impl Cognitive for ElixirCode {
                     // truly nested method definitions are not a
                     // concern — the lambda channel via
                     // `AnonymousFunction` handles the analogous
-                    // higher-order case.
+                    // higher-order case. Elixir is therefore the one
+                    // language that takes the reset without the depth
+                    // bump, so it resets inline instead of calling the
+                    // shared `enter_function_boundary` the other
+                    // eighteen modules use (#1103).
                     nesting.conditional = 0;
                 }
                 _ => {}

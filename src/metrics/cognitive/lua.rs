@@ -53,9 +53,8 @@ impl Cognitive for LuaCode {
                 compute_booleans(node, stats, And, Or);
             }
             FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[

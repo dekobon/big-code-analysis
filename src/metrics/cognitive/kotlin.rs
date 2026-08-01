@@ -84,9 +84,8 @@ impl Cognitive for KotlinCode {
                 });
             }
             FunctionDeclaration | SecondaryConstructor => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[FunctionDeclaration, SecondaryConstructor],

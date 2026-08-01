@@ -59,9 +59,8 @@ impl Cognitive for ObjcCode {
             // boundaries: reset structural nesting and bump the
             // function-depth surcharge when nested inside another (#696).
             FunctionDefinition | FunctionDefinition2 | MethodDefinition => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[FunctionDefinition, FunctionDefinition2, MethodDefinition],

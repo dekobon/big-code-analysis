@@ -92,9 +92,8 @@ impl Cognitive for CsharpCode {
             | AccessorDeclaration
             | LocalFunctionStatement
             | LocalFunctionDeclaration => {
-                nesting.conditional = 0;
-                increment_function_depth(
-                    &mut nesting.function_depth,
+                enter_function_boundary(
+                    &mut nesting,
                     node,
                     ancestors,
                     &[
