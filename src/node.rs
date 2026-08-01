@@ -327,8 +327,10 @@ impl<'a> Node<'a> {
     /// [`children_with`]: Self::children_with
     pub(crate) fn children(&self) -> Children<'a> {
         child_scan_cursors::record();
+        // `descend`, not `seed`: `ts_node_walk` already ran the
+        // `ts_tree_cursor_init` that `Cursor::reset` would run again.
         let mut cursor = self.cursor();
-        let scan = ChildScan::seed(self, &mut cursor);
+        let scan = ChildScan::descend(self, &mut cursor);
         Children { cursor, scan }
     }
 
@@ -343,12 +345,13 @@ impl<'a> Node<'a> {
     ///
     /// Worth the plumbing only where a loop visits many nodes. Measured
     /// on the corpus slice, a full metric walk reaches [`children`] on
-    /// 3-6 % of nodes in every language except Python, where one scan —
-    /// the instance-attribute walk in `metrics::npa::python` — took it
-    /// to 60 %. Predicates that hold a bare `&Node` and scan one node's
-    /// children keep [`children`]: threading a cursor to them would
-    /// cross the `Checker` / `Getter` trait surface to save a single
-    /// allocation per call.
+    /// 3-6 % of nodes in C++, Rust, JavaScript, and Java, 16 % in C#,
+    /// and 60 % in Python, where one scan — the instance-attribute walk
+    /// in `metrics::npa::python` — was 92 % of the total. Predicates
+    /// that hold a bare `&Node` and scan one node's children keep
+    /// [`children`]: threading a cursor to them would cross the
+    /// `Checker` / `Getter` trait surface to save a single allocation
+    /// per call.
     ///
     /// [`children`]: Self::children
     pub(crate) fn children_with<'c>(&self, cursor: &'c mut Cursor<'a>) -> ChildrenWith<'c, 'a> {
@@ -724,6 +727,15 @@ impl ChildScan {
     /// length matches its (lack of) data.
     fn seed<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Self {
         cursor.reset(node);
+        Self::descend(node, cursor)
+    }
+
+    /// [`ChildScan::seed`], for a cursor already seated on `node` —
+    /// which is what [`Node::cursor`] hands back, and `ts_node_walk` and
+    /// `ts_tree_cursor_reset` run the same `ts_tree_cursor_init`. Only
+    /// [`Node::children`] may skip the reset; every other caller reuses
+    /// a cursor left wherever the previous scan ended.
+    fn descend<'a>(node: &Node<'a>, cursor: &mut Cursor<'a>) -> Self {
         let done = !cursor.goto_first_child();
         Self {
             done,

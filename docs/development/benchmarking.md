@@ -275,7 +275,8 @@ time 159.0 ms to 155.2 ms (−2.4 %)**. Every other language is under 1 %,
 which is the useful part of the result — the remaining call sites are
 predicates holding a bare `&Node`, and threading a cursor to them would
 cross the `Checker` / `Getter` trait surface to save roughly 17 ns per
-call on 3-6 % of nodes. Not worth it; measure before widening this.
+call on the 3-6 % of nodes above (16 % in C#). Not worth it; measure
+before widening this.
 
 [child-cursor]: https://github.com/dekobon/big-code-analysis/issues/1112
 
