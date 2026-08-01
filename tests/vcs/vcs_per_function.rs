@@ -559,3 +559,51 @@ fn session_memoises_commits_across_files() {
         "re-blaming a file must resolve nothing new"
     );
 }
+
+/// `BlameSession`'s `Debug` is hand-written so a config dump carries the
+/// memo count rather than the `gix::Repository` handle and the mailmap.
+/// Both assertions are positive: the head pins that `engine` renders
+/// through `PerFunctionBlame`'s own eliding `Debug` instead of as a raw
+/// handle, and the tail pins that `commits_resolved` is the last field
+/// emitted before `finish_non_exhaustive`'s `..` — which is what makes
+/// the elision observable without asserting any field's absence.
+///
+/// The count is seeded to 2 first: a fresh session reports 0, and 0 is
+/// also what an impl reading the wrong field, or printing a constant,
+/// would report.
+#[test]
+fn session_debug_reports_the_memo_count_and_elides_the_repository() {
+    let repo = Repo::init();
+    repo.write("src/a.rs", TWO_FUNCS);
+    repo.commit("Ada", "ada@example.com", FIXED_NOW - 200 * DAY, "create a");
+    repo.write(
+        "src/a.rs",
+        "fn first() {\n    let x = 1;\n}\nfn second() {\n    let y = 22;\n}\n",
+    );
+    repo.commit("Alan", "alan@example.com", FIXED_NOW - 5 * DAY, "edit a");
+
+    let engine =
+        std::sync::Arc::new(PerFunctionBlame::open(repo.path(), opts()).expect("open engine"));
+    let mut session = engine.session();
+    session
+        .per_function(
+            &repo.path().join("src/a.rs"),
+            &[LineSpan::new(1, 3), LineSpan::new(4, 6)],
+        )
+        .expect("blame a");
+    assert_eq!(
+        session.commits_resolved(),
+        2,
+        "the fixture must seed a memo count distinguishable from the default"
+    );
+
+    let rendered = format!("{session:?}");
+    assert!(
+        rendered.starts_with("BlameSession { engine: PerFunctionBlame {"),
+        "engine must render through PerFunctionBlame's eliding Debug: {rendered}"
+    );
+    assert!(
+        rendered.ends_with("commits_resolved: 2, .. }"),
+        "the memo count must be the last field before the elision marker: {rendered}"
+    );
+}
