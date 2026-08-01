@@ -24,6 +24,9 @@ use std::path::Path;
 use assert_cmd::Command;
 
 #[allow(dead_code)]
+pub mod fixtures;
+
+#[allow(dead_code)]
 pub mod validators;
 
 /// Scrub CI-side env vars that `bca check` auto-detects from a

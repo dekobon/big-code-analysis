@@ -1103,7 +1103,7 @@ fn outer(x: i32) -> i32 {
         // Windows, `/` on Unix); the emitted git path must always be
         // forward-slash so the JSON / CSV / table output is byte-identical
         // cross-platform. On Windows this guards the `src\work.rs`
-        // regression that failed `tests/vcs.rs` on windows-latest.
+        // regression that failed `tests/vcs/vcs_rank.rs` on windows-latest.
         let rel: PathBuf = ["src", "work.rs"].iter().collect();
         assert_eq!(path_to_string(&rel).as_deref(), Some("src/work.rs"));
     }

@@ -8,7 +8,7 @@ test time — so the suite stays offline and reproducible.
 
 ### `sarif-2.1.0.json`
 
-The SARIF 2.1.0 JSON Schema (Draft-07). Used by `tests/sarif_test.rs`
+The SARIF 2.1.0 JSON Schema (Draft-07). Used by `tests/output_formats/sarif_test.rs`
 via `include_str!` and the `jsonschema` crate to validate that every
 emitted SARIF document conforms to the spec.
 
@@ -24,7 +24,7 @@ emitted SARIF document conforms to the spec.
 ### `checkstyle-report-1.0.0.xsd`
 
 The Checkstyle 4.3 XML output schema. Vendored as **documentation
-only** — `tests/checkstyle_test.rs` mirrors the constraints in a
+only** — `tests/output_formats/checkstyle_test.rs` mirrors the constraints in a
 `quick-xml`-driven structural walker rather than running an XSD
 validator (no mature pure-Rust XSD validator exists; using `libxml`
 would impose a `libxml2-dev` system dependency on every dev/CI box).
