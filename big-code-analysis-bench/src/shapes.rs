@@ -1,13 +1,24 @@
-//! Synthetic depth-scaling inputs, and the probes built from them.
+//! Synthetic scaling inputs, and the probes built from them.
 //!
-//! # Why every generator is affine in `depth`
+//! # The two axes
+//!
+//! A tree grows in two directions, and a walk can be linear in one
+//! while being quadratic in the other. [`Axis::Depth`] shapes nest: the
+//! size parameter is the number of AST levels. [`Axis::Width`] shapes
+//! do not nest at all; the size parameter is the number of siblings
+//! under one fixed-depth parent. #1100 is why both are here — the fix
+//! it originally proposed was linear on every nesting shape and made a
+//! flat 2 000-item file 94x slower by that issue's measurement, which
+//! no depth probe can see.
+//!
+//! # Why every generator is affine in its size
 //!
 //! A generator that indents each nesting level makes the *input* grow
 //! quadratically, so a walk that is perfectly linear in bytes still
 //! looks superlinear in depth. That mistake invalidated two published
 //! measurements during the #1052 / #1062 work before it was spotted.
 //! Every generator here therefore emits a constant number of bytes per
-//! nesting level and no indentation at all, which the
+//! level (or per sibling) and no indentation at all, which the
 //! `byte_growth_is_affine` unit test below pins, rather than leaving it
 //! a convention someone has to remember.
 
@@ -15,10 +26,11 @@ use std::hint::black_box;
 
 use big_code_analysis::{Ast, CodeMetrics, LANG, Metric, MetricsError, MetricsOptions, Ops};
 
-/// Renders a source shape at a given nesting depth.
+/// Renders a source shape at a given size — a nesting depth on
+/// [`Axis::Depth`], a sibling count on [`Axis::Width`].
 ///
-/// Every implementation must be affine in `depth`: `len(d)` is
-/// `base + per_level * d`. See the module docs for why.
+/// Every implementation must be affine in that size: `len(n)` is
+/// `base + per_unit * n`. See the module docs for why.
 pub type Render = fn(usize) -> String;
 
 /// Rust: `fn f() -> i32 { (((…1…))) }`.
@@ -261,6 +273,26 @@ pub fn nested_attributed_fns(depth: usize) -> String {
     )
 }
 
+/// Rust: `#[inline] fn f() {} #[inline] fn f() {} …`, all at file
+/// scope.
+///
+/// [`nested_attributed_fns`] rotated onto the width axis: the same
+/// `exclude_tests` attribute scan, but the attributed items are
+/// siblings of one another rather than nested, so the size parameter
+/// is the parent's child count and the AST depth never moves. This is
+/// the shape #1100's rejected fix was quadratic on — an unconditional
+/// forward pass over the parent's children costs `O(children)` per
+/// item, which on a flat file is `O(n^2)`; #1100 measured 94x on
+/// 2 000 items. It is also the shape `bindgen` output has.
+///
+/// Duplicate `fn f` names are a type-check error, not a parse error,
+/// so the grammar accepts the repetition and the walk sees exactly the
+/// shape it would on distinctly-named items.
+#[must_use]
+pub fn wide_attributed_fns(width: usize) -> String {
+    format!("{}\n", "#[inline] fn f() {} ".repeat(width))
+}
+
 /// Rust: `#[cfg(all(all(… test …)))] fn gone() {}` plus one retained
 /// function.
 ///
@@ -377,9 +409,25 @@ impl Workload {
     }
 }
 
-/// One depth-scaling probe: a shape, the workload that exercises the
-/// hot path under test, and the complexity class the walk is expected
-/// to stay within.
+/// The direction a probe's shape grows in.
+///
+/// A walk can be linear in one direction and quadratic in the other,
+/// so the axis is what says which claim a probe's exponent supports.
+/// It also selects the shape invariant the probe must satisfy:
+/// `shapes_nest_proportionally_to_depth` for one, and
+/// `shapes_widen_without_deepening` for the other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Axis {
+    /// The size parameter is the shape's nesting depth.
+    Depth,
+    /// The size parameter is the number of siblings under one parent,
+    /// at a depth that does not change with it.
+    Width,
+}
+
+/// One scaling probe: a shape, the axis it grows along, the workload
+/// that exercises the hot path under test, and the complexity class
+/// the walk is expected to stay within.
 ///
 /// A probe's `reading` is reported alongside every timing so a reader
 /// can see the walk did real work, and asserted non-zero by
@@ -392,13 +440,16 @@ pub struct Probe {
     pub name: &'static str,
     /// Language whose grammar the shape is written for.
     pub lang: LANG,
+    /// Direction [`Probe::sizes`] grows the shape in.
+    pub axis: Axis,
     /// The walk this probe times, and how its headline reading is taken.
     pub workload: Workload,
     /// Generator for the probe's input.
     pub render: Render,
-    /// The three depths measured, each a doubling of the previous so
-    /// the fitted exponent reads directly as "cost per doubling".
-    pub depths: [usize; 3],
+    /// The three sizes measured — the values handed to [`Probe::render`]
+    /// — each a doubling of the previous so the fitted exponent reads
+    /// directly as "cost per doubling".
+    pub sizes: [usize; 3],
     /// Upper bound on the fitted log-log exponent. A linear walk sits
     /// near 1.0 and a quadratic one near 2.0; the bounds below leave
     /// enough headroom that measurement noise cannot cross them but
@@ -420,18 +471,37 @@ pub struct Probe {
 /// job the retired wall-clock assertions were guarding against.
 const LINEAR_DEPTHS: [usize; 3] = [1_000, 2_000, 4_000];
 
-/// Bound for a probe expected to be linear in nesting depth.
+/// Sibling counts for the probes whose walk is expected to be linear
+/// in a parent's child count.
+///
+/// Reasoned independently of [`LINEAR_DEPTHS`] rather than copied: a
+/// width shape spends nothing on nesting, so the same numbers would
+/// buy a different amount of walk. The top of the ladder is the scale
+/// #1100 measured its 94x regression at — a flat file of 2 000
+/// attributed items. The bottom is set from the measurement below it:
+/// the 500-wide cell runs 1.86 ms, an order of magnitude above the
+/// cheapest cells in the set (~0.2 ms), so fixed per-analysis cost is
+/// a rounding error in the fit rather than a term flattening it.
+const LINEAR_WIDTHS: [usize; 3] = [500, 1_000, 2_000];
+
+/// Bound for a probe expected to be linear in its size parameter.
 ///
 /// Set from measurement, not from theory. A genuinely linear walk does
-/// not fit exactly 1.0 over these depths: the tree outgrows cache as
+/// not fit exactly 1.0 over these sizes: the tree outgrows cache as
 /// depth rises, so per-byte cost drifts up by roughly a quarter from
-/// the shallowest cell to the deepest and every probe here fits
+/// the shallowest cell to the deepest and every depth probe here fits
 /// 0.94-1.31 on an idle host. Before #1084 the three ancestor-walk
-/// probes fit 1.95-2.01; the midpoint of those two bands is the cut,
-/// and it is now the only bound in the set.
+/// probes fit 1.95-2.01; the midpoint of those two bands is the cut.
+///
+/// The width probe re-measured onto the same cut rather than
+/// inheriting it. `nom/wide-attributed-fn` fits 0.97-1.00, with no
+/// per-byte drift up its ladder to spend the headroom on, and #1100's
+/// rejected forward-always scan takes it to 1.99 — 560.6 ms against
+/// 7.2 ms at 2 000 items, a 78x of its own. One bound still covers
+/// the set.
 const LINEAR_BOUND: f64 = 1.5;
 
-/// The depth-scaling probe set.
+/// The scaling probe set.
 ///
 /// One entry per hot path identified during the #1052 / #1062 / #1084 /
 /// #1096 / #1109 work, plus the controls that make those readings
@@ -455,13 +525,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "tokens/nested-paren",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Tokens],
             reading: |m| m.tokens.tokens_sum(),
         },
         render: nested_parens,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1052: `tokens` inherits the in-comment flag down the \
                     traversal. Reverting to the per-leaf ancestor walk is \
@@ -478,13 +549,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cognitive/nested-while",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Cognitive],
             reading: |m| m.cognitive.cognitive_sum(),
         },
         render: nested_whiles,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062 on a statement shape, and the linear control for \
                     `cognitive/nested-if`: identical structure, no \
@@ -493,13 +565,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-while",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_whiles,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Metric control. `Cognitive` declares `Nom` as a \
                     dependency, so the cognitive-attributable cost is the \
@@ -508,13 +581,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cognitive/nested-if",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Cognitive],
             reading: |m| m.cognitive.cognitive_sum(),
         },
         render: nested_ifs,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: `Checker::is_else_if` reads the enclosing \
                     `else` clause off the walker's ancestor chain. \
@@ -525,13 +599,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-while",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
         render: nested_whiles,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-declaration`: the same \
                     nesting with no `declaration` node, so `loc` never \
@@ -540,13 +615,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-declaration",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
         render: nested_declarations,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: `loc`'s C-family arm calls \
                     `Node::count_specific_ancestors` for every \
@@ -560,13 +636,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "halstead/nested-paren",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Halstead],
             reading: |m| m.halstead.length(),
         },
         render: nested_parens,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `halstead/nested-not`: the same \
                     nesting through `get_op_type` arms that classify a \
@@ -575,13 +652,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "halstead/nested-not",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Halstead],
             reading: |m| m.halstead.length(),
         },
         render: nested_nots,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: `Getter::get_op_type` asks every `!` token \
                     whether its parent is an inner-doc-comment marker. \
@@ -594,13 +672,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "abc/nested-block",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Abc],
             reading: |m| m.abc.assignments_sum(),
         },
         render: nested_blocks,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `abc/nested-if`: the same nesting \
                     with no condition slot, so the C-family container \
@@ -609,13 +688,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "abc/nested-if",
         lang: LANG::C,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Abc],
             reading: |m| m.abc.conditions_sum(),
         },
         render: nested_ifs,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: every `if (…)` head routes its condition \
                     through the C-family container walker, which seeds \
@@ -629,13 +709,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cyclomatic/nested-and",
         lang: LANG::Python,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Cyclomatic],
             reading: |m| m.cyclomatic.cyclomatic_sum(),
         },
         render: nested_ands,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `cyclomatic/nested-ternary`: the \
                     same nesting through an arm that counts the token \
@@ -644,13 +725,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cyclomatic/nested-ternary",
         lang: LANG::Python,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Cyclomatic],
             reading: |m| m.cyclomatic.cyclomatic_sum(),
         },
         render: nested_ternaries,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: Python's `Cyclomatic` asks every `else` token \
                     whether it opens a loop or `try` else-clause, through \
@@ -661,13 +743,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-quote",
         lang: LANG::Elixir,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
         render: nested_quotes,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1096: Elixir's `loc` catch-all arm asks every named \
                     node whether its parent is a statement container, so \
@@ -679,13 +762,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-quote",
         lang: LANG::Elixir,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_quotes,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1084: Elixir's `is_func` asks \
                     `elixir_is_inside_quote_block` for every `def`. The \
@@ -696,13 +780,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-fn",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "One `FuncSpace` per level: the space-nesting \
                     bookkeeping and the recursive `FuncSpace` tree #1056 \
@@ -713,13 +798,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "cognitive/nested-fn",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Cognitive],
             reading: |m| m.cognitive.cognitive_sum(),
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1062: `increment_function_depth` asks every function \
                     node whether a function encloses it. The answer now \
@@ -733,6 +819,7 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "ops/nested-fn",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Ops {
             // Depth-invariant on purpose: `nested_fns` reuses one
             // identifier at every level, so the root vocabulary is the
@@ -743,7 +830,7 @@ pub const PROBES: &[Probe] = &[
             reading: |ops| ops.operands.len() as u64,
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1110: the only probe that runs `ops_inner`, which \
                     was otherwise unmeasured. It covers the walk — the \
@@ -763,13 +850,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-fn",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.lloc(),
         },
         render: nested_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `loc/nested-fn-rows`: the same \
                     function nesting with every level on one physical row, \
@@ -780,13 +868,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "loc/nested-fn-rows",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Loc],
             reading: |m| m.loc.ploc(),
         },
         render: nested_fns_by_row,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1109: `Ploc` / `Cloc` union each space's physical-row \
                     set into its parent, so a row inside `D` nested spaces \
@@ -800,13 +889,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-fn-rows",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_fns_by_row,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Metric control for `loc/nested-fn-rows`: the same \
                     row-spread nesting under a metric whose merge is a \
@@ -816,13 +906,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-declared-function",
         lang: LANG::Javascript,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_declared_functions,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "Shape control for `nom/nested-arrow`: one function and \
                     one `FuncSpace` per level as there, but declared with \
@@ -832,13 +923,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-arrow",
         lang: LANG::Javascript,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: false,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_arrows,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1088: the JS-family `Checker::is_func` / `is_closure` \
                     decide whether an `arrow_function` is bound to a name by \
@@ -852,13 +944,14 @@ pub const PROBES: &[Probe] = &[
     Probe {
         name: "nom/nested-attributed-fn",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: true,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_attributed_fns,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1100: under `exclude_tests` the walker asks every \
                     node whether it opens a test-only subtree, and Rust \
@@ -872,15 +965,40 @@ pub const PROBES: &[Probe] = &[
                     the nesting and the flag at once.",
     },
     Probe {
+        name: "nom/wide-attributed-fn",
+        lang: LANG::Rust,
+        axis: Axis::Width,
+        workload: Workload::Metrics {
+            exclude_tests: true,
+            selection: &[Metric::Nom],
+            reading: |m| m.nom.total(),
+        },
+        render: wide_attributed_fns,
+        sizes: LINEAR_WIDTHS,
+        max_exponent: LINEAR_BOUND,
+        rationale: "#1100 on the other axis, and the only probe on it. \
+                    The fix the issue originally proposed — read the \
+                    attribute run forward from the parent, always — is \
+                    `O(children)` per item, so on a flat file it is \
+                    quadratic in the file's item count: #1100 measured \
+                    a generated 2 000-item file going from 6.0 ms to \
+                    569 ms while every depth probe stayed green. \
+                    Reintroducing that scan takes this probe to 1.99. \
+                    The scan now budgets the parent's child count \
+                    against the node's depth, and this probe is what \
+                    keeps the shallow-wide half of that trade measured.",
+    },
+    Probe {
         name: "nom/nested-cfg-predicate",
         lang: LANG::Rust,
+        axis: Axis::Depth,
         workload: Workload::Metrics {
             exclude_tests: true,
             selection: &[Metric::Nom],
             reading: |m| m.nom.total(),
         },
         render: nested_cfg_predicate,
-        depths: LINEAR_DEPTHS,
+        sizes: LINEAR_DEPTHS,
         max_exponent: LINEAR_BOUND,
         rationale: "#1105: `cfg(all(all(… test …)))` is classified by a \
                     string-level mini-parser, which re-scanned each \
@@ -898,7 +1016,7 @@ pub const PROBES: &[Probe] = &[
 mod tests {
     use big_code_analysis::{Ast, Source};
 
-    use super::{PROBES, Probe};
+    use super::{Axis, PROBES, Probe};
 
     /// Deepest `tree_sitter` node depth reachable from the root.
     ///
@@ -916,14 +1034,41 @@ mod tests {
         deepest
     }
 
-    fn parse(probe: &Probe, depth: usize) -> Ast {
-        let source = (probe.render)(depth);
-        Ast::parse(Source::new(probe.lang, source.as_bytes()))
-            .unwrap_or_else(|e| panic!("{} at depth {depth} must parse: {e}", probe.name))
+    /// Most children any one node in the tree has — the quantity a
+    /// width shape grows, and the one the `exclude_tests` attribute
+    /// scan is priced against.
+    fn max_child_count(ast: &Ast) -> usize {
+        let mut stack = vec![ast.as_tree_sitter().root_node()];
+        let mut widest = 0;
+        while let Some(node) = stack.pop() {
+            widest = widest.max(node.child_count());
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
+        }
+        widest
     }
 
-    /// Every generator emits a constant number of bytes per nesting
-    /// level.
+    /// The probes on `axis`, asserted non-empty.
+    ///
+    /// Each shape invariant below applies to one axis, and a loop over
+    /// an empty filtered set passes every assertion inside it. Without
+    /// this, deleting the last probe of an axis would silently retire
+    /// that axis's invariant rather than fail — which for the width
+    /// axis is exactly the state #1133 was filed about.
+    fn probes_on(axis: Axis) -> Vec<&'static Probe> {
+        let probes: Vec<&Probe> = PROBES.iter().filter(|probe| probe.axis == axis).collect();
+        assert!(!probes.is_empty(), "PROBES must cover the {axis:?} axis");
+        probes
+    }
+
+    fn parse(probe: &Probe, size: usize) -> Ast {
+        let source = (probe.render)(size);
+        Ast::parse(Source::new(probe.lang, source.as_bytes()))
+            .unwrap_or_else(|e| panic!("{} at size {size} must parse: {e}", probe.name))
+    }
+
+    /// Every generator emits a constant number of bytes per unit of
+    /// its size parameter.
     ///
     /// This is the trap that invalidated two measurements during the
     /// #1052 / #1062 work: an indented generator makes the input grow
@@ -937,37 +1082,43 @@ mod tests {
             assert_eq!(
                 b - a,
                 c - b,
-                "{}: bytes must grow linearly with depth, got {a} -> {b} -> {c}",
+                "{}: bytes must grow linearly with size, got {a} -> {b} -> {c}",
                 probe.name,
             );
             assert!(
                 b > a,
-                "{}: depth must actually add bytes, got {a} -> {b}",
+                "{}: size must actually add bytes, got {a} -> {b}",
                 probe.name,
             );
         }
     }
 
-    /// Every shape parses cleanly.
+    /// Every shape parses cleanly at the smallest size the gate
+    /// measures it at.
     ///
     /// Without this, a grammar bump that stops accepting one of these
     /// snippets would leave the probe measuring `tree_sitter`'s error
-    /// recovery while still reporting a plausible exponent.
+    /// recovery while still reporting a plausible exponent. The size
+    /// comes from the probe rather than from a literal because a
+    /// parser limit — a recursion cap, a token-count ceiling — is
+    /// reached at scale and not on a toy input, so a small fixed size
+    /// answers a different question than the gate asks.
     #[test]
     fn shapes_parse_without_error() {
         for probe in PROBES {
-            let ast = parse(probe, 8);
+            let size = probe.sizes[0];
+            let ast = parse(probe, size);
             assert!(
                 !ast.as_tree_sitter().root_node().has_error(),
-                "{}: shape must parse without an ERROR node:\n{}",
+                "{}: shape must parse without an ERROR node at size {size}:\n{}…",
                 probe.name,
-                (probe.render)(8),
+                (probe.render)(size).chars().take(200).collect::<String>(),
             );
         }
     }
 
-    /// Every shape actually nests: doubling `depth` adds at least
-    /// `depth` more levels of AST.
+    /// Every depth shape actually nests: doubling the size adds at
+    /// least that many more levels of AST.
     ///
     /// A shape that flattened — because a grammar started folding the
     /// repetition into a list node, say — would still parse, still
@@ -975,37 +1126,85 @@ mod tests {
     /// 1.0 while measuring nothing the probe claims to measure.
     #[test]
     fn shapes_nest_proportionally_to_depth() {
-        for probe in PROBES {
+        for probe in probes_on(Axis::Depth) {
             let shallow = ast_depth(&parse(probe, 16));
             let deep = ast_depth(&parse(probe, 32));
             assert!(
-                deep - shallow >= 16,
-                "{probe_name}: doubling depth 16 -> 32 added only \
-                 {added} AST levels ({shallow} -> {deep}); the shape is \
-                 not nesting",
+                deep >= shallow + 16,
+                "{probe_name}: doubling depth 16 -> 32 grew the tree \
+                 {shallow} -> {deep} AST levels; the shape is not \
+                 nesting",
                 probe_name = probe.name,
-                added = deep - shallow,
+            );
+        }
+    }
+
+    /// Every width shape widens, and *only* widens.
+    ///
+    /// The positive half mirrors
+    /// [`shapes_nest_proportionally_to_depth`]: doubling the size must
+    /// add at least that many children to the widest node, so a shape
+    /// that stopped growing is caught.
+    ///
+    /// The negative half is the one that matters. A "width" probe that
+    /// quietly began nesting — a generator edited to wrap its items,
+    /// or a grammar that started grouping them — would satisfy the
+    /// first half while measuring the depth axis, and report a healthy
+    /// exponent for a width bound nothing is testing any more. Pinning
+    /// the AST depth *constant* across the two sizes is what
+    /// distinguishes the two axes; nothing else here can.
+    ///
+    /// Sixteen and thirty-two, not the probe's own ladder as the two
+    /// tests below use: both halves are structural claims about the
+    /// generator, true at any pair of sizes, and 500 vs 1 000 would
+    /// cost a second of parsing to assert the same thing.
+    #[test]
+    fn shapes_widen_without_deepening() {
+        for probe in probes_on(Axis::Width) {
+            let (narrow, wide) = (parse(probe, 16), parse(probe, 32));
+            let (narrow_width, wide_width) = (max_child_count(&narrow), max_child_count(&wide));
+            assert!(
+                wide_width >= narrow_width + 16,
+                "{probe_name}: doubling width 16 -> 32 grew the widest \
+                 node {narrow_width} -> {wide_width} children; the \
+                 shape is not widening",
+                probe_name = probe.name,
+            );
+            assert_eq!(
+                ast_depth(&narrow),
+                ast_depth(&wide),
+                "{}: a width shape must not gain AST levels with its \
+                 size, or its exponent is measuring the depth axis",
+                probe.name,
             );
         }
     }
 
     /// Every probe's workload produces a non-zero reading on its own
-    /// shape.
+    /// shape, at the smallest size the gate measures it at.
     ///
     /// Pairing a shape with a workload that scores zero on it would
     /// benchmark the walk's fixed overhead and nothing else, and the
     /// resulting exponent would look excellent forever.
+    ///
+    /// The size is the probe's own rather than a fixed small one: a
+    /// literal that happens to suit the nesting shapes is sixteen-odd
+    /// siblings on a width shape — too small to be the shape the probe
+    /// stands for, and a reading that only becomes non-zero at scale
+    /// would fail here for a reason unrelated to the pairing. The
+    /// whole set costs ~0.4 s in a debug build at these sizes.
     #[test]
     fn probe_workload_is_exercised() {
         for probe in PROBES {
-            let ast = parse(probe, 8);
+            let size = probe.sizes[0];
+            let ast = parse(probe, size);
             let reading = probe
                 .workload
                 .walk(&ast, probe.workload.options())
                 .unwrap_or_else(|e| panic!("{}: walker must succeed: {e}", probe.name));
             assert!(
                 reading > 0,
-                "{}: workload scored zero on its own shape",
+                "{}: workload scored zero on its own shape at size {size}",
                 probe.name,
             );
         }
@@ -1021,14 +1220,14 @@ mod tests {
         assert_eq!(count, names.len(), "duplicate probe name in PROBES");
     }
 
-    /// Depths double, which is what makes the fitted exponent readable
+    /// Sizes double, which is what makes the fitted exponent readable
     /// as "cost per doubling".
     #[test]
-    fn probe_depths_double() {
+    fn probe_sizes_double() {
         for probe in PROBES {
-            let [a, b, c] = probe.depths;
-            assert_eq!(b, a * 2, "{}: depths must double", probe.name);
-            assert_eq!(c, b * 2, "{}: depths must double", probe.name);
+            let [a, b, c] = probe.sizes;
+            assert_eq!(b, a * 2, "{}: sizes must double", probe.name);
+            assert_eq!(c, b * 2, "{}: sizes must double", probe.name);
         }
     }
 }

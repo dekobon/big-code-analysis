@@ -7,7 +7,7 @@
 //! - `corpus/walk` — one benchmark per metric family, walking the
 //!   already-parsed slice. This is the number to quote when a change
 //!   claims to make a metric cheaper.
-//! - `shape/walk` — the depth-scaling shapes at a single depth, so a
+//! - `shape/walk` — the scaling shapes at a single size, so a
 //!   constant-factor change on a pathological input is visible even
 //!   when its complexity class did not move.
 //!
@@ -29,14 +29,6 @@ use big_code_analysis::{Ast, Metric, MetricsOptions, Source};
 use big_code_analysis_bench::corpus::{CorpusFile, CorpusSlice, repo_root};
 use big_code_analysis_bench::shapes::PROBES;
 use criterion::{Criterion, Throughput};
-
-/// Depth at which each shape is measured in the criterion group.
-///
-/// The shallowest depth of the linear probes, which is also the
-/// deepest of the quadratic ones: deep enough to be the pathological
-/// input the shape exists to represent, shallow enough that the
-/// already-quadratic probes still finish in a criterion sample.
-const SHAPE_BENCH_DEPTH: usize = 1_000;
 
 fn main() {
     let slice = CorpusSlice::load(&repo_root());
@@ -157,7 +149,13 @@ fn bench_corpus(criterion: &mut Criterion, slice: &CorpusSlice) {
 fn bench_shapes(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("shape/walk");
     for probe in PROBES {
-        let source = (probe.render)(SHAPE_BENCH_DEPTH);
+        // Each shape at the smallest size the scaling gate measures it
+        // at: large enough to be the pathological input the shape
+        // exists to represent, small enough that an already-quadratic
+        // probe still finishes inside a criterion sample. Taken from
+        // the probe because the axes ladder differently — a shared
+        // literal would be one axis's number imposed on the other.
+        let source = (probe.render)(probe.sizes[0]);
         let Ok(ast) = Ast::parse(Source::new(probe.lang, source.as_bytes())) else {
             eprintln!(
                 "skipping {}: {:?} is not compiled in",
