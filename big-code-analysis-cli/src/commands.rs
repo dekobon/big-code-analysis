@@ -54,10 +54,11 @@ use crate::{
     Action, AggregateItem, CheckArgs, Cli, Command, Config, CountArgs, DiffBaselineArgs,
     ExemptionsArgs, FindArgs, GlobalOpts, InitArgs, LineRange, ListMetricsArgs, MetricsArgs,
     OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs,
-    SummaryFile, Tier, TierSpec, die, die_io, group_files_by_basename, legacy_hint, load_baseline,
-    load_preproc_data, load_threshold_config, note, read_exclude_patterns_from, resolve_walk_files,
-    run_walk, run_walk_collecting, run_walk_resolved, validate_output_path, warn, write_atomic,
-    write_output_or_stdout, write_stdout_or_die, writeln_stdout_or_die,
+    SummaryFile, Tier, TierSpec, die, die_io, die_unless_broken_pipe, group_files_by_basename,
+    legacy_hint, load_baseline, load_preproc_data, load_threshold_config, note,
+    read_exclude_patterns_from, resolve_walk_files, run_walk, run_walk_collecting,
+    run_walk_resolved, validate_output_path, warn, write_atomic, write_output_or_stdout,
+    write_stdout_or_die, writeln_stdout_or_die,
 };
 
 mod analyze;

@@ -550,6 +550,25 @@ pub(crate) fn apply_changed_only_inner(
     ChangedOnlyOutcome { kept, diagnostic }
 }
 
+/// Render one `path:lines: name: metric = N (limit M)` row per pair, in
+/// the order the caller sorted them, then flush.
+///
+/// Split out from [`emit_check_results`] so the same loop serves both
+/// destinations the stream contract there admits. The flush is part of
+/// the helper for the same reason [`write_parts_flushed`] carries one:
+/// a buffered writer that reports every `write_all` as `Ok` can still
+/// fail at flush time, and on the stdout path that error decides between
+/// `die` and a silent truncated report.
+fn write_violation_rows_flushed(
+    out: &mut impl Write,
+    pairs: &[(Violation, Option<Coverage>)],
+) -> std::io::Result<()> {
+    pairs
+        .iter()
+        .try_for_each(|(v, tag)| writeln!(out, "{}", render_violation_line(v, tag.as_ref())))?;
+    out.flush()
+}
+
 pub(crate) fn emit_check_results(
     pairs: Vec<(Violation, Option<Coverage>)>,
     suppressed: Vec<(Violation, Option<Coverage>)>,
@@ -557,26 +576,65 @@ pub(crate) fn emit_check_results(
     scope: Option<&diff::DiffScope>,
     remediation: Option<&str>,
 ) {
+    // Stream contract (#1167) — do not move a line across it without
+    // reading the issue first.
+    //
+    // **stdout** carries the offender rows, and nothing else. They are
+    // this command's product, so the obvious ways to work with a list —
+    // `| wc -l`, `| head`, `| rg -c`, `2>/dev/null` — must reach them.
+    // They used to go to stderr, where all four silently reported an
+    // empty offender set: a *plausible* "this tree is clean" rather than
+    // an error.
+    //
+    // **stderr** carries everything that is commentary about the run:
+    // the per-file summary footer, the GitHub Actions annotations, the
+    // remediation block, and the `bca: …` / `warning:` / `error:`
+    // diagnostics the upstream stages emit (`skipped N violations via
+    // [check.exclude]`, `filtered N violations via baseline`, …).
+    //
+    // The one exception: `--report-format` without `--output` puts the
+    // aggregated SARIF / Checkstyle / Code Climate document on stdout,
+    // so the rows stay on stderr for that combination instead of
+    // corrupting a machine-readable payload. `--output <file>` moves the
+    // document off stdout and the rows go back to it.
+    let document_owns_stdout = args.output_format.is_some() && args.output.is_none();
+
+    if !document_owns_stdout {
+        // Written and flushed before the first stderr write below, so a
+        // terminal (or a `2>&1`-merged CI log) still shows the rows
+        // above the footer that summarizes them.
+        //
+        // `BrokenPipe` is exempt — `bca check | head` is routine and
+        // must still exit on the gate verdict, matching every other
+        // subcommand's stdout policy (`write_stdout_or_die`, #1132).
+        // Any other write failure is a real tool error: reporting a gate
+        // verdict whose evidence never reached the consumer is the
+        // silent-success shape this whole contract exists to avoid.
+        let mut stdout = BufWriter::new(std::io::stdout().lock());
+        let written = write_violation_rows_flushed(&mut stdout, &pairs);
+        die_unless_broken_pipe(written, "writing check offenders");
+    }
+
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
     // exit-code contract is honored.
     //
-    // `stderr` is unbuffered — one `write(2)` per violation line — so the
-    // lock is wrapped in a `BufWriter`. What makes that safe is the
+    // `stderr` is unbuffered — one `write(2)` per line — so the lock is
+    // wrapped in a `BufWriter`. What makes that safe is the
     // explicit `drop` at the end of this function, and it is about
     // *ordering*, not about `process::exit`: `BufWriter::drop` does
     // flush (it only discards the error), and this buffer is dropped
     // here, long before `run_check` ever reaches `process::exit`.
     // Deleting that drop lets the `eprintln!` diagnostic and the stdout
-    // document that follow overtake the violation report — which is what
-    // `check_violations_are_flushed_before_later_stderr_writes` catches.
+    // document that follow overtake the summary footer — which is what
+    // `check_stderr_block_is_flushed_before_later_stderr_writes` catches.
     //
     // The one thing buffering does cost: a panic between the writes
     // below and that drop loses the entire report, because
     // `BufWriter::drop` skips the flush when `self.panicked`.
     let mut stderr = BufWriter::new(std::io::stderr().lock());
-    for (v, tag) in &pairs {
-        let _ = writeln!(stderr, "{}", render_violation_line(v, tag.as_ref()));
+    if document_owns_stdout {
+        let _ = write_violation_rows_flushed(&mut stderr, &pairs);
     }
     if !args.no_summary && !pairs.is_empty() {
         let _ = write_summary_footer(&mut stderr, &pairs, scope);
@@ -622,28 +680,42 @@ pub(crate) fn emit_check_results(
         );
     }
 
-    // Emit the aggregated CI/IDE document if requested. Empty input
-    // produces a well-formed but offender-free document, which CI
-    // consumers can ingest unchanged on clean runs. The exit-code
-    // contract is unaffected by this branch.
-    if let Some(fmt) = args.output_format {
-        let offenders: Vec<_> = pairs
-            .into_iter()
-            .map(|(v, _)| violation_to_offender(v))
-            .collect();
-        // Only the SARIF format can represent suppression, so route active +
-        // suppressed offenders through the suppression-aware writer there. For
-        // every other format (and the default no-suppressed case) fall back to
-        // the plain dump so output is byte-for-byte unchanged.
-        let written = if !suppressed.is_empty()
-            && matches!(fmt, check_format::AggregatedFormat::Sarif)
-        {
-            check_format::dump_sarif_with_suppressed(&offenders, suppressed, args.output.as_deref())
-        } else {
-            fmt.dump(&offenders, args.output.as_deref())
-        };
-        written.unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
-    }
+    emit_aggregated_document(pairs, suppressed, args);
+}
+
+/// Emit the aggregated CI/IDE document (`--report-format`, or a dialect
+/// inferred from `--output`) — the machine-readable counterpart to the
+/// human rows [`emit_check_results`] writes, and the other half of that
+/// function's stream contract: it lands in `--output <file>` when given
+/// and on stdout otherwise.
+///
+/// A no-op when neither flag is in effect. Empty input still produces a
+/// well-formed but offender-free document, which CI consumers can ingest
+/// unchanged on clean runs, and a successful write never perturbs the
+/// exit-code contract.
+fn emit_aggregated_document(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    suppressed: Vec<(Violation, Option<Coverage>)>,
+    args: &CheckArgs,
+) {
+    let Some(fmt) = args.output_format else {
+        return;
+    };
+    let offenders: Vec<_> = pairs
+        .into_iter()
+        .map(|(v, _)| violation_to_offender(v))
+        .collect();
+    // Only the SARIF format can represent suppression, so route active +
+    // suppressed offenders through the suppression-aware writer there. For
+    // every other format (and the default no-suppressed case) fall back to
+    // the plain dump so output is byte-for-byte unchanged.
+    let written = if !suppressed.is_empty() && matches!(fmt, check_format::AggregatedFormat::Sarif)
+    {
+        check_format::dump_sarif_with_suppressed(&offenders, suppressed, args.output.as_deref())
+    } else {
+        fmt.dump(&offenders, args.output.as_deref())
+    };
+    written.unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
 }
 
 /// Decide whether GitHub Actions `::error` annotations should be

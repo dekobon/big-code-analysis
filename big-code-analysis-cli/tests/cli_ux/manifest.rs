@@ -78,9 +78,9 @@ fn bare_check_uses_manifest_paths_and_thresholds() {
         .arg("check")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// A loose manifest limit produces a clean run — proving the manifest
@@ -94,6 +94,7 @@ fn bare_check_clean_under_loose_manifest_threshold() {
         .arg("check")
         .assert()
         .success()
+        .stdout(predicate::str::is_empty())
         .stderr(predicate::str::is_empty());
 }
 
@@ -125,7 +126,7 @@ fn cli_threshold_overrides_manifest() {
         .args(["check", "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// `--paths` overrides the manifest `paths`. Pointed at an empty
@@ -161,7 +162,7 @@ fn config_file_merges_over_manifest_thresholds() {
         .arg(&cfg)
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// The manifest `headroom` key scales the manifest `[thresholds]` at the
@@ -178,11 +179,11 @@ fn manifest_headroom_scales_thresholds_at_soft_tier() {
         .args(["check", "--tier=soft"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("cyclomatic"))
         // Pin the *scaled* limit: 100 × 0.01 = 1. A bare "cyclomatic"
         // match would pass even if the scale were wrong (e.g. headroom
         // ignored and the limit left at 100, or applied twice).
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// The manifest `baseline` key is honored: a baseline that already
@@ -284,7 +285,7 @@ fn manifest_baseline_fuzzy_match_is_honored() {
         .arg("check")
         .assert()
         .success()
-        .stderr(predicate::str::contains("[new]").not())
+        .stdout(predicate::str::contains("[new]").not())
         // Confirm the renamed function was actually covered via the
         // fuzzy fallback, not silently dropped by an empty parse.
         .stderr(predicate::str::contains("filtered 1 violations"));
@@ -331,7 +332,7 @@ int f(double x) {
         .arg("check")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("[new]"));
+        .stdout(predicate::str::contains("[new]"));
 }
 
 /// Manifest discovery climbs from the working directory to the repo
@@ -351,7 +352,7 @@ fn discovery_climbs_from_subdirectory() {
         .code(2)
         // `paths = ["."]` resolved against the manifest dir, so the
         // root `branchy.rs` is analysed even though cwd is two levels down.
-        .stderr(predicate::str::contains("classify"));
+        .stdout(predicate::str::contains("classify"));
 }
 
 /// Unrecognized top-level keys (forthcoming features such as
@@ -450,8 +451,8 @@ fn manifest_cyclomatic_count_try_false_flips_gate_without_warning() {
         .arg("check")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 2)"));
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 2)"));
 
     // Key false → `?` is linear → cyclomatic 1 ≤ 2 → clean, no warning.
     let linear = try_fixture(
@@ -462,6 +463,7 @@ fn manifest_cyclomatic_count_try_false_flips_gate_without_warning() {
         .arg("check")
         .assert()
         .success()
+        .stdout(predicate::str::is_empty())
         .stderr(predicate::str::is_empty());
 }
 
@@ -491,7 +493,7 @@ fn manifest_soft_threshold_subtable_applies_only_at_soft_tier() {
         .args(["check", "--tier=soft"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// `bca init` must NOT consume an existing manifest: it scaffolds
@@ -672,5 +674,5 @@ fn cli_cyclomatic_count_try_overrides_manifest_both_directions() {
         .args(["check", "--cyclomatic-count-try=true"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("cyclomatic"));
+        .stdout(predicate::str::contains("cyclomatic"));
 }

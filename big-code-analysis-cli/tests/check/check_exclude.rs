@@ -63,8 +63,8 @@ fn check_exclude_flag_drops_matching_offenders_only() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("kept_offender"))
-        .stderr(predicate::str::contains("excluded_offender").not())
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("excluded_offender").not())
         .stderr(predicate::str::contains(
             "skipped 1 violations via [check.exclude]",
         ));
@@ -92,8 +92,8 @@ fn check_exclude_bare_relative_glob_drops_matching_offenders() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("kept_offender"))
-        .stderr(predicate::str::contains("excluded_offender").not())
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("excluded_offender").not())
         .stderr(predicate::str::contains(
             "skipped 1 violations via [check.exclude]",
         ));
@@ -125,7 +125,7 @@ fn check_exclude_covering_sole_offender_exits_zero() {
         .stderr(predicate::str::contains(
             "skipped 1 violations via [check.exclude]",
         ))
-        .stderr(predicate::str::contains("excluded_offender").not());
+        .stdout(predicate::str::contains("excluded_offender").not());
 }
 
 /// `--check-exclude-from` reads `.gitignore`-style globs from a file;
@@ -148,8 +148,8 @@ fn check_exclude_from_file_drops_matching_offenders() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("kept_offender"))
-        .stderr(predicate::str::contains("excluded_offender").not());
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("excluded_offender").not());
 }
 
 /// Acceptance: `--write-baseline` does NOT record entries for
@@ -236,8 +236,8 @@ fn manifest_check_exclude_table_drops_offenders() {
         .arg("check")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("kept_offender"))
-        .stderr(predicate::str::contains("excluded_offender").not());
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("excluded_offender").not());
 }
 
 /// As a negative filter key (#539), an explicit `--check-exclude` UNIONs
@@ -261,8 +261,14 @@ fn cli_check_exclude_unions_with_manifest_table() {
         .args(["check", "--check-exclude", "**/kept.rs"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("excluded_offender").not())
-        .stderr(predicate::str::contains("kept_offender").not());
+        // Absence alone would pass against a run that produced no
+        // offenders at all, so pair it with the positive diagnostic
+        // proving both violations existed and were exempted.
+        .stderr(predicate::str::contains(
+            "skipped 2 violations via [check.exclude]",
+        ))
+        .stdout(predicate::str::contains("excluded_offender").not())
+        .stdout(predicate::str::contains("kept_offender").not());
 }
 
 /// `--no-config` is the escape hatch that ignores the manifest entirely:
@@ -293,8 +299,8 @@ fn no_config_drops_manifest_check_exclude_from_union() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("excluded_offender"))
-        .stderr(predicate::str::contains("kept_offender").not());
+        .stdout(predicate::str::contains("excluded_offender"))
+        .stdout(predicate::str::contains("kept_offender").not());
 }
 
 /// `--print-effective-config` surfaces the resolved `check_exclude`
@@ -381,8 +387,8 @@ fn check_exclude_manifest_glob_applies_from_subdir() {
         .arg("check")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("keep_offender"))
-        .stderr(predicate::str::contains("vendor_offender").not())
+        .stdout(predicate::str::contains("keep_offender"))
+        .stdout(predicate::str::contains("vendor_offender").not())
         .stderr(predicate::str::contains(
             "skipped 1 violations via [check.exclude]",
         ));
@@ -429,8 +435,8 @@ fn check_exclude_anchors_paths_from_seeds() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("kept_offender"))
-        .stderr(predicate::str::contains("excluded_offender").not())
+        .stdout(predicate::str::contains("kept_offender"))
+        .stdout(predicate::str::contains("excluded_offender").not())
         .stderr(predicate::str::contains(
             "skipped 1 violations via [check.exclude]",
         ));

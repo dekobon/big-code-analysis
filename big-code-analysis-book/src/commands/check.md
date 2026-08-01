@@ -40,7 +40,7 @@ threshold failures, not broken input, so none of them lets
 
 `--exit-codes=tiered` (or `[check] exit_codes = "tiered"` in
 `bca.toml`) splits the single violation code `2` by severity so CI can
-branch on it without parsing the `[new]` / `[regr +N%]` stderr tags:
+branch on it without parsing the `[new]` / `[regr +N%]` row tags:
 
 | Code | Meaning (tiered mode) |
 |------|-----------------------|
@@ -306,8 +306,8 @@ recipe for the migration tip and rationale.
 
 ## Offender output
 
-Every offending `(function, metric)` pair prints one line to stderr in
-this stable format:
+Every offending `(function, metric)` pair prints one line to **stdout**
+in this stable format:
 
 ```text
 <path>:<start_line>-<end_line>: <function_name>: <metric> = <value> (limit <limit>)
@@ -322,6 +322,40 @@ src/parser.rs:42-117: parse_expression: cognitive = 31 (limit 20)
 
 Lines are sorted by path, then start line, then metric name, so output
 is deterministic across runs over the same tree.
+
+### Which stream {#which-stream}
+
+The offender rows are the command's product, so they go to **stdout**:
+`bca check | wc -l`, `| head`, `| rg -c` and `2>/dev/null` all reach
+them.
+
+Everything the run says *about itself* goes to **stderr**:
+
+- the per-file `--- summary ---` footer,
+- the `--- next steps ---` remediation block,
+- the GitHub Actions `::error` annotations,
+- the `bca: skipped N violations via [check.exclude]` and
+  `bca: filtered N violations via baseline` counts,
+- every `warning:` and `error:` diagnostic.
+
+One combination inverts this. `--report-format <dialect>` without
+`--output` puts the aggregated SARIF / Checkstyle / Code Climate
+document on stdout, so the human rows fall back to stderr rather than
+corrupting it:
+
+```bash
+bca check --report-format sarif | jq '.runs[0].results | length'   # document on stdout
+bca check --report-format sarif --output report.sarif | wc -l      # rows back on stdout
+```
+
+The `--summary-file` digest is a file, not a stream, and appears on
+neither.
+
+Earlier releases sent the rows to stderr along with everything else,
+which made `| wc -l` and `2>/dev/null` report an empty offender list —
+indistinguishable from a clean tree. A pipeline that reads the rows
+through `2>&1` needs no change; one that captured them with `2>file`
+should now use `>file`.
 
 ## Silencing violations with suppression markers
 
@@ -501,7 +535,7 @@ adoption flow and CI integration patterns.
 
 ## Reporting without failing
 
-`--no-fail` prints offenders to stderr but exits `0`. Useful while
+`--no-fail` reports offenders as usual but exits `0`. Useful while
 adopting baselines without flipping CI red. Other CI tools call this
 behavior `--report-only` or `--soft-fail`; here the flag is spelled
 `--no-fail`.
@@ -526,9 +560,10 @@ common CI case needs zero explicit configuration.
 | `--summary-file <path\|auto\|never>` | Append markdown digest (per-file rollup + breakdown + top-10 offenders); `never` suppresses it | `auto` detects `GITHUB_STEP_SUMMARY` |
 | `--no-remediation`         | Suppress the trailing `--- next steps ---` block                         | Block emitted on failure unless this flag is passed              |
 
-The per-violation stderr lines and the per-file rollup footer
-remain unchanged when none of the above are active, so existing
-CI tooling that grep-anchors on the legacy output keeps working.
+The per-violation rows and the per-file rollup footer remain
+unchanged in *content* when none of the above are active, so CI
+tooling that grep-anchors on the legacy text keeps working — but
+see [Which stream](#which-stream) for where each now lands.
 
 See the [CI integration recipe](../recipes/ci.md#actionable-failure-output)
 for worked examples — including a "putting it all together" GHA

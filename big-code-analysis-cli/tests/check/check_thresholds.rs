@@ -51,7 +51,7 @@ fn check_clean_exits_zero_with_no_offenders() {
 }
 
 #[test]
-fn check_violation_exits_two_with_stable_stderr() {
+fn check_violation_exits_two_with_stable_stdout() {
     fixtures::cli_shared()
         .args([
             "check",
@@ -64,28 +64,28 @@ fn check_violation_exits_two_with_stable_stderr() {
         .code(2)
         // The classify function exceeds cyclomatic=1; the offender line
         // must mention the file, function name, metric, and limit in the
-        // documented format.
-        .stderr(predicate::str::contains(fixtures::branchy_rs()))
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        // documented format — on stdout, per the #1167 stream contract.
+        .stdout(predicate::str::contains(fixtures::branchy_rs()))
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
-/// The violation report is buffered before it reaches stderr (#1115), so
-/// it must be drained before anything else writes to either stream —
-/// otherwise the very run that has offenders reports them out of order,
-/// or (once `run_check` reaches `process::exit`, which runs no
-/// destructors) not at all.
+/// The stderr commentary block — summary footer, GHA annotations,
+/// remediation — is buffered before it reaches fd 2 (#1115), so it must
+/// be drained before anything else writes to either stream; otherwise
+/// the very run that has offenders reports them out of order, or (once
+/// `run_check` reaches `process::exit`, which runs no destructors) not
+/// at all.
 ///
 /// `--summary-file` pointed at a path under a missing directory makes
 /// `write_step_summary` fail, which `emit_check_results` reports with a
 /// bare `eprintln!` — an unbuffered write straight to fd 2, emitted after
 /// the buffered block. Pinning the two in order is what makes the flush
-/// observable: delete both the explicit `stderr.flush()` and the
-/// `drop(stderr)` that precede the step-summary call and the diagnostic
-/// overtakes the offenders, failing here.
+/// observable: delete the `drop(stderr)` that precedes the step-summary
+/// call and the diagnostic overtakes the footer, failing here.
 #[test]
-fn check_violations_are_flushed_before_later_stderr_writes() {
+fn check_stderr_block_is_flushed_before_later_stderr_writes() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let unwritable = dir.path().join("absent").join("summary.md");
@@ -107,16 +107,16 @@ fn check_violations_are_flushed_before_later_stderr_writes() {
         .clone();
     let stderr = String::from_utf8(output).expect("utf8 stderr");
 
-    let offender = stderr
-        .find("classify")
-        .unwrap_or_else(|| panic!("offender line missing from stderr:\n{stderr}"));
+    let footer = stderr
+        .find("--- summary ---")
+        .unwrap_or_else(|| panic!("summary footer missing from stderr:\n{stderr}"));
     let diagnostic = stderr
         .find("failed to append step summary")
         .unwrap_or_else(|| panic!("step-summary diagnostic missing from stderr:\n{stderr}"));
 
     assert!(
-        offender < diagnostic,
-        "the buffered offender report must be flushed before the unbuffered \
+        footer < diagnostic,
+        "the buffered stderr block must be flushed before the unbuffered \
          step-summary diagnostic; got:\n{stderr}"
     );
 }
@@ -238,8 +238,8 @@ fn check_no_fail_keeps_exit_zero_but_still_reports() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 #[test]
@@ -389,8 +389,8 @@ fn check_reads_thresholds_from_toml_config() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 #[test]
@@ -574,12 +574,12 @@ fn check_emits_one_line_per_metric_per_function() {
         .assert()
         .code(2);
     let output = assert.get_output();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let cyclomatic_lines = stderr
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let cyclomatic_lines = stdout
         .lines()
         .filter(|l| l.contains("classify") && l.contains("cyclomatic"))
         .count();
-    let cognitive_lines = stderr
+    let cognitive_lines = stdout
         .lines()
         .filter(|l| l.contains("classify") && l.contains("cognitive"))
         .count();
@@ -590,7 +590,7 @@ fn check_emits_one_line_per_metric_per_function() {
     assert!(
         cyclomatic_lines == 1 && cognitive_lines == 1,
         "expected exactly one line per (function, metric) for classify; \
-         got cyclomatic={cyclomatic_lines}, cognitive={cognitive_lines}; stderr was:\n{stderr}",
+         got cyclomatic={cyclomatic_lines}, cognitive={cognitive_lines}; stdout was:\n{stdout}",
     );
 }
 
@@ -622,15 +622,15 @@ fn check_uses_file_sentinel_for_top_level_space() {
         ])
         .assert()
         .code(2);
-    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
-    let file_lines: Vec<&str> = stderr
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let file_lines: Vec<&str> = stdout
         .lines()
         .filter(|l| l.contains("<file>") && l.contains("loc.sloc"))
         .collect();
     assert_eq!(
         file_lines.len(),
         1,
-        "expected exactly one file-level violation line; stderr was:\n{stderr}",
+        "expected exactly one file-level violation line; stdout was:\n{stdout}",
     );
     // The file path appears once as the location prefix; the function
     // slot is the sentinel, not the path.
@@ -956,12 +956,12 @@ pub fn outer() -> i32 {
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2);
-    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     // The inner function is a child FuncSpace of `outer`; if the
     // recursion doesn't descend, we'd miss it entirely.
     assert!(
-        stderr.contains("inner"),
-        "expected nested function to be reported; stderr was:\n{stderr}",
+        stdout.contains("inner"),
+        "expected nested function to be reported; stdout was:\n{stdout}",
     );
 }
 
@@ -1402,9 +1402,9 @@ fn check_headroom_scales_config_limit_into_offender() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// The deprecated `--headroom <R>` alias now promotes the gate to
@@ -1432,8 +1432,8 @@ fn check_headroom_alias_promotes_to_soft_tier() {
         .stderr(predicate::str::contains(
             "`--headroom <R>` is deprecated; use `--tier=soft=<R>`",
         ))
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        .stdout(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("(limit 1)"));
 }
 
 /// `--tier=soft --headroom 1.0` is the documented no-op. The limit is
@@ -1765,7 +1765,7 @@ fn check_soft_table_absolute_override_trips_at_soft_tier() {
         .args(["check", "--paths", &path, "--config", &cfg, "--tier=soft"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("cyclomatic = 5 (limit 3)"));
+        .stdout(predicate::str::contains("cyclomatic = 5 (limit 3)"));
 }
 
 /// `"NNx"` scale syntax resolves against the metric's hard limit:
@@ -1785,7 +1785,7 @@ fn check_soft_table_scale_relative_resolves_against_hard() {
         .args(["check", "--paths", &path, "--config", &cfg, "--tier=soft"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("cyclomatic = 5 (limit 4)"));
+        .stdout(predicate::str::contains("cyclomatic = 5 (limit 4)"));
 }
 
 /// A metric absent from `[thresholds.soft]` inherits its hard limit at
@@ -2146,7 +2146,7 @@ fn check_tokens_threshold_fires_under_narrowed_metric_selection() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::is_match(r"classify: tokens = [1-9]\d* \(limit 5\)").unwrap());
+        .stdout(predicate::str::is_match(r"classify: tokens = [1-9]\d* \(limit 5\)").unwrap());
 }
 
 /// Narrowing must not change a single reported value (#1113).
@@ -2181,13 +2181,13 @@ fn check_mi_value_is_identical_whether_or_not_the_walk_is_narrowed() {
             .assert()
             .code(2)
             .get_output()
-            .stderr
+            .stdout
             .clone();
-        let stderr = String::from_utf8(out).expect("utf8 stderr");
-        stderr
+        let stdout = String::from_utf8(out).expect("utf8 stdout");
+        stdout
             .lines()
             .find(|l| l.contains("mi.original ="))
-            .unwrap_or_else(|| panic!("no mi.original offender in:\n{stderr}"))
+            .unwrap_or_else(|| panic!("no mi.original offender in:\n{stdout}"))
             .to_owned()
     };
 
@@ -2246,9 +2246,9 @@ fn check_multi_metric_config_gates_on_every_named_metric() {
         .assert()
         .code(2)
         .get_output()
-        .stderr
+        .stdout
         .clone();
-    let stderr = String::from_utf8(out).expect("utf8 stderr");
+    let stdout = String::from_utf8(out).expect("utf8 stdout");
 
     for metric in [
         "cyclomatic",
@@ -2258,8 +2258,8 @@ fn check_multi_metric_config_gates_on_every_named_metric() {
         "halstead.difficulty",
     ] {
         assert!(
-            stderr.contains(&format!("classify: {metric} = ")),
-            "no {metric} offender in:\n{stderr}"
+            stdout.contains(&format!("classify: {metric} = ")),
+            "no {metric} offender in:\n{stdout}"
         );
     }
 }

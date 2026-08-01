@@ -85,6 +85,7 @@ fn suppression_marker_silences_violation_by_default() {
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .success()
+        .stdout(predicate::str::is_empty())
         .stderr(predicate::str::is_empty());
 }
 
@@ -106,8 +107,8 @@ fn no_suppress_flag_re_enables_violation() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"));
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic"));
 }
 
 #[test]
@@ -122,6 +123,7 @@ fn lizard_compat_marker_silences_violation() {
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .success()
+        .stdout(predicate::str::is_empty())
         .stderr(predicate::str::is_empty());
 }
 
@@ -137,6 +139,7 @@ fn file_scoped_marker_silences_nested_function_violation() {
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .success()
+        .stdout(predicate::str::is_empty())
         .stderr(predicate::str::is_empty());
 }
 
@@ -170,7 +173,7 @@ fn legacy_allow_marker_does_not_suppress() {
     // surfaces clearly:
     //   1. exit code 2 — the violation is reported, the marker did not
     //      suppress it;
-    //   2. stderr names the offender and metric — the violation line
+    //   2. stdout names the offender and metric — the violation line
     //      exists and is intelligible;
     //   3. stderr names the bad verb — the user gets a diagnostic
     //      pointing them at the rename, not a silent drop.
@@ -181,8 +184,8 @@ fn legacy_allow_marker_does_not_suppress() {
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic"))
         .stderr(predicate::str::contains(
             "unknown bca directive verb 'allow'",
         ));
@@ -221,7 +224,7 @@ fn unknown_metric_voids_entire_marker() {
     //   1. exit code 2 — the violation is reported, not silenced (the
     //      most dangerous regression would treat the unknown metric as
     //      suppress-all and swallow the violation);
-    //   2. stderr names the offender and metric — the violation line
+    //   2. stdout names the offender and metric — the violation line
     //      exists and is intelligible;
     //   3. stderr carries the unknown-metric diagnostic — the user gets
     //      a typo pointer, not a silent drop.
@@ -232,8 +235,8 @@ fn unknown_metric_voids_entire_marker() {
         .args(["check", "--paths", &path, "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"))
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic"))
         .stderr(predicate::str::contains(
             "unknown metric 'bogusmetric' in bca suppression marker",
         ));

@@ -188,7 +188,7 @@ Tag prefixes:
 
 Tags only appear when `--baseline` is passed; without it the line
 format is byte-identical to the no-baseline default. CI tooling that
-grep-pipes the stderr stream can suppress the trailing summary with
+reads the merged streams can suppress the trailing summary with
 `--no-summary`.
 
 The summary footer groups violations by file, cites the single worst
@@ -297,8 +297,9 @@ which produce the bulk of baseline churn.
 ### Remediation footer
 
 When the gate finds violations, `bca check` emits a trailing
-`--- next steps ---` block on stderr (and inside the
-`$GITHUB_STEP_SUMMARY` digest) that names the artifact, prints a
+`--- next steps ---` block on stderr — the offender rows themselves
+go to stdout — and inside the
+`$GITHUB_STEP_SUMMARY` digest, that names the artifact, prints a
 copy-paste-safe `--write-baseline` refresh invocation, and links
 back to this recipe. The refresh invocation mirrors the gate's
 resolved `--paths` / `--exclude` / `--exclude-from` / `--config` /
@@ -306,7 +307,7 @@ resolved `--paths` / `--exclude` / `--exclude-from` / `--config` /
 can refresh the baseline without leaving the page.
 
 Suppress the block with `--no-remediation` if downstream tooling
-grep-pipes the stderr stream and the trailing block confuses it.
+reads the merged streams and the trailing block confuses it.
 
 ## Composition with suppression markers
 

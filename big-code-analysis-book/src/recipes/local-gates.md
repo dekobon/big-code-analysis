@@ -388,7 +388,7 @@ violation that also breaches the hard limit. The tiered codes are
 opt-in; the default stays `0`/`1`/`2`, and every fail-state remains
 non-zero. Use them when CI needs to route "a new offender appeared"
 differently from "a baselined offender got worse" without parsing
-the `[new]` / `[regr +N%]` stderr tags.
+the `[new]` / `[regr +N%]` row tags.
 
 ### Wiring into pre-commit and CI
 

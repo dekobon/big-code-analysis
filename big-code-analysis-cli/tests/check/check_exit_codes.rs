@@ -210,7 +210,7 @@ fn strict_regression_only_exits_three() {
         ])
         .assert()
         .code(3)
-        .stderr(predicate::str::contains("[regr"));
+        .stdout(predicate::str::contains("[regr"));
 }
 
 #[test]
@@ -341,7 +341,7 @@ fn strict_mi_between_the_two_floors_is_an_encroachment_not_a_hard_breach() {
         ])
         .assert()
         .code(2)
-        .stderr(
+        .stdout(
             predicate::str::is_match(r"classify: mi\.original = \d+\.\d+ \(limit 120\)").unwrap(),
         );
 }

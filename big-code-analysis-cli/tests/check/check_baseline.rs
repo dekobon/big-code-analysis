@@ -192,8 +192,8 @@ fn regressed_function_fails_even_when_baselined() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic = 7"));
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic = 7"));
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn new_offender_fails_even_with_baseline() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"));
+        .stdout(predicate::str::contains("classify"));
 }
 
 // -- Ratchet semantics ----------------------------------------------------
@@ -322,7 +322,7 @@ fn moved_function_still_covered_after_line_drift() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("[new]").not())
+        .stdout(predicate::str::contains("[new]").not())
         // Prove the violation was actually classified and filtered —
         // a clean exit alone could mask a parse that found nothing.
         .stderr(predicate::str::contains("filtered 1 violations"));
@@ -480,7 +480,7 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("[new]"));
+        .stdout(predicate::str::contains("[new]"));
 }
 
 #[test]
@@ -529,7 +529,7 @@ fn fuzzy_match_covers_renamed_function() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("[new]"));
+        .stdout(predicate::str::contains("[new]"));
 
     // With fuzzy: the body hash matches, so it stays covered.
     cli(dir.path())
@@ -822,7 +822,7 @@ fn no_fail_overrides_baseline_fail() {
         ])
         .assert()
         .success()
-        .stderr(predicate::str::contains("classify"));
+        .stdout(predicate::str::contains("classify"));
 }
 
 #[test]
@@ -857,8 +857,8 @@ fn stale_baseline_entries_do_not_cover_unrelated_violations() {
         // does not cover it. A regression that treated stale entries
         // as wildcards would flip this to exit 0.
         .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic = 5"));
+        .stdout(predicate::str::contains("classify"))
+        .stdout(predicate::str::contains("cyclomatic = 5"));
 }
 
 // -- Determinism & UX -----------------------------------------------------
@@ -1100,7 +1100,7 @@ fn regressed_violation_carries_tag_prefix() {
         .assert()
         .code(2)
         // (7-5)/5*100 = 40, rounded → +40%
-        .stderr(predicate::str::contains("[regr +40%] "));
+        .stdout(predicate::str::contains("[regr +40%] "));
 }
 
 #[test]
@@ -1137,13 +1137,13 @@ fn new_violation_carries_new_tag() {
         ])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("[new] "));
+        .stdout(predicate::str::contains("[new] "));
 }
 
 #[test]
 fn no_baseline_emits_unprefixed_lines() {
     // Backward-compatibility invariant: without --baseline the
-    // stderr line format is byte-identical to today. No `[new]` /
+    // offender line format is byte-identical to today. No `[new]` /
     // `[regr` prefix may appear on the violation line.
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
@@ -1164,9 +1164,9 @@ fn no_baseline_emits_unprefixed_lines() {
         .code(2)
         // The violation line must contain the function name and metric,
         // and must NOT carry a bracket tag prefix.
-        .stderr(predicate::str::contains("classify: cyclomatic ="))
-        .stderr(predicate::str::contains("[new]").not())
-        .stderr(predicate::str::contains("[regr").not());
+        .stdout(predicate::str::contains("classify: cyclomatic ="))
+        .stdout(predicate::str::contains("[new]").not())
+        .stdout(predicate::str::contains("[regr").not());
 }
 
 // -- Path canonicalisation (issue #376) -----------------------------------
