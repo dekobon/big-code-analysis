@@ -1558,11 +1558,12 @@ mod tests {
     /// `ExactSizeIterator` length at every step — for every node of a
     /// real tree.
     ///
-    /// The two share `seed_child_scan` / `step_child_scan` precisely so
-    /// they cannot diverge, and this is what says the sharing is wired
-    /// up. It also covers the reuse itself: one cursor drives every
-    /// node's scan here, so a `reset` that failed to rewind would show
-    /// as the second node inheriting the first's position.
+    /// Checked against the raw `child(i)` walk rather than against
+    /// `children()`: the two iterators share [`ChildScan`], so a
+    /// comparison between them would pass just as happily if the shared
+    /// step were wrong. It also covers the reuse itself — one cursor
+    /// drives every node's scan here, so a `reset` that failed to rewind
+    /// would show as the second node inheriting the first's position.
     #[test]
     fn children_with_yields_exactly_what_children_does() {
         let code = b"const o = { m: (a) => a + 1, n: function () {} }; foo(); ;";
@@ -1573,7 +1574,15 @@ mod tests {
         let mut leaves = 0;
         let mut widest = 0;
         for node in root.preorder() {
-            let expected: Vec<_> = node.children().map(|c| (c.id(), c.kind_id())).collect();
+            // Ground truth is the raw `child(i)` walk, not `children()`.
+            // The two iterators share `ChildScan`, so checking one
+            // against the other would pass just as happily if the shared
+            // step were wrong.
+            let raw = node.as_tree_sitter();
+            let expected: Vec<_> = (0..raw.child_count() as u32)
+                .filter_map(|i| raw.child(i))
+                .map(|c| (c.id(), c.kind_id()))
+                .collect();
 
             let actual = drain_checking_exact_size(
                 node.children_with(&mut cursor),
@@ -1584,7 +1593,7 @@ mod tests {
             assert_eq!(
                 actual,
                 expected,
-                "children_with diverged from children at kind {}",
+                "children_with diverged from the child(i) walk at kind {}",
                 node.kind()
             );
 
