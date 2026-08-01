@@ -193,6 +193,7 @@ pub(crate) fn expand_seed_paths(
     mut paths: Vec<PathBuf>,
     paths_from: Option<PathBuf>,
     no_ignore: bool,
+    threads: usize,
     filters: &WalkFilters<'_>,
 ) -> ResolvedFiles {
     if let Some(src) = paths_from {
@@ -261,7 +262,16 @@ pub(crate) fn expand_seed_paths(
             }
             continue;
         }
-        walk_directory_seed(&seed, no_ignore, filters, &mut out, &mut seen);
+        for path in walk_directory_seed(&seed, no_ignore, threads, filters) {
+            // Overlapping seeds (`--paths src --paths src/lib.rs`, or
+            // two seeds whose trees intersect) must contribute each file
+            // exactly once (#704). The dedupe lives here, with the
+            // caller that owns `seen` across every seed — the walk of a
+            // single seed cannot see the others.
+            if seen.insert(path.clone()) {
+                out.push(path);
+            }
+        }
     }
     // A walk that resolved zero files is almost always a mistake — an
     // over-narrow `--include`, an `--exclude` that swept everything, or
@@ -278,11 +288,14 @@ pub(crate) fn expand_seed_paths(
     }
 }
 
-/// Walk the directory `seed`, pushing every supported file that passes the
-/// include/exclude `filters` into `out` exactly once (deduped through `seen`).
+/// Walk the directory `seed` with `threads` walker threads, returning every
+/// supported file that passes the include/exclude `filters`, sorted.
 /// Factored out of [`expand_seed_paths`] so its per-seed loop reads as
 /// "handle a file seed, else expand a directory seed" rather than inlining the
 /// whole `ignore::WalkBuilder` setup and per-entry handling.
+///
+/// Deduping against the other seeds is the caller's job: `seen` spans every
+/// seed, and one seed's walk cannot see the others.
 ///
 /// A per-entry walk error (an unreadable subdirectory, a broken symlink, a
 /// racing unlink) skips that entry with a warning rather than aborting the
@@ -292,11 +305,10 @@ pub(crate) fn expand_seed_paths(
 fn walk_directory_seed(
     seed: &Path,
     no_ignore: bool,
+    threads: usize,
     filters: &WalkFilters<'_>,
-    out: &mut Vec<PathBuf>,
-    seen: &mut std::collections::HashSet<PathBuf>,
-) {
-    use ignore::WalkBuilder;
+) -> Vec<PathBuf> {
+    use ignore::{WalkBuilder, WalkState};
     let mut wb = WalkBuilder::new(seed);
     wb.hidden(true)
         .follow_links(false)
@@ -305,30 +317,64 @@ fn walk_directory_seed(
         .git_exclude(!no_ignore)
         .git_global(!no_ignore)
         .ignore(!no_ignore)
-        .parents(!no_ignore);
-    for entry in wb.build() {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(e) => {
-                eprintln!(
-                    "bca: warning: skipping walk entry in {}: {e}",
-                    seed.display()
-                );
-                continue;
+        .parents(!no_ignore)
+        // `getdents` plus gitignore matching over a large tree used to
+        // run single-threaded on the main thread while every worker sat
+        // idle waiting for the list (#1114).
+        .threads(threads);
+
+    // Visitors hand matches over a channel rather than a shared `Vec`
+    // behind a `Mutex`: crossbeam's unbounded sender takes no lock, so
+    // the per-entry hot path does not serialize the walker threads
+    // against each other.
+    let (tx, rx) = crossbeam::channel::unbounded();
+    wb.build_parallel().run(|| {
+        let tx = tx.clone();
+        Box::new(move |entry| {
+            match entry {
+                Ok(entry) => {
+                    if entry.file_type().is_some_and(|t| t.is_file()) {
+                        let path = entry.into_path();
+                        // Anchor the glob match to the walk root rather than
+                        // the emitted (possibly absolute) path, so
+                        // `./`-anchored excludes match regardless of how the
+                        // seed resolved — including a manifest root above the
+                        // CWD (#489).
+                        if filters.passes(&walk_seed::match_path_for(seed, &path)) {
+                            // The receiver outlives the walk (it is drained
+                            // below), so this cannot fail.
+                            let _ = tx.send(path);
+                        }
+                    }
+                }
+                // A per-entry error skips that entry rather than aborting
+                // the run (#704): a single EACCES directory deep in a large
+                // tree must not take down every file the walk has yet to
+                // reach.
+                Err(e) => {
+                    eprintln!(
+                        "bca: warning: skipping walk entry in {}: {e}",
+                        seed.display()
+                    );
+                }
             }
-        };
-        if entry.file_type().is_some_and(|t| t.is_file()) {
-            let path = entry.into_path();
-            // Anchor the glob match to the walk root rather than the emitted
-            // (possibly absolute) path, so `./`-anchored excludes match
-            // regardless of how the seed resolved — including a manifest root
-            // above the CWD (#489).
-            if filters.passes(&walk_seed::match_path_for(seed, &path)) && seen.insert(path.clone())
-            {
-                out.push(path);
-            }
-        }
-    }
+            WalkState::Continue
+        })
+    });
+    // Drop the builder's own sender so the drain below terminates; every
+    // visitor clone is already gone, `run` having joined its threads.
+    drop(tx);
+
+    // A parallel walk yields entries in whatever order its threads
+    // happen to finish, so without this sort the resolved file list —
+    // and therefore the order `bca metrics` prints per-file documents at
+    // `--jobs 1` — would differ run to run on the same tree. Sorting
+    // also makes that order independent of readdir order, so it no
+    // longer varies by filesystem or machine, which the previous
+    // single-threaded walk never guaranteed.
+    let mut found: Vec<PathBuf> = rx.into_iter().collect();
+    found.sort_unstable();
+    found
 }
 
 /// Resolve the seeds into the terminal, walk-root-anchored file list
@@ -354,6 +400,10 @@ pub(crate) fn resolve_walk_files(globals: GlobalOpts) -> (ResolvedFiles, usize) 
         globals.paths,
         globals.paths_from,
         globals.no_ignore,
+        // Same budget the worker pool gets: the walk and the analysis
+        // never run at the same time, so there is nothing to split it
+        // with (#1114).
+        num_jobs,
         &filters,
     );
     (resolved, num_jobs)
@@ -392,3 +442,7 @@ pub(crate) fn with_cwd(dir: &Path) -> Result<CwdGuard, metric_diff::DiffError> {
     })?;
     Ok(CwdGuard { previous })
 }
+
+#[cfg(test)]
+#[path = "walk_tests.rs"]
+mod tests;

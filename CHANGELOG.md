@@ -26,6 +26,13 @@ for historical reference.
 
 ### Added
 
+- `ConcurrentRunner::without_path_verification`, which skips the
+  per-path `is_file()` check during dispatch (#1114). `FilesData::paths`
+  is documented as a terminal file list, so the check is a safety net for
+  a caller that hands in something else; a caller whose own traversal
+  already read each entry's kind — the `bca` CLI walk — was paying one
+  redundant `stat` per file. Additive: the default is unchanged.
+
 - Benchmark harness for the metric walk, in the new workspace member
   `big-code-analysis-bench` (#1068). `cargo bench -p
   big-code-analysis-bench --bench scaling` (or `make bench-scaling`)
@@ -87,6 +94,19 @@ for historical reference.
 
 ### Changed
 
+- `ConcurrentRunner::new`'s `num_jobs` is now the consumer-thread count
+  rather than a budget shared with a dedicated producer thread, which
+  spawned `max(2, num_jobs) - 1` consumers and left one slot idle
+  (#1114). Dispatch happens on the calling thread instead. The signature
+  is unchanged; a caller passing `n` now gets `n` consumers rather than
+  `n - 1`. `ConcurrentErrors::Producer` is consequently never
+  constructed — retained so a downstream `match` still compiles, and
+  scheduled for removal in the next major.
+- `bca`'s per-file output order for a directory walk is now sorted
+  rather than readdir order (#1114). It was never specified, and the
+  parallel walker would otherwise vary it run to run; sorting also makes
+  it independent of the filesystem and the machine. Any consumer that
+  pinned the previous order sees a one-time reshuffle.
 - Retuned the `[thresholds]` table `bca init` scaffolds, deriving each
   limit from published thresholds plus a 20-language corpus measurement
   (#1140). `cognitive` 25 to 15 (SonarSource's own default for the
@@ -165,6 +185,31 @@ for historical reference.
 
 ### Performance
 
+- `bca check` computes only the metric families its resolved thresholds
+  read, instead of the whole suite (#1113). Over
+  `tests/repositories/DeepSpeech` (12.7k files), median user CPU of five
+  runs: a one- or two-metric gate falls from 28.6–29.2 s to 22.4–23.3 s
+  (1.24–1.28×). A gate naming nine families — this repository's own
+  `bca.toml` — is unchanged, since it already selects nearly
+  everything; the ~22 s parse-and-walk floor bounds the saving.
+- `bca diff --since` builds both sides' metric sets in memory rather
+  than writing one JSON document per source file to a temp tree and
+  immediately re-walking, re-reading and re-parsing it (#1116). On
+  DeepSpeech, median of three: wall 11.73 s → 8.74 s (1.34×), system
+  time 2.75 s → 1.57 s. Output is byte-identical.
+- The CLI's directory walk runs on `ignore`'s parallel walker instead of
+  its single-threaded iterator, and the worker pool no longer reserves a
+  slot for a producer thread that finished almost immediately (#1114).
+  Walking DeepSpeech in isolation falls from 100.8 ms to 33.6 ms (3.0×);
+  a full `check` over it improves ~1.12×. The resolved file list is now
+  sorted, so per-file output order is deterministic and independent of
+  readdir order — previously it followed the filesystem's own ordering.
+- The walk's five result channels are plain `crossbeam` senders rather
+  than `Mutex<std::sync::mpsc::Sender<_>>`, so workers no longer take a
+  lock per file (#1119). No measurable throughput change at `--jobs 32`
+  or `--jobs 64` on a 16-core host; the lock was taken once per file,
+  never per record. The change removes a global serialization point and
+  four unreachable poisoned-lock branches.
 - Every file destination and terminal dump writes through an
   explicitly-flushed 64 KiB buffer, replacing the raw `File` and
   `LineWriter` handles the incremental serializers wrote through one

@@ -659,3 +659,82 @@ fn unreadable_subdir_warns_but_continues() {
         "ok.py must still be analyzed after the unreadable subdir is skipped",
     );
 }
+
+// --- #1114: the directory walk runs in parallel -----------------------
+
+/// Build a wide, nested tree: enough directories that the parallel
+/// walker actually splits the work, and file names whose readdir order
+/// is unlikely to match sorted order.
+fn wide_tree(root: &Path) -> Vec<String> {
+    let mut expected = Vec::new();
+    for d in 0..12 {
+        let dir = root.join(format!("pkg{d}")).join("deep").join("nested");
+        std::fs::create_dir_all(&dir).expect("create nested dir");
+        for f in 0..15 {
+            // Interleave two naming shapes so lexical order and creation
+            // order differ.
+            for stem in [format!("z{f}_mod"), format!("a{f}-impl")] {
+                let path = dir.join(format!("{stem}.rs"));
+                std::fs::write(&path, format!("pub fn f{f}() -> u32 {{ {f} }}\n"))
+                    .expect("write fixture");
+                expected.push(format!("{stem}.rs"));
+            }
+        }
+    }
+    expected.sort();
+    expected
+}
+
+/// The parallel walk (#1114) must find exactly the same files the
+/// single-threaded one did — no entry lost to a race, none duplicated
+/// across walker threads.
+#[test]
+fn parallel_walk_finds_every_file_at_every_job_count() {
+    let home = TempDir::new().unwrap();
+    let tree = TempDir::new().unwrap();
+    let expected = wide_tree(tree.path());
+    let root = tree.path().to_str().expect("utf8 tree path");
+
+    for jobs in ["1", "2", "8", "16"] {
+        let out = cli(home.path())
+            .args([
+                "metrics",
+                "--no-config",
+                "--paths",
+                root,
+                "--format",
+                "json",
+            ])
+            .args(["--jobs", jobs])
+            .output()
+            .expect("bca runs");
+        let stdout = String::from_utf8(out.stdout).expect("utf8 stdout");
+        // One JSON document per file; take each `name` and keep the
+        // path in full, so a file walked twice shows up as a duplicate
+        // rather than collapsing into its same-named sibling.
+        let mut found: Vec<String> = stdout
+            .lines()
+            .filter_map(|l| l.split_once("\"name\":\""))
+            .filter_map(|(_, rest)| rest.split_once('"'))
+            .map(|(name, _)| name.to_owned())
+            .collect();
+        let total = found.len();
+        found.sort();
+        found.dedup();
+        assert_eq!(
+            found.len(),
+            total,
+            "--jobs {jobs} walked at least one file twice"
+        );
+        let mut basenames: Vec<String> = found
+            .iter()
+            .filter_map(|p| p.rsplit('/').next())
+            .map(str::to_owned)
+            .collect();
+        basenames.sort();
+        assert_eq!(
+            basenames, expected,
+            "--jobs {jobs} walked a different file set than expected"
+        );
+    }
+}
